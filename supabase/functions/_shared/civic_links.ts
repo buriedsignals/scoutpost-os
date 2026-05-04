@@ -38,6 +38,8 @@ export const CIVIC_DENYLIST_PREFIXES = [
 ] as const;
 
 export const CIVIC_MEETING_KEYWORDS: readonly string[] = [
+  "full minutes",
+  "full protocol",
   "protokoll",
   "vollprotokoll",
   "wortprotokoll",
@@ -61,6 +63,7 @@ export const CIVIC_MEETING_KEYWORDS: readonly string[] = [
   "agenda",
   "proceedings",
   "transcript",
+  "transcription",
   "meeting",
   "decision",
   "resolution",
@@ -91,6 +94,55 @@ export const CIVIC_MEETING_KEYWORDS: readonly string[] = [
   "protocol",
   "session",
 ] as const;
+
+const CIVIC_DOCUMENT_CLASS_TERMS = {
+  record: [
+    "full minutes",
+    "full protocol",
+    "vollprotokoll",
+    "wortprotokoll",
+    "minutes",
+    "transcript",
+    "transcription",
+    "proceedings",
+    "compte rendu",
+    "compte-rendu",
+    "proces verbal",
+    "proces-verbal",
+    "notulen",
+    "verbale",
+    "acta",
+    "niederschrift",
+    "protokoll",
+    "protocol",
+  ],
+  decision: [
+    "beschlussprotokoll",
+    "resolution",
+    "decision",
+    "deliberation",
+    "deliberacion",
+    "deliberacao",
+    "delibera",
+    "besluitenlijst",
+  ],
+  agenda: [
+    "agenda",
+    "tagesordnung",
+    "ordre du jour",
+    "ordre-du-jour",
+    "orden del dia",
+    "orden-del-dia",
+    "ordem do dia",
+    "ordine del giorno",
+    "ordine-del-giorno",
+    "geschaeftsverzeichnis",
+    "geschaftsverzeichnis",
+    "business register",
+    "order of business",
+    "porzadek obrad",
+  ],
+} as const;
 
 export interface CivicLink {
   url: string;
@@ -213,18 +265,15 @@ export async function classifyCivicMeetingUrls(
   const scrapableLinks = links.filter((link) => isCivicScrapableUrl(link.url));
   if (scrapableLinks.length === 0) return [];
 
-  const keywordMatches = scrapableLinks
-    .filter((link) =>
-      hasMeetingKeyword(`${link.url} ${link.anchorText}`.toLowerCase())
-    )
-    .map((link) => link.url);
+  const keywordMatches = scrapableLinks.filter((link) =>
+    hasMeetingKeyword(civicMatchText(link))
+  );
 
   if (keywordMatches.length > 0) {
-    const pdfMatches = keywordMatches.filter((url) => isPdfUrl(url));
-    const htmlMatches = keywordMatches
-      .filter((url) => !isPdfUrl(url))
-      .filter((url) => urlPathDepth(url) > 2);
-    return [...pdfMatches, ...htmlMatches].sort(compareCivicUrls);
+    const documentLinks = keywordMatches.filter((link) =>
+      isPdfUrl(link.url) || urlPathDepth(link.url) > 2
+    );
+    return documentLinks.sort(compareCivicLinks).map((link) => link.url);
   }
 
   const numbered = scrapableLinks.slice(0, 2000).map((link, index) => {
@@ -261,9 +310,9 @@ export async function classifyCivicMeetingUrls(
           seen.add(idx);
           return true;
         })
-        .map((idx) => scrapableLinks[idx].url)
-        .sort(compareCivicUrls);
-    return classified;
+        .map((idx) => scrapableLinks[idx])
+        .sort(compareCivicLinks);
+    return classified.map((link) => link.url);
   } catch {
     return [];
   }
@@ -287,7 +336,29 @@ export function filterCivicDiscoveryCandidates<T extends { url: string }>(
 }
 
 function hasMeetingKeyword(text: string): boolean {
-  return CIVIC_MEETING_KEYWORDS.some((keyword) => text.includes(keyword));
+  return CIVIC_MEETING_KEYWORDS.some((keyword) =>
+    text.includes(normalizeCivicText(keyword))
+  );
+}
+
+function civicMatchText(link: CivicLink): string {
+  return normalizeCivicText(`${link.url} ${link.anchorText}`);
+}
+
+function normalizeCivicText(text: string): string {
+  let decoded = text;
+  try {
+    decoded = decodeURIComponent(text);
+  } catch {
+    // Keep the original text if a URL contains malformed percent escapes.
+  }
+  return decoded
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[_/]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function isCivicScrapableUrl(url: string): boolean {
@@ -321,26 +392,86 @@ function urlPathDepth(url: string): number {
   }
 }
 
-function compareCivicUrls(a: string, b: string): number {
-  const [dateA, priorityA] = civicSortKey(a);
-  const [dateB, priorityB] = civicSortKey(b);
-  if (dateA !== dateB) return dateB.localeCompare(dateA);
-  return priorityB - priorityA;
+function compareCivicLinks(a: CivicLink, b: CivicLink): number {
+  const keyA = civicSortKey(a);
+  const keyB = civicSortKey(b);
+  if (keyA.classPriority !== keyB.classPriority) {
+    return keyB.classPriority - keyA.classPriority;
+  }
+  if (keyA.date !== keyB.date) return keyB.date.localeCompare(keyA.date);
+  if (keyA.pdfPriority !== keyB.pdfPriority) {
+    return keyB.pdfPriority - keyA.pdfPriority;
+  }
+  return a.url.localeCompare(b.url);
 }
 
-function civicSortKey(url: string): [string, number] {
-  const date = url.match(/(\d{4}-\d{2}-\d{2})/)?.[1] ?? "0000-00-00";
-  const lower = url.toLowerCase();
-  let priority = 1;
-  if (lower.includes("vollprotokoll") || lower.includes("wortprotokoll")) {
-    priority = 3;
-  } else if (
-    lower.includes("beschlussprotokoll") ||
-    lower.includes("protocol") ||
-    lower.includes("minutes") ||
-    lower.includes("proces") ||
-    lower.includes("verbale")
-  ) priority = 2;
-  if (isPdfUrl(lower)) priority += 10;
-  return [date, priority];
+function civicSortKey(link: CivicLink): {
+  classPriority: number;
+  date: string;
+  pdfPriority: number;
+} {
+  const matchText = civicDocumentClassText(link);
+  return {
+    classPriority: civicDocumentClassPriority(matchText),
+    date: newestDateInText(link.url),
+    pdfPriority: isPdfUrl(link.url) ? 1 : 0,
+  };
+}
+
+function civicDocumentClassText(link: CivicLink): string {
+  try {
+    const parsed = new URL(link.url);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const leaf = segments.at(-1) ?? parsed.pathname;
+    if (isPdfUrl(link.url) || /\.[a-z0-9]+$/i.test(leaf)) {
+      return normalizeCivicText(`${leaf} ${link.anchorText}`);
+    }
+    return normalizeCivicText(`${parsed.pathname} ${link.anchorText}`);
+  } catch {
+    return civicMatchText(link);
+  }
+}
+
+function civicDocumentClassPriority(text: string): number {
+  if (hasAnyTerm(text, CIVIC_DOCUMENT_CLASS_TERMS.record)) return 4;
+  if (hasAnyTerm(text, CIVIC_DOCUMENT_CLASS_TERMS.decision)) return 4;
+  if (hasAnyTerm(text, CIVIC_DOCUMENT_CLASS_TERMS.agenda)) return 2;
+  return 1;
+}
+
+function hasAnyTerm(text: string, terms: readonly string[]): boolean {
+  return terms.some((term) => text.includes(term));
+}
+
+function newestDateInText(text: string): string {
+  const dates: string[] = [];
+  for (
+    const match of text.matchAll(/(\d{4})[-_.\/](\d{1,2})[-_.\/](\d{1,2})/g)
+  ) {
+    const date = normalizeDateParts(match[1], match[2], match[3]);
+    if (date) dates.push(date);
+  }
+  for (
+    const match of text.matchAll(/(\d{1,2})[-_.\/](\d{1,2})[-_.\/](\d{4})/g)
+  ) {
+    const date = normalizeDateParts(match[3], match[2], match[1]);
+    if (date) dates.push(date);
+  }
+  return dates.sort().at(-1) ?? "0000-00-00";
+}
+
+function normalizeDateParts(
+  year: string,
+  month: string,
+  day: string,
+): string | null {
+  const yyyy = Number(year);
+  const mm = Number(month);
+  const dd = Number(day);
+  if (yyyy < 1900 || yyyy > 2100 || mm < 1 || mm > 12 || dd < 1 || dd > 31) {
+    return null;
+  }
+  return `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${
+    String(dd).padStart(2, "0")
+  }`;
 }

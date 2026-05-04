@@ -73,6 +73,10 @@ prompt_optional() {
     eval "$var_name='$value'"
 }
 
+sql_literal() {
+    printf "%s" "$1" | sed "s/'/''/g"
+}
+
 check_command() {
     if ! command -v "$1" &>/dev/null; then
         log_error "$1 is required but not installed."
@@ -289,6 +293,16 @@ setup_supabase_managed() {
         "PUBLIC_MAPTILER_API_KEY=${PUBLIC_MAPTILER_API_KEY}" \
         "ADMIN_EMAILS=${ADMIN_EMAILS}"
     log_success "Edge Functions deployed"
+
+    log_info "Seeding Supabase Vault secrets..."
+    PROJECT_URL_SQL="$(sql_literal "$SUPABASE_URL")"
+    INTERNAL_KEY_SQL="$(sql_literal "$INTERNAL_SERVICE_KEY")"
+    $SUPABASE_CLI db execute --sql "
+        SELECT vault.create_secret('${PROJECT_URL_SQL}', 'project_url')
+        WHERE NOT EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name = 'project_url');
+        SELECT vault.create_secret('${INTERNAL_KEY_SQL}', 'internal_service_key')
+        WHERE NOT EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name = 'internal_service_key');
+    " || log_warn "Could not seed Vault secrets automatically. Create project_url and internal_service_key in Supabase Vault before scheduling scouts."
 
     DEPLOY_MODE="managed"
 }

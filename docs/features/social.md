@@ -22,7 +22,7 @@ Social Scouts monitor social media profiles for new (and optionally removed) pos
 
 | Platform | Apify Actor ID | Media Support |
 |----------|----------------|---------------|
-| Instagram | `culc72xb7MP3EbaeX` (apidojo/instagram-scraper) | Text + images + video URLs |
+| Instagram | `pmQcv69sB1UwguQUY` | Text + images + video URLs |
 | X/Twitter | `61RPP7dywgiy0JPD0` | Text + media URLs |
 | Facebook | `cleansyntax~facebook-profile-posts-scraper` | Text + images + video URLs |
 | TikTok | `novi~tiktok-user-api` | Text + cover image + video URLs |
@@ -273,7 +273,7 @@ Full social scout execution: scrape, diff, summarize/criteria, notify, store.
 
 ## Apify Actors
 
-### Instagram: `culc72xb7MP3EbaeX` (apidojo/instagram-scraper)
+### Instagram: `pmQcv69sB1UwguQUY`
 
 - Input: profile URL, `max_items`
 - Output fields: `id`, `code`, `caption`, `owner.username`, `createdAt`, `image.url`, `video.url`, `isVideo`, `likeCount`, `commentCount`

@@ -46,7 +46,8 @@ interface TestCase {
 const QUICK: TestCase[] = [
   {
     name: "Blocked URL (nytimes.com)",
-    url: "https://www.nytimes.com/2025/01/15/us/politics/trump-executive-orders.html",
+    url:
+      "https://www.nytimes.com/2025/01/15/us/politics/trump-executive-orders.html",
     criteria: "any substantive content change",
     language: "en",
     expectScraper: false,
@@ -94,7 +95,13 @@ async function runCase(
   ctx: BenchCtx,
   tc: TestCase,
   opts: { verbose?: boolean } = {},
-): Promise<AuditRecord & { expected_scraper: boolean; actual_scraper: boolean | null; provider: string | null }> {
+): Promise<
+  AuditRecord & {
+    expected_scraper: boolean;
+    actual_scraper: boolean | null;
+    provider: string | null;
+  }
+> {
   const suffix = crypto.randomUUID().slice(0, 8);
   const scoutName = `bench-web-${suffix}`;
   let scoutId: string | null = null;
@@ -153,13 +160,19 @@ async function runCase(
     record.raw_results = record.final_articles;
 
     // Re-read scout to see whether double-probe stamped a provider
-    const scoutRow = await pgSelectOne<{ provider: string | null }>(ctx, "scouts", {
-      id: scoutId,
-    }, "provider");
+    const scoutRow = await pgSelectOne<{ provider: string | null }>(
+      ctx,
+      "scouts",
+      {
+        id: scoutId,
+      },
+      "provider",
+    );
     record.provider = scoutRow?.provider ?? null;
 
     if (res.status >= 400) {
-      record.error = run?.error_message ?? `HTTP ${res.status}: ${res.text.slice(0, 200)}`;
+      record.error = run?.error_message ??
+        `HTTP ${res.status}: ${res.text.slice(0, 200)}`;
       return record;
     }
 
@@ -202,30 +215,42 @@ async function runCase(
 async function fetchUnits(
   ctx: BenchCtx,
   scoutId: string,
-): Promise<Array<{
-  source_url: string | null;
-  source_title: string | null;
-  source_domain: string | null;
-  statement: string | null;
-  occurred_at: string | null;
-}>> {
+): Promise<
+  Array<{
+    source_url: string | null;
+    source_title: string | null;
+    source_domain: string | null;
+    statement: string | null;
+    occurred_at: string | null;
+  }>
+> {
   const qs = new URLSearchParams();
-  qs.set("select", "source_url,source_title,source_domain,statement,occurred_at");
+  qs.set(
+    "select",
+    "source_url,source_title,source_domain,statement,occurred_at",
+  );
   qs.set("scout_id", `eq.${scoutId}`);
   qs.set("order", "extracted_at.desc");
   qs.set("limit", "20");
-  const res = await fetch(`${ctx.supabaseUrl}/rest/v1/information_units?${qs}`, {
-    headers: {
-      apikey: ctx.apiKey,
-      Authorization: `Bearer ${ctx.serviceKey}`,
+  const res = await fetch(
+    `${ctx.supabaseUrl}/rest/v1/information_units?${qs}`,
+    {
+      headers: {
+        apikey: ctx.apiKey,
+        Authorization: `Bearer ${ctx.serviceKey}`,
+      },
     },
-  });
+  );
   if (!res.ok) return [];
   return await res.json();
 }
 
 function printRecord(
-  r: AuditRecord & { expected_scraper: boolean; actual_scraper: boolean | null; provider: string | null },
+  r: AuditRecord & {
+    expected_scraper: boolean;
+    actual_scraper: boolean | null;
+    provider: string | null;
+  },
 ): void {
   const scraperOk = r.expected_scraper === r.actual_scraper;
   const status = r.error && !r.expected_scraper && !r.actual_scraper
@@ -237,18 +262,30 @@ function printRecord(
     : "MISMATCH";
   console.log(
     `  [${status}] ${r.permutation} | scraper=${r.actual_scraper} (want ${r.expected_scraper}) | ` +
-      `provider=${r.provider ?? "—"} | units=${r.final_articles} | ${dur(r.processing_time_ms)}`,
+      `provider=${r.provider ?? "—"} | units=${r.final_articles} | ${
+        dur(r.processing_time_ms)
+      }`,
   );
   if (r.error && r.expected_scraper) fail("error", r.error);
   for (const c of r.quality_checks) {
-    const tag = c.status === "PASS" ? "  \u2713" : c.status === "FAIL" ? "  \u2717" : "  !";
+    const tag = c.status === "PASS"
+      ? "  \u2713"
+      : c.status === "FAIL"
+      ? "  \u2717"
+      : "  !";
     console.log(`    ${tag} ${c.check}: ${c.detail}`);
   }
 }
 
 async function runAudit(ctx: BenchCtx): Promise<void> {
   console.log(`Page audit: ${AUDIT.length} URLs against ${ctx.ownerEmail}\n`);
-  const records: Array<AuditRecord & { expected_scraper: boolean; actual_scraper: boolean | null; provider: string | null }> = [];
+  const records: Array<
+    AuditRecord & {
+      expected_scraper: boolean;
+      actual_scraper: boolean | null;
+      provider: string | null;
+    }
+  > = [];
   for (const tc of AUDIT) {
     hr(tc.name);
     const r = await runCase(ctx, tc);

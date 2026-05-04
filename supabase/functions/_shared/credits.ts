@@ -86,7 +86,11 @@ export function calculateMonitoringCost(
   perRunCost: number,
   regularity: "daily" | "weekly" | "monthly" | string,
 ): number {
-  const multipliers: Record<string, number> = { daily: 30, weekly: 4, monthly: 1 };
+  const multipliers: Record<string, number> = {
+    daily: 30,
+    weekly: 4,
+    monthly: 1,
+  };
   return perRunCost * (multipliers[regularity.toLowerCase()] ?? 1);
 }
 
@@ -113,6 +117,10 @@ export class InsufficientCreditsError extends Error {
   }
 }
 
+export function creditsEnabled(): boolean {
+  return Deno.env.get("COJO_CREDITS_ENABLED") === "true";
+}
+
 /**
  * Atomic decrement via the decrement_credits RPC defined in 00025_credits.sql.
  * Must be called with a service-role client — the RPC's EXECUTE permission is
@@ -128,6 +136,10 @@ export async function decrementOrThrow(
     operation: CreditOperation;
   },
 ): Promise<DecrementResult> {
+  if (!creditsEnabled()) {
+    return { balance: Number.MAX_SAFE_INTEGER, owner: "user" };
+  }
+
   const { data, error } = await client.rpc("decrement_credits", {
     p_user_id: params.userId,
     p_cost: params.cost,
@@ -170,6 +182,8 @@ export async function refundCredits(
     operation: CreditOperation;
   },
 ): Promise<void> {
+  if (!creditsEnabled()) return;
+
   try {
     const { error } = await client.rpc("refund_credits", {
       p_user_id: params.userId,
@@ -179,11 +193,15 @@ export async function refundCredits(
       p_operation: params.operation,
     });
     if (error) {
-      console.warn(`[credits] refund_credits failed for ${params.userId}: ${error.message}`);
+      console.warn(
+        `[credits] refund_credits failed for ${params.userId}: ${error.message}`,
+      );
     }
   } catch (e) {
     console.warn(
-      `[credits] refund_credits threw for ${params.userId}: ${e instanceof Error ? e.message : String(e)}`,
+      `[credits] refund_credits threw for ${params.userId}: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
     );
   }
 }
@@ -224,11 +242,14 @@ export function insufficientCreditsResponse(
   required: number,
   current: number | null,
 ): Response {
-  const shortfall = current === null ? required : Math.max(0, required - current);
+  const shortfall = current === null
+    ? required
+    : Math.max(0, required - current);
   const body = {
     error: "insufficient_credits",
-    message:
-      `Insufficient credits. Required: ${required}, Available: ${current ?? "?"}`,
+    message: `Insufficient credits. Required: ${required}, Available: ${
+      current ?? "?"
+    }`,
     current_credits: current,
     required_credits: required,
     shortfall,

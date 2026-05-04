@@ -16,8 +16,8 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
 import {
+  assertSafeBenchmarkSupabaseUrl,
   BenchCtx,
   dur,
   fail,
@@ -46,8 +46,7 @@ interface Scenario {
 // The Oakland URL it replaced often queued PDFs that contain agendas but no
 // explicit commitments, yielding queued>0 / promises=0 (pipeline fine, data
 // thin — not a useful smoke-test signal).
-const DEFAULT_URL =
-  "https://www.gemeinderat-zuerich.ch/protokolle";
+const DEFAULT_URL = "https://www.gemeinderat-zuerich.ch/protokolle";
 
 const AUDIT: Scenario[] = [
   {
@@ -70,7 +69,8 @@ const AUDIT: Scenario[] = [
   },
   {
     name: "Lausanne: Conseil communal (FR)",
-    url: "https://www.lausanne.ch/officiel/autorites/conseil-communal/seances-et-pv.html",
+    url:
+      "https://www.lausanne.ch/officiel/autorites/conseil-communal/seances-et-pv.html",
     language: "fr",
     criteria: null,
   },
@@ -155,6 +155,7 @@ function mustEnv(name: string): string {
 }
 
 const SUPABASE_URL = mustEnv("SUPABASE_URL").replace(/\/$/, "");
+assertSafeBenchmarkSupabaseUrl(SUPABASE_URL);
 const SUPABASE_SERVICE_ROLE_KEY = mustEnv("SUPABASE_SERVICE_ROLE_KEY");
 const SUPABASE_AUTH_KEY = Deno.env.get("SUPABASE_ANON_KEY") ??
   Deno.env.get("PUBLISHABLE_KEY") ??
@@ -179,7 +180,9 @@ function parseArgs(): Args {
     const a = Deno.args[i];
     if (a === "--url") urls.push(Deno.args[++i]);
     else if (a === "--audit") audit = true;
-    else if (a === "--max-drain") maxDrain = parseInt(Deno.args[++i], 10) || maxDrain;
+    else if (a === "--max-drain") {
+      maxDrain = parseInt(Deno.args[++i], 10) || maxDrain;
+    }
   }
   return { urls: urls.length > 0 ? urls : [DEFAULT_URL], audit, maxDrain };
 }
@@ -188,11 +191,12 @@ async function createBenchmarkUser(): Promise<BenchmarkUser> {
   const email = `civic-benchmark-${crypto.randomUUID()}@example.com`;
   const password = `CivicBench-${crypto.randomUUID()}`;
 
-  const { data: created, error: createErr } = await service.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  });
+  const { data: created, error: createErr } = await service.auth.admin
+    .createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
   if (createErr || !created.user) {
     throw new Error(`failed to create benchmark user: ${createErr?.message}`);
   }
@@ -200,10 +204,11 @@ async function createBenchmarkUser(): Promise<BenchmarkUser> {
   const authClient = createClient(SUPABASE_URL, SUPABASE_AUTH_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { data: signedIn, error: signInErr } = await authClient.auth.signInWithPassword({
-    email,
-    password,
-  });
+  const { data: signedIn, error: signInErr } = await authClient.auth
+    .signInWithPassword({
+      email,
+      password,
+    });
   if (signInErr || !signedIn.session) {
     throw new Error(`failed to sign in benchmark user: ${signInErr?.message}`);
   }
@@ -224,7 +229,9 @@ async function createBenchmarkUser(): Promise<BenchmarkUser> {
     email,
     token: signedIn.session.access_token,
     cleanup: async () => {
-      await service.auth.admin.deleteUser(created.user.id).catch(() => undefined);
+      await service.auth.admin.deleteUser(created.user.id).catch(() =>
+        undefined
+      );
     },
   };
 }
@@ -306,7 +313,9 @@ async function runPreview(
   }>(res, `preview ${trackedUrl}`);
   return {
     documentsFound: body.documents_found ?? 0,
-    samplePromises: Array.isArray(body.sample_promises) ? body.sample_promises : [],
+    samplePromises: Array.isArray(body.sample_promises)
+      ? body.sample_promises
+      : [],
   };
 }
 
@@ -356,26 +365,24 @@ async function runCivic(
     } catch {
       /* leave blank */
     }
-    const { data: scout, error: scoutErr } = await service
-      .from("scouts")
-      .insert({
-        user_id: ctx.userId,
-        name: scoutName,
-        type: "civic",
-        root_domain: domain,
-        tracked_urls: [discovery.selectedUrl],
-        criteria: sc.criteria,
-        preferred_language: sc.language,
-        regularity: "weekly",
-        schedule_cron: "0 8 * * MON",
-        is_active: false,
-      })
-      .select("id")
-      .single();
-    if (scoutErr || !scout) {
-      throw new Error(`failed to create benchmark scout: ${scoutErr?.message}`);
-    }
+    const createRes = await authedFetch(benchmarkUser.token, "/scouts", {
+      name: scoutName,
+      type: "civic",
+      topic: "civic",
+      root_domain: domain,
+      tracked_urls: [discovery.selectedUrl],
+      criteria: sc.criteria ?? undefined,
+      preferred_language: sc.language,
+      regularity: "weekly",
+      schedule_cron: "0 8 * * MON",
+    });
+    const scout = await jsonOrThrow<{ id?: string }>(
+      createRes,
+      "create civic scout",
+    );
+    if (!scout.id) throw new Error("created civic scout response missing id");
     scoutId = scout.id;
+    await service.from("scouts").update({ is_active: false }).eq("id", scoutId);
     if (opts.verbose && scoutId) ok("scout created", scoutId);
 
     // Phase 1: enqueue
@@ -383,7 +390,9 @@ async function runCivic(
       scout_id: scoutId,
     });
     if (enqueueRes.status >= 400) {
-      record.error = `civic-execute HTTP ${enqueueRes.status}: ${enqueueRes.text.slice(0, 200)}`;
+      record.error = `civic-execute HTTP ${enqueueRes.status}: ${
+        enqueueRes.text.slice(0, 200)
+      }`;
       return record;
     }
     const enqueuePayload = enqueueRes.json as { queued?: number };
@@ -398,7 +407,11 @@ async function runCivic(
 
     // Phase 2: drain the queue
     for (let i = 0; i < maxDrain; i++) {
-      const drainRes = await svcFetch(ctx, "/functions/v1/civic-extract-worker", {});
+      const drainRes = await svcFetch(
+        ctx,
+        "/functions/v1/civic-extract-worker",
+        {},
+      );
       if (drainRes.status >= 400) {
         record.error = `civic-extract-worker HTTP ${drainRes.status}`;
         break;
@@ -448,13 +461,15 @@ async function runCivic(
 
 async function fetchPromises(
   scoutId: string,
-): Promise<Array<{
-  promise_text: string | null;
-  context: string | null;
-  source_url: string | null;
-  source_title: string | null;
-  meeting_date: string | null;
-}>> {
+): Promise<
+  Array<{
+    promise_text: string | null;
+    context: string | null;
+    source_url: string | null;
+    source_title: string | null;
+    meeting_date: string | null;
+  }>
+> {
   const { data, error } = await service
     .from("promises")
     .select("promise_text,context,source_url,source_title,meeting_date")
@@ -472,7 +487,10 @@ async function cleanupScoutData(scoutId: string): Promise<void> {
     /* best-effort cleanup */
   }
   try {
-    await service.from("civic_extraction_queue").delete().eq("scout_id", scoutId);
+    await service.from("civic_extraction_queue").delete().eq(
+      "scout_id",
+      scoutId,
+    );
   } catch {
     /* best-effort cleanup */
   }
@@ -521,13 +539,19 @@ function printRecord(r: CivicAuditRecordExt): void {
   if (r.selected_url) console.log(`    selected: ${r.selected_url}`);
   if (r.error) fail("error", r.error);
   for (const c of r.quality_checks) {
-    const tag = c.status === "PASS" ? "  \u2713" : c.status === "FAIL" ? "  \u2717" : "  !";
+    const tag = c.status === "PASS"
+      ? "  \u2713"
+      : c.status === "FAIL"
+      ? "  \u2717"
+      : "  !";
     console.log(`    ${tag} ${c.check}: ${c.detail}`);
   }
 }
 
 async function runAudit(ctx: BenchCtx, maxDrain: number): Promise<void> {
-  console.log(`Civic audit: ${AUDIT.length} permutations against ${ctx.ownerEmail}\n`);
+  console.log(
+    `Civic audit: ${AUDIT.length} permutations against ${ctx.ownerEmail}\n`,
+  );
   const records: CivicAuditRecordExt[] = [];
   for (const sc of AUDIT) {
     hr(sc.name);

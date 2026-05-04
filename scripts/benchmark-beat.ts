@@ -28,8 +28,10 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { assertSafeBenchmarkSupabaseUrl } from "./_bench_shared.ts";
 
 const SUPABASE_URL = mustEnv("SUPABASE_URL");
+assertSafeBenchmarkSupabaseUrl(SUPABASE_URL);
 const SUPABASE_ANON_KEY = mustEnv("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = mustEnv("SUPABASE_SERVICE_ROLE_KEY");
 const FUTURE_CRON = "0 0 1 1 *";
@@ -244,7 +246,8 @@ const CANARIES: Scenario[] = [
   {
     name: "topic-only:ai-journalism",
     topic: "AI journalism",
-    criteria: "AI in journalism newsrooms reporters editors media organizations",
+    criteria:
+      "AI in journalism newsrooms reporters editors media organizations",
     sourceMode: "reliable",
     preferredLanguage: "en",
     previewAudit: {
@@ -331,8 +334,9 @@ function parseArgs() {
     const arg = Deno.args[i];
     if (arg === "--scout-id") scoutId = Deno.args[++i] ?? null;
     else if (arg === "--scenario") scenarioPattern = Deno.args[++i] ?? null;
-    else if (arg === "--timeout-min") timeoutMs = parseInt(Deno.args[++i], 10) * 60_000;
-    else if (arg === "--verbose") verbose = true;
+    else if (arg === "--timeout-min") {
+      timeoutMs = parseInt(Deno.args[++i], 10) * 60_000;
+    } else if (arg === "--verbose") verbose = true;
   }
   return { scoutId, scenarioPattern, timeoutMs, verbose };
 }
@@ -341,11 +345,12 @@ async function createBenchmarkUser(): Promise<BenchmarkUser> {
   const email = `beat-benchmark-${crypto.randomUUID()}@example.com`;
   const password = `BeatBench-${crypto.randomUUID()}`;
 
-  const { data: created, error: createErr } = await service.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  });
+  const { data: created, error: createErr } = await service.auth.admin
+    .createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
   if (createErr || !created.user) {
     throw new Error(`failed to create benchmark user: ${createErr?.message}`);
   }
@@ -353,10 +358,11 @@ async function createBenchmarkUser(): Promise<BenchmarkUser> {
   const anon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { data: signedIn, error: signInErr } = await anon.auth.signInWithPassword({
-    email,
-    password,
-  });
+  const { data: signedIn, error: signInErr } = await anon.auth
+    .signInWithPassword({
+      email,
+      password,
+    });
   if (signInErr || !signedIn.session) {
     throw new Error(`failed to sign in benchmark user: ${signInErr?.message}`);
   }
@@ -366,7 +372,9 @@ async function createBenchmarkUser(): Promise<BenchmarkUser> {
     email,
     token: signedIn.session.access_token,
     cleanup: async () => {
-      await service.auth.admin.deleteUser(created.user.id).catch(() => undefined);
+      await service.auth.admin.deleteUser(created.user.id).catch(() =>
+        undefined
+      );
     },
   };
 }
@@ -536,7 +544,7 @@ async function createScout(
       name: `bench-beat-${scenario.name}-${crypto.randomUUID().slice(0, 8)}`,
       type: "beat",
       criteria: scenario.criteria ?? undefined,
-      topic: scenario.topic ?? undefined,
+      topic: scenario.topic ?? effectiveCriteria(scenario),
       location: scenario.location ?? undefined,
       source_mode: scenario.sourceMode,
       excluded_domains: scenario.excludedDomains?.length
@@ -561,7 +569,10 @@ async function triggerScout(token: string, scoutId: string): Promise<string> {
   const res = await authedFetch(token, `/scouts/${scoutId}/run`, {
     body: {},
   });
-  const body = await jsonOrThrow<{ run_id: string }>(res, `run scout ${scoutId}`);
+  const body = await jsonOrThrow<{ run_id: string }>(
+    res,
+    `run scout ${scoutId}`,
+  );
   return body.run_id;
 }
 
@@ -616,7 +627,9 @@ async function cloneScenarioFromScout(scoutId: string): Promise<Scenario> {
     )
     .eq("id", scoutId)
     .maybeSingle();
-  if (error) throw new Error(`failed to load scout ${scoutId}: ${error.message}`);
+  if (error) {
+    throw new Error(`failed to load scout ${scoutId}: ${error.message}`);
+  }
   if (!data) throw new Error(`scout ${scoutId} not found`);
   return {
     name: `replay:${scoutId}`,
@@ -637,11 +650,16 @@ async function cloneScenarioFromScout(scoutId: string): Promise<Scenario> {
 }
 
 function samplePreview(result: PreviewRunResult): string {
-  const first = result.categories.find((category) => category.articles.length > 0);
+  const first = result.categories.find((category) =>
+    category.articles.length > 0
+  );
   if (!first) return "";
   const title = first.articles[0]?.title?.trim();
   const summary = first.summary.trim();
-  return [title ? `title=${title}` : "", summary ? `summary=${summary.slice(0, 180)}` : ""]
+  return [
+    title ? `title=${title}` : "",
+    summary ? `summary=${summary.slice(0, 180)}` : "",
+  ]
     .filter(Boolean)
     .join(" | ");
 }
@@ -685,8 +703,12 @@ async function runScenario(
         errorMessage: run.error_message,
       };
       const executionIssues = [
-        ...(execution.articlesCount > 0 ? [] : ["execution returned zero units"]),
-        ...(execution.status === "success" ? [] : [`status=${execution.status}`]),
+        ...(execution.articlesCount > 0
+          ? []
+          : ["execution returned zero units"]),
+        ...(execution.status === "success"
+          ? []
+          : [`status=${execution.status}`]),
         ...evaluateAudit(execution.combinedText, scenario.executionAudit),
       ];
 
@@ -782,7 +804,12 @@ try {
 
   let failed = 0;
   for (const scenario of scenarios) {
-    const result = await runScenario(benchmarkUser.token, scenario, timeoutMs, verbose);
+    const result = await runScenario(
+      benchmarkUser.token,
+      scenario,
+      timeoutMs,
+      verbose,
+    );
     printResult(result);
     if (!result.ok) failed += 1;
   }

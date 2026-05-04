@@ -85,6 +85,23 @@ Before treating a self-hosted install as ready:
 - verify MCP `initialize` and `tools/list` against the self-hosted MCP URL
 - verify a read-only CLI call with a `cj_...` API key
 
+## Dockerized setup option
+
+If the operator wants a containerized installer, use the Docker path instead of
+installing the toolchain on the host. It still reads the local
+`cojournalist-setup.json` manifest and runs the same setup script:
+
+```bash
+docker build -f deploy/installer/Dockerfile -t cojournalist-installer .
+docker run --rm -it \
+  -v "$PWD:/workspace" \
+  -v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro" \
+  cojournalist-installer install
+```
+
+Use `cojournalist-installer doctor` for read-only validation and
+`cojournalist-installer update` for upstream maintenance PR preparation.
+
 ## Upstream maintenance checks
 
 When a newsroom asks for current OSS updates, use

@@ -59,6 +59,9 @@ Thumbs.db
 # Firecrawl cache
 .firecrawl/
 
+# Local benchmark reports
+scripts/reports/
+
 # CLI + MCP release artifacts
 cli/dist/
 mcp/dist/

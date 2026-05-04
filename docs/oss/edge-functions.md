@@ -59,8 +59,8 @@ scout.type = 'civic'  → POST /api/civic/execute
 ### Auth Pattern
 
 The function verifies the request using a direct token comparison against the
-`SUPABASE_SERVICE_ROLE_KEY` environment variable. The caller (pg_net inside pg_cron) must
-include `Authorization: Bearer <service_role_key>` in the request headers.
+`INTERNAL_SERVICE_KEY` environment variable. The caller (pg_net inside pg_cron) must
+include `X-Service-Key: <internal_service_key>` in the request headers.
 
 ```typescript
 const authHeader = req.headers.get("Authorization") ?? "";
@@ -213,7 +213,7 @@ On schedule:
   pg_cron fires
     └── pg_net.http_post(supabase_url/functions/v1/execute-scout, body={...})
             └── execute-scout Edge Function
-                    └── Verifies Authorization: Bearer <service_role_key>
+                    └── Verifies X-Service-Key: <internal_service_key>
                     └── Routes by scout_type
                     └── fetch(backend/api/{type}/execute, X-Service-Key: <service_key>)
                             └── FastAPI execute endpoint

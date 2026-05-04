@@ -22,6 +22,7 @@ need() {
   fi
 }
 jqv() { jq -r "$1 // empty" "$MANIFEST"; }
+sql_literal() { printf "%s" "$1" | sed "s/'/''/g"; }
 
 need jq
 need git
@@ -228,6 +229,27 @@ set_supabase_secrets() {
   fi
 }
 
+seed_vault_secrets() {
+  if [ -z "${SUPABASE_PROJECT_REF:-}" ]; then
+    warn "No Supabase project ref; set Vault secrets project_url and internal_service_key manually."
+    return
+  fi
+  if [ -z "${INTERNAL_SERVICE_KEY:-}" ]; then
+    warn "INTERNAL_SERVICE_KEY missing; cannot seed Vault internal_service_key."
+    return
+  fi
+  log "Vault secrets"
+  local url_sql key_sql
+  url_sql="$(sql_literal "$SUPABASE_URL")"
+  key_sql="$(sql_literal "$INTERNAL_SERVICE_KEY")"
+  $SUPABASE_CLI db execute --sql "
+    SELECT vault.create_secret('${url_sql}', 'project_url')
+    WHERE NOT EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name = 'project_url');
+    SELECT vault.create_secret('${key_sql}', 'internal_service_key')
+    WHERE NOT EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name = 'internal_service_key');
+  " || warn "Could not seed Vault secrets automatically; create project_url and internal_service_key in Supabase Vault before scheduling scouts."
+}
+
 write_env_files() {
   log "Environment files"
   cat > .env <<ENVEOF
@@ -299,6 +321,7 @@ install_node_tooling
 resolve_supabase
 seed_signup_allowlist
 set_supabase_secrets
+seed_vault_secrets
 write_env_files
 build_frontend
 install_sync_workflow

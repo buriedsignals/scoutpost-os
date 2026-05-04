@@ -122,6 +122,50 @@ Deno.test("classifyCivicMeetingUrls uses keyword stage for pdf minutes links", a
   assertExists(urls[1].match(/2024-12-11/));
 });
 
+Deno.test("classifyCivicMeetingUrls prioritizes full records before newer agendas", async () => {
+  const urls = await classifyCivicMeetingUrls([
+    {
+      url:
+        "https://grosserrat.example/media/files/ratsprotokolle/tagesordnung_2026-05-06.pdf",
+      anchorText: "Tagesordnung 06.05.2026",
+    },
+    {
+      url:
+        "https://grosserrat.example/media/files/ratsprotokolle/vollprotokoll_2026-01-07.pdf",
+      anchorText: "Vollprotokoll 07.01.2026",
+    },
+    {
+      url:
+        "https://grosserrat.example/media/files/ratsprotokolle/geschaeftsverzeichnis_2026-05-06.pdf",
+      anchorText: "Geschäftsverzeichnis 06.05.2026",
+    },
+  ]);
+
+  assertEquals(urls, [
+    "https://grosserrat.example/media/files/ratsprotokolle/vollprotokoll_2026-01-07.pdf",
+    "https://grosserrat.example/media/files/ratsprotokolle/geschaeftsverzeichnis_2026-05-06.pdf",
+    "https://grosserrat.example/media/files/ratsprotokolle/tagesordnung_2026-05-06.pdf",
+  ]);
+});
+
+Deno.test("classifyCivicMeetingUrls uses PDF as a tie-breaker within document class and date", async () => {
+  const urls = await classifyCivicMeetingUrls([
+    {
+      url: "https://city.example.org/council/minutes/2026-05-04",
+      anchorText: "Minutes 04.05.2026",
+    },
+    {
+      url: "https://city.example.org/council/minutes_2026-05-04.pdf",
+      anchorText: "Minutes PDF",
+    },
+  ]);
+
+  assertEquals(urls, [
+    "https://city.example.org/council/minutes_2026-05-04.pdf",
+    "https://city.example.org/council/minutes/2026-05-04",
+  ]);
+});
+
 Deno.test("classifyCivicMeetingUrls excludes unsupported asset URLs before keyword matching", async () => {
   const urls = await classifyCivicMeetingUrls([
     {

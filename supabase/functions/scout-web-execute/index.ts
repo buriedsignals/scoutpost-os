@@ -37,6 +37,7 @@ import {
 import { EMBEDDING_MODEL_TAG, geminiEmbed } from "../_shared/gemini.ts";
 import {
   extractAtomicUnits,
+  type ExtractedUnit,
   sourcePublishedDate,
 } from "../_shared/atomic_extract.ts";
 import {
@@ -49,6 +50,7 @@ import { isWithinRunDuplicate } from "../_shared/dedup.ts";
 import {
   filterSubpageUrls,
   hasDeterministicListingSignal,
+  isLikelyArticleUrl,
 } from "../_shared/subpage-filter.ts";
 import {
   type CanonicalUnitType,
@@ -459,9 +461,23 @@ async function runPipeline(
   // 5. Extract units and insert non-dupes.
   // Always run extraction; criteria narrows focus when set.
   const hasCriteria = !!scout.criteria?.trim();
-  const phaseBLinks = scrape.rawHtml
+  let phaseBLinks = scrape.rawHtml?.trim()
     ? extractLinksFromHtml(scrape.rawHtml, scout.url)
     : [];
+  if (phaseBLinks.length === 0 && markdown.trim()) {
+    const markdownLinks = extractLinksFromMarkdown(markdown, scout.url);
+    if (markdownLinks.length > 0) {
+      phaseBLinks = markdownLinks;
+      logEvent({
+        level: "info",
+        fn: "scout-web-execute",
+        event: "phase_b_using_markdown_links",
+        scout_id: scout.id,
+        run_id: runId,
+        links_found: markdownLinks.length,
+      });
+    }
+  }
   const phaseBCandidates = phaseBLinks.length > 0
     ? filterSubpageUrls(phaseBLinks.map(([url]) => url), scout.url)
     : [];
@@ -518,9 +534,19 @@ async function runPipeline(
   let matchedTitle: string | null = null;
 
   // Hard gate: listing pages yield no Phase A units — full articles come via Phase B.
+  const phaseAUnits = indexIsListingPage ? [] : withHeadlineFallback(
+    extracted.units,
+    {
+      title: scrape.title ?? null,
+      markdown,
+      sourceDomain,
+      publishedDate: primaryPublishedDate,
+      hasCriteria,
+    },
+  );
   const phaseA = await insertExtractedUnits(
     svc,
-    indexIsListingPage ? [] : extracted.units,
+    phaseAUnits,
     scout,
     runId,
     rawCaptureId,
@@ -699,6 +725,122 @@ function extractLinksFromHtml(
   return links;
 }
 
+function extractLinksFromMarkdown(
+  markdown: string,
+  pageUrl: string,
+): [string, string][] {
+  const parsed = new URL(pageUrl);
+  const pageDomain = parsed.hostname.toLowerCase();
+  const seenUrls = new Set<string>();
+  const links: [string, string][] = [];
+  const regex = /\[([^\]]{0,240})\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(markdown)) !== null) {
+    const anchorText = (match[1] ?? "").trim();
+    let href = (match[2] ?? "").trim();
+    if (!href || href.startsWith("#")) continue;
+    if (href.startsWith("mailto:") || href.startsWith("javascript:")) {
+      continue;
+    }
+    const hrefLower = href.toLowerCase();
+    if (DENYLIST_EXTENSIONS.some((ext) => hrefLower.endsWith(ext))) continue;
+
+    if (href.startsWith("/")) {
+      href = `${parsed.protocol}//${parsed.host}${href}`;
+    } else if (!href.startsWith("http://") && !href.startsWith("https://")) {
+      continue;
+    }
+
+    try {
+      const link = new URL(href);
+      if (link.hostname.toLowerCase() !== pageDomain) continue;
+      link.hash = "";
+      const clean = link.toString().replace(/\/+$/, "");
+      const pageNoFragment = pageUrl.split("#")[0].replace(/\/+$/, "");
+      if (clean === pageNoFragment) continue;
+      if (!seenUrls.has(clean)) {
+        seenUrls.add(clean);
+        links.push([clean, anchorText]);
+      }
+    } catch {
+      continue;
+    }
+  }
+  return links;
+}
+
+function withHeadlineFallback(
+  units: ExtractedUnit[],
+  opts: {
+    title: string | null;
+    markdown: string;
+    sourceDomain: string | null;
+    publishedDate: string | null;
+    hasCriteria: boolean;
+  },
+): ExtractedUnit[] {
+  if (units.length > 0 || opts.hasCriteria) return units;
+  if (!isLikelyArticleDocument(opts.markdown, opts.title)) return units;
+  const title = cleanTitle(opts.title);
+  if (!title) return units;
+  const source = opts.sourceDomain ? ` by ${opts.sourceDomain}` : "";
+  const date = opts.publishedDate ? ` on ${opts.publishedDate}` : "";
+  return [{
+    statement: `${title} was published${source}${date}.`,
+    type: "entity_update",
+    context_excerpt: firstReadableExcerpt(opts.markdown),
+    occurred_at: opts.publishedDate,
+    entities: [],
+    criteria_match: true,
+  }];
+}
+
+function isLikelyArticleDocument(
+  markdown: string,
+  title: string | null,
+): boolean {
+  const clean = markdown
+    .replace(/\[[^\]]+\]\([^)]+\)/g, " ")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[#*_>`~-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = clean ? clean.split(/\s+/).length : 0;
+  const linkCount = (markdown.match(/\[[^\]]+\]\([^)]+\)/g) ?? []).length;
+  if (words >= 120) return true;
+  if (cleanTitle(title) && words >= 50 && linkCount <= 12) return true;
+  return false;
+}
+
+function looksLikeNavigationDocument(markdown: string): boolean {
+  const linkCount = (markdown.match(/\[[^\]]+\]\([^)]+\)/g) ?? []).length;
+  const wordCount = markdown.replace(/\[[^\]]+\]\([^)]+\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+  return linkCount >= 10 && wordCount < 160;
+}
+
+function cleanTitle(title: string | null): string {
+  return (title ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+[-|]\s+[^-|]+$/, "")
+    .trim()
+    .slice(0, 180);
+}
+
+function firstReadableExcerpt(markdown: string): string | undefined {
+  const line = markdown
+    .split(/\n+/)
+    .map((l) =>
+      l.replace(/\[[^\]]+\]\([^)]+\)/g, "").replace(/[#*_>`~-]/g, "").trim()
+    )
+    .find((l) => l.length >= 60);
+  return line?.slice(0, 500);
+}
+
 async function runPhaseB(
   svc: SupabaseClient,
   scout: ScoutRow,
@@ -776,6 +918,26 @@ async function runPhaseB(
       const subSourceUrl = subScrape.source_url || subUrl;
       const subSourceDomain = deriveSourceDomain(subSourceUrl);
       const subPublishedDate = sourcePublishedDate({ scrape: subScrape });
+      const deterministicArticle = isLikelyArticleUrl(subSourceUrl) ||
+        isLikelyArticleUrl(subUrl);
+      const articleDocument = isLikelyArticleDocument(
+        subScrape.markdown,
+        subScrape.title ?? null,
+      );
+      if (
+        !deterministicArticle && looksLikeNavigationDocument(subScrape.markdown)
+      ) {
+        nestedListings++;
+        logEvent({
+          level: "info",
+          fn: "scout-web-execute",
+          event: "phase_b_document_shape_skipped",
+          scout_id: scout.id,
+          url: subUrl,
+          reason: "navigation_shape",
+        });
+        continue;
+      }
 
       const subExtracted = await extractAtomicUnits({
         title: subScrape.title ?? null,
@@ -790,13 +952,44 @@ async function runPhaseB(
       });
 
       if (subExtracted.isListingPage) {
+        if (deterministicArticle && articleDocument) {
+          logEvent({
+            level: "info",
+            fn: "scout-web-execute",
+            event: "phase_b_article_marked_listing",
+            scout_id: scout.id,
+            url: subUrl,
+          });
+        } else {
+          nestedListings++;
+          logEvent({
+            level: "info",
+            fn: "scout-web-execute",
+            event: "phase_b_nested_listing_skipped",
+            scout_id: scout.id,
+            url: subUrl,
+          });
+          continue;
+        }
+      }
+
+      const subUnits = withHeadlineFallback(subExtracted.units, {
+        title: subScrape.title ?? null,
+        markdown: subScrape.markdown,
+        sourceDomain: subSourceDomain,
+        publishedDate: subPublishedDate,
+        hasCriteria: Boolean(scout.criteria?.trim()),
+      });
+
+      if (subUnits.length === 0 && !articleDocument) {
         nestedListings++;
         logEvent({
           level: "info",
           fn: "scout-web-execute",
-          event: "phase_b_nested_listing_skipped",
+          event: "phase_b_document_shape_skipped",
           scout_id: scout.id,
           url: subUrl,
+          reason: "no_article_body",
         });
         continue;
       }
@@ -812,7 +1005,7 @@ async function runPhaseB(
       });
       const result = await insertExtractedUnits(
         svc,
-        subExtracted.units,
+        subUnits,
         scout,
         runId,
         subRawCaptureId,
@@ -949,15 +1142,29 @@ async function insertExtractedUnits(
     if (!u || typeof u.statement !== "string" || !u.statement.trim()) continue;
     if (!["fact", "event", "entity_update"].includes(u.type)) continue;
 
-    const embedding = await geminiEmbed(u.statement, "RETRIEVAL_DOCUMENT", {
-      title: sourceTitle,
-    });
+    let embedding: number[] | null = null;
+    try {
+      embedding = await geminiEmbed(u.statement, "RETRIEVAL_DOCUMENT", {
+        title: sourceTitle,
+      });
+    } catch (e) {
+      logEvent({
+        level: "warn",
+        fn: "scout-web-execute",
+        event: "embed_failed",
+        scout_id: scout.id,
+        run_id: runId,
+        msg: e instanceof Error ? e.message : String(e),
+      });
+    }
     const unitType = u.type as CanonicalUnitType;
 
     // Within-run paraphrase guard: drop units that are near-duplicates of an
     // already-kept unit in *this* extraction batch.
-    if (isWithinRunDuplicate(embedding, runEmbeddings)) continue;
-    runEmbeddings.push(embedding);
+    if (embedding) {
+      if (isWithinRunDuplicate(embedding, runEmbeddings)) continue;
+      runEmbeddings.push(embedding);
+    }
 
     // Fact-check via Abstain-R1 (no-op when endpoint not configured).
     let fcResult: FactCheckResult = {
@@ -984,7 +1191,7 @@ async function insertExtractedUnits(
       unitType,
       entities: u.entities ?? [],
       embedding,
-      embeddingModel: EMBEDDING_MODEL_TAG,
+      embeddingModel: embedding ? EMBEDDING_MODEL_TAG : null,
       sourceUrl,
       sourceDomain,
       sourceTitle,

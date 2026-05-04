@@ -152,7 +152,9 @@ export async function upsertCanonicalUnit(
     p_type: input.unitType,
     p_entities: entities,
     p_embedding: input.embedding ?? null,
-    p_embedding_model: input.embeddingModel ?? EMBEDDING_MODEL_TAG,
+    p_embedding_model: input.embedding
+      ? input.embeddingModel ?? EMBEDDING_MODEL_TAG
+      : input.embeddingModel ?? null,
     p_source_url: input.sourceUrl?.trim() || null,
     p_normalized_source_url: normalizedSourceUrl,
     p_source_domain: sourceDomain,

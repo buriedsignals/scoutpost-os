@@ -20,11 +20,7 @@
  */
 
 import { handleCors } from "../_shared/cors.ts";
-import {
-  getServiceClient,
-  getServiceRoleKey,
-  SupabaseClient,
-} from "../_shared/supabase.ts";
+import { getServiceClient, SupabaseClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import {
   AuthError,
@@ -32,6 +28,7 @@ import {
   ValidationError,
 } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
+import { requireServiceKey } from "../_shared/auth.ts";
 import {
   EMBEDDING_MODEL_TAG,
   geminiEmbed,
@@ -49,6 +46,10 @@ import {
   SOCIAL_MONITORING_KEYS,
 } from "../_shared/credits.ts";
 import { sha256Hex, upsertCanonicalUnit } from "../_shared/unit_dedup.ts";
+import {
+  formatSocialBaselinePosts,
+  normalizeSocialDatasetPosts,
+} from "../_shared/social_baseline.ts";
 
 const MAX_NEW_POSTS = 20;
 const DATASET_LIMIT = 50;
@@ -98,9 +99,21 @@ interface ApifyPost {
   [k: string]: unknown;
 }
 
-function postIdentity(post: ApifyPost | Record<string, unknown>): string | null {
+function postIdentity(
+  post: ApifyPost | Record<string, unknown>,
+): string | null {
   const p = post as Record<string, unknown>;
-  for (const key of ["id", "post_id", "shortCode", "postId", "url"]) {
+  for (
+    const key of [
+      "id",
+      "post_id",
+      "shortcode",
+      "shortCode",
+      "pk",
+      "postId",
+      "url",
+    ]
+  ) {
     const value = p[key];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
@@ -115,18 +128,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonError("method not allowed", 405);
   }
 
-  // Service-role-only auth (exact Bearer match).
-  const serviceKey = (() => {
-    try {
-      return getServiceRoleKey();
-    } catch {
-      return "";
+  try {
+    requireServiceKey(req);
+  } catch (e) {
+    if (e instanceof AuthError) {
+      return jsonFromError(new AuthError("service key required"));
     }
-  })();
-  const authHeader = req.headers.get("authorization") ??
-    req.headers.get("Authorization") ?? "";
-  if (!serviceKey || authHeader !== `Bearer ${serviceKey}`) {
-    return jsonFromError(new AuthError("service-role key required"));
+    return jsonFromError(e);
   }
 
   let body: unknown;
@@ -442,7 +450,25 @@ async function processSucceededRun(
     );
   }
   const raw = await res.json();
-  const currentPosts: ApifyPost[] = Array.isArray(raw) ? raw : [];
+  const normalizedPosts = normalizeSocialDatasetPosts(queueRow.platform, raw);
+  const currentPosts = formatSocialBaselinePosts(
+    normalizedPosts,
+  ) as ApifyPost[];
+  if (currentPosts.length === 0) {
+    const rawItems = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    const first = rawItems[0] && typeof rawItems[0] === "object"
+      ? Object.keys(rawItems[0] as Record<string, unknown>)
+      : [];
+    logEvent({
+      level: "warn",
+      fn: "apify-callback",
+      event: "no_real_posts",
+      scout_id: queueRow.scout_id,
+      raw_item_count: rawItems.length,
+      flattened_count: normalizedPosts.length,
+      first_row_keys: first.slice(0, 30),
+    });
+  }
 
   // 2. Load scout.
   const { data: scout, error: scoutErr } = await svc
@@ -477,12 +503,12 @@ async function processSucceededRun(
   //    (e.g. the X actor returns `{noResults: true}` entries when a profile
   //    has no matching posts). Without the filter they land in the baseline
   //    as ghost rows and every real post on the next run flags "new".
-  const realCurrentPosts = currentPosts.filter((p) => typeof p.id === "string");
+  const realCurrentPosts = currentPosts.filter((p) => postIdentity(p));
   const newPosts = realCurrentPosts.filter((p) =>
-    !previousIds.has(p.id as string)
+    !previousIds.has(postIdentity(p) as string)
   );
   const currentIds = new Set<string>(
-    realCurrentPosts.map((p) => p.id as string),
+    realCurrentPosts.map((p) => postIdentity(p) as string),
   );
 
   // Actor-failure guard: if the run returned <20% of the previous baseline,
@@ -681,7 +707,7 @@ async function insertUnit(
     unitType,
     entities: [],
     embedding,
-    embeddingModel: EMBEDDING_MODEL_TAG,
+    embeddingModel: embedding ? EMBEDDING_MODEL_TAG : null,
     sourceUrl,
     sourceDomain: platform,
     sourceTitle: typeof post.id === "string"

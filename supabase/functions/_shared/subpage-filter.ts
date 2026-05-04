@@ -53,9 +53,14 @@ export function isLikelyArticleUrl(url: string): boolean {
   if (segments.length < 2) return false;
   const last = segments[segments.length - 1] ?? "";
 
+  if (segments.some((segment) => /^\d{4}-\d{2}-\d{2}$/.test(segment))) {
+    return true;
+  }
+  if (segments.some((segment) => /^ld\.\d+$/i.test(segment))) return true;
   if (/(^|-)ld\.\d+$/i.test(last)) return true;
   if (/\.(html?|php|aspx)$/i.test(last)) return true;
   if (/^\d{5,}$/.test(last)) return true;
+  if (/[a-z][a-z0-9-]*-\d{5,}$/i.test(last)) return true;
   return false;
 }
 
@@ -87,7 +92,7 @@ export function filterSubpageUrls(links: string[], indexUrl: string): string[] {
   const indexHost = normalizeHost(index.hostname);
   const indexPath = index.pathname.replace(/\/+$/, "");
 
-  return links.filter((url) => {
+  const filtered = links.filter((url) => {
     let parsed: URL;
     try {
       parsed = new URL(url);
@@ -98,10 +103,14 @@ export function filterSubpageUrls(links: string[], indexUrl: string): string[] {
     if (!validateDomain(parsed.hostname).valid) return false;
     const cleanPath = parsed.pathname.replace(/\/+$/, "");
     if (hasTraversal(cleanPath) || hasStaticAsset(cleanPath)) return false;
+    if (!indexPath && !isLikelyArticleUrl(url)) return false;
     if (cleanPath.startsWith(indexPath + "/")) return true;
     if (isLikelyArticleUrl(url)) return true;
     return false;
   });
+  return filtered.sort((a, b) =>
+    Number(isLikelyArticleUrl(b)) - Number(isLikelyArticleUrl(a))
+  );
 }
 
 function normalizeHost(host: string): string {

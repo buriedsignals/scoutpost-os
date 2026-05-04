@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
+	import { browser } from '$app/environment';
 	import { MapPin, Tag, Radio, Home, FileText } from 'lucide-svelte';
 	import FilterBar from '$lib/components/ui/FilterBar.svelte';
 	import FilterSelect from '$lib/components/ui/FilterSelect.svelte';
@@ -67,8 +68,7 @@
 
 	function closeActiveUnitIfMatch(id: string) {
 		if (activeUnit?.id === id || selection.unitId === id) {
-			drawerStore.closeAndClear();
-			activeUnit = null;
+			closeActiveUnit();
 		}
 	}
 
@@ -81,8 +81,7 @@
 		};
 		unitsStore.patchUnit(id, { verification });
 		patchActiveUnit(id, { verification });
-		drawerStore.closeAndClear();
-		activeUnit = null;
+		closeActiveUnit();
 	}
 
 	function rejectDemoUnit(id: string) {
@@ -105,8 +104,7 @@
 			selectedScoutName = null;
 		}
 		if (activeUnit && isDemoUnit(activeUnit)) {
-			drawerStore.closeAndClear();
-			activeUnit = null;
+			closeActiveUnit(false);
 		}
 		if (viewingDemoScope) {
 			void unitsStore.load(null);
@@ -173,6 +171,7 @@
 	let unitDeleteCandidateId: string | null = null;
 	let deletingUnitId: string | null = null;
 	let unitActionError: string | null = null;
+	let unitDetailHistoryActive = false;
 
 	$: scoutsState = $scoutsStore;
 	$: unitsState = $unitsStore;
@@ -231,16 +230,53 @@
 		: unitsState.units;
 	$: verifyingUnitId = drawerActionLoading === 'verify' ? unitActionLoadingId : null;
 
+	function pushUnitDetailHistory(unitId: string) {
+		if (!browser) return;
+		const state = { ...(history.state ?? {}), cojoUnitDetailId: unitId };
+		if (unitDetailHistoryActive) {
+			history.replaceState(state, '', location.href);
+			return;
+		}
+		history.pushState(state, '', location.href);
+		unitDetailHistoryActive = true;
+	}
+
+	function clearActiveUnit() {
+		drawerStore.closeAndClear();
+		activeUnit = null;
+		unitDeleteCandidateId = null;
+	}
+
+	function closeActiveUnit(syncHistory = true) {
+		clearActiveUnit();
+		if (syncHistory && unitDetailHistoryActive && browser) {
+			unitDetailHistoryActive = false;
+			history.back();
+			return;
+		}
+		unitDetailHistoryActive = false;
+	}
+
 	// -------- mount --------
 	let bootstrapped = false;
 	$: demoActive = IS_LOCAL_DEMO_MODE || isDemoWorkspace(scoutsState.scouts);
-	onMount(async () => {
-		await Promise.all([scoutsStore.load(), unitsStore.load(null)]);
-		if (!IS_LOCAL_DEMO_MODE && shouldSeedDemoWorkspace($scoutsStore.scouts, $scoutsStore.error)) {
-			scoutsStore.seedDemo();
-			unitsStore.seedDemo();
-		}
-		bootstrapped = true;
+	onMount(() => {
+		const handlePopState = () => {
+			if (!unitDetailHistoryActive) return;
+			closeActiveUnit(false);
+		};
+		window.addEventListener('popstate', handlePopState);
+
+		void (async () => {
+			await Promise.all([scoutsStore.load(), unitsStore.load(null)]);
+			if (!IS_LOCAL_DEMO_MODE && shouldSeedDemoWorkspace($scoutsStore.scouts, $scoutsStore.error)) {
+				scoutsStore.seedDemo();
+				unitsStore.seedDemo();
+			}
+			bootstrapped = true;
+		})();
+
+		return () => window.removeEventListener('popstate', handlePopState);
 	});
 
 	$: if (bootstrapped) {
@@ -249,7 +285,7 @@
 
 	onDestroy(() => {
 		selectionStore.clear();
-		drawerStore.close();
+		closeActiveUnit(false);
 	});
 
 	// -------- handlers --------
@@ -355,6 +391,7 @@
 		activeUnit = unit;
 		selectionStore.selectUnit(unit.id);
 		drawerStore.open();
+		pushUnitDetailHistory(unit.id);
 	}
 
 	async function handleVerify(id: string) {
@@ -370,8 +407,7 @@
 			}
 			const updated = await workspaceApi.promoteUnit(id);
 			unitsStore.patchUnit(id, updated);
-			drawerStore.closeAndClear();
-			activeUnit = null;
+			closeActiveUnit();
 		} catch (err) {
 			unitActionError = err instanceof Error ? err.message : 'Failed to verify unit';
 		} finally {
@@ -393,8 +429,7 @@
 			}
 			const updated = await workspaceApi.rejectUnit(id);
 			unitsStore.patchUnit(id, updated);
-			drawerStore.closeAndClear();
-			activeUnit = null;
+			closeActiveUnit();
 		} catch (err) {
 			unitActionError = err instanceof Error ? err.message : 'Failed to update unit';
 		} finally {
@@ -404,8 +439,7 @@
 	}
 
 	function handleDrawerClose() {
-		drawerStore.closeAndClear();
-		activeUnit = null;
+		closeActiveUnit();
 	}
 
 	function handleRequestUnitDelete(id: string) {

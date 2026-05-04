@@ -114,13 +114,39 @@ Deno.test("filterSubpageUrls tolerates trailing slashes on the index URL", () =>
   );
 });
 
+Deno.test("filterSubpageUrls root listings only keep structural article routes and order articles first", () => {
+  const input = [
+    "https://www.example.ch/register",
+    "https://www.example.ch/2026-05-04/council-approves-budget",
+    "https://www.example.ch/kundenservice",
+    "https://www.example.ch/story/headline-123456",
+    "https://www.example.ch/news/today.html",
+  ];
+  assertEquals(filterSubpageUrls(input, "https://www.example.ch/"), [
+    "https://www.example.ch/2026-05-04/council-approves-budget",
+    "https://www.example.ch/story/headline-123456",
+    "https://www.example.ch/news/today.html",
+  ]);
+});
+
 Deno.test("isLikelyArticleUrl recognizes only concrete article route shapes", () => {
   assertEquals(
     isLikelyArticleUrl("https://example.ch/aargau/fricktal/story-ld.4158147"),
     true,
   );
+  assertEquals(
+    isLikelyArticleUrl("https://example.ch/region/2026-05-04/headline"),
+    true,
+  );
   assertEquals(isLikelyArticleUrl("https://example.ch/news/123456"), true);
+  assertEquals(
+    isLikelyArticleUrl("https://example.ch/news/headline-123456"),
+    true,
+  );
   assertEquals(isLikelyArticleUrl("https://example.ch/news/story.html"), true);
+  assertEquals(isLikelyArticleUrl("https://example.ch/news/story.php"), true);
+  assertEquals(isLikelyArticleUrl("https://example.ch/news/story.aspx"), true);
+  assertEquals(isLikelyArticleUrl("https://example.ch/story/ld.4158147"), true);
   assertEquals(isLikelyArticleUrl("https://example.ch/news/contact"), false);
   assertEquals(isLikelyArticleUrl("https://example.ch/news/app.js"), false);
 });

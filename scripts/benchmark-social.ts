@@ -109,7 +109,9 @@ function parseArgs(): Args {
     else if (a === "--criteria") s.criteria = Deno.args[++i];
     else if (a === "--audit") audit = true;
     else if (a === "--no-wait") noWait = true;
-    else if (a === "--timeout-min") timeoutMs = parseInt(Deno.args[++i], 10) * 60_000;
+    else if (a === "--timeout-min") {
+      timeoutMs = parseInt(Deno.args[++i], 10) * 60_000;
+    }
   }
   s.name = `${s.platform} @${s.handle} (${s.mode})`;
   return { scenario: s, audit, noWait, timeoutMs };
@@ -165,7 +167,9 @@ async function runSocial(
       scout_id: scoutId,
     });
     if (res.status >= 400) {
-      record.error = `social-kickoff HTTP ${res.status}: ${res.text.slice(0, 300)}`;
+      record.error = `social-kickoff HTTP ${res.status}: ${
+        res.text.slice(0, 300)
+      }`;
       record.processing_time_ms = Math.round(performance.now() - startMs);
       return record;
     }
@@ -175,7 +179,10 @@ async function runSocial(
     if (opts.noWait) {
       record.processing_time_ms = Math.round(performance.now() - startMs);
       if (opts.verbose) {
-        ok("social-kickoff", `queue_id=${queueId} apify_run_id=${payload?.apify_run_id}`);
+        ok(
+          "social-kickoff",
+          `queue_id=${queueId} apify_run_id=${payload?.apify_run_id}`,
+        );
       }
       return record;
     }
@@ -189,7 +196,9 @@ async function runSocial(
     let last = "pending";
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 15_000));
-      const row = await pgSelectOne<{ status: string; last_error: string | null }>(
+      const row = await pgSelectOne<
+        { status: string; last_error: string | null }
+      >(
         ctx,
         "apify_run_queue",
         { id: queueId },
@@ -251,24 +260,32 @@ async function runSocial(
 async function fetchUnits(
   ctx: BenchCtx,
   scoutId: string,
-): Promise<Array<{
-  source_url: string | null;
-  source_domain: string | null;
-  statement: string | null;
-  context_excerpt: string | null;
-  extracted_at: string | null;
-}>> {
+): Promise<
+  Array<{
+    source_url: string | null;
+    source_domain: string | null;
+    statement: string | null;
+    context_excerpt: string | null;
+    extracted_at: string | null;
+  }>
+> {
   const qs = new URLSearchParams();
-  qs.set("select", "source_url,source_domain,statement,context_excerpt,extracted_at");
+  qs.set(
+    "select",
+    "source_url,source_domain,statement,context_excerpt,extracted_at",
+  );
   qs.set("scout_id", `eq.${scoutId}`);
   qs.set("order", "extracted_at.desc");
   qs.set("limit", "30");
-  const res = await fetch(`${ctx.supabaseUrl}/rest/v1/information_units?${qs}`, {
-    headers: {
-      apikey: ctx.apiKey,
-      Authorization: `Bearer ${ctx.serviceKey}`,
+  const res = await fetch(
+    `${ctx.supabaseUrl}/rest/v1/information_units?${qs}`,
+    {
+      headers: {
+        apikey: ctx.apiKey,
+        Authorization: `Bearer ${ctx.serviceKey}`,
+      },
     },
-  });
+  );
   if (!res.ok) return [];
   return await res.json();
 }
@@ -291,11 +308,17 @@ function printRecord(r: AuditRecord): void {
     ? `WARN (${r.final_articles})`
     : "OK";
   console.log(
-    `  [${status}] ${r.permutation} | units=${r.final_articles} | ${dur(r.processing_time_ms)}`,
+    `  [${status}] ${r.permutation} | units=${r.final_articles} | ${
+      dur(r.processing_time_ms)
+    }`,
   );
   if (r.error) fail("error", r.error);
   for (const c of r.quality_checks) {
-    const tag = c.status === "PASS" ? "  \u2713" : c.status === "FAIL" ? "  \u2717" : "  !";
+    const tag = c.status === "PASS"
+      ? "  \u2713"
+      : c.status === "FAIL"
+      ? "  \u2717"
+      : "  !";
     console.log(`    ${tag} ${c.check}: ${c.detail}`);
   }
 }

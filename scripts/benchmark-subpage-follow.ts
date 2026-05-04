@@ -76,7 +76,9 @@ async function fetchRun(ctx: BenchCtx, scoutId: string) {
 
 async function cleanup(ctx: BenchCtx, scoutId: string) {
   // Units reference the scout_runs and raw_captures — delete in dependency order.
-  await pgDelete(ctx, "information_units", { scout_id: scoutId }).catch(() => {});
+  await pgDelete(ctx, "information_units", { scout_id: scoutId }).catch(
+    () => {},
+  );
   await pgDelete(ctx, "raw_captures", { scout_id: scoutId }).catch(() => {});
   await pgDelete(ctx, "scout_runs", { scout_id: scoutId }).catch(() => {});
   await pgDelete(ctx, "scouts", { id: scoutId }).catch(() => {});
@@ -136,7 +138,9 @@ async function main() {
     }
     console.log(`  status=${run.status}, articles_count=${run.articles_count}`);
     console.log(`  scraper_status=${run.scraper_status}`);
-    if (run.error_message) console.log(`  error=${run.error_message.slice(0, 200)}`);
+    if (run.error_message) {
+      console.log(`  error=${run.error_message.slice(0, 200)}`);
+    }
 
     // 4. Fetch and inspect units
     hr("4. Fetch information_units");
@@ -172,9 +176,15 @@ async function main() {
     // Listing page was detected: the index page should have returned zero units
     // (because isListingPage was set) but subpages should have content.
     if (indexUnits.length === 0 && subpageUnits.length > 0) {
-      ok("Listing detected", "index produced 0 units, subpages produced content");
+      ok(
+        "Listing detected",
+        "index produced 0 units, subpages produced content",
+      );
     } else if (subpageUnits.length > 0) {
-      ok("Subpage units present", `${subpageUnits.length} units from subpages (index also had ${indexUnits.length})`);
+      ok(
+        "Subpage units present",
+        `${subpageUnits.length} units from subpages (index also had ${indexUnits.length})`,
+      );
     } else {
       fail("No subpage units", "Phase B subpage follow may not have triggered");
       allPassed = false;

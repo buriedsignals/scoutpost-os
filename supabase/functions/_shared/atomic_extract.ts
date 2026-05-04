@@ -19,6 +19,7 @@
 
 import { geminiExtract } from "./gemini.ts";
 import type { ScrapeResult } from "./firecrawl.ts";
+import { logEvent } from "./log.ts";
 import { compressContext, logCompressionStats } from "./taco_compress.ts";
 import { normalizeDate } from "./date_utils.ts";
 
@@ -230,17 +231,44 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
     );
     const units = Array.isArray(result?.units) ? result.units : [];
     const isListingPage = Boolean(result?.isListingPage);
-    const filtered = units
+    const valid = units
       .filter((u) =>
         u && typeof u.statement === "string" && u.statement.trim().length > 0
       )
       .filter((u) =>
         ["fact", "event", "entity_update"].includes(u.type ?? "fact")
-      )
-      .filter((u) => !criteria?.trim() || u.criteria_match !== false)
-      .slice(0, maxUnits);
-    return { units: filtered, isListingPage };
-  } catch {
+      );
+    const filtered = valid
+      .filter((u) => !criteria?.trim() || u.criteria_match !== false);
+    if (units.length === 0) {
+      logEvent({
+        level: "info",
+        fn: "atomic_extract",
+        event: "empty_result",
+        source_url: sourceUrl,
+        is_listing_page: isListingPage,
+        criteria_present: Boolean(criteria?.trim()),
+      });
+    } else if (valid.length > 0 && filtered.length === 0) {
+      logEvent({
+        level: "info",
+        fn: "atomic_extract",
+        event: "filtered_zero",
+        source_url: sourceUrl,
+        raw_units: units.length,
+        valid_units: valid.length,
+        criteria_present: Boolean(criteria?.trim()),
+      });
+    }
+    return { units: filtered.slice(0, maxUnits), isListingPage };
+  } catch (e) {
+    logEvent({
+      level: "warn",
+      fn: "atomic_extract",
+      event: "failed",
+      source_url: sourceUrl,
+      msg: e instanceof Error ? e.message : String(e),
+    });
     return { units: [], isListingPage: false };
   }
 }

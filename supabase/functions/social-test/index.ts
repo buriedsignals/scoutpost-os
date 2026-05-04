@@ -40,59 +40,21 @@ import {
   normalizeSocialHandle,
   type ProfileProbeResult,
 } from "../_shared/social_profiles.ts";
+import {
+  buildSocialActorInput,
+  type NormalizedSocialPost,
+  normalizeSocialDatasetPosts,
+  SOCIAL_APIFY_ACTORS,
+} from "../_shared/social_baseline.ts";
 
 const InputSchema = z.object({
   platform: z.enum(["instagram", "x", "facebook", "tiktok"]),
   handle: z.string().min(1).max(200),
 });
 
-const MAX_ITEMS = 20;
 const APIFY_TIMEOUT_SECS = 120;
 const PREVIEW_TEXT_MAX = 120;
 const CAPTION_TRUNCATED_MAX = 200;
-
-interface ApifyActor {
-  id: string;
-  buildInput: (url: string) => Record<string, unknown>;
-}
-
-// Actor IDs lifted from production `apify_client.py`.
-const ACTORS: Record<string, ApifyActor> = {
-  instagram: {
-    id: "culc72xb7MP3EbaeX", // apidojo/instagram-scraper
-    buildInput: (url) => ({ startUrls: [url], maxItems: MAX_ITEMS }),
-  },
-  x: {
-    id: "61RPP7dywgiy0JPD0", // X/Twitter scraper
-    buildInput: (url) => {
-      const handle = url.split("/").filter(Boolean).pop() || "";
-      return {
-        startUrls: [url],
-        maxItems: MAX_ITEMS,
-        twitterHandles: handle ? [handle] : undefined,
-      };
-    },
-  },
-  facebook: {
-    id: "cleansyntax~facebook-profile-posts-scraper",
-    buildInput: (url) => ({
-      endpoint: "profile_posts_by_url",
-      urls_text: url,
-      max_posts: MAX_ITEMS,
-    }),
-  },
-  tiktok: {
-    id: "novi~tiktok-user-api",
-    buildInput: (url) => ({ startUrls: [url], maxItems: MAX_ITEMS }),
-  },
-};
-
-interface NormalizedPost {
-  id: string;
-  text: string;
-  timestamp: string;
-  imageUrl: string | null;
-}
 
 Deno.serve(async (req: Request): Promise<Response> => {
   const cors = handleCors(req);
@@ -196,7 +158,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const posts = await runApifySync(platform, profileUrl, apifyToken);
+    const posts = await runApifySync(platform, normalizedHandle, apifyToken);
     const postIds: string[] = [];
     const previewPosts: Array<{ id: string; text: string; timestamp: string }> =
       [];
@@ -310,10 +272,12 @@ async function validateProfileExists(
 
 async function runApifySync(
   platform: string,
-  profileUrl: string,
+  handle: string,
   token: string,
-): Promise<NormalizedPost[]> {
-  const actor = ACTORS[platform];
+): Promise<NormalizedSocialPost[]> {
+  const actor = SOCIAL_APIFY_ACTORS[
+    platform as "instagram" | "x" | "facebook" | "tiktok"
+  ];
   if (!actor) throw new Error(`Unsupported platform: ${platform}`);
 
   // `run-sync-get-dataset-items` blocks until the actor finishes + returns items.
@@ -326,7 +290,12 @@ async function runApifySync(
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(actor.buildInput(profileUrl)),
+    body: JSON.stringify(
+      buildSocialActorInput(
+        platform as "instagram" | "x" | "facebook" | "tiktok",
+        handle,
+      ),
+    ),
     signal: AbortSignal.timeout((APIFY_TIMEOUT_SECS + 15) * 1000),
   });
   if (!res.ok) {
@@ -338,60 +307,5 @@ async function runApifySync(
   }
 
   const items = await res.json().catch(() => []);
-  if (!Array.isArray(items)) return [];
-  return items.map((raw) => normalizePost(platform, raw)).filter((p) => p.id);
-}
-
-function normalizePost(
-  platform: string,
-  raw: Record<string, unknown>,
-): NormalizedPost {
-  const r = raw as Record<string, unknown>;
-  let id = "";
-  let text = "";
-  let timestamp = "";
-  let imageUrl: string | null = null;
-
-  if (platform === "instagram") {
-    id = str(r.shortCode) || str(r.id) || str(r.url);
-    text = str(r.caption);
-    timestamp = str(r.timestamp) || str(r.takenAt) || "";
-    imageUrl = str(r.displayUrl) || firstImage(r.images) ||
-      firstImage(r.imagesUrls);
-  } else if (platform === "x") {
-    id = str(r.id) || str(r.conversationId) || str(r.url);
-    text = str(r.text) || str(r.fullText);
-    timestamp = str(r.createdAt) || str(r.date);
-    const media = r.media as Array<{ url?: string }> | undefined;
-    imageUrl = media?.[0]?.url ?? null;
-  } else if (platform === "facebook") {
-    id = str(r.postId) || str(r.id) || str(r.url);
-    text = str(r.text) || str(r.message) || str(r.caption);
-    timestamp = str(r.timestamp) || str(r.publishedTime) || str(r.time);
-    imageUrl = str(r.image) || firstImage(r.images);
-  } else if (platform === "tiktok") {
-    id = str(r.id) || str(r.videoId) || str(r.url);
-    text = str(r.desc) || str(r.caption) || str(r.text);
-    timestamp = str(r.createTime) || str(r.timestamp);
-    imageUrl = str(r.cover) || str(r.thumbnail);
-  }
-  return { id, text, timestamp, imageUrl };
-}
-
-function str(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (typeof v === "number") return String(v);
-  return "";
-}
-
-function firstImage(v: unknown): string {
-  if (Array.isArray(v) && v.length > 0) {
-    const first = v[0];
-    if (typeof first === "string") return first;
-    if (first && typeof first === "object") {
-      const o = first as Record<string, unknown>;
-      return str(o.url) || str(o.src) || "";
-    }
-  }
-  return "";
+  return normalizeSocialDatasetPosts(platform, items);
 }

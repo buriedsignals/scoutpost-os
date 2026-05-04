@@ -36,11 +36,11 @@ import {
   refundCredits,
   SOCIAL_MONITORING_KEYS,
 } from "../_shared/credits.ts";
-import {
-  buildSocialProfileUrl,
-  normalizeSocialHandle,
-} from "../_shared/social_profiles.ts";
 import { repairMissingSocialBaseline } from "../_shared/baseline_repair.ts";
+import {
+  buildSocialActorInput,
+  SOCIAL_APIFY_ACTORS,
+} from "../_shared/social_baseline.ts";
 
 const KickoffSchema = z.object({
   scout_id: z.string().uuid(),
@@ -51,12 +51,12 @@ const KickoffSchema = z.object({
 // (backend/app/workflows/apify_client.py). Do NOT change these without
 // testing — the input shape below is actor-specific, different IDs produce
 // different JSON payloads.
-const APIFY_ACTORS: Record<string, string> = {
-  instagram: "culc72xb7MP3EbaeX", // apidojo/instagram-scraper
-  x: "61RPP7dywgiy0JPD0", // X/Twitter scraper (legacy id)
-  facebook: "cleansyntax~facebook-profile-posts-scraper",
-  tiktok: "novi~tiktok-user-api",
-};
+const APIFY_ACTORS: Record<string, string> = Object.fromEntries(
+  Object.entries(SOCIAL_APIFY_ACTORS).map(([platform, actor]) => [
+    platform,
+    actor.id,
+  ]),
+);
 
 const ERROR_MAX = 2_000;
 
@@ -71,7 +71,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   let serviceKey = "";
   try {
     requireServiceKey(req);
-    serviceKey = getServiceRoleKey();
+    serviceKey = Deno.env.get("INTERNAL_SERVICE_KEY") || getServiceRoleKey();
   } catch (e) {
     if (e instanceof AuthError) return jsonFromError(e);
     return jsonFromError(new AuthError("service-role required"));
@@ -263,6 +263,7 @@ async function startApifyRun(
       requestUrl: webhookUrl,
       headersTemplate: JSON.stringify({
         "Authorization": `Bearer ${serviceKey}`,
+        "X-Service-Key": serviceKey,
         "Content-Type": "application/json",
         "X-Apify-Webhook-Signature": "{{signature}}",
       }),
@@ -379,41 +380,10 @@ function buildActorInput(
   platform: string,
   handle: string,
 ): Record<string, unknown> {
-  const h = normalizeSocialHandle(
+  return buildSocialActorInput(
     platform as "instagram" | "x" | "facebook" | "tiktok",
     handle,
   );
-  switch (platform) {
-    case "instagram": {
-      const url = buildSocialProfileUrl("instagram", h);
-      return {
-        startUrls: [url],
-        maxItems: 20,
-      };
-    }
-    case "x": {
-      const url = buildSocialProfileUrl("x", h);
-      return {
-        startUrls: [url],
-        twitterHandles: [h],
-        maxItems: 20,
-      };
-    }
-    case "facebook":
-      return {
-        endpoint: "profile_posts_by_url",
-        urls_text: buildSocialProfileUrl("facebook", h),
-        max_posts: 20,
-      };
-    case "tiktok":
-      // novi/tiktok-user-api expects `urls` (array of profile URLs) + `limit`.
-      return {
-        urls: [buildSocialProfileUrl("tiktok", h)],
-        limit: 20,
-      };
-    default:
-      return {};
-  }
 }
 
 async function markQueueFailed(

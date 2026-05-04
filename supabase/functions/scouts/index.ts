@@ -746,11 +746,9 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
       if (
         data.type === "social" &&
         data.platform &&
-        data.profile_handle &&
-        Array.isArray(baseline_posts) &&
-        baseline_posts.length > 0
+        data.profile_handle
       ) {
-        await seedSocialBaseline(
+        await ensureSocialBaseline(
           svc,
           data.id,
           user.id,
@@ -758,6 +756,7 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
           data.profile_handle,
           baseline_posts,
         );
+        data.baseline_established_at = new Date().toISOString();
       }
       if (
         data.type === "civic" && Array.isArray(initial_promises) &&

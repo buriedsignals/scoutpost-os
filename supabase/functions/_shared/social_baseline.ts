@@ -8,39 +8,31 @@ import {
 const MAX_ITEMS = 20;
 const APIFY_TIMEOUT_SECS = 120;
 const CAPTION_TRUNCATED_MAX = 200;
+const WRAPPER_KEYS = [
+  "posts",
+  "items",
+  "results",
+  "data",
+  "latestPosts",
+  "latest_posts",
+];
 
-interface ApifyActor {
+export interface ApifyActor {
   id: string;
-  buildInput: (url: string) => Record<string, unknown>;
 }
 
-const ACTORS: Record<SocialPlatform, ApifyActor> = {
+export const SOCIAL_APIFY_ACTORS: Record<SocialPlatform, ApifyActor> = {
   instagram: {
-    id: "culc72xb7MP3EbaeX",
-    buildInput: (url) => ({ startUrls: [url], maxItems: MAX_ITEMS }),
+    id: "pmQcv69sB1UwguQUY",
   },
   x: {
     id: "61RPP7dywgiy0JPD0",
-    buildInput: (url) => {
-      const handle = url.split("/").filter(Boolean).pop() || "";
-      return {
-        startUrls: [url],
-        maxItems: MAX_ITEMS,
-        twitterHandles: handle ? [handle] : undefined,
-      };
-    },
   },
   facebook: {
     id: "cleansyntax~facebook-profile-posts-scraper",
-    buildInput: (url) => ({
-      endpoint: "profile_posts_by_url",
-      urls_text: url,
-      max_posts: MAX_ITEMS,
-    }),
   },
   tiktok: {
     id: "novi~tiktok-user-api",
-    buildInput: (url) => ({ urls: [url], limit: MAX_ITEMS }),
   },
 };
 
@@ -70,7 +62,7 @@ export async function scanSocialBaseline(
   const normalizedHandle = normalizeSocialHandle(platform, handle);
   const profileUrl = buildSocialProfileUrl(platform, normalizedHandle);
   if (!profileUrl) throw new ValidationError("unsupported social profile");
-  const actor = ACTORS[platform];
+  const actor = SOCIAL_APIFY_ACTORS[platform];
   if (!actor) throw new ValidationError(`unsupported platform: ${platform}`);
 
   const endpoint =
@@ -79,7 +71,7 @@ export async function scanSocialBaseline(
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(actor.buildInput(profileUrl)),
+    body: JSON.stringify(buildSocialActorInput(platform, normalizedHandle)),
     signal: AbortSignal.timeout((APIFY_TIMEOUT_SECS + 15) * 1000),
   });
   if (!res.ok) {
@@ -91,10 +83,31 @@ export async function scanSocialBaseline(
   }
 
   const items = await res.json().catch(() => []);
-  const posts = Array.isArray(items)
-    ? items.map((raw) => normalizePost(platform, raw)).filter((p) => p.id)
-    : [];
+  const posts = normalizeSocialDatasetPosts(platform, items);
   return { profileUrl, posts };
+}
+
+export function buildSocialActorInput(
+  platform: SocialPlatform,
+  handle: string,
+): Record<string, unknown> {
+  const h = normalizeSocialHandle(platform, handle);
+  switch (platform) {
+    case "instagram":
+      return { instagramUsernames: [h], maxItems: MAX_ITEMS };
+    case "x": {
+      const url = buildSocialProfileUrl("x", h);
+      return { startUrls: [url], maxItems: MAX_ITEMS, twitterHandles: [h] };
+    }
+    case "facebook":
+      return {
+        endpoint: "profile_posts_by_url",
+        urls_text: buildSocialProfileUrl("facebook", h),
+        max_posts: MAX_ITEMS,
+      };
+    case "tiktok":
+      return { urls: [buildSocialProfileUrl("tiktok", h)], limit: MAX_ITEMS };
+  }
 }
 
 export function formatSocialBaselinePosts(
@@ -112,8 +125,45 @@ export function formatSocialBaselinePosts(
   }));
 }
 
+export function normalizeSocialDatasetPosts(
+  platform: SocialPlatform | string,
+  raw: unknown,
+): NormalizedSocialPost[] {
+  return flattenSocialRows(raw)
+    .map((row) => normalizePost(platform, row))
+    .filter((post) => post.id);
+}
+
+function flattenSocialRows(raw: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(raw)) return raw.flatMap(flattenSocialRows);
+  if (!raw || typeof raw !== "object") return [];
+  const row = raw as Record<string, unknown>;
+  const wrapped: Array<Record<string, unknown>> = [];
+  for (const key of WRAPPER_KEYS) {
+    if (Array.isArray(row[key])) wrapped.push(...flattenSocialRows(row[key]));
+  }
+  if (wrapped.length > 0 && !hasPostIdentity(row)) return wrapped;
+  return [row];
+}
+
+function hasPostIdentity(row: Record<string, unknown>): boolean {
+  return [
+    "shortcode",
+    "shortCode",
+    "id",
+    "pk",
+    "aweme_id",
+    "postId",
+    "post_id",
+    "videoId",
+    "url",
+    "share_url",
+    "webVideoUrl",
+  ].some((key) => Boolean(str(row[key])));
+}
+
 function normalizePost(
-  platform: SocialPlatform,
+  platform: SocialPlatform | string,
   raw: Record<string, unknown>,
 ): NormalizedSocialPost {
   const r = raw as Record<string, unknown>;
@@ -124,33 +174,45 @@ function normalizePost(
   let url: string | null = null;
 
   if (platform === "instagram") {
-    id = str(r.shortCode) || str(r.id) || str(r.url);
-    text = str(r.caption);
-    timestamp = str(r.timestamp) || str(r.takenAt) || "";
-    imageUrl = str(r.displayUrl) || firstImage(r.images) ||
+    const shortcode = str(r.shortcode) || str(r.shortCode);
+    id = shortcode || str(r.id) || str(r.pk) || str(r.postId) ||
+      str(r.post_id) || str(r.url);
+    text = str(r.caption) || str(r.text) || str(r.accessibility_caption);
+    timestamp = normalizeTimestamp(
+      r.taken_at ?? r.takenAt ?? r.timestamp ?? r.postedAt ?? r.createdAt ??
+        r.crawled_at,
+    );
+    imageUrl = str(r.image) || str(r.imageUrl) || str(r.displayUrl) ||
+      firstImage(r.images) ||
       firstImage(r.imagesUrls);
-    url = str(r.url) || (str(r.shortCode)
-      ? `https://www.instagram.com/p/${str(r.shortCode)}/`
-      : null);
+    url = str(r.url) ||
+      (shortcode ? `https://www.instagram.com/p/${shortcode}/` : null);
   } else if (platform === "x") {
     id = str(r.id) || str(r.conversationId) || str(r.url);
     text = str(r.text) || str(r.fullText);
-    timestamp = str(r.createdAt) || str(r.date);
+    timestamp = normalizeTimestamp(r.createdAt ?? r.date ?? r.timestamp);
     const media = r.media as Array<{ url?: string }> | undefined;
     imageUrl = media?.[0]?.url ?? null;
     url = str(r.url);
   } else if (platform === "facebook") {
     id = str(r.postId) || str(r.id) || str(r.url);
     text = str(r.text) || str(r.message) || str(r.caption);
-    timestamp = str(r.timestamp) || str(r.publishedTime) || str(r.time);
-    imageUrl = str(r.image) || firstImage(r.images);
+    timestamp = normalizeTimestamp(r.timestamp ?? r.publishedTime ?? r.time);
+    imageUrl = str(r.image) || str(r.imageUrl) || firstImage(r.images);
     url = str(r.url);
   } else if (platform === "tiktok") {
-    id = str(r.id) || str(r.videoId) || str(r.url);
+    id = str(r.aweme_id) || str(r.id) || str(r.videoId) || str(r.url) ||
+      str(r.share_url) || str(r.webVideoUrl);
     text = str(r.desc) || str(r.caption) || str(r.text);
-    timestamp = str(r.createTime) || str(r.timestamp);
-    imageUrl = str(r.cover) || str(r.thumbnail);
-    url = str(r.url) || str(r.webVideoUrl);
+    timestamp = normalizeTimestamp(
+      r.create_time ?? r.createTime ?? r.timestamp,
+    );
+    const video = r.video as Record<string, unknown> | undefined;
+    imageUrl = str(r.cover) || str(r.thumbnail) ||
+      firstImageLike(video?.cover) ||
+      firstImageLike(video?.origin_cover) ||
+      firstImageLike(video?.dynamic_cover);
+    url = str(r.url) || str(r.share_url) || str(r.webVideoUrl);
   }
   return { id, text, timestamp, imageUrl, url };
 }
@@ -158,6 +220,16 @@ function normalizePost(
 function str(v: unknown): string {
   if (typeof v === "string") return v;
   if (typeof v === "number") return String(v);
+  return "";
+}
+
+function normalizeTimestamp(v: unknown): string {
+  if (typeof v === "number") {
+    const ms = v > 10_000_000_000 ? v : v * 1000;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? String(v) : d.toISOString();
+  }
+  if (typeof v === "string" && v.trim()) return v.trim();
   return "";
 }
 
@@ -169,6 +241,17 @@ function firstImage(v: unknown): string {
       const o = first as Record<string, unknown>;
       return str(o.url) || str(o.src) || "";
     }
+  }
+  return "";
+}
+
+function firstImageLike(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return firstImage(v);
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return str(o.url) || str(o.src) || firstImage(o.url_list) ||
+      firstImage(o.urlList);
   }
   return "";
 }

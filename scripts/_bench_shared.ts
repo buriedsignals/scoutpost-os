@@ -43,8 +43,21 @@ export interface BenchCtx {
   userId: string;
 }
 
+export function assertSafeBenchmarkSupabaseUrl(supabaseUrl: string) {
+  const host = new URL(supabaseUrl).hostname.toLowerCase();
+  const isLocal = host === "localhost" || host === "127.0.0.1" ||
+    host === "kong" || host.endsWith(".localhost");
+  if (!isLocal && Deno.env.get("COJO_BENCHMARK_PROJECT") !== "1") {
+    throw new Error(
+      "Refusing to run mutating benchmarks against a remote Supabase project without COJO_BENCHMARK_PROJECT=1. " +
+        "Use a dedicated benchmark project, or set the flag intentionally.",
+    );
+  }
+}
+
 export async function getCtx(): Promise<BenchCtx> {
   const supabaseUrl = mustEnv("SUPABASE_URL", "API_URL").replace(/\/$/, "");
+  assertSafeBenchmarkSupabaseUrl(supabaseUrl);
   const serviceKey = mustEnv("SUPABASE_SERVICE_ROLE_KEY", "SERVICE_ROLE_KEY");
   const apiKey = envAny(
     "SUPABASE_API_KEY",
@@ -75,7 +88,8 @@ async function resolveUserId(
   // the list endpoint instead — the filter lives client-side.
   const perPage = 200;
   for (let page = 1; page <= 25; page++) {
-    const url = `${supabaseUrl}/auth/v1/admin/users?page=${page}&per_page=${perPage}`;
+    const url =
+      `${supabaseUrl}/auth/v1/admin/users?page=${page}&per_page=${perPage}`;
     const res = await fetch(url, {
       headers: {
         apikey: envAny(
@@ -90,11 +104,17 @@ async function resolveUserId(
     });
     if (!res.ok) {
       const detail = await res.text();
-      throw new Error(`user lookup failed ${res.status}: ${detail.slice(0, 300)}`);
+      throw new Error(
+        `user lookup failed ${res.status}: ${detail.slice(0, 300)}`,
+      );
     }
-    const body = await res.json() as { users?: Array<{ id: string; email: string }> };
+    const body = await res.json() as {
+      users?: Array<{ id: string; email: string }>;
+    };
     const users = body.users ?? [];
-    const match = users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+    const match = users.find((u) =>
+      u.email?.toLowerCase() === email.toLowerCase()
+    );
     if (match) return match.id;
     if (users.length < perPage) break; // last page, no match
   }

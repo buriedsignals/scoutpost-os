@@ -6,6 +6,7 @@ The public OSS automation surface is now:
 - `automation/sync-upstream.yml`
 - `automation/selfhost-doctor.sh`
 - `automation/adopt-signup-allowlist.sh`
+- `deploy/installer/Dockerfile`
 
 These files are public and no longer use any license-gated flow.
 
@@ -76,6 +77,27 @@ supabase functions deploy --all
 Never accept upstream `supabase/config.toml` blindly over a local auth hook, and
 never overwrite `.env`, `.env.production`, or deployment-specific secrets during
 an upstream merge.
+
+## Dockerized installer
+
+For operators who do not want to install the local toolchain, build the
+installer container and mount the generated setup manifest:
+
+```bash
+docker build -f deploy/installer/Dockerfile -t cojournalist-installer .
+docker run --rm -it \
+  -v "$PWD:/workspace" \
+  -v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro" \
+  cojournalist-installer install
+```
+
+The container runs the same `automation/setup-from-manifest.sh` path as the
+non-Docker installer. It also exposes:
+
+```bash
+docker run --rm -it -v "$PWD:/workspace" cojournalist-installer doctor
+docker run --rm -it -v "$PWD:/workspace" -v "$HOME/.config/gh:/root/.config/gh:ro" cojournalist-installer update
+```
 
 ## Local self-host smoke
 
