@@ -219,6 +219,55 @@ def test_callback_default_upstream_pinned_to_supabase():
     assert ".supabase.co" in muckrock_proxy.SUPABASE_AUTH_CALLBACK_URL
 
 
+def test_mcp_callback_default_upstream_pinned_to_mcp_auth_function():
+    assert muckrock_proxy.SUPABASE_MCP_AUTH_CALLBACK_URL.startswith("https://")
+    assert muckrock_proxy.SUPABASE_MCP_AUTH_CALLBACK_URL.endswith(
+        "/functions/v1/mcp-auth/callback",
+    )
+    assert ".supabase.co" in muckrock_proxy.SUPABASE_MCP_AUTH_CALLBACK_URL
+
+
+def test_callback_routes_mcp_prefixed_state_to_mcp_auth_function():
+    """The whole point of the split: an `mcp.`-prefixed state must land on
+    the MCP-only EF, not the web broker. Regression here means MCP changes
+    can't observe the right secrets/logs and web sign-in can't change
+    behaviour without affecting MCP."""
+    client = _mount()
+    state = "mcp.ZXlKdWIyNWpaU0k2SW5oNGVDSXNJblJ6SWpvME16UXlmUT09.deadbeefcafef00d"
+    res = client.get(f"/api/auth/callback?code=mr-auth-code-123&state={state}")
+
+    assert res.status_code == 302
+    loc = res.headers["location"]
+    assert loc.startswith(muckrock_proxy.SUPABASE_MCP_AUTH_CALLBACK_URL)
+    assert f"state={state}" in loc
+    assert "code=mr-auth-code-123" in loc
+    assert res.headers["cache-control"] == "no-store"
+
+
+def test_callback_routes_unprefixed_state_to_web_broker():
+    """The web sign-in flow must remain unaffected by the routing change."""
+    client = _mount()
+    state = "ZXlKdWIyNWpaU0k2SW5oNGVDSXNJblJ6SWpvME16UXlmUT09.deadbeef"
+    res = client.get(f"/api/auth/callback?code=abc&state={state}")
+
+    assert res.status_code == 302
+    loc = res.headers["location"]
+    assert loc.startswith(muckrock_proxy.SUPABASE_AUTH_CALLBACK_URL)
+    assert not loc.startswith(muckrock_proxy.SUPABASE_MCP_AUTH_CALLBACK_URL)
+
+
+def test_callback_routes_no_state_to_web_broker():
+    """When MuckRock returns an error path with no state we still default
+    to the web broker — only an explicit `mcp.` opt-in routes to MCP."""
+    client = _mount()
+    res = client.get("/api/auth/callback?error=access_denied")
+
+    assert res.status_code == 302
+    loc = res.headers["location"]
+    assert loc.startswith(muckrock_proxy.SUPABASE_AUTH_CALLBACK_URL)
+    assert not loc.startswith(muckrock_proxy.SUPABASE_MCP_AUTH_CALLBACK_URL)
+
+
 # ---------------------------------------------------------------------------
 # Startup guard — SSRF defense-in-depth
 # ---------------------------------------------------------------------------

@@ -27,12 +27,14 @@ function randUrlSafe(bytes: number): string {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function brokerBaseUrl(): string {
-  // Post-cutover broker: auth-muckrock EF. Override with MCP_BROKER_URL
-  // if a self-hosted deployment exposes the broker elsewhere.
+  // MCP-only broker. Lives in its own EF (`mcp-auth`) so that fixes here
+  // can never regress the web browser sign-in flow that uses
+  // `auth-muckrock`. Override with MCP_BROKER_URL if a self-hosted
+  // deployment exposes the broker elsewhere.
   const override = Deno.env.get("MCP_BROKER_URL");
   if (override) return override;
   const supabase = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "");
-  return `${supabase}/functions/v1/auth-muckrock/login`;
+  return `${supabase}/functions/v1/mcp-auth/login`;
 }
 
 /**

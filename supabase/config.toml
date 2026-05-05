@@ -477,6 +477,13 @@ verify_jwt = false
 [functions.auth-muckrock]
 verify_jwt = false
 
+# mcp-auth is the MCP-only sibling of auth-muckrock. Browser-facing for the
+# remote MCP OAuth chain (claude.ai, Claude Desktop, Cowork). Same lack of
+# JWT, same in-handler HMAC state validation, but isolated so MCP changes
+# can never break web sign-in.
+[functions.mcp-auth]
+verify_jwt = false
+
 # newsletter-subscribe is called pre-auth from the /login marketing panel.
 # No JWT available; the EF just proxies to buriedsignals.com/api/subscribe.
 [functions.newsletter-subscribe]
