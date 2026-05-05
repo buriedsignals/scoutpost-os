@@ -23,7 +23,7 @@
 
 import { corsHeaders, handleCors } from "../_shared/cors.ts";
 import { logEvent } from "../_shared/log.ts";
-import { metadataHandler, protectedResourceHandler } from "./oauth/metadata.ts";
+import { baseUrl, metadataHandler, protectedResourceHandler } from "./oauth/metadata.ts";
 import { registerHandler } from "./oauth/register.ts";
 import { authorize } from "./oauth/authorize.ts";
 import { tokenHandler } from "./oauth/token.ts";
@@ -131,7 +131,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       const bearer = (req.headers.get("authorization") ?? "").trim();
       if (!bearer.toLowerCase().startsWith("bearer ")) {
         const resourceMetadata =
-          `${url.origin}/.well-known/oauth-protected-resource`;
+          `${baseUrl()}/.well-known/oauth-protected-resource`;
         return new Response(null, {
           status: 401,
           headers: {
