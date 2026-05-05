@@ -1,21 +1,18 @@
 /**
- * Remote MCP OAuth flow for browser-based agents (claude.ai, ChatGPT, etc).
+ * Remote MCP OAuth /authorize endpoint.
  *
- *   GET  /authorize                   — validate client, 302 to auth-muckrock
- *   GET  /authorize-callback          — HTML bounce: reads fragment tokens,
- *                                        POSTs them to /authorize-callback-commit
- *   POST /authorize-callback-commit   — mint the MCP code, 302 to client
+ *   GET /authorize  — validate the dynamic client, sign a state blob,
+ *                     302 the browser to mcp-auth/login.
  *
- * Supabase's magiclink redirect delivers `access_token` + `refresh_token` in
- * the URL fragment (not the query), so the intermediate HTML page is the
- * simplest way to land them on the server without leaking them to analytics.
- * The browser POSTs same-origin to commit — no CORS handshake required.
+ * mcp-auth handles the entire MuckRock OIDC handshake, mints the MCP
+ * authorization code server-side, and 302s the browser directly to the
+ * client's redirect_uri — there is no /authorize-callback hop on this
+ * EF anymore. See supabase/functions/mcp-auth/index.ts for that flow.
  */
 
-import { getServiceClient } from "../../_shared/supabase.ts";
 import { logEvent } from "../../_shared/log.ts";
-import { base64urlEncode, signState, verifyState } from "./state.ts";
-import { baseUrl } from "./metadata.ts";
+import { getServiceClient } from "../../_shared/supabase.ts";
+import { base64urlEncode, signState } from "./state.ts";
 import { oauthError } from "./errors.ts";
 
 function randUrlSafe(bytes: number): string {
@@ -111,12 +108,11 @@ export async function authorize(req: Request, requestId?: string): Promise<Respo
     nonce: randUrlSafe(16),
   });
 
-  const callback = `${baseUrl()}/authorize-callback`;
+  // mcp-auth/login verifies mcp_state with the same MCP_STATE_SECRET and
+  // re-wraps it in its own broker state for the MuckRock round-trip, so
+  // the redirect_uri / PKCE challenge are recoverable at /callback when
+  // it mints the MCP authorization code.
   const target = new URL(brokerBaseUrl());
-  // auth-muckrock EF reads these params on /login and threads them through
-  // the MuckRock OAuth handshake + Supabase magiclink, so the magiclink's
-  // post-login redirect lands here with the signed mcp_state preserved.
-  target.searchParams.set("mcp_callback", callback);
   target.searchParams.set("mcp_state", mcpState);
 
   logEvent({
@@ -124,216 +120,6 @@ export async function authorize(req: Request, requestId?: string): Promise<Respo
     fn: "mcp-server.authorize",
     event: "redirect_to_broker",
     client_id: clientId,
-  });
-
-  return new Response(null, {
-    status: 302,
-    headers: { Location: target.toString() },
-  });
-}
-
-/**
- * GET /authorize-callback
- *
- * Supabase magiclink lands the browser here with tokens in the URL
- * fragment (`#access_token=…&refresh_token=…`) and `mcp_state` in the
- * query. Fragments never reach the server — so we render a tiny HTML
- * page that parses `location.hash` client-side and POSTs the tokens
- * same-origin to /authorize-callback-commit.
- *
- * Error path: if Supabase forwarded `?error=…` (no fragment), commit the
- * redirect back to the MCP client immediately from the server.
- */
-export async function renderCallbackPage(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  const brokerError = url.searchParams.get("error");
-  const mcpState = url.searchParams.get("mcp_state");
-
-  if (brokerError) {
-    if (mcpState) {
-      try {
-        const payload = await verifyState(mcpState);
-        const target = new URL(payload.redirect_uri);
-        target.searchParams.set("error", brokerError);
-        const desc = url.searchParams.get("error_description");
-        if (desc) target.searchParams.set("error_description", desc);
-        if (payload.state) target.searchParams.set("state", payload.state);
-        return new Response(null, { status: 302, headers: { Location: target.toString() } });
-      } catch {
-        /* fall through */
-      }
-    }
-    return oauthError("access_denied", brokerError, 400);
-  }
-
-  const commitUrl = `${baseUrl()}/authorize-callback-commit`;
-  const html = callbackBounceHtml(commitUrl);
-  return new Response(html, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
-      // Defense-in-depth — this page only runs our own inline script and
-      // POSTs same-origin. No third-party loads needed.
-      "Content-Security-Policy":
-        "default-src 'none'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'",
-    },
-  });
-}
-
-function escapeForTemplate(s: string): string {
-  // Only protect against breaking out of the single-quoted string literal
-  // we embed the URL in. Simple + sufficient because baseUrl() never carries
-  // quotes or newlines in practice.
-  return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-}
-
-function callbackBounceHtml(commitUrl: string): string {
-  const safe = escapeForTemplate(commitUrl);
-  // Inline JS + hidden form. Any failure surfaces as a visible error so
-  // the user can report it — never silently redirect on a broken flow.
-  return `<!doctype html>
-<meta charset="utf-8">
-<title>Signing you in…</title>
-<style>body{font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:4rem auto;padding:0 1rem;color:#222}.err{color:#b00}</style>
-<body>
-<p id="msg">Signing you in…</p>
-<noscript>JavaScript is required to complete the login redirect. Please enable JavaScript and return to the MCP client.</noscript>
-<script>
-(function(){
-  var COMMIT='${safe}';
-  function fail(m){var el=document.getElementById('msg');el.className='err';el.textContent=m;}
-  try{
-    var hash=(location.hash||'').replace(/^#/,'');
-    var q=new URLSearchParams(location.search);
-    var h=new URLSearchParams(hash);
-    var at=h.get('access_token');
-    var rt=h.get('refresh_token');
-    var st=q.get('mcp_state');
-    if(!at||!rt||!st){
-      fail('Missing tokens in redirect — re-start the MCP client login.');
-      return;
-    }
-    var f=document.createElement('form');
-    f.method='POST';
-    f.action=COMMIT;
-    f.style.display='none';
-    function add(n,v){var i=document.createElement('input');i.type='hidden';i.name=n;i.value=v;f.appendChild(i);}
-    add('access_token',at);
-    add('refresh_token',rt);
-    add('mcp_state',st);
-    document.body.appendChild(f);
-    // Clear the hash so the tokens aren't retained in history.
-    history.replaceState(null,'',location.pathname+location.search);
-    f.submit();
-  }catch(e){fail('Login redirect failed: '+String(e));}
-})();
-</script>
-</body>`;
-}
-
-/**
- * POST /authorize-callback-commit
- *
- * Receives the fragment-tokens same-origin from the HTML bounce. Validates
- * the Supabase access token, mints an MCP authorization code tied to the
- * PKCE challenge from the signed mcp_state, and 302s to the MCP client's
- * original redirect_uri.
- */
-export async function commitCallback(req: Request, requestId?: string): Promise<Response> {
-  logEvent({
-    level: "info",
-    fn: "mcp-server.commit",
-    event: "commit_in",
-    request_id: requestId,
-    content_type: req.headers.get("content-type") ?? null,
-  });
-  let form: URLSearchParams;
-  try {
-    const ct = (req.headers.get("content-type") ?? "").toLowerCase();
-    if (ct.includes("application/json")) {
-      const body = await req.json();
-      form = new URLSearchParams(
-        Object.fromEntries(Object.entries(body).map(([k, v]) => [k, String(v ?? "")])),
-      );
-    } else {
-      const text = await req.text();
-      form = new URLSearchParams(text);
-    }
-  } catch {
-    return oauthError("invalid_request", "failed to parse commit body", 400);
-  }
-
-  const accessToken = form.get("access_token") ?? "";
-  const refreshToken = form.get("refresh_token") ?? "";
-  const mcpState = form.get("mcp_state") ?? "";
-
-  if (!accessToken || !refreshToken || !mcpState) {
-    return oauthError(
-      "invalid_request",
-      "missing access_token, refresh_token, or mcp_state",
-      400,
-    );
-  }
-
-  let payload;
-  try {
-    payload = await verifyState(mcpState);
-  } catch (e) {
-    logEvent({
-      level: "warn",
-      fn: "mcp-server.commit",
-      event: "bad_state",
-      msg: e instanceof Error ? e.message : String(e),
-    });
-    return oauthError("invalid_request", "invalid mcp_state", 400);
-  }
-
-  const db = getServiceClient();
-  const { data: userData, error: userErr } = await db.auth.getUser(accessToken);
-  if (userErr || !userData.user) {
-    logEvent({
-      level: "warn",
-      fn: "mcp-server.commit",
-      event: "bad_access_token",
-      msg: userErr?.message,
-    });
-    return oauthError("invalid_request", "access_token did not resolve to a user", 400);
-  }
-  const userId = userData.user.id;
-
-  const code = randUrlSafe(32);
-  const { error: insertErr } = await db.from("mcp_oauth_codes").insert({
-    code,
-    client_id: payload.client_id,
-    user_id: userId,
-    supabase_access_token: accessToken,
-    supabase_refresh_token: refreshToken,
-    code_challenge: payload.code_challenge,
-    code_challenge_method: "S256",
-    redirect_uri: payload.redirect_uri,
-    scopes: [],
-  });
-  if (insertErr) {
-    logEvent({
-      level: "error",
-      fn: "mcp-server.commit",
-      event: "code_insert_failed",
-      msg: insertErr.message,
-    });
-    return oauthError("server_error", "failed to mint authorization code", 500);
-  }
-
-  const target = new URL(payload.redirect_uri);
-  target.searchParams.set("code", code);
-  if (payload.state) target.searchParams.set("state", payload.state);
-
-  logEvent({
-    level: "info",
-    fn: "mcp-server.commit",
-    event: "code_issued",
-    client_id: payload.client_id,
-    user_id: userId,
   });
 
   return new Response(null, {

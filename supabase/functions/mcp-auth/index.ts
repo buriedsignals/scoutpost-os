@@ -1,62 +1,53 @@
 /**
- * mcp-auth Edge Function — MCP-only MuckRock OAuth broker + Supabase
- * magiclink handoff. Cleanly split from `auth-muckrock` so changes here
- * cannot regress the web browser sign-in flow.
+ * mcp-auth Edge Function — MCP-only OAuth broker.
  *
- * Why split? The web browser sign-in path lives entirely inside
- * `auth-muckrock`. The MCP OAuth chain previously rode the same EF, which
- * meant any MCP-side fix (additional log lines, redirect helpers, etc.)
- * also touched the production web sign-in. The user-facing requirement is
- * that "anything touching muckrock auth does not touch the web browser
- * sign in" — so the MCP path now lives in a dedicated function with its
- * own state schema, log namespace, and tests.
+ * Handles the entire MuckRock OIDC handshake on behalf of the MCP server,
+ * mints an MCP authorization code server-side, and 302s the browser
+ * directly back to the MCP client (claude.ai, Claude Desktop, Cowork).
+ *
+ * Why this shape (vs the magiclink-bounce design that landed in PR #152):
+ * after deploy, the browser-bounce variant left users on cojournalist.ai
+ * without ever calling the claude.ai callback URL. The chain depended on
+ * Supabase Auth's `redirectTo` parameter exact-matching an allowlist
+ * entry, the magiclink succeeding, the browser following it back to
+ * /mcp/authorize-callback, an inline JS parser pulling tokens out of a
+ * URL fragment, and a same-origin POST to commit them — every link in
+ * that chain was a place state could drift. Public custom-connector
+ * targets like Cloudflare's MCP demos do this in one server-side bounce;
+ * we now do too.
  *
  * Routes (after Kong strips `/functions/v1/mcp-auth`):
- *   GET /login     — 302 to MuckRock authorize endpoint. Required query
- *                    params `mcp_callback` (the mcp-server EF callback)
- *                    + `mcp_state` (signed blob from mcp-server/authorize)
- *                    are threaded through MuckRock and the Supabase
- *                    magiclink so the post-OAuth bounce lands on the
- *                    mcp-server callback with mcp_state preserved.
- *   GET /callback  — exchange code, upsert Supabase user, sync entitlements,
- *                    302 to a Supabase magiclink whose redirect_to is the
- *                    mcp_callback URL. The browser then lands on
- *                    mcp-server/authorize-callback with tokens in the URL
- *                    fragment.
  *
- * State scheme: this function uses HMAC-signed state with a tagged prefix
- * `mcp.<base64>.<hex>`. The Render proxy at /api/auth/callback peeks at
- * the prefix and routes to this EF (mcp.* → mcp-auth/callback) vs the
- * web broker (no prefix → auth-muckrock/callback). MuckRock sees only
- * one registered redirect_uri (`/api/auth/callback`); the prefix is the
- * sole router signal — no MuckRock-side changes needed.
+ *   GET /login     — verifies the signed state minted by mcp-server,
+ *                    re-wraps it under our own HMAC with the literal
+ *                    `mcp.` state-prefix routing tag, and 302s to the
+ *                    MuckRock authorize endpoint.
  *
- * Required env vars (Supabase secrets):
- *   MUCKROCK_CLIENT_ID, MUCKROCK_CLIENT_SECRET
- *   MUCKROCK_BASE_URL (optional, default https://accounts.muckrock.com)
- *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (auto-injected)
- *   SERVICE_SUPABASE_URL, SERVICE_SUPABASE_SERVICE_ROLE_KEY (optional
- *     local-dev overrides)
- *   MCP_AUTH_STATE_SECRET — HMAC key for stateless OAuth state tokens.
- *     Defaults to SESSION_SECRET to avoid a separate rotation step on
- *     first deploy; rotate independently once mcp-auth is steady-state.
- *   MCP_SERVER_BASE_URL — public host of the MCP server (e.g.
- *     https://www.cojournalist.ai/mcp). Required so we can validate
- *     mcp_callback URLs against an allowlist of trusted hosts.
- *   PUBLIC_APP_URL — used only for error redirects.
- *   MUCKROCK_CALLBACK_URL (optional) — override the redirect_uri sent
- *     to MuckRock if it's pointed at a non-proxied URL. Defaults to
- *     `${PUBLIC_APP_URL}/api/auth/callback` (apex — see the byte-match
- *     note in auth-muckrock/index.ts).
- *   EMAIL_ALLOWLIST (optional) — comma-separated emails / @domain patterns.
+ *   GET /callback  — exchange MuckRock code → access token → userinfo,
+ *                    upsert the Supabase auth user, sync entitlements,
+ *                    resolve a magiclink server-side to extract a real
+ *                    Supabase session JWT (we never bounce the browser
+ *                    through it), insert into mcp_oauth_codes, and 302
+ *                    directly to the MCP client's redirect_uri with
+ *                    `?code=…&state=…`.
+ *
+ * State scheme (unchanged from PR #152): we tag our HMAC-signed state
+ * with the literal prefix `mcp.` so the Render proxy at
+ * /api/auth/callback can route MuckRock callbacks to this EF without
+ * touching the web sign-in path. MuckRock has one registered redirect
+ * URI; the prefix is the only routing signal.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { MuckrockClient } from "../_shared/muckrock.ts";
 import { applyUserEvent } from "../_shared/entitlements.ts";
 import { getServiceClient } from "../_shared/supabase.ts";
+import {
+  type StatePayload as McpServerStatePayload,
+  verifyState as verifyMcpServerState,
+} from "./mcp_server_state.ts";
 
 const SCOPES = "openid profile uuid organizations email preferences";
 const STATE_TTL_SECONDS = 600;
@@ -82,10 +73,6 @@ function serviceRoleKey(): string {
 }
 
 function stateSecret(): string {
-  // Prefer MCP_AUTH_STATE_SECRET so we can rotate independently of
-  // SESSION_SECRET (which is hot for the web broker). Fall back to
-  // SESSION_SECRET on first deploy so operators don't have to set two
-  // secrets in lockstep.
   return Deno.env.get("MCP_AUTH_STATE_SECRET") ?? envOrThrow("SESSION_SECRET");
 }
 
@@ -95,9 +82,8 @@ function stripPrefix(pathname: string): string {
 
 function callbackUrl(): string {
   // MUST byte-match the redirect_uri registered with MuckRock's OAuth
-  // client. We share the registered URL with auth-muckrock; the Render
-  // proxy at /api/auth/callback is the routing point that hands MCP
-  // flows to mcp-auth/callback (via the `mcp.` state prefix).
+  // client. Shared with auth-muckrock; the Render proxy routes the
+  // post-OIDC callback to this EF based on the `mcp.` state prefix.
   const override = Deno.env.get("MUCKROCK_CALLBACK_URL");
   if (override) return override;
   const base = envOrThrow("PUBLIC_APP_URL").replace(/\/$/, "");
@@ -120,8 +106,8 @@ function authorizeUrl(state: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Signed state token (HMAC-SHA256, stateless — no storage). Mirrors the
-// auth-muckrock helper but lives here so we don't import across functions.
+// Signed state (HMAC-SHA256, stateless). Wraps the mcp-server state we
+// received at /login so we can hand it back unchanged at /callback.
 // ---------------------------------------------------------------------------
 
 async function hmac(secret: string, message: string): Promise<string> {
@@ -146,12 +132,10 @@ function constantTimeEq(a: string, b: string): boolean {
   return diff === 0;
 }
 
-interface StatePayload {
+interface BrokerStatePayload {
   nonce: string;
   ts: number;
-  /** mcp-server EF callback URL where the magiclink should land. */
-  mcp_callback: string;
-  /** Signed state blob from mcp-server/authorize — passed through. */
+  /** mcp-server's signed state — opaque to us; we re-verify at callback. */
   mcp_state: string;
 }
 
@@ -164,23 +148,21 @@ function b64urlDecode(s: string): string {
   return atob((s + pad).replace(/-/g, "+").replace(/_/g, "/"));
 }
 
-export async function createMcpState(
+export async function createBrokerState(
   secret: string,
-  payload: Omit<StatePayload, "nonce" | "ts">,
+  payload: Omit<BrokerStatePayload, "nonce" | "ts">,
 ): Promise<string> {
   const nonce = crypto.randomUUID().replace(/-/g, "").slice(0, 22);
   const ts = Math.floor(Date.now() / 1000);
   const body = b64urlEncode(JSON.stringify({ nonce, ts, ...payload }));
   const sig = await hmac(secret, body);
-  // Prefix marks this state as belonging to the MCP flow so the Render
-  // proxy can route the MuckRock callback to the right EF.
   return `${STATE_PREFIX}${body}.${sig}`;
 }
 
-export async function verifyMcpState(
+export async function verifyBrokerState(
   secret: string,
   state: string,
-): Promise<StatePayload | null> {
+): Promise<BrokerStatePayload | null> {
   if (!state.startsWith(STATE_PREFIX)) return null;
   const stripped = state.slice(STATE_PREFIX.length);
   const dot = stripped.indexOf(".");
@@ -189,15 +171,15 @@ export async function verifyMcpState(
   const sig = stripped.slice(dot + 1);
   const expected = await hmac(secret, body);
   if (!constantTimeEq(sig, expected)) return null;
-  let parsed: StatePayload;
+  let parsed: BrokerStatePayload;
   try {
-    parsed = JSON.parse(b64urlDecode(body)) as StatePayload;
+    parsed = JSON.parse(b64urlDecode(body)) as BrokerStatePayload;
   } catch {
     return null;
   }
   if (
     typeof parsed.nonce !== "string" || typeof parsed.ts !== "number" ||
-    typeof parsed.mcp_callback !== "string" || typeof parsed.mcp_state !== "string"
+    typeof parsed.mcp_state !== "string"
   ) {
     return null;
   }
@@ -207,43 +189,126 @@ export async function verifyMcpState(
 }
 
 // ---------------------------------------------------------------------------
-// mcp_callback host validation — reject anything not pointing at our own
-// MCP server, defence-in-depth against open-redirector abuse.
+// Random helpers + magiclink token extraction
 // ---------------------------------------------------------------------------
 
-export function isValidMcpCallback(raw: string): boolean {
-  let cb: URL;
-  try {
-    cb = new URL(raw);
-  } catch {
-    return false;
+function randUrlSafe(bytes: number): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  let s = "";
+  for (const b of buf) s += String.fromCharCode(b);
+  return btoa(s).replace(/=+$/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+interface SupabaseSession {
+  access_token: string;
+  refresh_token: string;
+}
+
+/**
+ * Resolve a Supabase magiclink server-side.
+ *
+ * `admin.auth.admin.generateLink` returns a verify URL. Hitting that URL
+ * with `redirect: "manual"` produces a 302 whose Location places the
+ * session tokens in the URL fragment (`#access_token=…&refresh_token=…`).
+ * The browser would normally follow that redirect to expose the tokens
+ * via JS — we do it server-side instead so the user never sees the
+ * intermediate Supabase host and we never need an HTML bounce page.
+ *
+ * `redirectTo` here is cosmetic — the tokens come out the same regardless
+ * of where the redirect points. We use PUBLIC_APP_URL because it's
+ * always on Supabase's redirect allowlist (it's SITE_URL).
+ */
+async function exchangeMagiclinkForSession(
+  admin: SupabaseClient,
+  email: string,
+  requestId: string,
+): Promise<SupabaseSession | null> {
+  const redirectTo = envOrThrow("PUBLIC_APP_URL");
+  const { data, error: linkErr } = await admin.auth.admin.generateLink({
+    type: "magiclink",
+    email,
+    options: { redirectTo },
+  });
+  if (linkErr || !data?.properties?.action_link) {
+    logEvent({
+      level: "error",
+      fn: "mcp-auth.callback",
+      event: "magiclink_failed",
+      request_id: requestId,
+      msg: linkErr?.message ?? "no action_link",
+    });
+    return null;
   }
-  if (cb.protocol !== "https:" && cb.protocol !== "http:") return false;
 
-  const supabaseHost = (() => {
-    try {
-      return new URL(envOrThrow("SUPABASE_URL")).host;
-    } catch {
-      return "";
-    }
-  })();
-  const publicMcpBase = Deno.env.get("MCP_SERVER_BASE_URL");
-  const publicHost = publicMcpBase ? new URL(publicMcpBase).host : "";
+  let actionRes: Response;
+  try {
+    actionRes = await fetch(data.properties.action_link, { redirect: "manual" });
+  } catch (e) {
+    logEvent({
+      level: "error",
+      fn: "mcp-auth.callback",
+      event: "magiclink_fetch_failed",
+      request_id: requestId,
+      msg: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  }
+  if (actionRes.status < 300 || actionRes.status >= 400) {
+    logEvent({
+      level: "error",
+      fn: "mcp-auth.callback",
+      event: "magiclink_unexpected_status",
+      request_id: requestId,
+      status: actionRes.status,
+    });
+    return null;
+  }
+  const location = actionRes.headers.get("location");
+  if (!location) {
+    logEvent({
+      level: "error",
+      fn: "mcp-auth.callback",
+      event: "magiclink_no_location",
+      request_id: requestId,
+    });
+    return null;
+  }
 
-  const hostOk = (supabaseHost && cb.host === supabaseHost) ||
-    (publicHost && cb.host === publicHost);
-  // Path must live under the mcp-server function (raw Supabase) or the
-  // /mcp prefix (public host). Block arbitrary same-host paths.
-  const pathOk = cb.pathname.startsWith("/functions/v1/mcp-server/") ||
-    cb.pathname.startsWith("/mcp/");
-
-  return Boolean(hostOk && pathOk);
+  // Parse `#access_token=…&refresh_token=…&…` from the Location URL.
+  const hashIdx = location.indexOf("#");
+  if (hashIdx < 0) {
+    logEvent({
+      level: "error",
+      fn: "mcp-auth.callback",
+      event: "magiclink_no_fragment",
+      request_id: requestId,
+      // Useful even with no tokens — exposes Supabase error redirects.
+      location_host: (() => {
+        try { return new URL(location).host; } catch { return null; }
+      })(),
+    });
+    return null;
+  }
+  const fragment = new URLSearchParams(location.slice(hashIdx + 1));
+  const accessToken = fragment.get("access_token");
+  const refreshToken = fragment.get("refresh_token");
+  if (!accessToken || !refreshToken) {
+    logEvent({
+      level: "error",
+      fn: "mcp-auth.callback",
+      event: "magiclink_missing_tokens",
+      request_id: requestId,
+      has_access: !!accessToken,
+      has_refresh: !!refreshToken,
+    });
+    return null;
+  }
+  return { access_token: accessToken, refresh_token: refreshToken };
 }
 
 // ---------------------------------------------------------------------------
-// Email allowlist — duplicated from auth-muckrock to keep this function
-// self-contained. The two flows share the same allowlist env var so MCP
-// users see consistent gating with web sign-in.
+// Email allowlist (mirrored from auth-muckrock so MCP and web share gating)
 // ---------------------------------------------------------------------------
 
 function isEmailAllowed(email: string | undefined): boolean {
@@ -278,43 +343,32 @@ function jsonError(message: string, status: number, requestId?: string): Respons
   });
 }
 
-function bounceToMcpError(
-  payload: StatePayload | null,
+function bounceClientError(
+  mcpPayload: McpServerStatePayload,
   errorCode: string,
   description: string,
   requestId: string,
 ): Response {
-  // When we have the original mcp_state, bounce the user back to
-  // mcp-server/authorize-callback with ?error so the MCP client sees a
-  // clean OAuth error instead of being stranded on cojournalist.ai.
-  if (payload?.mcp_callback && payload?.mcp_state) {
-    try {
-      const target = new URL(payload.mcp_callback);
-      target.searchParams.set("error", errorCode);
-      target.searchParams.set("error_description", description);
-      target.searchParams.set("mcp_state", payload.mcp_state);
-      logEvent({
-        level: "warn",
-        fn: "mcp-auth",
-        event: "bounce_to_mcp_error",
-        request_id: requestId,
-        error: errorCode,
-        location: target.toString(),
-      });
-      return new Response(null, {
-        status: 302,
-        headers: { Location: target.toString() },
-      });
-    } catch {
-      /* fall through to JSON error */
-    }
-  }
-  return jsonError(description, 400, requestId);
+  const target = new URL(mcpPayload.redirect_uri);
+  target.searchParams.set("error", errorCode);
+  target.searchParams.set("error_description", description);
+  if (mcpPayload.state) target.searchParams.set("state", mcpPayload.state);
+  logEvent({
+    level: "warn",
+    fn: "mcp-auth",
+    event: "bounce_client_error",
+    request_id: requestId,
+    error: errorCode,
+    redirect_host: target.host,
+  });
+  return new Response(null, {
+    status: 302,
+    headers: { Location: target.toString() },
+  });
 }
 
 async function handleLogin(req: Request, requestId: string): Promise<Response> {
   const url = new URL(req.url);
-  const mcpCallback = url.searchParams.get("mcp_callback") ?? "";
   const mcpState = url.searchParams.get("mcp_state") ?? "";
 
   logEvent({
@@ -322,24 +376,29 @@ async function handleLogin(req: Request, requestId: string): Promise<Response> {
     fn: "mcp-auth.login",
     event: "login_in",
     request_id: requestId,
-    has_mcp_callback: mcpCallback.length > 0,
     has_mcp_state: mcpState.length > 0,
-    mcp_callback_host: (() => {
-      try { return new URL(mcpCallback).host; } catch { return null; }
-    })(),
   });
 
-  if (!mcpCallback || !mcpState) {
-    return jsonError("mcp_callback and mcp_state are required", 400, requestId);
-  }
-  if (!isValidMcpCallback(mcpCallback)) {
-    return jsonError("invalid mcp_callback", 400, requestId);
+  if (!mcpState) return jsonError("mcp_state required", 400, requestId);
+
+  // Verify mcp-server's signed state up front so we can reject obviously
+  // bogus traffic before round-tripping to MuckRock. We don't act on its
+  // contents at /login — we re-verify at /callback to recover the
+  // redirect_uri we 302 the browser to.
+  try {
+    await verifyMcpServerState(mcpState);
+  } catch (e) {
+    logEvent({
+      level: "warn",
+      fn: "mcp-auth.login",
+      event: "mcp_state_invalid",
+      request_id: requestId,
+      msg: e instanceof Error ? e.message : String(e),
+    });
+    return jsonError("invalid mcp_state", 400, requestId);
   }
 
-  const state = await createMcpState(stateSecret(), {
-    mcp_callback: mcpCallback,
-    mcp_state: mcpState,
-  });
+  const brokerState = await createBrokerState(stateSecret(), { mcp_state: mcpState });
 
   logEvent({
     level: "info",
@@ -350,7 +409,7 @@ async function handleLogin(req: Request, requestId: string): Promise<Response> {
 
   return new Response(null, {
     status: 302,
-    headers: { Location: authorizeUrl(state) },
+    headers: { Location: authorizeUrl(brokerState) },
   });
 }
 
@@ -358,7 +417,7 @@ async function handleCallback(req: Request, requestId: string): Promise<Response
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  const error = url.searchParams.get("error");
+  const oauthError = url.searchParams.get("error");
 
   logEvent({
     level: "info",
@@ -367,44 +426,48 @@ async function handleCallback(req: Request, requestId: string): Promise<Response
     request_id: requestId,
     has_code: !!code,
     has_state: !!state,
-    has_error: !!error,
-    state_prefix_ok: state?.startsWith(STATE_PREFIX) ?? false,
+    has_error: !!oauthError,
   });
 
-  // Verify state up front so any error path can still bounce back to
-  // the MCP client with the original mcp_state preserved.
-  let payload: StatePayload | null = null;
-  if (state) payload = await verifyMcpState(stateSecret(), state);
-
-  if (error) {
+  if (!state) return jsonError("missing state", 400, requestId);
+  const broker = await verifyBrokerState(stateSecret(), state);
+  if (!broker) {
     logEvent({
       level: "warn",
       fn: "mcp-auth.callback",
-      event: "muckrock_oauth_error",
-      request_id: requestId,
-      error,
-    });
-    return bounceToMcpError(payload, "access_denied", error, requestId);
-  }
-  if (!code || !state) {
-    return bounceToMcpError(payload, "invalid_request", "missing code or state", requestId);
-  }
-  if (!payload) {
-    logEvent({
-      level: "warn",
-      fn: "mcp-auth.callback",
-      event: "state_invalid",
+      event: "broker_state_invalid",
       request_id: requestId,
     });
     return jsonError("invalid state", 400, requestId);
   }
 
-  // 1. Exchange code for MuckRock access token
+  let mcpPayload: McpServerStatePayload;
+  try {
+    mcpPayload = await verifyMcpServerState(broker.mcp_state);
+  } catch (e) {
+    logEvent({
+      level: "warn",
+      fn: "mcp-auth.callback",
+      event: "mcp_state_invalid",
+      request_id: requestId,
+      msg: e instanceof Error ? e.message : String(e),
+    });
+    return jsonError("invalid embedded mcp_state", 400, requestId);
+  }
+
+  if (oauthError) {
+    return bounceClientError(mcpPayload, "access_denied", oauthError, requestId);
+  }
+  if (!code) {
+    return bounceClientError(mcpPayload, "invalid_request", "missing code", requestId);
+  }
+
+  // 1. Exchange MuckRock code → access_token
   const muckrockBase = envOr("MUCKROCK_BASE_URL", "https://accounts.muckrock.com").replace(
     /\/$/,
     "",
   );
-  let accessToken: string;
+  let muckrockAccessToken: string;
   try {
     const tokenRes = await fetch(`${muckrockBase}/openid/token`, {
       method: "POST",
@@ -421,22 +484,22 @@ async function handleCallback(req: Request, requestId: string): Promise<Response
       logEvent({
         level: "error",
         fn: "mcp-auth.callback",
-        event: "token_exchange_failed",
+        event: "muckrock_token_failed",
         request_id: requestId,
         status: tokenRes.status,
       });
-      return bounceToMcpError(payload, "server_error", "muckrock token exchange failed", requestId);
+      return bounceClientError(mcpPayload, "server_error", "muckrock token exchange failed", requestId);
     }
-    accessToken = (await tokenRes.json() as { access_token: string }).access_token;
+    muckrockAccessToken = (await tokenRes.json() as { access_token: string }).access_token;
   } catch (e) {
     logEvent({
       level: "error",
       fn: "mcp-auth.callback",
-      event: "token_exchange_exception",
+      event: "muckrock_token_exception",
       request_id: requestId,
       msg: e instanceof Error ? e.message : String(e),
     });
-    return bounceToMcpError(payload, "server_error", "muckrock token exchange exception", requestId);
+    return bounceClientError(mcpPayload, "server_error", "muckrock token exchange exception", requestId);
   }
 
   // 2. Fetch userinfo
@@ -448,7 +511,7 @@ async function handleCallback(req: Request, requestId: string): Promise<Response
   };
   try {
     const uRes = await fetch(`${muckrockBase}/openid/userinfo`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: `Bearer ${muckrockAccessToken}` },
     });
     if (!uRes.ok) {
       logEvent({
@@ -458,7 +521,7 @@ async function handleCallback(req: Request, requestId: string): Promise<Response
         request_id: requestId,
         status: uRes.status,
       });
-      return bounceToMcpError(payload, "server_error", "muckrock userinfo failed", requestId);
+      return bounceClientError(mcpPayload, "server_error", "muckrock userinfo failed", requestId);
     }
     userinfo = await uRes.json();
   } catch (e) {
@@ -469,10 +532,9 @@ async function handleCallback(req: Request, requestId: string): Promise<Response
       request_id: requestId,
       msg: e instanceof Error ? e.message : String(e),
     });
-    return bounceToMcpError(payload, "server_error", "muckrock userinfo exception", requestId);
+    return bounceClientError(mcpPayload, "server_error", "muckrock userinfo exception", requestId);
   }
 
-  // 3. Email allowlist
   if (!isEmailAllowed(userinfo.email)) {
     logEvent({
       level: "info",
@@ -481,16 +543,14 @@ async function handleCallback(req: Request, requestId: string): Promise<Response
       request_id: requestId,
       email_domain: userinfo.email?.split("@").pop() ?? null,
     });
-    return bounceToMcpError(payload, "access_denied", "email not allowed", requestId);
+    return bounceClientError(mcpPayload, "access_denied", "email not allowed", requestId);
   }
 
-  const supabaseUrl = serviceSupabaseUrl();
-  const serviceKey = serviceRoleKey();
-  const admin = createClient(supabaseUrl, serviceKey, {
+  const admin = createClient(serviceSupabaseUrl(), serviceRoleKey(), {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // 4. Upsert Supabase auth user with MuckRock UUID as id
+  // 3. Upsert Supabase auth user with the MuckRock UUID as id
   try {
     const { error: createErr } = await admin.auth.admin.createUser({
       id: userinfo.uuid,
@@ -511,7 +571,7 @@ async function handleCallback(req: Request, requestId: string): Promise<Response
           request_id: requestId,
           msg: createErr.message,
         });
-        return bounceToMcpError(payload, "server_error", "supabase user upsert failed", requestId);
+        return bounceClientError(mcpPayload, "server_error", "user upsert failed", requestId);
       }
     }
   } catch (e) {
@@ -522,13 +582,13 @@ async function handleCallback(req: Request, requestId: string): Promise<Response
       request_id: requestId,
       msg: e instanceof Error ? e.message : String(e),
     });
-    return bounceToMcpError(payload, "server_error", "supabase user upsert exception", requestId);
+    return bounceClientError(mcpPayload, "server_error", "user upsert exception", requestId);
   }
 
-  // 5. Entitlement sync (best-effort) — failure here doesn't block sign-in.
+  // 4. Best-effort entitlements sync. Failure here doesn't block sign-in.
   try {
-    const client = new MuckrockClient();
-    const fullUser = await client.fetchUserData(userinfo.uuid);
+    const muckrockClient = new MuckrockClient();
+    const fullUser = await muckrockClient.fetchUserData(userinfo.uuid);
     await applyUserEvent(getServiceClient(), fullUser);
   } catch (e) {
     logEvent({
@@ -540,56 +600,57 @@ async function handleCallback(req: Request, requestId: string): Promise<Response
     });
   }
 
-  // 6. Generate magiclink. redirect_to is the mcp-server EF callback (with
-  //    the original mcp_state echoed back as a query param). Supabase
-  //    appends session tokens to the URL fragment on the bounce.
-  try {
-    const callback = new URL(payload.mcp_callback);
-    callback.searchParams.set("mcp_state", payload.mcp_state);
-    const redirectTo = callback.toString();
+  // 5. Resolve a magiclink server-side to get a real Supabase session
+  //    JWT without bouncing the browser through Supabase.
+  const session = await exchangeMagiclinkForSession(admin, userinfo.email ?? "", requestId);
+  if (!session) {
+    return bounceClientError(mcpPayload, "server_error", "session establishment failed", requestId);
+  }
 
-    const { data, error: linkErr } = await admin.auth.admin.generateLink({
-      type: "magiclink",
-      email: userinfo.email ?? "",
-      options: { redirectTo },
-    });
-    if (linkErr || !data?.properties?.action_link) {
-      logEvent({
-        level: "error",
-        fn: "mcp-auth.callback",
-        event: "magiclink_failed",
-        request_id: requestId,
-        // Critical observability: this is the most likely failure point
-        // (Supabase Auth allowlist rejecting the redirectTo URL).
-        msg: linkErr?.message ?? "no action_link",
-        redirect_to_host: callback.host,
-        redirect_to_path: callback.pathname,
-      });
-      return bounceToMcpError(payload, "server_error", "magiclink generation failed", requestId);
-    }
-
-    logEvent({
-      level: "info",
-      fn: "mcp-auth.callback",
-      event: "magiclink_issued",
-      request_id: requestId,
-      redirect_to_host: callback.host,
-    });
-
-    return new Response(null, {
-      status: 302,
-      headers: { Location: data.properties.action_link },
-    });
-  } catch (e) {
+  // 6. Mint MCP authorization code, bound to the PKCE challenge from
+  //    mcp-server's signed state.
+  const mcpCode = randUrlSafe(32);
+  const { error: insertErr } = await admin.from("mcp_oauth_codes").insert({
+    code: mcpCode,
+    client_id: mcpPayload.client_id,
+    user_id: userinfo.uuid,
+    supabase_access_token: session.access_token,
+    supabase_refresh_token: session.refresh_token,
+    code_challenge: mcpPayload.code_challenge,
+    code_challenge_method: "S256",
+    redirect_uri: mcpPayload.redirect_uri,
+    scopes: [],
+  });
+  if (insertErr) {
     logEvent({
       level: "error",
       fn: "mcp-auth.callback",
-      event: "magiclink_exception",
+      event: "code_insert_failed",
       request_id: requestId,
-      msg: e instanceof Error ? e.message : String(e),
+      msg: insertErr.message,
     });
-    return bounceToMcpError(payload, "server_error", "magiclink exception", requestId);
+    return bounceClientError(mcpPayload, "server_error", "code mint failed", requestId);
   }
+
+  // 7. 302 directly to the MCP client's redirect_uri.
+  const target = new URL(mcpPayload.redirect_uri);
+  target.searchParams.set("code", mcpCode);
+  if (mcpPayload.state) target.searchParams.set("state", mcpPayload.state);
+
+  logEvent({
+    level: "info",
+    fn: "mcp-auth.callback",
+    event: "code_issued",
+    request_id: requestId,
+    client_id: mcpPayload.client_id,
+    user_id: userinfo.uuid,
+    redirect_host: target.host,
+  });
+
+  return new Response(null, {
+    status: 302,
+    headers: { Location: target.toString() },
+  });
 }
 
 // ---------------------------------------------------------------------------

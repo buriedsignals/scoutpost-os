@@ -11,8 +11,7 @@
  *   GET  /.well-known/oauth-authorization-server  -> RFC 8414 metadata
  *   GET  /.well-known/oauth-protected-resource    -> RFC 9728 metadata
  *   POST /register                                -> RFC 7591 dynamic reg
- *   GET  /authorize                               -> login bootstrap
- *   GET  /authorize-callback                      -> broker return path
+ *   GET  /authorize                               -> 302 to mcp-auth
  *   POST /token                                   -> OAuth 2.1 token endpoint
  *   POST /                                        -> JSON-RPC (PR 3)
  *   *                                             -> 404 JSON
@@ -26,11 +25,7 @@ import { corsHeaders, handleCors } from "../_shared/cors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { metadataHandler, protectedResourceHandler } from "./oauth/metadata.ts";
 import { registerHandler } from "./oauth/register.ts";
-import {
-  authorize,
-  commitCallback,
-  renderCallbackPage,
-} from "./oauth/authorize.ts";
+import { authorize } from "./oauth/authorize.ts";
 import { tokenHandler } from "./oauth/token.ts";
 import { oauthError } from "./oauth/errors.ts";
 import { handleRpc, MCP_PROTOCOL_VERSION } from "./rpc.ts";
@@ -108,15 +103,12 @@ export async function handleRequest(req: Request): Promise<Response> {
     if (path === "/register" && req.method === "POST") {
       return await registerHandler(req);
     }
-    // OAuth authorization endpoint
+    // OAuth authorization endpoint. The post-OIDC callback / code mint
+    // happen entirely inside mcp-auth — there is no /authorize-callback
+    // hop on this EF. mcp-auth 302s the browser straight to the MCP
+    // client's redirect_uri after writing the code.
     if (path === "/authorize" && isRead) {
       return await authorize(req, requestId);
-    }
-    if (path === "/authorize-callback" && isRead) {
-      return await renderCallbackPage(req);
-    }
-    if (path === "/authorize-callback-commit" && req.method === "POST") {
-      return await commitCallback(req, requestId);
     }
     // OAuth token endpoint
     if (path === "/token" && req.method === "POST") {

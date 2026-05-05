@@ -631,7 +631,7 @@ async function seedCodeRow(): Promise<{
   );
   const challenge = base64urlEncode(digest);
 
-  // Seed a code row (the broker would otherwise do this at /authorize-callback).
+  // Seed a code row (mcp-auth would otherwise do this at /callback).
   const code = "seed-" + crypto.randomUUID();
   const { error: insErr } = await db.from("mcp_oauth_codes").insert({
     code,
