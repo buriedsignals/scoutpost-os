@@ -49,6 +49,7 @@ import {
   loadFactCheckConfig,
 } from "../_shared/fact_check.ts";
 import { isWithinRunDuplicate } from "../_shared/dedup.ts";
+import { shouldSendPageScoutAlert } from "../_shared/page_scout_notifications.ts";
 import {
   filterSubpageUrls,
   hasDeterministicListingSignal,
@@ -223,9 +224,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       merged_existing_count: result.merged_existing_count,
     });
 
-    // Notify user when criteria ran and produced new, non-duplicate units.
+    // Notify user when the run produced new, non-duplicate units. Criteria
+    // scouts only produce units when criteria match; Any Change scouts skip
+    // criteria analysis but should still alert on changed content.
     // Never throws — a mail failure must not flip the run into error.
-    if (result.criteria_ran && result.articles_count > 0 && result.summary) {
+    if (shouldSendPageScoutAlert(result)) {
+      const summary = result.summary!.trim();
       try {
         await sendPageScoutAlert(svc, {
           userId: scout.user_id,
@@ -234,7 +238,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           scoutName: scout.name ?? "Page Scout",
           url: scout.url,
           criteria: scout.criteria ?? "",
-          summary: result.summary,
+          summary,
           matchedUrl: result.matchedUrl ?? null,
           matchedTitle: result.matchedTitle ?? null,
         });
