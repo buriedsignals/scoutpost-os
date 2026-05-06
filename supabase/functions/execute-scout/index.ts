@@ -1,13 +1,13 @@
 /**
  * execute-scout Edge Function — scout run dispatcher.
  *
- * Triggered by pg_cron (via pg_net.http_post using the service-role key) or by
+ * Triggered by pg_cron (via pg_net.http_post using X-Service-Key) or by
  * the authenticated frontend through `trigger_scout_run`. The dispatcher
  * resolves the scout's type and forwards the request to the type-specific
  * worker Edge Function over HTTP (fire-and-forget with a short timeout).
  *
- * Auth: either a valid user JWT (requireUser) OR an exact service-role Bearer
- *       (SUPABASE_SERVICE_ROLE_KEY) match.
+ * Auth: either a valid user JWT (requireUser) OR shared service auth
+ *       (X-Service-Key, with service-role bearer fallback for tooling).
  *
  * Body: { scout_id: uuid, run_id?: uuid, user_id?: uuid }
  *
@@ -20,7 +20,11 @@
 
 import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
-import { requireUser } from "../_shared/auth.ts";
+import {
+  internalServiceAuthHeaders,
+  requireServiceKey,
+  requireUser,
+} from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import {
@@ -54,19 +58,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonError("method not allowed", 405);
   }
 
-  // Accept either the service-role Bearer (pg_cron / internal) OR a valid
-  // user JWT (frontend-initiated run via trigger_scout_run).
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const authHeader = req.headers.get("authorization") ??
-    req.headers.get("Authorization") ?? "";
-
-  const isServiceCaller = !!serviceKey && authHeader === `Bearer ${serviceKey}`;
-
-  let callerId = "service-role";
-  if (!isServiceCaller) {
+  // Accept either service auth (pg_cron / dispatcher) OR a valid user JWT
+  // (frontend-initiated run via trigger_scout_run).
+  let isServiceCaller = false;
+  let callerId = "service";
+  let callerUserId: string | null = null;
+  try {
+    requireServiceKey(req);
+    isServiceCaller = true;
+  } catch {
     try {
       const user = await requireUser(req);
       callerId = user.id;
+      callerUserId = user.id;
     } catch (e) {
       return jsonFromError(e instanceof AuthError ? e : new AuthError());
     }
@@ -97,6 +101,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .maybeSingle();
     if (scoutErr) throw new Error(scoutErr.message);
     if (!scout) throw new NotFoundError("scout");
+    if (!isServiceCaller && scout.user_id !== callerUserId) {
+      throw new NotFoundError("scout");
+    }
     if (scout.is_active === false) {
       throw new ConflictError("scout is paused");
     }
@@ -108,9 +115,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     if (!supabaseUrl) throw new Error("SUPABASE_URL not configured");
-    if (!serviceKey) {
-      throw new Error("SUPABASE_SERVICE_ROLE_KEY not configured");
-    }
+    const serviceHeaders = internalServiceAuthHeaders();
 
     const workerUrl = `${supabaseUrl}/functions/v1/${worker}`;
     const forwardBody = JSON.stringify({
@@ -141,7 +146,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         workerRes = await fetch(workerUrl, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${serviceKey}`,
+            ...serviceHeaders,
             "Content-Type": "application/json",
           },
           body: forwardBody,

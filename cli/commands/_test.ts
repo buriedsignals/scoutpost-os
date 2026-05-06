@@ -21,6 +21,7 @@ import {
 import { VERSION } from "../lib/version.ts";
 import { run as runIngest } from "./ingest.ts";
 import { run as runScouts } from "./scouts.ts";
+import { run as runUser } from "./user.ts";
 
 async function withTempHome(
   fn: () => void | Promise<void>,
@@ -325,6 +326,49 @@ Deno.test("apiFetch — sends apikey header for hosted Edge Functions when confi
     assertStringIncludes(obs.url, "www.cojournalist.ai/functions/v1/units");
     assertEquals(obs.auth, "Bearer cj_preferred");
     assertEquals(obs.apikey, "anon_test_key");
+  });
+});
+
+Deno.test("user me — fetches /user/me and prints account state", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://x.supabase.co",
+      api_key: "cj_user",
+      supabase_anon_key: "anon_test_key",
+    });
+
+    let observedUrl = "";
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    const lines: string[] = [];
+    globalThis.fetch = ((input: string | URL | Request) => {
+      observedUrl = input instanceof Request ? input.url : String(input);
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            user_id: "user-1",
+            tier: "team",
+            org_id: "org-1",
+            team: { org_name: "MuckRock Staff" },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    console.log = (...args: unknown[]) => {
+      lines.push(args.map((a) => String(a)).join(" "));
+    };
+
+    try {
+      await runUser(["me"]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+
+    assertStringIncludes(observedUrl, "x.supabase.co/functions/v1/user/me");
+    assertStringIncludes(lines.join("\n"), '"tier": "team"');
+    assertStringIncludes(lines.join("\n"), "MuckRock Staff");
   });
 });
 

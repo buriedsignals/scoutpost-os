@@ -92,6 +92,14 @@ rm -f docs/architecture/records-and-deduplication.md
 rm -f DESIGN.md
 rm -rf .firecrawl/
 
+# MCP docs are kept in the OSS mirror, but SaaS examples must not expose the
+# hosted coJournalist project ref.
+if [ -d docs/mcp ]; then
+  while IFS= read -r -d '' file; do
+    sed_if_exists -i "s|${HOSTED_SUPABASE_REF}|<project-ref>|g" "$file"
+  done < <(find docs/mcp -type f -name '*.md' -print0)
+fi
+
 # -------------------------------------------------------------------
 # Scripts: keep the OSS-friendly smoke test; drop the one-time SaaS
 # migration tooling (pulls DynamoDB via MuckRock-issued IAM creds).

@@ -6,8 +6,8 @@
  * the sibling `apify-callback` function) eventually flips the row to
  * succeeded/failed and triggers downstream processing.
  *
- * Auth: service-role Bearer only (invoked by execute-scout dispatcher or
- *       directly by pg_cron-style jobs).
+ * Auth: shared service auth (invoked by execute-scout dispatcher or directly
+ *       by pg_cron-style jobs).
  *
  * Body: { scout_id: uuid, run_id?: uuid }
  */
@@ -16,11 +16,13 @@ import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
 import {
   getServiceClient,
-  getServiceRoleKey,
   getSupabaseUrl,
   SupabaseClient,
 } from "../_shared/supabase.ts";
-import { requireServiceKey } from "../_shared/auth.ts";
+import {
+  internalServiceAuthHeaders,
+  requireServiceKey,
+} from "../_shared/auth.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import {
   AuthError,
@@ -68,13 +70,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonError("method not allowed", 405);
   }
 
-  let serviceKey = "";
   try {
     requireServiceKey(req);
-    serviceKey = Deno.env.get("INTERNAL_SERVICE_KEY") || getServiceRoleKey();
   } catch (e) {
     if (e instanceof AuthError) return jsonFromError(e);
-    return jsonFromError(new AuthError("service-role required"));
+    return jsonFromError(new AuthError("service key required"));
   }
 
   let body: unknown;
@@ -92,9 +92,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const { scout_id, run_id } = parsed.data;
 
   const svc = getServiceClient();
+  const serviceHeaders = internalServiceAuthHeaders();
 
   try {
-    return await startApifyRun(svc, scout_id, serviceKey, run_id);
+    return await startApifyRun(svc, scout_id, serviceHeaders, run_id);
   } catch (e) {
     logEvent({
       level: "error",
@@ -112,7 +113,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 async function startApifyRun(
   svc: SupabaseClient,
   scoutId: string,
-  serviceKey: string,
+  serviceHeaders: Record<string, string>,
   existingRunId: string | undefined,
 ): Promise<Response> {
   // 1. Load scout.
@@ -262,8 +263,7 @@ async function startApifyRun(
       ],
       requestUrl: webhookUrl,
       headersTemplate: JSON.stringify({
-        "Authorization": `Bearer ${serviceKey}`,
-        "X-Service-Key": serviceKey,
+        ...serviceHeaders,
         "Content-Type": "application/json",
         "X-Apify-Webhook-Signature": "{{signature}}",
       }),

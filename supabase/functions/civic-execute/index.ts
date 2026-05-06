@@ -13,7 +13,8 @@
  *     body: { scout_id: uuid, run_id?: uuid }
  *     -> 200 { status: "ok", queued: N, tracked_urls_checked: M, run_id }
  *
- * Auth: service-role only (X-Service-Key). Cron/dispatcher only.
+ * Auth: shared service auth (X-Service-Key, with service-role fallback for
+ * operator tooling). Cron/dispatcher only.
  *
  * Errors:
  *   - 404 if scout missing

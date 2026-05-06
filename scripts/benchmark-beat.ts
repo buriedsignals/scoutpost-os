@@ -22,21 +22,23 @@
  *     --scout-id <existing-beat-scout-uuid>
  *
  * Required env:
+ *   COJO_LIVE_BENCHMARK=1
  *   SUPABASE_URL
  *   SUPABASE_ANON_KEY
  *   SUPABASE_SERVICE_ROLE_KEY
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { assertSafeBenchmarkSupabaseUrl } from "./_bench_shared.ts";
+import { assertLiveBenchmarkAllowed } from "./_bench_shared.ts";
 
 const SUPABASE_URL = mustEnv("SUPABASE_URL");
-assertSafeBenchmarkSupabaseUrl(SUPABASE_URL);
+assertLiveBenchmarkAllowed(SUPABASE_URL, { firecrawl: true });
 const SUPABASE_ANON_KEY = mustEnv("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = mustEnv("SUPABASE_SERVICE_ROLE_KEY");
 const FUTURE_CRON = "0 0 1 1 *";
 const DEFAULT_TIMEOUT_MS = 8 * 60_000;
-const MAX_ATTEMPTS = 2;
+const MAX_ATTEMPTS = 1;
+const DEFAULT_CANARY_COUNT = 2;
 
 const service = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -434,6 +436,7 @@ function effectiveCriteria(scenario: Scenario): string | undefined {
 function previewCategories(
   scenario: Scenario,
 ): Array<"news" | "government" | "analysis"> {
+  if (Deno.env.get("COJO_FULL_BEAT_BENCHMARK") !== "1") return ["news"];
   const hasLocation = Boolean(scenario.location);
   const hasCriteria = Boolean(effectiveCriteria(scenario));
   if (scenario.sourceMode === "niche" && hasLocation && !hasCriteria) {
@@ -793,7 +796,9 @@ try {
     ? [await cloneScenarioFromScout(scoutId)]
     : scenarioPattern
     ? CANARIES.filter((scenario) => scenario.name.includes(scenarioPattern))
-    : CANARIES;
+    : Deno.env.get("COJO_FULL_BEAT_BENCHMARK") === "1"
+    ? CANARIES
+    : CANARIES.slice(0, DEFAULT_CANARY_COUNT);
   if (scenarios.length === 0) {
     throw new Error(`no benchmark scenarios matched ${scenarioPattern}`);
   }

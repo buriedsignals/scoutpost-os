@@ -16,10 +16,12 @@
  *     body: {}
  *     -> 200 { emailed: N, paused_scouts: total }
  *
- * Auth: service-role Bearer only (cron-only).
+ * Auth: shared service auth (X-Service-Key from cron, with service-role bearer
+ *       fallback for operator tooling).
  */
 
 import { handleCors } from "../_shared/cors.ts";
+import { requireServiceKey } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { AuthError } from "../_shared/errors.ts";
@@ -44,12 +46,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonError("method not allowed", 405);
   }
 
-  // Service-role-only auth (exact Bearer match).
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const authHeader = req.headers.get("authorization") ??
-    req.headers.get("Authorization") ?? "";
-  if (!serviceKey || authHeader !== `Bearer ${serviceKey}`) {
-    return jsonFromError(new AuthError("service-role key required"));
+  try {
+    requireServiceKey(req);
+  } catch (e) {
+    return jsonFromError(e instanceof AuthError ? e : new AuthError());
   }
 
   const svc = getServiceClient();
@@ -199,7 +199,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
 function buildMarkdown(scouts: PausedScout[]): string {
   const lines = scouts.map(
     (s) =>
-      `- **${escapeMd(s.name)}** (${s.type}): ${s.consecutive_failures} consecutive failures.`,
+      `- **${
+        escapeMd(s.name)
+      }** (${s.type}): ${s.consecutive_failures} consecutive failures.`,
   );
   return [
     "# Scout health alert",
@@ -217,9 +219,9 @@ function buildHtml(scouts: PausedScout[]): string {
   const items = scouts
     .map(
       (s) =>
-        `<li><strong>${escapeHtml(s.name)}</strong> (${escapeHtml(s.type)}): ${
-          s.consecutive_failures
-        } consecutive failures.</li>`,
+        `<li><strong>${escapeHtml(s.name)}</strong> (${
+          escapeHtml(s.type)
+        }): ${s.consecutive_failures} consecutive failures.</li>`,
     )
     .join("");
   return [

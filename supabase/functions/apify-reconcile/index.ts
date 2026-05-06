@@ -12,10 +12,15 @@
  *     body: {}
  *     -> 200 { reconciled: N }
  *
- * Auth: service-role Bearer only (cron-only).
+ * Auth: shared service auth (X-Service-Key from cron, with service-role bearer
+ *       fallback for operator tooling).
  */
 
 import { handleCors } from "../_shared/cors.ts";
+import {
+  internalServiceAuthHeaders,
+  requireServiceKey,
+} from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { AuthError } from "../_shared/errors.ts";
@@ -38,16 +43,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonError("method not allowed", 405);
   }
 
-  // Service-role-only auth (exact Bearer match).
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const authHeader = req.headers.get("authorization") ??
-    req.headers.get("Authorization") ?? "";
-  if (!serviceKey || authHeader !== `Bearer ${serviceKey}`) {
-    return jsonFromError(new AuthError("service-role key required"));
+  try {
+    requireServiceKey(req);
+  } catch (e) {
+    return jsonFromError(e instanceof AuthError ? e : new AuthError());
   }
 
   const apifyToken = Deno.env.get("APIFY_API_TOKEN") ?? "";
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceHeaders = internalServiceAuthHeaders();
   const svc = getServiceClient();
 
   try {
@@ -84,7 +88,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           row,
           apifyToken,
           supabaseUrl,
-          serviceKey,
+          serviceHeaders,
         );
         if (processed) reconciled += 1;
       } catch (e) {
@@ -136,7 +140,7 @@ async function reconcileRow(
   row: QueueRow,
   apifyToken: string,
   supabaseUrl: string,
-  serviceKey: string,
+  serviceHeaders: Record<string, string>,
 ): Promise<boolean> {
   const apifyRunId = row.apify_run_id as string;
   const res = await fetch(
@@ -172,7 +176,7 @@ async function reconcileRow(
     const cbRes = await fetch(cbUrl, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${serviceKey}`,
+        ...serviceHeaders,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),

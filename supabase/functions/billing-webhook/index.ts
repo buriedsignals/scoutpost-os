@@ -26,6 +26,7 @@ import {
   applyTeamOrgTopup,
   applyUserEvent,
   cancelTeamOrg,
+  isCojournalistTeamEntitlement,
 } from "../_shared/entitlements.ts";
 
 interface WebhookBody {
@@ -78,7 +79,10 @@ Deno.serve(async (req): Promise<Response> => {
 
   const secret = Deno.env.get("MUCKROCK_CLIENT_SECRET");
   if (!secret) {
-    return jsonError("server misconfigured: MUCKROCK_CLIENT_SECRET not set", 500);
+    return jsonError(
+      "server misconfigured: MUCKROCK_CLIENT_SECRET not set",
+      500,
+    );
   }
 
   const message = `${body.timestamp}${body.type}${body.uuids.join("")}`;
@@ -111,7 +115,7 @@ Deno.serve(async (req): Promise<Response> => {
           await applyIndividualOrgChange(svc, org);
         } else {
           const teamEnt = (org.entitlements ?? []).find(
-            (e) => e.name === "cojournalist-team",
+            isCojournalistTeamEntitlement,
           );
           if (teamEnt) {
             await applyTeamOrgTopup(svc, org, teamEnt);
@@ -134,7 +138,9 @@ Deno.serve(async (req): Promise<Response> => {
         level: "error",
         fn: "billing-webhook",
         event: "process_failed",
-        msg: `${body.type} ${uuid}: ${err instanceof Error ? err.message : String(err)}`,
+        msg: `${body.type} ${uuid}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       });
     }
   }

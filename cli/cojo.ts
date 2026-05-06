@@ -7,6 +7,7 @@ import * as ingest from "./commands/ingest.ts";
 import * as projects from "./commands/projects.ts";
 import * as scouts from "./commands/scouts.ts";
 import * as units from "./commands/units.ts";
+import * as user from "./commands/user.ts";
 import { VERSION } from "./lib/version.ts";
 
 const SUBCOMMANDS = [
@@ -14,6 +15,7 @@ const SUBCOMMANDS = [
   "projects",
   "scouts",
   "units",
+  "user",
   "ingest",
 ] as const;
 
@@ -27,6 +29,7 @@ const COMMANDS: Record<
   projects,
   scouts,
   units,
+  user,
   ingest,
 };
 
@@ -41,6 +44,7 @@ function printUsage(): void {
     "  projects   List, add, show, delete projects",
     "  scouts     List, add, show, update, run, pause, resume, delete scouts",
     "  units      List, show, verify, reject, mark-used, search information units",
+    "  user       Show current user account state",
     "  ingest     Ingest a URL or raw text into the knowledge base",
     "",
     "Run `cojo <command> --help` for command-specific usage.",

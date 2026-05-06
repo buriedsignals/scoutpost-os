@@ -7,7 +7,8 @@
 export type AgentSlug =
 	| 'claude-code'
 	| 'claude-cowork'
-	| 'codex'
+	| 'codex-cli'
+	| 'codex-mcp'
 	| 'cursor'
 	| 'windsurf'
 	| 'gemini-cli'
@@ -38,8 +39,13 @@ export const AGENTS: AgentMeta[] = [
 			'<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .962L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>'
 	},
 	{
-		slug: 'codex',
-		name: 'Codex',
+		slug: 'codex-cli',
+		name: 'Codex CLI',
+		iconInner: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'
+	},
+	{
+		slug: 'codex-mcp',
+		name: 'Codex MCP',
 		iconInner: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'
 	},
 	{
@@ -68,7 +74,7 @@ export const AGENTS: AgentMeta[] = [
 	},
 	{
 		slug: 'openclaw',
-		name: 'OpenClaw',
+		name: 'OpenClaw (experimental)',
 		iconInner:
 			'<path d="M6 18h8"/><path d="M3 22h18"/><path d="M14 22a7 7 0 1 0 0-14h-1"/><path d="M9 14h2"/><path d="M9 12a2 2 0 0 1 2-2V6l-4-4h3l1 2"/><path d="M4 4h3l1 2"/>'
 	},
@@ -85,6 +91,12 @@ export const AGENTS: AgentMeta[] = [
 			'<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M7 12h10"/>'
 	}
 ];
+
+export function normalizeAgentSlug(value: string | null | undefined): AgentSlug {
+	if (value === 'codex') return 'codex-cli';
+	const match = AGENTS.find((a) => a.slug === value);
+	return match?.slug ?? AGENTS[0].slug;
+}
 
 export function getAgent(slug: AgentSlug): AgentMeta {
 	return AGENTS.find((a) => a.slug === slug) ?? AGENTS[AGENTS.length - 1];

@@ -10,7 +10,11 @@
 
 import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
-import { AuthedUser, requireUser } from "../_shared/auth.ts";
+import {
+  AuthedUser,
+  requireUser,
+  requireUserOrApiKey,
+} from "../_shared/auth.ts";
 import { getServiceClient, getUserClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
@@ -68,16 +72,18 @@ Deno.serve(async (req): Promise<Response> => {
   const cors = handleCors(req);
   if (cors) return cors;
 
-  let user: AuthedUser;
-  try {
-    user = await requireUser(req);
-  } catch (e) {
-    return jsonFromError(e);
-  }
-
   const url = new URL(req.url);
   const path = url.pathname.replace(/^.*\/user/, "") || "/";
   const isRead = req.method === "GET" || req.method === "HEAD";
+
+  let user: AuthedUser;
+  try {
+    user = path === "/me" && isRead
+      ? await requireUserOrApiKey(req)
+      : await requireUser(req);
+  } catch (e) {
+    return jsonFromError(e);
+  }
 
   try {
     if (path === "/me" && isRead) {
@@ -156,26 +162,30 @@ async function getMe(user: AuthedUser): Promise<Response> {
 
   const tier = (prefs?.tier ?? "free") as "free" | "pro" | "team";
   const activeOrgId = (prefs?.active_org_id ?? null) as string | null;
-  const preferredLanguage = (prefs?.preferred_language ?? null) as string | null;
+  const preferredLanguage = (prefs?.preferred_language ?? null) as
+    | string
+    | null;
   const timezone = (prefs?.timezone ?? null) as string | null;
-  const healthNotificationsEnabled = (prefs?.health_notifications_enabled ?? true) as boolean;
+  const healthNotificationsEnabled =
+    (prefs?.health_notifications_enabled ?? true) as boolean;
 
   // Read the applicable credit row: team pool first, else the user's own.
   const { data: creditRow } = activeOrgId
     ? await svc
-        .from("credit_accounts")
-        .select("balance, monthly_cap, tier")
-        .eq("org_id", activeOrgId)
-        .maybeSingle()
+      .from("credit_accounts")
+      .select("balance, monthly_cap, tier")
+      .eq("org_id", activeOrgId)
+      .maybeSingle()
     : await svc
-        .from("credit_accounts")
-        .select("balance, monthly_cap, tier")
-        .eq("user_id", user.id)
-        .maybeSingle();
+      .from("credit_accounts")
+      .select("balance, monthly_cap, tier")
+      .eq("user_id", user.id)
+      .maybeSingle();
 
   const effectiveTier = (creditRow?.tier ?? tier) as "free" | "pro" | "team";
   const credits = creditRow?.balance ?? 0;
-  const monthlyCap = creditRow?.monthly_cap ?? DEFAULT_MONTHLY_CAPS[effectiveTier];
+  const monthlyCap = creditRow?.monthly_cap ??
+    DEFAULT_MONTHLY_CAPS[effectiveTier];
 
   let team: MeResponse["team"] = null;
   if (activeOrgId) {
@@ -226,7 +236,10 @@ async function getPreferences(user: AuthedUser): Promise<Response> {
   return jsonOk(data ?? {});
 }
 
-async function patchPreferences(req: Request, user: AuthedUser): Promise<Response> {
+async function patchPreferences(
+  req: Request,
+  user: AuthedUser,
+): Promise<Response> {
   let body: unknown;
   try {
     body = await req.json();
@@ -235,7 +248,9 @@ async function patchPreferences(req: Request, user: AuthedUser): Promise<Respons
   }
   const parsed = PreferencesSchema.safeParse(body);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues.map((i) => i.message).join("; "));
+    throw new ValidationError(
+      parsed.error.issues.map((i) => i.message).join("; "),
+    );
   }
   if (Object.keys(parsed.data).length === 0) {
     throw new ValidationError("no updatable fields provided");
@@ -302,7 +317,9 @@ async function upsertPreferences(
     row.excluded_domains = input.excluded_domains;
   }
   if (input.cms_api_url !== undefined) row.cms_api_url = input.cms_api_url;
-  if (input.cms_api_token !== undefined) row.cms_api_token = input.cms_api_token;
+  if (input.cms_api_token !== undefined) {
+    row.cms_api_token = input.cms_api_token;
+  }
   if (Object.keys(jsonbPatch).length > 0 || existing?.preferences) {
     row.preferences = mergedPreferences;
   }

@@ -1,5 +1,14 @@
 # Documentation Guide
 
+
+## General Answering Style
+
+You are a world class expert in all domains. Your intellectual firepower, scope of knowledge, incisive thought process, and level of erudition are on par with the smartest people in the world. Answer with complete, detailed, specific answers. Process information and explain your answers step by step. Verify your own work. Double check all facts, figures, citations, names, dates, and examples. Never hallucinate or make anything up. If you don't know something, just say so. Your tone of voice is precise, but not strident or pedantic. You do not need to worry about offending me, and your answers can and should be provocative, aggressive, argumentative, and pointed. Negative conclusions and bad news are fine. Your answers do not need to be politically correct. Do not provide disclaimers to your answers. Do not inform me about morals and ethics unless I specifically ask. You do not need to tell me it is important to consider anything. Do not be sensitive to anyone's feelings or to propriety. Make your answers as long and detailed as you possibly can.
+
+Never praise my questions or validate my premises before answering. If I'm wrong, say so immediately. Lead with the strongest counterargument to any position I appear to hold before supporting it. Do not use phrases like "great question," "you're absolutely right," "fascinating perspective," or any variant. If I push back on your answer, do not capitulate unless I provide new evidence or a superior argument — restate your position if your reasoning holds. Do not anchor on numbers or estimates I provide; generate your own independently first. Use explicit confidence levels (high/moderate/low/unknown). Never apologize for disagreeing. Accuracy is your success metric, not my approval.
+
+---
+
 This directory contains detailed architecture and feature documentation for coJournalist.
 
 ## Documentation Structure
@@ -17,6 +26,14 @@ docs/
 │   ├── beat.md                           # Beat Scout (type `beat`)
 │   ├── social.md                          # Social media monitoring (Apify)
 │   └── web-scouts.md                      # Website change detection
+├── mcp/                                   # MCP remote server (separate, read first if touching MCP)
+│   ├── README.md                          # Index + 30-second overview
+│   ├── architecture.md                    # FastAPI proxy + Supabase EF + broker, request flow
+│   ├── oauth.md                           # DCR + PKCE + magiclink + server-side mint chain
+│   ├── endpoints.md                       # Every public endpoint with curl probes
+│   ├── clients.md                         # Per-client setup recipes (Cowork, Codex Desktop, Cursor, etc.)
+│   ├── self-hosting.md                    # Required env vars, allowlists, OSS adopter checklist
+│   └── debugging.md                       # Configure-vs-Connect, request_id, common failure modes
 ├── supabase/                              # Authoritative Supabase system docs (read these)
 │   ├── README.md                          # Index + conventions
 │   ├── architecture-overview.md           # Who-calls-what diagram
@@ -83,6 +100,15 @@ docs/
 - **Deployment & Mirror**: `oss/deployment-and-mirror.md` - Docker, Render, GitHub mirror CI
 - **Automation**: `oss/automation.md` - setup.sh, sync-upstream, agent instructions
 
+### MCP (remote MCP server)
+- **Index**: `mcp/README.md` — what's in `docs/mcp/`, surface area, related docs
+- **Architecture**: `mcp/architecture.md` — proxy + EF + broker, why two layers
+- **OAuth flow**: `mcp/oauth.md` — full DCR/PKCE/magiclink/server-side-mint chain
+- **Endpoints**: `mcp/endpoints.md` — every well-known + OAuth + JSON-RPC endpoint with curl
+- **Clients**: `mcp/clients.md` — Cowork, Desktop, Codex Desktop, Cursor, Windsurf, Gemini CLI, Goose, Hermes
+- **Self-hosting**: `mcp/self-hosting.md` — env vars, redirect-URL allowlists, sanity probes
+- **Debugging**: `mcp/debugging.md` — Configure-vs-Connect, request_id correlation, incident timeline
+
 ### MuckRock / Billing
 - **OAuth**: `muckrock/oauth-integration.md` - OpenID flow, session cookies
 - **Plans & Credits**: `muckrock/plans-and-entitlements.md` - Tier definitions, credit costs
@@ -99,6 +125,7 @@ When making code changes:
 3. **Schema change**: Update `oss/supabase-schema.md`
 4. **Adapter change**: Update `oss/adapter-pattern.md`
 5. **Edge Function change**: Update `oss/edge-functions.md`
+   - **MCP-related EF change** (`mcp-server`, `mcp-auth`): also update `mcp/architecture.md` and `mcp/oauth.md`
 6. **Billing change**: Update `muckrock/plans-and-entitlements.md`
 7. **New integration**: Document within relevant feature doc in `features/`
 8. **Auth flow / local dev auth change**: Update all of:

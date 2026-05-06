@@ -11,11 +11,12 @@
  * a truncated last_error, so the failsafe cron can either retry or
  * leave it parked.
  *
- * Auth: service-role Bearer only (pg_cron uses SUPABASE_SERVICE_ROLE_KEY
- *       when invoking via pg_net.http_post).
+ * Auth: shared service auth (pg_cron uses X-Service-Key from Vault; service-
+ *       role bearer remains a tooling fallback).
  */
 
 import { handleCors } from "../_shared/cors.ts";
+import { requireServiceKey } from "../_shared/auth.ts";
 import { getServiceClient, SupabaseClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { AuthError } from "../_shared/errors.ts";
@@ -108,13 +109,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonError("method not allowed", 405);
   }
 
-  // Service-role Bearer only. pg_cron hits this function with the
-  // service-role key; no user JWT is acceptable here.
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const authHeader = req.headers.get("authorization") ??
-    req.headers.get("Authorization") ?? "";
-  if (!serviceKey || authHeader !== `Bearer ${serviceKey}`) {
-    return jsonFromError(new AuthError("service-role required"));
+  try {
+    requireServiceKey(req);
+  } catch (e) {
+    return jsonFromError(e instanceof AuthError ? e : new AuthError());
   }
 
   // Body may be empty; tolerate either way.

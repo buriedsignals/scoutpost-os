@@ -22,13 +22,10 @@ import { handleCors } from "../_shared/cors.ts";
 import {
   AuthedUser,
   getCallerClient,
+  internalServiceAuthHeaders,
   requireUserOrApiKey,
 } from "../_shared/auth.ts";
-import {
-  getServiceClient,
-  getServiceRoleKey,
-  getSupabaseUrl,
-} from "../_shared/supabase.ts";
+import { getServiceClient, getSupabaseUrl } from "../_shared/supabase.ts";
 import {
   jsonError,
   jsonFromError,
@@ -524,7 +521,7 @@ async function establishBeatBaseline(scoutId: string): Promise<void> {
     {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${getServiceRoleKey()}`,
+        ...internalServiceAuthHeaders(),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ scout_id: scoutId, baseline_only: true }),

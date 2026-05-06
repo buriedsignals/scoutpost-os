@@ -14,11 +14,13 @@
  *       Single-hop only — nested listings are skipped. CAP = 10.
  *   6. On any throw: mark run error, increment_scout_failures, surface error.
  *
- * Auth: service-role Bearer only (internal call).
+ * Auth: shared service auth (X-Service-Key, with service-role bearer fallback
+ *       for operator tooling).
  */
 
 import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
+import { requireServiceKey } from "../_shared/auth.ts";
 import { getServiceClient, SupabaseClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import {
@@ -100,12 +102,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonError("method not allowed", 405);
   }
 
-  // Service-role-only auth (exact match, not substring).
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const authHeader = req.headers.get("authorization") ??
-    req.headers.get("Authorization") ?? "";
-  if (!serviceKey || authHeader !== `Bearer ${serviceKey}`) {
-    return jsonFromError(new AuthError("service-role key required"));
+  try {
+    requireServiceKey(req);
+  } catch (e) {
+    return jsonFromError(e instanceof AuthError ? e : new AuthError());
   }
 
   let body: unknown;

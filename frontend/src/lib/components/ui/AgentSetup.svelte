@@ -28,6 +28,14 @@
 		</div>
 	{/if}
 
+	{#if recipe.video}
+		<div class="video-block">
+			<video controls preload="metadata" aria-label={recipe.video.title}>
+				<source src={recipe.video.src} type="video/mp4" />
+			</video>
+		</div>
+	{/if}
+
 	{#if recipe.mode === 'cli-command' && recipe.command}
 		<div class="block">
 			<div class="block-head">
@@ -50,6 +58,24 @@
 				{/each}
 			</ol>
 		{/if}
+
+		{#if recipe.configSnippet}
+			<div class="block">
+				<div class="block-head">
+					<span class="block-label">
+						{recipe.configLang ? 'Reference config' : 'Remote MCP URL'}
+					</span>
+					<button class="copy-btn" on:click={() => copy('snippet', recipe.configSnippet ?? '')}>
+						{#if copied === 'snippet'}
+							<Check size={13} /><span>Copied</span>
+						{:else}
+							<Copy size={13} /><span>Copy</span>
+						{/if}
+					</button>
+				</div>
+				<pre class="lang-{recipe.configLang ?? 'text'}"><code>{recipe.configSnippet}</code></pre>
+			</div>
+		{/if}
 	{:else if recipe.mode === 'cli-install' && recipe.installCommand}
 		<div class="block">
 			<div class="block-head">
@@ -65,11 +91,7 @@
 				</button>
 			</div>
 			<pre><code>{recipe.installCommand}</code></pre>
-			<p class="block-note">
-				Example above is macOS Apple Silicon. For Intel Mac / Linux, swap the asset suffix
-				(<code>-darwin-x86_64</code>, <code>-linux-x86_64</code>, <code>-linux-arm64</code>) — see the
-				docs link below.
-			</p>
+			<p class="block-note">Requires Deno 2.x. The command installs from source and works across supported platforms.</p>
 		</div>
 
 		{#if recipe.configCommands?.length}
@@ -148,11 +170,19 @@
 
 	<div class="verify">
 		<span class="verify-label">Verify it works</span>
-		<p>
-			Ask your AI:
-			<em>&ldquo;{recipe.verifyPrompt ?? 'List my coJournalist scouts'}&rdquo;</em>
-			&mdash; if it returns your scouts, you&rsquo;re connected.
-		</p>
+		{#if recipe.verifySteps?.length}
+			<ol class="verify-steps">
+				{#each recipe.verifySteps as step}
+					<li>{step}</li>
+				{/each}
+			</ol>
+		{:else}
+			<p>
+				Ask your AI:
+				<em>&ldquo;{recipe.verifyPrompt ?? 'List my coJournalist scouts'}&rdquo;</em>
+				&mdash; if it returns your scouts, you&rsquo;re connected.
+			</p>
+		{/if}
 	</div>
 
 	{#if recipe.docsUrl}
@@ -202,6 +232,17 @@
 		color: #7c2d12;
 		margin: 0;
 		line-height: 1.5;
+	}
+
+	.video-block {
+		border: 1px solid var(--color-border);
+		background: #111827;
+	}
+	.video-block video {
+		display: block;
+		width: 100%;
+		aspect-ratio: 16 / 9;
+		background: #111827;
 	}
 
 	.block {
@@ -356,6 +397,16 @@
 		font-size: 0.8125rem;
 		color: #166534;
 		line-height: 1.5;
+	}
+	.verify-steps {
+		margin: 0;
+		padding-left: 1.125rem;
+		font-size: 0.8125rem;
+		color: #166534;
+		line-height: 1.5;
+	}
+	.verify-steps li + li {
+		margin-top: 0.25rem;
 	}
 	.verify em {
 		font-style: normal;

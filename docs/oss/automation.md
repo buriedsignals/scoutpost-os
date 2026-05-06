@@ -80,24 +80,38 @@ an upstream merge.
 
 ## Dockerized installer
 
-For operators who do not want to install the local toolchain, build the
-installer container and mount the generated setup manifest:
+For operators who do not want to install the local toolchain, use the prebuilt
+installer image and mount the generated setup manifest read-only:
 
 ```bash
-docker build -f deploy/installer/Dockerfile -t cojournalist-installer .
 docker run --rm -it \
   -v "$PWD:/workspace" \
   -v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro" \
-  cojournalist-installer install
+  ghcr.io/buriedsignals/cojournalist-installer:latest install
 ```
 
 The container runs the same `automation/setup-from-manifest.sh` path as the
-non-Docker installer. It also exposes:
+non-Docker installer. If `/workspace` is not already a coJournalist checkout,
+the image clones `buriedsignals/cojournalist-os` into
+`/workspace/cojournalist-os`.
+
+It also exposes:
 
 ```bash
-docker run --rm -it -v "$PWD:/workspace" cojournalist-installer doctor
-docker run --rm -it -v "$PWD:/workspace" -v "$HOME/.config/gh:/root/.config/gh:ro" cojournalist-installer update
+docker run --rm -it \
+  -v "$PWD:/workspace" \
+  -v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro" \
+  ghcr.io/buriedsignals/cojournalist-installer:latest doctor
+
+docker run --rm -it \
+  -v "$PWD:/workspace" \
+  -v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro" \
+  -v "$HOME/.config/gh:/root/.config/gh:ro" \
+  ghcr.io/buriedsignals/cojournalist-installer:latest update
 ```
+
+Run `update` from the downstream newsroom fork checkout. It prepares a
+maintenance branch and opens a PR when GitHub CLI auth is mounted.
 
 ## Local self-host smoke
 

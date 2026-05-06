@@ -10,7 +10,7 @@
 		type InstallPath
 	} from '$lib/utils/agent-recipes';
 	import { getSupabaseProjectRef, resolveAgentTargetContext } from '$lib/utils/agent-targets';
-	import type { AgentSlug } from '$lib/utils/agent-icons';
+	import { normalizeAgentSlug, type AgentSlug } from '$lib/utils/agent-icons';
 
 	export let open = false;
 	/** Optional starting view — 'api' jumps straight to the REST panel. */
@@ -37,7 +37,8 @@
 	// Snap path to an available one whenever the agent changes.
 	$: if (!availablePaths.includes(path)) path = agentRecipes.default;
 	$: recipe = agentRecipes.recipes[path] ?? agentRecipes.recipes[agentRecipes.default]!;
-	// Prompt adapts to both the agent (skill save location) and path (CLI vs MCP instructions).
+	$: showSetupPrompt = recipe.setupKind === 'automated-cli';
+	// Prompt adapts to the agent's skill save location for CLI setup flows.
 	$: skillPrompt = getSkillPrompt(agent, path, agentTarget);
 	$: targetProjectRef =
 		agentTarget.deploymentKind === 'supabase'
@@ -86,8 +87,11 @@
 
 	onMount(() => {
 		try {
-			const last = localStorage.getItem(STORAGE_KEY) as AgentSlug | null;
-			if (last) agent = last;
+			const last = localStorage.getItem(STORAGE_KEY);
+			if (last) {
+				agent = normalizeAgentSlug(last);
+				if (agent !== last) localStorage.setItem(STORAGE_KEY, agent);
+			}
 			const lastPath = localStorage.getItem(PATH_STORAGE_KEY) as InstallPath | null;
 			if (lastPath === 'cli' || lastPath === 'mcp') path = lastPath;
 		} catch {
@@ -205,66 +209,70 @@
 						</div>
 					{/if}
 
-					<!-- 1-click setup: the whole walkthrough lives in the prompt. -->
-					<section class="skill">
-						<div class="skill-head">
-							<span class="skill-eyebrow">Step 1 · 1-click setup</span>
-							<h3>Paste this into your first message</h3>
-							<div class="target-summary">
-								<span>Active target</span>
-								<code>{agentTarget.apiBaseUrl}</code>
-								{#if targetProjectRef}
-									<small>Project ref: {targetProjectRef}</small>
-								{/if}
+					{#if showSetupPrompt}
+						<!-- 1-click setup: the whole walkthrough lives in the prompt. -->
+						<section class="skill">
+							<div class="skill-head">
+								<span class="skill-eyebrow">Step 1 · 1-click setup</span>
+								<h3>Paste this into your first message</h3>
+								<div class="target-summary">
+									<span>Active target</span>
+									<code>{agentTarget.apiBaseUrl}</code>
+									{#if targetProjectRef}
+										<small>Project ref: {targetProjectRef}</small>
+									{/if}
+								</div>
+								<p>
+									It tells your AI to fetch <code>skill.md</code>, install the
+									<code>cojo CLI</code>, and verify the connection. The prompt tells the agent
+									to have you save a <code>cj_…</code> API key locally — click
+									<strong>API</strong> above to create one.
+								</p>
 							</div>
-							<p>
-								It tells your AI to fetch <code>skill.md</code>, install the
-								<code>{path === 'cli' ? 'cojo CLI' : 'remote MCP server'}</code>, and verify the connection —
-								all in one shot.
-								{#if path === 'cli'}
-									The prompt tells the agent to have you save a <code>cj_…</code> API key locally —
-									click <strong>API</strong> above to create one.
-								{:else}
-									Auth is handled by OAuth when your connector prompts you to sign in — no token to paste.
-								{/if}
-							</p>
-						</div>
-						<div class="skill-prompt">
-							<pre><code>{skillPrompt}</code></pre>
-							<button class="copy-btn" on:click={copySkillPrompt} aria-label="Copy prompt">
-								{#if skillCopied}
-									<Check size={13} /><span>Copied</span>
-								{:else}
-									<Copy size={13} /><span>Copy</span>
-								{/if}
-							</button>
-						</div>
-						<div class="skill-actions">
-							<a
-								class="skill-action"
-								href={agentTarget.skillUrl}
-								download="cojournalist-skill.md"
-								target="_blank"
-								rel="noopener"
-							>
-								<Download size={13} />
-								<span>Download skill.md</span>
-							</a>
-							<span class="skill-action-hint">
-								Prompt is dynamic per agent. <code>skill.md</code> is the same for every
-								agent — it's the product manual.
-							</span>
-						</div>
-					</section>
+							<div class="skill-prompt">
+								<pre><code>{skillPrompt}</code></pre>
+								<button class="copy-btn" on:click={copySkillPrompt} aria-label="Copy prompt">
+									{#if skillCopied}
+										<Check size={13} /><span>Copied</span>
+									{:else}
+										<Copy size={13} /><span>Copy</span>
+									{/if}
+								</button>
+							</div>
+							<div class="skill-actions">
+								<a
+									class="skill-action"
+									href={agentTarget.skillUrl}
+									download="cojournalist-skill.md"
+									target="_blank"
+									rel="noopener"
+								>
+									<Download size={13} />
+									<span>Download skill.md</span>
+								</a>
+								<span class="skill-action-hint">
+									Prompt is dynamic per agent. <code>skill.md</code> is the same for every
+									agent — it's the product manual.
+								</span>
+							</div>
+						</section>
 
-					<div class="divider"></div>
+						<div class="divider"></div>
+					{/if}
 
 					<section class="fallback">
-						<span class="skill-eyebrow">Step 2 · Reference (if your agent needs help)</span>
+						<span class="skill-eyebrow">
+							{showSetupPrompt ? 'Step 2 · Reference' : 'Manual setup'}
+						</span>
 						<p class="fallback-hint">
-							The prompt above handles this automatically. These are the raw
-							{path === 'cli' ? 'install + config commands' : 'MCP config details'} for
-							reference, in case you or the agent want to step through them manually.
+							{#if showSetupPrompt}
+								The prompt above handles this automatically. These are the raw install +
+								config commands for reference, in case you or the agent want to step through
+								them manually.
+							{:else}
+								This runtime needs a manual connector or config step. Follow the steps below;
+								OAuth handles sign-in when the runtime connects to coJournalist.
+							{/if}
 						</p>
 						<AgentSetup {recipe} />
 					</section>

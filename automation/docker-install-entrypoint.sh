@@ -59,6 +59,13 @@ doctor() {
 update_instance() {
   find_or_clone_repo
   cd "$REPO_DIR"
+
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "Refusing to prepare an update branch from a dirty checkout: $REPO_DIR" >&2
+    echo "Commit, stash, or remove local changes before running cojournalist-installer update." >&2
+    exit 1
+  fi
+
   log "Pre-update doctor"
   bash automation/selfhost-doctor.sh || true
 

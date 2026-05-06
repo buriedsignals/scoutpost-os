@@ -118,9 +118,15 @@ describe('setup generator', () => {
 
 		expect(script).toContain('automation/setup-from-manifest.sh');
 		expect(prompt).toContain('Do not ask me to paste secrets into chat.');
+		expect(prompt).toContain('Prefer the Docker installer when Docker is available');
+		expect(prompt).toContain('ghcr.io/buriedsignals/cojournalist-installer:latest');
 		expect(prompt).toContain('Install the upstream sync workflow by default');
+		expect(prompt).toContain('For future downstream updates');
 		expect(prompt).toContain('maintenance reporting');
 		expect(docker).toContain('deploy/installer/Dockerfile');
+		expect(docker).toContain('recommended self-host setup path');
+		expect(docker).toContain('ghcr.io/buriedsignals/cojournalist-installer:latest install');
+		expect(docker).toContain('Downstream updates');
 		expect(docker).toContain(
 			'-v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro"'
 		);

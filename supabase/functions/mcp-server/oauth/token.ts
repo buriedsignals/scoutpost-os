@@ -14,7 +14,7 @@
  *     - Atomic `UPDATE ... SET used_at=now() WHERE code=$1 AND used_at IS
  *       NULL` — rowcount must be 1, else another request won the race.
  *     - Return `{access_token, refresh_token, token_type, expires_in}` using
- *       the Supabase tokens stored at authorize-callback time. The MCP
+ *       the Supabase tokens stored by `mcp-auth` at callback time. The MCP
  *       client uses the access_token directly as a Supabase JWT for
  *       subsequent `tools/call` requests.
  *

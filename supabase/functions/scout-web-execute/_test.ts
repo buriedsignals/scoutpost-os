@@ -35,6 +35,15 @@ function authHeaders(bearer: string): HeadersInit {
   };
 }
 
+function internalHeaders(): HeadersInit {
+  const k = Deno.env.get("INTERNAL_SERVICE_KEY");
+  if (!k) throw new Error("INTERNAL_SERVICE_KEY required for this test");
+  return {
+    "X-Service-Key": k,
+    "Content-Type": "application/json",
+  };
+}
+
 Deno.test("scout-web-execute: non-service auth returns 401", async () => {
   const user = await createTestUser();
   try {
@@ -50,12 +59,28 @@ Deno.test("scout-web-execute: non-service auth returns 401", async () => {
   }
 });
 
+Deno.test("scout-web-execute: X-Service-Key reaches scout lookup", async () => {
+  if (!Deno.env.get("INTERNAL_SERVICE_KEY")) {
+    console.warn("skipping: INTERNAL_SERVICE_KEY not set");
+    return;
+  }
+  const res = await fetch(functionUrl("scout-web-execute"), {
+    method: "POST",
+    headers: internalHeaders(),
+    body: JSON.stringify({ scout_id: crypto.randomUUID() }),
+  });
+  const body = await res.json();
+  assertEquals(res.status, 404);
+  assertEquals(body.code, "not_found");
+});
+
 const hasLiveKeys = !!Deno.env.get("FIRECRAWL_API_KEY") &&
   !!Deno.env.get("GEMINI_API_KEY");
 
 Deno.test(
   {
-    name: "scout-web-execute: happy path (live Firecrawl + Gemini keys required)",
+    name:
+      "scout-web-execute: happy path (live Firecrawl + Gemini keys required)",
     ignore: !hasLiveKeys,
   },
   async () => {

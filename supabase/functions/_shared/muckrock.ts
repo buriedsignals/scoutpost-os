@@ -10,7 +10,8 @@
  * Token is cached in-memory for the Edge Function's lifetime.
  */
 
-const BASE = Deno.env.get("MUCKROCK_BASE_URL") ?? "https://accounts.muckrock.com";
+const BASE = Deno.env.get("MUCKROCK_BASE_URL") ??
+  "https://accounts.muckrock.com";
 
 interface CachedToken {
   accessToken: string;
@@ -19,6 +20,7 @@ interface CachedToken {
 
 export interface MuckrockEntitlement {
   name: string;
+  slug?: string;
   resources?: { monthly_credits?: number } & Record<string, unknown>;
   update_on?: string;
 }
@@ -45,9 +47,12 @@ export class MuckrockClient {
 
   constructor(clientId?: string, clientSecret?: string) {
     this.clientId = clientId ?? Deno.env.get("MUCKROCK_CLIENT_ID") ?? "";
-    this.clientSecret = clientSecret ?? Deno.env.get("MUCKROCK_CLIENT_SECRET") ?? "";
+    this.clientSecret = clientSecret ??
+      Deno.env.get("MUCKROCK_CLIENT_SECRET") ?? "";
     if (!this.clientId || !this.clientSecret) {
-      throw new Error("MuckrockClient: MUCKROCK_CLIENT_ID / MUCKROCK_CLIENT_SECRET not set");
+      throw new Error(
+        "MuckrockClient: MUCKROCK_CLIENT_ID / MUCKROCK_CLIENT_SECRET not set",
+      );
     }
   }
 
@@ -79,7 +84,10 @@ export class MuckrockClient {
     if (!resp.ok) {
       throw new Error(`MuckRock token exchange failed: ${resp.status}`);
     }
-    const data = (await resp.json()) as { access_token: string; expires_in: number };
+    const data = (await resp.json()) as {
+      access_token: string;
+      expires_in: number;
+    };
     this.tokenCache = {
       accessToken: data.access_token,
       expiresAt: now + data.expires_in,
@@ -90,7 +98,9 @@ export class MuckrockClient {
   /** Fetch userinfo (full record with organizations + entitlements) by UUID. */
   async fetchUserData(uuid: string): Promise<MuckrockUserInfo> {
     const headers = await this.authHeaders();
-    const resp = await fetch(`${BASE}/api/users/${encodeURIComponent(uuid)}/`, { headers });
+    const resp = await fetch(`${BASE}/api/users/${encodeURIComponent(uuid)}/`, {
+      headers,
+    });
     if (!resp.ok) {
       throw new Error(`fetch_user_data failed: ${resp.status}`);
     }
@@ -100,7 +110,10 @@ export class MuckrockClient {
   /** Fetch organization by UUID (webhook processing). */
   async fetchOrgData(uuid: string): Promise<MuckrockOrg> {
     const headers = await this.authHeaders();
-    const resp = await fetch(`${BASE}/api/organizations/${encodeURIComponent(uuid)}/`, { headers });
+    const resp = await fetch(
+      `${BASE}/api/organizations/${encodeURIComponent(uuid)}/`,
+      { headers },
+    );
     if (!resp.ok) {
       throw new Error(`fetch_org_data failed: ${resp.status}`);
     }

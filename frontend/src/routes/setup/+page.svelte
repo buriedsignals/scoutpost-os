@@ -225,9 +225,9 @@ Run the manifest installer from the repository root. Never ask the operator to p
 			<div class="eyebrow">SELF-HOST SETUP</div>
 			<h1>Generate your newsroom installer</h1>
 			<p>
-				Fill this out locally in your browser. The setup files keep secrets on disk: either in a
-				runnable installer or in a local manifest an agent can read without asking you to paste keys
-				into chat.
+				Fill this out locally in your browser. Docker is the recommended install path: the
+				generated manifest stays on disk, mounts read-only into the operator container, and is reused
+				for validation and downstream update PRs.
 			</p>
 		</header>
 
@@ -510,28 +510,28 @@ Run the manifest installer from the repository root. Never ask the operator to p
 				{/if}
 
 				<div class="output-options">
-					<div class="option">
-						<Terminal class="option-icon" size={22} />
-						<h3>Generate installer</h3>
-						<p>Download a runnable shell script with the manifest embedded and secrets written as local `chmod 600` files.</p>
-						<button type="button" class="primary-button" on:click={downloadInstaller}>
-							<Download size={16} /> Download .sh
+					<div class="option recommended">
+						<Package class="option-icon" size={22} />
+						<h3>Docker installer</h3>
+						<p>Recommended. Download the credentials manifest plus Docker commands for install, doctor, and downstream update PRs.</p>
+						<button type="button" class="primary-button" on:click={downloadDockerInstaller}>
+							<Download size={16} /> Download Docker files
 						</button>
 					</div>
 					<div class="option">
 						<FileJson class="option-icon" size={22} />
 						<h3>Generate agent instructions</h3>
-						<p>Download `cojournalist-setup.json` plus a prompt file telling the agent to read the local manifest.</p>
+						<p>Download `cojournalist-setup.json` plus a prompt that tells the agent to prefer Docker and read the local manifest.</p>
 						<button type="button" class="primary-button" on:click={downloadAgentInstructions}>
 							<FileText size={16} /> Download JSON + prompt
 						</button>
 					</div>
 					<div class="option">
-						<Package class="option-icon" size={22} />
-						<h3>Docker installer</h3>
-						<p>Download the credentials manifest plus Docker commands that mount it read-only into the installer container.</p>
-						<button type="button" class="primary-button" on:click={downloadDockerInstaller}>
-							<Download size={16} /> Download Docker files
+						<Terminal class="option-icon" size={22} />
+						<h3>Shell fallback</h3>
+						<p>Download a runnable shell script with the same manifest embedded for environments where Docker is unavailable.</p>
+						<button type="button" class="primary-button" on:click={downloadInstaller}>
+							<Download size={16} /> Download .sh
 						</button>
 					</div>
 				</div>
@@ -937,6 +937,11 @@ Run the manifest installer from the repository root. Never ask the operator to p
 		padding: var(--space-5);
 		border: 1px solid var(--color-border-strong);
 		background: var(--color-surface-alt);
+	}
+
+	.option.recommended {
+		border-color: var(--color-primary);
+		box-shadow: inset 0 3px 0 var(--color-primary);
 	}
 
 	:global(.option-icon) {

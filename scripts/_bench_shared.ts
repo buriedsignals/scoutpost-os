@@ -55,6 +55,28 @@ export function assertSafeBenchmarkSupabaseUrl(supabaseUrl: string) {
   }
 }
 
+export function assertLiveBenchmarkAllowed(
+  supabaseUrl: string,
+  opts: { firecrawl?: boolean } = {},
+) {
+  if (Deno.env.get("COJO_LIVE_BENCHMARK") !== "1") {
+    throw new Error(
+      "Refusing to run live benchmarks without COJO_LIVE_BENCHMARK=1.",
+    );
+  }
+  assertSafeBenchmarkSupabaseUrl(supabaseUrl);
+  if (
+    opts.firecrawl &&
+    Deno.env.get("FIRECRAWL_API_KEY") &&
+    Deno.env.get("COJO_ALLOW_PROD_FIRECRAWL") !== "1"
+  ) {
+    throw new Error(
+      "Refusing to spend a Firecrawl key without COJO_ALLOW_PROD_FIRECRAWL=1. " +
+        "Use a non-production key/project or set the override intentionally.",
+    );
+  }
+}
+
 export async function getCtx(): Promise<BenchCtx> {
   const supabaseUrl = mustEnv("SUPABASE_URL", "API_URL").replace(/\/$/, "");
   assertSafeBenchmarkSupabaseUrl(supabaseUrl);

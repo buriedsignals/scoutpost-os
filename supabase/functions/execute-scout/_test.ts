@@ -36,6 +36,26 @@ function authHeaders(bearer: string): HeadersInit {
   };
 }
 
+function serviceHeaders(): HeadersInit {
+  const internal = Deno.env.get("INTERNAL_SERVICE_KEY");
+  if (internal) {
+    return {
+      "X-Service-Key": internal,
+      "Content-Type": "application/json",
+    };
+  }
+  return authHeaders(serviceKey());
+}
+
+function internalHeaders(): HeadersInit {
+  const k = Deno.env.get("INTERNAL_SERVICE_KEY");
+  if (!k) throw new Error("INTERNAL_SERVICE_KEY required for this test");
+  return {
+    "X-Service-Key": k,
+    "Content-Type": "application/json",
+  };
+}
+
 async function insertScout(
   userId: string,
   fields: Record<string, unknown>,
@@ -70,7 +90,22 @@ Deno.test("execute-scout: unauthenticated request returns 401", async () => {
 Deno.test("execute-scout: unknown scout_id returns 404", async () => {
   const res = await fetch(functionUrl("execute-scout"), {
     method: "POST",
-    headers: authHeaders(serviceKey()),
+    headers: serviceHeaders(),
+    body: JSON.stringify({ scout_id: crypto.randomUUID() }),
+  });
+  const body = await res.json();
+  assertEquals(res.status, 404);
+  assertEquals(body.code, "not_found");
+});
+
+Deno.test("execute-scout: X-Service-Key reaches scout lookup", async () => {
+  if (!Deno.env.get("INTERNAL_SERVICE_KEY")) {
+    console.warn("skipping: INTERNAL_SERVICE_KEY not set");
+    return;
+  }
+  const res = await fetch(functionUrl("execute-scout"), {
+    method: "POST",
+    headers: internalHeaders(),
     body: JSON.stringify({ scout_id: crypto.randomUUID() }),
   });
   const body = await res.json();
@@ -82,10 +117,13 @@ Deno.test("execute-scout: paused scout returns 409", async () => {
   const user = await createTestUser();
   let scoutId: string | null = null;
   try {
-    scoutId = await insertScout(user.id, { is_active: false, schedule_cron: null });
+    scoutId = await insertScout(user.id, {
+      is_active: false,
+      schedule_cron: null,
+    });
     const res = await fetch(functionUrl("execute-scout"), {
       method: "POST",
-      headers: authHeaders(serviceKey()),
+      headers: serviceHeaders(),
       body: JSON.stringify({ scout_id: scoutId }),
     });
     const body = await res.json();
@@ -94,6 +132,27 @@ Deno.test("execute-scout: paused scout returns 409", async () => {
   } finally {
     if (scoutId) await svc().from("scouts").delete().eq("id", scoutId);
     await user.cleanup();
+  }
+});
+
+Deno.test("execute-scout: user JWT cannot run another user's scout", async () => {
+  const owner = await createTestUser();
+  const other = await createTestUser();
+  let scoutId: string | null = null;
+  try {
+    scoutId = await insertScout(owner.id, {});
+    const res = await fetch(functionUrl("execute-scout"), {
+      method: "POST",
+      headers: authHeaders(other.token),
+      body: JSON.stringify({ scout_id: scoutId }),
+    });
+    const body = await res.json();
+    assertEquals(res.status, 404);
+    assertEquals(body.code, "not_found");
+  } finally {
+    if (scoutId) await svc().from("scouts").delete().eq("id", scoutId);
+    await owner.cleanup();
+    await other.cleanup();
   }
 });
 
@@ -106,7 +165,7 @@ Deno.test(
       scoutId = await insertScout(user.id, {});
       const res = await fetch(functionUrl("execute-scout"), {
         method: "POST",
-        headers: authHeaders(serviceKey()),
+        headers: serviceHeaders(),
         body: JSON.stringify({ scout_id: scoutId }),
       });
       const body = await res.json().catch(() => ({}));

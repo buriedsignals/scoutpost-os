@@ -16,7 +16,8 @@
  *       new_posts_count?, units_extracted?
  *     }
  *
- * Auth: service-role Bearer only (Apify is configured to send this).
+ * Auth: shared service auth. Apify webhook registrations are configured with
+ *       X-Service-Key when INTERNAL_SERVICE_KEY is available.
  */
 
 import { handleCors } from "../_shared/cors.ts";

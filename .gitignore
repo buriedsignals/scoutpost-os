@@ -13,6 +13,13 @@ TOM.md
 cojournalist-pat.txt
 supabase-keys.txt
 
+# Generated self-host setup artifacts (contain deployment secrets)
+cojournalist-setup.json
+cojournalist-install.sh
+cojournalist-agent-prompt.md
+cojournalist-docker-install.md
+newsroom-onboarding.md
+
 # Python
 __pycache__/
 *.py[cod]
@@ -55,6 +62,8 @@ Thumbs.db
 # AI tool configs
 .claude/
 .agents/
+.codex/
+.mcp.json
 
 # Firecrawl cache
 .firecrawl/

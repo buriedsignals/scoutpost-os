@@ -7,16 +7,11 @@
  * tier, credit pool, and team-org membership already populated.
  *
  * Routes (after Kong strips `/functions/v1/auth-muckrock`):
- *   GET /login     — 302 to MuckRock authorize endpoint. Optional query
- *                    params `mcp_callback` + `mcp_state` forward a remote
- *                    MCP client's OAuth context through the MuckRock flow
- *                    so the magiclink lands back in the MCP OAuth broker.
- *                    Optional `post_login_redirect` is accepted only for
- *                    localhost /auth/callback targets in local dev.
+ *   GET /login     — 302 to MuckRock authorize endpoint. Optional
+ *                    `post_login_redirect` is accepted only for localhost
+ *                    /auth/callback targets in local dev.
  *   GET /callback  — exchange code, upsert Supabase user, sync tier, 302
- *                    to the Supabase magiclink. Magiclink's redirect_to is
- *                    either PUBLIC_APP_URL (normal login) or the MCP
- *                    callback URL (when mcp_callback was set at /login).
+ *                    to the Supabase magiclink.
  *
  * This function sets `verify_jwt = false` — these are browser-facing redirects
  * hit directly (no Supabase JWT or anon key available).
@@ -58,7 +53,6 @@ import { getServiceClient } from "../_shared/supabase.ts";
 import {
   buildLocalPostLoginHandoffUrl,
   parseAllowedPostLoginRedirect,
-  resolvePostLoginRedirect,
 } from "./redirects.ts";
 
 const SCOPES = "openid profile uuid organizations email preferences";
@@ -142,11 +136,6 @@ function constantTimeEq(a: string, b: string): boolean {
 interface StatePayload {
   nonce: string;
   ts: number;
-  /** MCP broker callback URL. Set when the login flow was initiated by a
-   *  remote MCP client via mcp-server/authorize → auth-muckrock/login. */
-  mcp_callback?: string;
-  /** MCP broker's signed state blob — we pass this through untouched. */
-  mcp_state?: string;
   /** Optional local-dev frontend callback after Supabase magiclink. */
   post_login_redirect?: string;
 }
@@ -221,49 +210,13 @@ function redirectToLogin(errorCode: string, publicBase: string): Response {
 
 async function handleLogin(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  const mcpCallback = url.searchParams.get("mcp_callback") ?? undefined;
-  const mcpState = url.searchParams.get("mcp_state") ?? undefined;
   const postLoginRedirect = parseAllowedPostLoginRedirect(
     url.searchParams.get("post_login_redirect"),
   );
   if (url.searchParams.has("post_login_redirect") && !postLoginRedirect) {
     return jsonError("invalid post_login_redirect", 400);
   }
-  // Only accept mcp_callback URLs that point at our own MCP server — belt
-  // and braces against someone using us as an open redirector.
-  //
-  // Two valid hosts:
-  //   - the raw Supabase project host (legacy; used when MCP_SERVER_BASE_URL
-  //     is unset and the mcp-server function self-references via SUPABASE_URL)
-  //   - the public MCP host advertised in /.well-known metadata
-  //     (i.e. https://www.cojournalist.ai/mcp). MCP clients see and trust
-  //     that public host, so the post-OAuth bounce should land there too.
-  if (mcpCallback) {
-    const supabaseHost = new URL(envOrThrow("SUPABASE_URL")).host;
-    const publicMcpBase = Deno.env.get("MCP_SERVER_BASE_URL");
-    const publicHost = publicMcpBase ? new URL(publicMcpBase).host : "";
-    let cbHost = "";
-    let cbPath = "";
-    try {
-      const cbUrl = new URL(mcpCallback);
-      cbHost = cbUrl.host;
-      cbPath = cbUrl.pathname;
-    } catch {
-      /* parse failure handled below */
-    }
-    const hostOk = cbHost === supabaseHost ||
-      (publicHost !== "" && cbHost === publicHost);
-    // Path must live under the mcp-server function (raw Supabase) or the
-    // /mcp prefix (public host) — never an arbitrary path on the same host.
-    const pathOk = cbPath.startsWith("/functions/v1/mcp-server/") ||
-      cbPath.startsWith("/mcp/");
-    if (!hostOk || !pathOk) {
-      return jsonError("invalid mcp_callback", 400);
-    }
-  }
   const state = await createState(envOrThrow("SESSION_SECRET"), {
-    mcp_callback: mcpCallback,
-    mcp_state: mcpState,
     post_login_redirect: postLoginRedirect,
   });
   return new Response(null, {
@@ -439,21 +392,16 @@ async function handleCallback(req: Request): Promise<Response> {
   }
 
   // 6. Generate magiclink action URL — no email is sent; admin API returns the URL.
-  //    Normal login: redirect lands on PUBLIC_APP_URL (APP_POST_LOGIN_REDIRECT).
-  //    MCP remote-client flow: redirect lands on the mcp-server OAuth callback
-  //    with the signed mcp_state echoed back as a query param; Supabase will
-  //    append the session tokens as a URL fragment.
+  //    Redirect lands on PUBLIC_APP_URL (APP_POST_LOGIN_REDIRECT); local dev
+  //    can hand the resulting Supabase session fragment back to localhost.
   try {
     const fallbackRedirect = envOrThrow("APP_POST_LOGIN_REDIRECT");
     const localBrowserRedirect = statePayload.post_login_redirect;
-    const shouldUseLocalHandoff = Boolean(localBrowserRedirect && !statePayload.mcp_callback);
-    const redirectTo = shouldUseLocalHandoff
-      ? fallbackRedirect
-      : resolvePostLoginRedirect(fallbackRedirect, statePayload);
+    const shouldUseLocalHandoff = Boolean(localBrowserRedirect);
     const { data, error: linkErr } = await admin.auth.admin.generateLink({
       type: "magiclink",
       email: userinfo.email ?? "",
-      options: { redirectTo },
+      options: { redirectTo: fallbackRedirect },
     });
     if (linkErr || !data?.properties?.action_link) {
       logEvent({

@@ -5,7 +5,8 @@
  *   authenticated user. Throws AuthError on missing/invalid token.
  * - requireServiceKey(req): validates the X-Service-Key header against the
  *   INTERNAL_SERVICE_KEY env var for function-to-function and cron-triggered
- *   calls.
+ *   calls. Service-role bearer remains a compatibility fallback for operator
+ *   tooling.
  */
 
 import { AuthError } from "./errors.ts";
@@ -15,6 +16,8 @@ import {
   getUserClient,
   SupabaseClient,
 } from "./supabase.ts";
+
+const encoder = new TextEncoder();
 
 export interface AuthedUser {
   id: string;
@@ -27,7 +30,8 @@ export interface AuthedUser {
 }
 
 export async function requireUser(req: Request): Promise<AuthedUser> {
-  const header = req.headers.get("authorization") ?? req.headers.get("Authorization");
+  const header = req.headers.get("authorization") ??
+    req.headers.get("Authorization");
   if (!header || !header.toLowerCase().startsWith("bearer ")) {
     throw new AuthError("missing bearer token");
   }
@@ -44,7 +48,9 @@ export async function requireUser(req: Request): Promise<AuthedUser> {
   return {
     id: data.user.id,
     email: data.user.email ?? undefined,
-    muckrockSubject: typeof meta.muckrock_subject === "string" ? meta.muckrock_subject : undefined,
+    muckrockSubject: typeof meta.muckrock_subject === "string"
+      ? meta.muckrock_subject
+      : undefined,
     token,
     authMethod: "session",
   };
@@ -56,7 +62,8 @@ export async function requireUser(req: Request): Promise<AuthedUser> {
 export async function requireUserOrApiKey(req: Request): Promise<AuthedUser> {
   const forwardedApiKey = req.headers.get("x-cojo-api-key") ??
     req.headers.get("X-Cojo-Api-Key");
-  const header = req.headers.get("authorization") ?? req.headers.get("Authorization");
+  const header = req.headers.get("authorization") ??
+    req.headers.get("Authorization");
   if (!header || !header.toLowerCase().startsWith("bearer ")) {
     if (!forwardedApiKey) throw new AuthError("missing bearer token");
   }
@@ -65,8 +72,12 @@ export async function requireUserOrApiKey(req: Request): Promise<AuthedUser> {
 
   if (token.startsWith("cj_")) {
     const svc = getServiceClient();
-    const { data: userId, error } = await svc.rpc("validate_api_key", { p_key: token });
-    if (error) throw new AuthError(`api key validation failed: ${error.message}`);
+    const { data: userId, error } = await svc.rpc("validate_api_key", {
+      p_key: token,
+    });
+    if (error) {
+      throw new AuthError(`api key validation failed: ${error.message}`);
+    }
     if (!userId || typeof userId !== "string") {
       throw new AuthError("invalid api key");
     }
@@ -91,6 +102,21 @@ export function getCallerClient(
   return { db: getUserClient(user.token), needsExplicitScope: false };
 }
 
+function timingSafeEqual(
+  a: string | undefined | null,
+  b: string | undefined | null,
+): boolean {
+  if (!a || !b) return false;
+  const left = encoder.encode(a);
+  const right = encoder.encode(b);
+  let diff = left.length ^ right.length;
+  const len = Math.max(left.length, right.length);
+  for (let i = 0; i < len; i++) {
+    diff |= (left[i] ?? 0) ^ (right[i] ?? 0);
+  }
+  return diff === 0;
+}
+
 export function requireServiceKey(req: Request): void {
   const expectedInternal = Deno.env.get("INTERNAL_SERVICE_KEY");
   const expectedServiceRole = (() => {
@@ -106,15 +132,16 @@ export function requireServiceKey(req: Request): void {
   // benchmarks that don't have the internal key).
   const providedInternal = req.headers.get("x-service-key") ??
     req.headers.get("X-Service-Key");
-  if (expectedInternal && providedInternal === expectedInternal) return;
+  if (timingSafeEqual(providedInternal, expectedInternal)) return;
 
   const authHeader = req.headers.get("authorization") ??
     req.headers.get("Authorization") ?? "";
   if (
-    expectedServiceRole && authHeader === `Bearer ${expectedServiceRole}`
-  ) {
-    return;
-  }
+    timingSafeEqual(
+      authHeader,
+      expectedServiceRole ? `Bearer ${expectedServiceRole}` : undefined,
+    )
+  ) return;
 
   if (!expectedInternal && !expectedServiceRole) {
     throw new AuthError(
@@ -122,4 +149,10 @@ export function requireServiceKey(req: Request): void {
     );
   }
   throw new AuthError("invalid service key");
+}
+
+export function internalServiceAuthHeaders(): Record<string, string> {
+  const internal = Deno.env.get("INTERNAL_SERVICE_KEY")?.trim();
+  if (internal) return { "X-Service-Key": internal };
+  return { "Authorization": `Bearer ${getServiceRoleKey()}` };
 }

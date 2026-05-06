@@ -35,6 +35,8 @@ export type RecipeMode =
   | "ui-steps"
   | "generic";
 
+export type RecipeSetupKind = "automated-cli" | "manual";
+
 export interface RecipeWarning {
   title: string;
   body: string;
@@ -43,6 +45,9 @@ export interface RecipeWarning {
 export interface Recipe {
   /** Short headline that renders under the path selector. */
   tagline: string;
+
+  /** Whether the modal should show an agent-facing setup prompt or manual steps. */
+  setupKind: RecipeSetupKind;
 
   /** Optional tier / compatibility callout (stdio bridge, beta status, etc.). */
   warning?: RecipeWarning;
@@ -67,12 +72,20 @@ export interface Recipe {
   /** Numbered steps for `ui-steps` mode (also appended to `cli-command` mode). */
   uiSteps?: string[];
 
+  /** Optional video walkthrough for manual UI setup flows. */
+  video?: {
+    src: string;
+    title: string;
+  };
+
   /** Docs link shown next to the setup block. */
   docsUrl?: string;
   docsLabel?: string;
 
   /** Optional: verify prompt (overrides the default "List my coJournalist scouts"). */
   verifyPrompt?: string;
+  /** Optional explicit verification steps for manual setup flows. */
+  verifySteps?: string[];
 }
 
 export const CLI_README_URL =
@@ -102,12 +115,12 @@ const CLI_CONFIG_COMMANDS = [
   "cojo config set api_url={{API_BASE_URL}}",
   "{{SUPABASE_ANON_KEY_COMMAND}}",
   "cojo config set api_key=<paste cj_... key from the API panel>",
-  "cojo --version && cojo scouts list",
 ];
 
 const sharedCliRecipe: Recipe = {
   tagline:
     "Install the cojo CLI — your agent shells out to it. No MCP server to manage, commands stay visible in the transcript.",
+  setupKind: "automated-cli",
   mode: "cli-install",
   installCommand: CLI_INSTALL_DEFAULT,
   configCommands: CLI_CONFIG_COMMANDS,
@@ -118,9 +131,10 @@ const sharedCliRecipe: Recipe = {
 
 // ----- Per-agent MCP recipes (the original table) ---------------------------
 
-const mcpRecipes: Record<AgentSlug, Recipe> = {
+const mcpRecipes: Partial<Record<AgentSlug, Recipe>> = {
   "claude-code": {
     tagline: "One command in your terminal. OAuth opens on first use.",
+    setupKind: "manual",
     mode: "cli-command",
     command: "claude mcp add --transport http cojournalist {{MCP_URL}}",
     uiSteps: [
@@ -135,38 +149,52 @@ const mcpRecipes: Record<AgentSlug, Recipe> = {
   "claude-cowork": {
     tagline:
       "Add a custom connector in Claude — same flow for Claude Desktop, claude.ai, and Cowork. No terminal needed.",
+    setupKind: "manual",
     mode: "ui-steps",
     uiSteps: [
-      "Open Claude Desktop, claude.ai, or Cowork (Settings → Connectors).",
-      'Click "+" → "Add custom connector".',
-      "Paste the URL below as the Remote MCP Server URL and click Add.",
+      "Open Claude Desktop, claude.ai, or Cowork and go to Customize → Connectors. On Team or Enterprise plans, an Owner must first add the connector in Organization settings → Connectors.",
+      'Click "+" → "Add custom connector". On Team or Enterprise, choose Custom → Web.',
+      "Paste the URL below as the Remote MCP Server URL, then click Add.",
       'Click Connect on the new entry — not Configure. (If the card defaults to Configure, click "..." → Remove, then re-add. The first probe drives the OAuth flow.)',
-      "A coJournalist sign-in opens (Anthropic brokers OAuth from their cloud — no separate desktop browser pops up). Approve, and the connector card flips to connected with the tools listed.",
+      "A coJournalist sign-in opens. Anthropic brokers remote connector traffic from its cloud, even for Desktop and Cowork. Approve the OAuth request.",
+      'Enable the connector in a conversation from the "+" menu → Connectors before asking Claude to list your scouts.',
     ],
+    video: {
+      src: "/videos/claude-cowork-connect.mp4",
+      title: "Claude Cowork connector walkthrough",
+    },
     configSnippet: MCP_URL,
     docsUrl:
       "https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp",
     docsLabel: "Claude custom connector docs",
+    verifySteps: [
+      "Open a conversation where the coJournalist connector is enabled.",
+      'Ask: "List my coJournalist scouts."',
+      "If the connector is missing, remove and re-add it from Connectors, then connect again.",
+    ],
   },
 
-  codex: {
+  "codex-mcp": {
     tagline:
-      "Codex Desktop speaks Streamable HTTP natively with OAuth. Paste the URL — no terminal needed.",
-    mode: "ui-steps",
-    uiSteps: [
-      "Open Codex Desktop → Settings → MCP Servers → Connect to a custom MCP.",
-      'Switch to the "Streamable HTTP" tab (the dialog defaults to STDIO — that\'s the wrong one for remote servers).',
-      "Name: cojournalist. URL: paste the value below. Leave Authorization blank — Codex runs the OAuth handshake on first use. Save.",
-      "Approve the coJournalist sign-in in the browser tab Codex opens. The connector flips to connected and tools appear in the Sources/Tools panel.",
-      "Terminal alternative (codex-cli): add `[mcp_servers.cojournalist]` with `url = \"{{MCP_URL}}\"` to ~/.codex/config.toml, then run `codex mcp login cojournalist`. Older codex-cli builds may need `experimental_use_rmcp_client = true` in the same file.",
-    ],
-    configSnippet: "{{MCP_URL}}",
+      "Add coJournalist as a Streamable HTTP MCP server in Codex, then run the OAuth login command.",
+    setupKind: "manual",
+    mode: "config-file",
+    configPath: "~/.codex/config.toml",
+    configLang: "toml",
+    configSnippet: `[mcp_servers.cojournalist]
+url = "{{MCP_URL}}"`,
     docsUrl: "https://developers.openai.com/codex/mcp",
     docsLabel: "Codex MCP docs",
+    verifySteps: [
+      "Save the config block above in ~/.codex/config.toml or a trusted project .codex/config.toml.",
+      "Run `codex mcp login cojournalist` and approve the OAuth flow.",
+      "Run `/mcp` in the Codex TUI and confirm cojournalist is connected.",
+    ],
   },
 
   cursor: {
     tagline: "Add an entry to Cursor’s MCP config. OAuth on first use.",
+    setupKind: "manual",
     mode: "config-file",
     configPath: "~/.cursor/mcp.json",
     configLang: "json",
@@ -179,10 +207,16 @@ const mcpRecipes: Record<AgentSlug, Recipe> = {
 }`,
     docsUrl: "https://cursor.com/docs/mcp",
     docsLabel: "Cursor MCP docs",
+    verifySteps: [
+      "Save this globally at ~/.cursor/mcp.json or per project at .cursor/mcp.json.",
+      "Run `agent mcp login cojournalist` if Cursor asks for OAuth.",
+      "Run `agent mcp list` or open Cursor Settings → Features → Model Context Protocol and confirm cojournalist is connected.",
+    ],
   },
 
   windsurf: {
     tagline: "Add via Windsurf’s MCP panel, or edit the config file.",
+    setupKind: "manual",
     mode: "config-file",
     configPath: "~/.codeium/windsurf/mcp_config.json",
     configLang: "json",
@@ -195,26 +229,36 @@ const mcpRecipes: Record<AgentSlug, Recipe> = {
 }`,
     docsUrl: "https://docs.windsurf.com/windsurf/cascade/mcp",
     docsLabel: "Windsurf MCP docs",
+    verifySteps: [
+      "Save this in ~/.codeium/windsurf/mcp_config.json or add it through Windsurf Settings → Cascade → MCP Servers.",
+      "Press the refresh button in the MCP Servers panel after adding the server.",
+      "Open the cojournalist MCP settings page and confirm tools are enabled.",
+    ],
   },
 
   "gemini-cli": {
-    tagline: "Add a block to Gemini CLI’s settings file.",
-    mode: "config-file",
-    configPath: "~/.gemini/settings.json",
-    configLang: "json",
-    configSnippet: `{
-  "mcpServers": {
-    "cojournalist": {
-      "httpUrl": "{{MCP_URL}}"
-    }
-  }
-}`,
-    docsUrl: "https://geminicli.com/docs/tools/mcp-server/",
+    tagline: "Use Gemini CLI’s MCP manager to add a Streamable HTTP server.",
+    setupKind: "manual",
+    mode: "cli-command",
+    command: "gemini mcp add --transport http cojournalist {{MCP_URL}}",
+    uiSteps: [
+      "Run the command above in your terminal. It writes to your Gemini CLI MCP settings.",
+      "If you prefer manual config, add `\"httpUrl\": \"{{MCP_URL}}\"` under `mcpServers.cojournalist` in ~/.gemini/settings.json.",
+      "Use `/mcp` or `gemini mcp list` to inspect connection status and diagnostics.",
+    ],
+    configSnippet: "{{MCP_URL}}",
+    docsUrl: "https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md",
     docsLabel: "Gemini CLI MCP docs",
+    verifySteps: [
+      "Run `gemini mcp list`.",
+      "Start Gemini CLI and run `/mcp` if the server does not appear connected.",
+      'Ask: "List my coJournalist scouts."',
+    ],
   },
 
   goose: {
     tagline: "Configure via the Goose CLI prompt flow.",
+    setupKind: "manual",
     mode: "cli-command",
     command: "goose configure",
     uiSteps: [
@@ -227,37 +271,64 @@ const mcpRecipes: Record<AgentSlug, Recipe> = {
     configSnippet: MCP_URL,
     docsUrl: "https://block.github.io/goose/docs/mcp/",
     docsLabel: "Goose MCP docs",
+    verifySteps: [
+      "Restart Goose or reload extensions after the browser authorization finishes.",
+      'Ask: "List my coJournalist scouts."',
+    ],
   },
 
   openclaw: {
-    tagline: "OpenClaw’s MCP client is in active beta.",
+    tagline: "Experimental: save coJournalist in OpenClaw’s MCP registry for runtimes that consume it.",
+    setupKind: "manual",
     warning: {
-      title: "Beta support",
+      title: "Experimental registry path",
       body:
-        "Native MCP client support for OpenClaw is tracked upstream (openclaw/openclaw#29053). Until that lands in the stable release, follow the upstream install guide below and paste the URL into the MCP extensions panel.",
+        "OpenClaw’s documented MCP command stores outbound server definitions and does not prove the target server is reachable immediately. Use this only if your OpenClaw runtime consumes saved MCP registry entries.",
     },
-    mode: "generic",
-    configSnippet: MCP_URL,
-    docsUrl: "https://github.com/openclaw/openclaw/issues/29053",
-    docsLabel: "OpenClaw MCP tracking issue",
+    mode: "cli-command",
+    command: `openclaw mcp set cojournalist '{"url":"{{MCP_URL}}","transport":"streamable-http"}'`,
+    configLang: "json",
+    configSnippet: `{
+  "mcp": {
+    "servers": {
+      "cojournalist": {
+        "url": "{{MCP_URL}}",
+        "transport": "streamable-http"
+      }
+    }
+  }
+}`,
+    docsUrl: "https://docs.openclaw.ai/cli/mcp",
+    docsLabel: "OpenClaw MCP docs",
+    verifySteps: [
+      "Run `openclaw mcp show cojournalist --json` to confirm the registry entry.",
+      "Verify in the specific OpenClaw runtime profile that consumes MCP registry entries; the registry command alone does not connect to the server.",
+    ],
   },
 
   hermes: {
     tagline: "Add a server block to Hermes’ YAML config.",
+    setupKind: "manual",
     mode: "config-file",
     configPath: "~/.hermes/config.yaml",
     configLang: "yaml",
     configSnippet: `mcp_servers:
   cojournalist:
     url: {{MCP_URL}}
-    transport: streamable_http`,
+    auth: oauth`,
     docsUrl:
-      "https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp",
+      "https://hermes-agent.nousresearch.com/docs/reference/mcp-config-reference",
     docsLabel: "Hermes Agent MCP docs",
+    verifySteps: [
+      "Save the YAML block in ~/.hermes/config.yaml.",
+      "Run `/reload-mcp` in Hermes, or restart Hermes.",
+      "Approve the OAuth browser flow on first connect.",
+    ],
   },
 
   other: {
     tagline: "Any MCP-speaking client. Paste this URL and authorize.",
+    setupKind: "manual",
     mode: "generic",
     configSnippet: MCP_URL,
     docsUrl: "https://modelcontextprotocol.io",
@@ -267,11 +338,11 @@ const mcpRecipes: Record<AgentSlug, Recipe> = {
 
 // ----- Which path is primary per agent --------------------------------------
 // Rule of thumb: if the agent has shell access, default to CLI. Chat UIs
-// without shell (Claude Cowork, OpenClaw) are MCP-only. "Other" offers both.
+// without shell (Claude Cowork) are MCP-only. "Other" offers both.
 
 const CLI_CAPABLE: AgentSlug[] = [
   "claude-code",
-  "codex",
+  "codex-cli",
   "cursor",
   "windsurf",
   "gemini-cli",
@@ -279,7 +350,8 @@ const CLI_CAPABLE: AgentSlug[] = [
   "hermes",
 ];
 
-const MCP_ONLY: AgentSlug[] = ["claude-cowork", "openclaw"];
+const CLI_ONLY: AgentSlug[] = ["codex-cli"];
+const MCP_ONLY: AgentSlug[] = ["claude-cowork", "codex-mcp"];
 
 export interface AgentRecipes {
   /** Which paths are available for this agent, in display order. */
@@ -293,9 +365,9 @@ export interface AgentRecipes {
 /** Resolve recipes + default path for an agent. */
 export function getAgentRecipes(slug: AgentSlug, target: AgentTargetContext = HOSTED_AGENT_TARGET): AgentRecipes {
   const hasCli = CLI_CAPABLE.includes(slug);
-  const hasMcp = !MCP_ONLY.includes(slug) ? true : true; // every agent has some MCP recipe
+  const hasMcp = !CLI_ONLY.includes(slug) && Boolean(mcpRecipes[slug]);
   // "Other" gets both CLI + MCP so generic users can pick.
-  const includeCli = hasCli || slug === "other";
+  const includeCli = (hasCli || slug === "other") && !MCP_ONLY.includes(slug);
 
   const paths: InstallPath[] = [];
   const recipes: Partial<Record<InstallPath, Recipe>> = {};
@@ -304,8 +376,10 @@ export function getAgentRecipes(slug: AgentSlug, target: AgentTargetContext = HO
     paths.push("cli");
     recipes.cli = fillRecipe(sharedCliRecipe, target);
   }
-  paths.push("mcp");
-  recipes.mcp = fillRecipe(mcpRecipes[slug], target);
+  if (hasMcp) {
+    paths.push("mcp");
+    recipes.mcp = fillRecipe(mcpRecipes[slug]!, target);
+  }
 
   const defaultPath: InstallPath = includeCli && !MCP_ONLY.includes(slug)
     ? "cli"
@@ -338,7 +412,7 @@ function fillRecipe(r: Recipe, target: AgentTargetContext): Recipe {
  */
 export function getRecipe(slug: AgentSlug, target: AgentTargetContext = HOSTED_AGENT_TARGET): Recipe {
   const { default: defaultPath, recipes } = getAgentRecipes(slug, target);
-  return recipes[defaultPath] ?? mcpRecipes[slug];
+  return recipes[defaultPath] ?? fillRecipe(mcpRecipes[slug] ?? sharedCliRecipe, target);
 }
 
 /**
@@ -349,7 +423,8 @@ export function getRecipe(slug: AgentSlug, target: AgentTargetContext = HOSTED_A
 const SKILL_LOCATIONS: Record<AgentSlug, string> = {
   "claude-code": ".claude/skills/cojournalist.md",
   "claude-cowork": "this Project's instructions (or your memory)",
-  codex: "AGENTS.md (or ~/.codex/AGENTS.md for global reuse)",
+  "codex-cli": "AGENTS.md (or ~/.codex/AGENTS.md for global reuse)",
+  "codex-mcp": "AGENTS.md (or ~/.codex/AGENTS.md for global reuse)",
   cursor: ".cursor/rules/cojournalist.mdc",
   windsurf: ".windsurf/rules/cojournalist.md",
   "gemini-cli": "GEMINI.md (or ~/.gemini/GEMINI.md for global reuse)",

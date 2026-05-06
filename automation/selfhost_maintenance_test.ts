@@ -255,6 +255,27 @@ Deno.test("sync workflow is PR-based and does not apply database changes", async
   assertNotIncludes(workflow, "supabase db push", "workflow");
 });
 
+Deno.test("generated self-host setup artifacts are gitignored", async () => {
+  const artifacts = [
+    "cojournalist-setup.json",
+    "cojournalist-install.sh",
+    "cojournalist-agent-prompt.md",
+    "cojournalist-docker-install.md",
+    "newsroom-onboarding.md",
+  ];
+
+  const result = await run(
+    "git",
+    ["check-ignore", "-v", ...artifacts],
+    repoRoot,
+  );
+
+  assert(result.code === 0, result.stderr || result.stdout);
+  for (const artifact of artifacts) {
+    assertIncludes(result.stdout, artifact, "git check-ignore output");
+  }
+});
+
 Deno.test("Supabase migration versions are unique", async () => {
   const versions = new Map<string, string[]>();
   for await (const entry of Deno.readDir(`${repoRoot}/supabase/migrations`)) {

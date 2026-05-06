@@ -11,8 +11,9 @@
  *     body: { scout_id: uuid, run_id?: uuid }
  *     -> 200 { status: "ok", sources_scraped: N, articles_count: M, run_id }
  *
- * Auth: service-role only (X-Service-Key header). Invoked by pg_cron and the
- * scouts router's run dispatcher — not from user browsers.
+ * Auth: shared service auth (X-Service-Key header, with service-role fallback
+ * for operator tooling). Invoked by pg_cron and the scouts router's run
+ * dispatcher — not from user browsers.
  *
  * Errors:
  *   - 404 if scout missing

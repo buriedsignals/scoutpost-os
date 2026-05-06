@@ -7,6 +7,9 @@
  * (dynamic imports conflict with Deno.serve re-registration).
  */
 
+import { requireServiceKey } from "../_shared/auth.ts";
+import { AuthError } from "../_shared/errors.ts";
+
 const BACKEND_URL = Deno.env.get("BACKEND_URL") ?? "http://backend:8000";
 const SERVICE_KEY = Deno.env.get("INTERNAL_SERVICE_KEY") ?? "";
 
@@ -36,17 +39,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (url.pathname === "/execute-scout") {
     if (req.method !== "POST") {
       return new Response(JSON.stringify({ error: "Method not allowed" }), {
-        status: 405, headers: jsonHeaders,
+        status: 405,
+        headers: jsonHeaders,
       });
     }
 
     try {
-      const authHeader = req.headers.get("Authorization") ?? "";
-      const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-
-      if (!supabaseServiceKey || authHeader !== `Bearer ${supabaseServiceKey}`) {
+      try {
+        requireServiceKey(req);
+      } catch (e) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: jsonHeaders,
+          status: e instanceof AuthError ? e.status : 401,
+          headers: jsonHeaders,
         });
       }
 
@@ -61,11 +65,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
         );
       }
 
-      console.log(`Executing ${scoutType} scout: ${body.scout_id ?? body.scraper_name ?? "unknown"}`);
+      console.log(
+        `Executing ${scoutType} scout: ${
+          body.scout_id ?? body.scraper_name ?? "unknown"
+        }`,
+      );
 
       const response = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Service-Key": SERVICE_KEY },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Service-Key": SERVICE_KEY,
+        },
         body: JSON.stringify(body),
       });
 
@@ -73,12 +84,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
       console.log(`Scout execution completed: ${response.status}`);
 
       return new Response(responseBody, {
-        status: response.status, headers: jsonHeaders,
+        status: response.status,
+        headers: jsonHeaders,
       });
     } catch (error) {
       console.error("Error executing scout:", error);
       return new Response(
-        JSON.stringify({ error: "Internal server error", detail: error instanceof Error ? error.message : String(error) }),
+        JSON.stringify({
+          error: "Internal server error",
+          detail: error instanceof Error ? error.message : String(error),
+        }),
         { status: 500, headers: jsonHeaders },
       );
     }

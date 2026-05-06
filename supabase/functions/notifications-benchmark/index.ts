@@ -16,14 +16,15 @@
  *   - language: "en"
  *   - types:    ["page", "beat", "civic", "social"]
  *
- * Auth: service-role Bearer only. Invoke from the local/remote CLI:
+ * Auth: shared service auth. Invoke from the local/remote CLI:
  *   curl -X POST $SUPABASE_URL/functions/v1/notifications-benchmark \
- *     -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+ *     -H "X-Service-Key: $INTERNAL_SERVICE_KEY" \
  *     -H "Content-Type: application/json" \
  *     -d '{"email":"tom@buriedsignals.com"}'
  */
 
 import { handleCors } from "../_shared/cors.ts";
+import { requireServiceKey } from "../_shared/auth.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { AuthError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
@@ -54,11 +55,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonError("method not allowed", 405);
   }
 
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const authHeader = req.headers.get("authorization") ??
-    req.headers.get("Authorization") ?? "";
-  if (!serviceKey || authHeader !== `Bearer ${serviceKey}`) {
-    return jsonFromError(new AuthError("service-role key required"));
+  try {
+    requireServiceKey(req);
+  } catch (e) {
+    return jsonFromError(e instanceof AuthError ? e : new AuthError());
   }
 
   const resendKey = Deno.env.get("RESEND_API_KEY") ?? "";

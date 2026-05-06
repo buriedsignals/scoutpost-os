@@ -3,6 +3,8 @@ import type { AgentTargetContext } from '$lib/utils/agent-targets';
 export type SupabaseMode = 'cloud-create' | 'cloud-existing' | 'self-hosted';
 export type FrontendProvider = 'netlify' | 'vercel' | 'cloudflare' | 'render' | 'manual';
 
+export const DOCKER_INSTALLER_IMAGE = 'ghcr.io/buriedsignals/cojournalist-installer:latest';
+
 export interface SetupManifest {
 	version: 1;
 	project: {
@@ -176,9 +178,14 @@ export function buildAgentManifestPrompt(manifestPath = 'cojournalist-setup.json
 	return [
 		'Deploy this newsroom-owned coJournalist instance from the local setup manifest.',
 		'Do not ask me to paste secrets into chat.',
-		`Read ${manifestPath} from disk, validate that it is version 1, and run automation/setup-from-manifest.sh with that file.`,
+		`Read ${manifestPath} from disk and validate that it is version 1. Treat that file as the only source of deployment secrets and configuration.`,
+		`Prefer the Docker installer when Docker is available: run ${DOCKER_INSTALLER_IMAGE}, mount the deployment directory or repository at /workspace, mount the manifest read-only at /config/cojournalist-setup.json, and run install.`,
+		'If the prebuilt installer image is unavailable, build deploy/installer/Dockerfile from the coJournalist repository root and use the local cojournalist-installer image instead.',
+		'If Docker is unavailable, run automation/setup-from-manifest.sh with the manifest path from the coJournalist repository root.',
+		'Do not print, summarize, cat, or paste secret values from the manifest. It is acceptable to report missing field names and redacted previews only.',
 		'Install the upstream sync workflow by default so this fork can receive coJournalist OSS maintenance updates.',
-		'After setup, verify .github/workflows/sync-upstream.yml exists and tell the operator which GitHub secrets are available for maintenance reporting.',
+		'After setup, run the Docker doctor path or automation/selfhost-doctor.sh, verify .github/workflows/sync-upstream.yml exists, and tell the operator which GitHub secrets are available for maintenance reporting.',
+		'For future downstream updates, use the Docker installer update command from the same mounted repository so the update PR is prepared in a repeatable operator environment.',
 		'Use the Supabase project URL, API base, MCP URL, and skill URL from the manifest-generated deployment only.',
 		'Do not connect CLI, MCP, or REST clients to cojournalist.ai unless the manifest explicitly says this is the hosted SaaS.'
 	].join('\n');
@@ -187,41 +194,60 @@ export function buildAgentManifestPrompt(manifestPath = 'cojournalist-setup.json
 export function buildDockerInstallerInstructions(manifestPath = 'cojournalist-setup.json'): string {
 	return `# coJournalist Docker installer
 
-This path runs the same manifest installer in a container so the setup tooling does not need to be installed directly on the host.
+This is the recommended self-host setup path. It runs the manifest installer in a disposable operator container so Node, Deno, Supabase CLI, GitHub CLI, jq, and OpenSSL do not need to be installed directly on the host.
+
+The manifest is the source of truth. Keep it on disk, mount it read-only, and do not paste it into chat.
 
 Expected local files:
 
 - ./${manifestPath}
-- deploy/installer/Dockerfile in the coJournalist repository
 
-Run these commands from the coJournalist repository root:
+The prebuilt image clones coJournalist OSS into /workspace/cojournalist-os if /workspace is not already a checkout. For downstream update PRs, mount the newsroom fork checkout as /workspace.
 
-\`\`\`bash
-docker build -f deploy/installer/Dockerfile -t cojournalist-installer .
+## Initial install
 
-docker run --rm -it \\
-  -v "$PWD:/workspace" \\
-  -v "$PWD/${manifestPath}:/config/cojournalist-setup.json:ro" \\
-  cojournalist-installer install
-\`\`\`
-
-Read-only validation:
+Run from the directory that contains ${manifestPath}:
 
 \`\`\`bash
 docker run --rm -it \\
   -v "$PWD:/workspace" \\
   -v "$PWD/${manifestPath}:/config/cojournalist-setup.json:ro" \\
-  cojournalist-installer doctor
+  ${DOCKER_INSTALLER_IMAGE} install
 \`\`\`
 
-Prepare an upstream maintenance update:
+## Read-only validation
+
+\`\`\`bash
+docker run --rm -it \\
+  -v "$PWD:/workspace" \\
+  -v "$PWD/${manifestPath}:/config/cojournalist-setup.json:ro" \\
+  ${DOCKER_INSTALLER_IMAGE} doctor
+\`\`\`
+
+## Downstream updates
+
+Run this from the downstream newsroom fork checkout when you want to pull current coJournalist OSS updates into a reviewable PR:
 
 \`\`\`bash
 docker run --rm -it \\
   -v "$PWD:/workspace" \\
   -v "$HOME/.config/gh:/root/.config/gh:ro" \\
   -v "$PWD/${manifestPath}:/config/cojournalist-setup.json:ro" \\
-  cojournalist-installer update
+  ${DOCKER_INSTALLER_IMAGE} update
+\`\`\`
+
+The update command fetches upstream, prepares a maintenance branch, refreshes the sync workflow, runs doctor before and after the merge, and opens a PR when GitHub CLI auth is mounted.
+
+## Local image fallback
+
+If the prebuilt image is unavailable, run these commands from a coJournalist checkout:
+
+\`\`\`bash
+docker build -f deploy/installer/Dockerfile -t cojournalist-installer .
+docker run --rm -it \\
+  -v "$PWD:/workspace" \\
+  -v "$PWD/${manifestPath}:/config/cojournalist-setup.json:ro" \\
+  cojournalist-installer install
 \`\`\`
 
 Do not paste ${manifestPath} into chat. It contains local deployment credentials and should stay on disk.

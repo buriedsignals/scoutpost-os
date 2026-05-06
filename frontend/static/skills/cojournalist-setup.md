@@ -94,20 +94,22 @@ Before treating a self-hosted install as ready:
 
 ## Dockerized setup option
 
-If the operator wants a containerized installer, use the Docker path instead of
-installing the toolchain on the host. It still reads the local
-`cojournalist-setup.json` manifest and runs the same setup script:
+Prefer the Docker path for self-hosted installs. It avoids installing Node,
+Deno, Supabase CLI, GitHub CLI, jq, and OpenSSL on the operator's host. It
+still reads the local `cojournalist-setup.json` manifest and runs the same setup
+script:
 
 ```bash
-docker build -f deploy/installer/Dockerfile -t cojournalist-installer .
 docker run --rm -it \
   -v "$PWD:/workspace" \
   -v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro" \
-  cojournalist-installer install
+  ghcr.io/buriedsignals/cojournalist-installer:latest install
 ```
 
-Use `cojournalist-installer doctor` for read-only validation and
-`cojournalist-installer update` for upstream maintenance PR preparation.
+Use the same image with `doctor` for read-only validation and `update` for
+upstream maintenance PR preparation.
+The same manifest should stay on disk and be mounted read-only; do not paste it
+into chat.
 
 ## Upstream maintenance checks
 

@@ -10,18 +10,26 @@
  *   update -> Update scout record + pg_cron schedule
  */
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { requireServiceKey } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const INTERNAL_SERVICE_KEY = Deno.env.get("INTERNAL_SERVICE_KEY") ?? "";
+
+function sqlLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
 
 /**
  * Build the pg_cron command that fires pg_net.http_post to the execute-scout
- * Edge Function. Uses the schedule_cron_job RPC wrapper (from Fix 7) which
- * accepts the command as a parameterized function argument, avoiding SQL
- * injection from user-controlled values like scout_id or scout_name.
+ * Edge Function. It reads project_url and internal_service_key from Vault at
+ * execution time so the generated cron job never embeds service credentials.
  */
-function buildCronCommand(scoutId: string, userId: string, scoutType: string, scoutName: string): string {
+function buildCronCommand(
+  scoutId: string,
+  userId: string,
+  scoutType: string,
+  scoutName: string,
+): string {
   // The body is a JSON literal embedded in the SQL command string.
   // This is safe because the RPC wrapper passes it as a parameter to cron.schedule().
   const body = JSON.stringify({
@@ -30,11 +38,18 @@ function buildCronCommand(scoutId: string, userId: string, scoutType: string, sc
     scout_type: scoutType,
     scraper_name: scoutName,
   });
-  const headers = JSON.stringify({
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${SUPABASE_SERVICE_KEY}`,
-  });
-  return `SELECT net.http_post(url := '${SUPABASE_URL}/functions/v1/execute-scout', headers := '${headers}'::jsonb, body := '${body}'::jsonb, timeout_milliseconds := 60000)`;
+  return `
+SELECT net.http_post(
+  url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url') || '/functions/v1/execute-scout',
+  headers := jsonb_build_object(
+    'X-Service-Key', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'internal_service_key'),
+    'Content-Type', 'application/json'
+  ),
+  body := ${sqlLiteral(body)}::jsonb,
+  timeout_milliseconds := 60000
+)
+WHERE EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name = 'project_url')
+  AND EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name = 'internal_service_key')`;
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -46,22 +61,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    // Verify authorization (exact match, not substring)
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const expectedToken = `Bearer ${SUPABASE_SERVICE_KEY}`;
+    try {
+      requireServiceKey(req);
+    } catch {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     if (!SUPABASE_SERVICE_KEY) {
       return new Response(
         JSON.stringify({ error: "Server misconfigured: missing service key" }),
         { status: 500, headers: { "Content-Type": "application/json" } },
       );
-    }
-
-    if (authHeader !== expectedToken) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
     }
 
     const body = await req.json();
@@ -99,13 +112,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
         if (scoutError) {
           console.error("Failed to create scout:", scoutError);
           return new Response(
-            JSON.stringify({ error: "Failed to create scout", detail: scoutError.message }),
+            JSON.stringify({
+              error: "Failed to create scout",
+              detail: scoutError.message,
+            }),
             { status: 500, headers: { "Content-Type": "application/json" } },
           );
         }
 
         // 2. Create pg_cron job via RPC wrapper (avoids direct SQL injection)
-        const cronCommand = buildCronCommand(scout.id, user_id, scout_type, scout_name);
+        const cronCommand = buildCronCommand(
+          scout.id,
+          user_id,
+          scout_type,
+          scout_name,
+        );
 
         const { error: cronError } = await supabase.rpc("schedule_cron_job", {
           job_name: schedule_name,
@@ -118,7 +139,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
           // Clean up the scout record
           await supabase.from("scouts").delete().eq("id", scout.id);
           return new Response(
-            JSON.stringify({ error: "Failed to create schedule", detail: cronError.message }),
+            JSON.stringify({
+              error: "Failed to create schedule",
+              detail: cronError.message,
+            }),
             { status: 500, headers: { "Content-Type": "application/json" } },
           );
         }
@@ -134,9 +158,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
         const { schedule_name: deleteName, scout_id } = body;
 
         // 1. Delete pg_cron job
-        const { error: unscheduleError } = await supabase.rpc("unschedule_cron_job", {
-          job_name: deleteName,
-        });
+        const { error: unscheduleError } = await supabase.rpc(
+          "unschedule_cron_job",
+          {
+            job_name: deleteName,
+          },
+        );
 
         if (unscheduleError) {
           console.error("Failed to delete cron job:", unscheduleError);
@@ -193,11 +220,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
             body.scout_name ?? "",
           );
 
-          const { error: rescheduleError } = await supabase.rpc("schedule_cron_job", {
-            job_name: updateName,
-            cron_expr: newCron,
-            command: cronCommand,
-          });
+          const { error: rescheduleError } = await supabase.rpc(
+            "schedule_cron_job",
+            {
+              job_name: updateName,
+              cron_expr: newCron,
+              command: cronCommand,
+            },
+          );
 
           if (rescheduleError) {
             console.error("Failed to reschedule:", rescheduleError);

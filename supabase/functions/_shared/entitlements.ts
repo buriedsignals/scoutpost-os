@@ -8,7 +8,11 @@
  */
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import type { MuckrockEntitlement, MuckrockOrg, MuckrockUserInfo } from "./muckrock.ts";
+import type {
+  MuckrockEntitlement,
+  MuckrockOrg,
+  MuckrockUserInfo,
+} from "./muckrock.ts";
 
 export type Tier = "free" | "pro" | "team";
 
@@ -24,8 +28,35 @@ export interface ResolvedTier {
   tier: Tier;
   monthlyCap: number;
   updateOn: string | null;
-  orgUuid: string | null;        // set only when tier === 'team'
+  orgUuid: string | null; // set only when tier === 'team'
   entitlementSource: string | null;
+}
+
+function normalizeEntitlementKey(value: string | undefined): string {
+  return (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function entitlementMatches(
+  ent: MuckrockEntitlement,
+  canonical: string,
+): boolean {
+  return [ent.slug, ent.name].some((value) =>
+    normalizeEntitlementKey(value) === canonical
+  );
+}
+
+export function isCojournalistTeamEntitlement(
+  ent: MuckrockEntitlement,
+): boolean {
+  return entitlementMatches(ent, "cojournalist-team");
+}
+
+function isCojournalistProEntitlement(ent: MuckrockEntitlement): boolean {
+  return entitlementMatches(ent, "cojournalist-pro");
 }
 
 /**
@@ -44,7 +75,10 @@ export function resolveTier(orgs: MuckrockOrg[] | undefined): ResolvedTier {
   for (const org of orgs ?? []) {
     for (const ent of org.entitlements ?? []) {
       const cap = ent.resources?.monthly_credits;
-      if (ent.name === "cojournalist-team" && TIER_RANK.team > TIER_RANK[best.tier]) {
+      if (
+        isCojournalistTeamEntitlement(ent) &&
+        TIER_RANK.team > TIER_RANK[best.tier]
+      ) {
         best = {
           tier: "team",
           monthlyCap: typeof cap === "number" ? cap : DEFAULT_CAPS.team,
@@ -52,7 +86,10 @@ export function resolveTier(orgs: MuckrockOrg[] | undefined): ResolvedTier {
           orgUuid: org.uuid,
           entitlementSource: "cojournalist-team",
         };
-      } else if (ent.name === "cojournalist-pro" && TIER_RANK.pro > TIER_RANK[best.tier]) {
+      } else if (
+        isCojournalistProEntitlement(ent) &&
+        TIER_RANK.pro > TIER_RANK[best.tier]
+      ) {
         best = {
           tier: "pro",
           monthlyCap: typeof cap === "number" ? cap : DEFAULT_CAPS.pro,
@@ -74,7 +111,9 @@ export function applyAdminOverride(
 ): ResolvedTier {
   const adminRaw = Deno.env.get("ADMIN_EMAILS")?.trim() ?? "";
   if (!email || !adminRaw) return resolved;
-  const admins = adminRaw.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const admins = adminRaw.split(",").map((e) => e.trim().toLowerCase()).filter(
+    Boolean,
+  );
   if (!admins.includes(email.toLowerCase())) return resolved;
   if (TIER_RANK[resolved.tier] >= TIER_RANK.pro) return resolved;
   return {
@@ -122,7 +161,10 @@ export async function upsertUserCredits(
   }
 
   // Returning user — update cap/tier/update_on; cap balance on downgrade.
-  const cappedBalance = Math.min(existing.balance as number, resolved.monthlyCap);
+  const cappedBalance = Math.min(
+    existing.balance as number,
+    resolved.monthlyCap,
+  );
   await svc
     .from("credit_accounts")
     .update({
@@ -235,7 +277,8 @@ export async function applyTeamOrgTopup(
   org: MuckrockOrg,
   teamEnt: MuckrockEntitlement,
 ): Promise<void> {
-  const newCap = (teamEnt?.resources?.monthly_credits as number | undefined) ?? DEFAULT_CAPS.team;
+  const newCap = (teamEnt?.resources?.monthly_credits as number | undefined) ??
+    DEFAULT_CAPS.team;
   const updateOn = teamEnt?.update_on ?? null;
 
   // Ensure org row exists first.
@@ -305,7 +348,9 @@ export async function cancelTeamOrg(
       .update({
         tier: revertTier,
         monthly_cap: revertCap,
-        entitlement_source: revertTier === "free" ? null : `cojournalist-${revertTier}`,
+        entitlement_source: revertTier === "free"
+          ? null
+          : `cojournalist-${revertTier}`,
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", m.user_id);
@@ -330,7 +375,10 @@ export async function applyUserEvent(
   svc: SupabaseClient,
   userinfo: MuckrockUserInfo,
 ): Promise<void> {
-  const resolved = applyAdminOverride(userinfo.email, resolveTier(userinfo.organizations));
+  const resolved = applyAdminOverride(
+    userinfo.email,
+    resolveTier(userinfo.organizations),
+  );
   const userId = userinfo.uuid;
 
   // Determine the user's tier-before-team for seat-claim tracking.
@@ -343,7 +391,9 @@ export async function applyUserEvent(
 
   // Team path: seed org + membership first so active_org_id resolves correctly.
   if (resolved.tier === "team" && resolved.orgUuid) {
-    const teamOrg = userinfo.organizations?.find((o) => o.uuid === resolved.orgUuid);
+    const teamOrg = userinfo.organizations?.find((o) =>
+      o.uuid === resolved.orgUuid
+    );
     if (teamOrg) {
       await seedTeamOrg(svc, teamOrg, userId, resolved, tierBeforeTeam);
     }
