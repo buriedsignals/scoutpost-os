@@ -30,7 +30,11 @@ import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
-import { firecrawlScrape, ScrapeResult } from "../_shared/firecrawl.ts";
+import {
+  firecrawlScrape,
+  firecrawlSearch,
+  ScrapeResult,
+} from "../_shared/firecrawl.ts";
 import { isWithinRunDuplicate } from "../_shared/dedup.ts";
 import { EMBEDDING_MODEL_TAG, geminiEmbed } from "../_shared/gemini.ts";
 import {
@@ -85,6 +89,113 @@ const DISCOVERY_SOURCE_LIMITS: Record<BeatScope, number> = {
 
 function rawCaptureExpiresAt(days = RAW_CAPTURE_TTL_DAYS): string {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+interface PrioritySourcePlan {
+  directUrls: string[];
+  domains: string[];
+}
+
+function partitionPrioritySources(sources: string[]): PrioritySourcePlan {
+  const directUrls: string[] = [];
+  const domains: string[] = [];
+  for (const source of sources) {
+    const normalized = normalizePrioritySource(source);
+    if (!normalized) continue;
+    if (normalized.kind === "url") directUrls.push(normalized.value);
+    else domains.push(normalized.value);
+  }
+  return {
+    directUrls: uniqueStrings(directUrls),
+    domains: uniqueStrings(domains),
+  };
+}
+
+function normalizePrioritySource(
+  source: string,
+): { kind: "url" | "domain"; value: string } | null {
+  const trimmed = source.trim();
+  if (!trimmed) return null;
+  const withProtocol = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  try {
+    const url = new URL(withProtocol);
+    const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+    const path = url.pathname.replace(/\/+$/, "");
+    const hasPath = path.length > 0;
+    if (!host.includes(".")) return null;
+    if (!hasPath && !url.search) return { kind: "domain", value: host };
+    return { kind: "url", value: url.toString() };
+  } catch {
+    return null;
+  }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter((v) => v.trim().length > 0))];
+}
+
+async function discoverPriorityDomainHits(opts: {
+  domains: string[];
+  criteria: string | null;
+  topic: string | null;
+  locationLabel: string | null;
+  preferredLanguage: string;
+  countryCode: string | null;
+  excludedDomains: string[];
+}): Promise<BeatHit[]> {
+  if (opts.domains.length === 0) return [];
+  const subject = compactSearchPart(opts.topic || opts.criteria || "news", 160);
+  const location = compactSearchPart(opts.locationLabel ?? "", 80);
+  const jobs = opts.domains.flatMap((domain) => {
+    const main = [subject, location].filter(Boolean).join(" ");
+    const fallback = [location, "news"].filter(Boolean).join(" ") ||
+      "recent news";
+    return uniqueStrings([
+      `site:${domain} ${main || fallback}`,
+      `site:${domain} ${fallback}`,
+    ]).map((query) => ({ domain, query }));
+  });
+  const results = await mapLimit(jobs, 4, async (job) => {
+    const hits = await firecrawlSearch(job.query, {
+      limit: 5,
+      lang: opts.preferredLanguage,
+      location: opts.locationLabel ?? undefined,
+      country: opts.countryCode ?? undefined,
+      sources: ["web"],
+      ignoreInvalidURLs: true,
+      excludeDomains: opts.excludedDomains,
+    });
+    return hits
+      .filter((hit) => urlMatchesDomain(hit.url, job.domain))
+      .map((hit) => ({
+        ...hit,
+        date: hit.date ?? null,
+        _pass: "news" as const,
+        query: job.query,
+      }));
+  });
+  const hits: BeatHit[] = [];
+  const seen = new Set<string>();
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    for (const hit of result.value) {
+      if (!hit.url || seen.has(hit.url)) continue;
+      seen.add(hit.url);
+      hits.push(hit);
+    }
+  }
+  return hits;
+}
+
+function compactSearchPart(value: string, limit: number): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function urlMatchesDomain(rawUrl: string | null | undefined, domain: string): boolean {
+  const host = safeDomain(rawUrl)?.replace(/^www\./i, "").toLowerCase();
+  return Boolean(host && (host === domain || host.endsWith(`.${domain}`)));
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -256,12 +367,31 @@ async function execute(
     let finalUrls: string[];
     let newsBeatHits: BeatHit[] = [];
     let govBeatHits: BeatHit[] = [];
+    let priorityBeatHits: BeatHit[] = [];
+    const priorityPlan = partitionPrioritySources(manualSources);
 
-    if (manualSources.length > 0) {
-      finalUrls = manualSources;
+    if (
+      priorityPlan.directUrls.length > 0 && priorityPlan.domains.length === 0
+    ) {
+      // Explicit article/page URLs remain an opt-in direct scrape path.
+      finalUrls = priorityPlan.directUrls;
     } else {
       const maxDiscoveredSources = DISCOVERY_SOURCE_LIMITS[scope];
       // Full pipeline branch — news + optional parallel government fan-out.
+      // Domain-only priority sources are treated as preferred source domains,
+      // not as homepage URLs to scrape directly.
+      if (priorityPlan.domains.length > 0) {
+        priorityBeatHits = await discoverPriorityDomainHits({
+          domains: priorityPlan.domains,
+          criteria: searchCriteria,
+          topic,
+          locationLabel: cityName || extractLocationLabel(scout.location) ||
+            countryName,
+          preferredLanguage,
+          countryCode,
+          excludedDomains,
+        });
+      }
       newsBeatHits = (await discoverBeatHits({
         scope,
         sourceMode,
@@ -287,15 +417,17 @@ async function execute(
         })).hits;
       }
       finalUrls = [
+        ...priorityBeatHits.map((h) => h.url),
         ...newsBeatHits.map((h) => h.url),
         ...govBeatHits.map((h) => h.url),
+        ...priorityPlan.directUrls,
       ].filter((u, i, arr) => u && arr.indexOf(u) === i).slice(
         0,
         maxDiscoveredSources,
       );
     }
     const beatHitByUrl = new Map<string, BeatHit>();
-    for (const hit of [...newsBeatHits, ...govBeatHits]) {
+    for (const hit of [...priorityBeatHits, ...newsBeatHits, ...govBeatHits]) {
       if (hit.url) beatHitByUrl.set(hit.url, hit);
     }
 
@@ -843,7 +975,8 @@ async function mapLimit<T, R>(
 function safeDomain(raw: string | null | undefined): string | null {
   if (!raw) return null;
   try {
-    return new URL(raw).hostname;
+    const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    return new URL(withProtocol).hostname.replace(/^www\./i, "");
   } catch {
     return null;
   }

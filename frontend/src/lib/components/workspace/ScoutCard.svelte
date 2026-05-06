@@ -58,11 +58,14 @@
 	$: status = ((): StatusDisplay => {
 		if (!scout.last_run?.started_at) return { variant: 'waiting', label: 'Awaiting first run' };
 		const runStatus = scout.last_run.status;
+		if (runStatus === 'running' || runStatus === 'queued') return { variant: 'waiting', label: 'Running' };
 		if (runStatus === 'failed' || runStatus === 'error') return { variant: 'error', label: 'Run failed' };
 		const count = scout.last_run.articles_count ?? 0;
 		if (count > 0) return { variant: 'success', label: 'New findings' };
 		return { variant: 'neutral', label: 'No new findings' };
 	})();
+
+	$: canRun = scout.is_active !== false;
 
 	$: scheduleLabel = (() => {
 		if (!scout.regularity) return null;
@@ -117,8 +120,9 @@
 				<button
 					on:click|stopPropagation={() => onRun(scout.id)}
 					class="scout-shell-icon-btn run-btn"
+					disabled={!canRun}
 					aria-label="Run now"
-					use:tooltip={'Run now'}
+					use:tooltip={canRun ? 'Run now' : 'Resume scout to run'}
 				>
 					<Play size={14} />
 				</button>

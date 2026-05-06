@@ -1189,13 +1189,25 @@
     color: var(--color-ink);
   }
 
-  &.run-btn:hover {
+  &:disabled {
+    cursor: not-allowed;
+    color: var(--color-ink-faint);
+    opacity: 0.55;
+  }
+
+  &:disabled:hover {
+    background: transparent;
+    border-color: transparent;
+    color: var(--color-ink-faint);
+  }
+
+  &.run-btn:hover:not(:disabled) {
     background: var(--color-primary-soft);
     color: var(--color-primary);
     border-color: var(--color-primary);
   }
 
-  &.trash-btn:hover {
+  &.trash-btn:hover:not(:disabled) {
     background: rgba(179, 62, 46, 0.1);
     color: var(--color-error);
     border-color: var(--color-error);
@@ -1203,7 +1215,7 @@
 }
 
 @utility run-btn {
-  &.scout-shell-icon-btn:hover {
+  &.scout-shell-icon-btn:hover:not(:disabled) {
     background: var(--color-primary-soft);
     color: var(--color-primary);
     border-color: var(--color-primary);
@@ -1211,7 +1223,7 @@
 }
 
 @utility trash-btn {
-  &.scout-shell-icon-btn:hover {
+  &.scout-shell-icon-btn:hover:not(:disabled) {
     background: rgba(179, 62, 46, 0.1);
     color: var(--color-error);
     border-color: var(--color-error);

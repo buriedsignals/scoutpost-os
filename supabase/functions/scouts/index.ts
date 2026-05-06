@@ -938,29 +938,16 @@ async function updateScout(
 }
 
 async function deleteScout(user: AuthedUser, id: string): Promise<Response> {
-  const { db } = getCallerClient(user);
-  const { error, count } = await db
-    .from("scouts")
-    .delete({ count: "exact" })
-    .eq("id", id)
-    .eq("user_id", user.id);
-  if (error) throw new Error(error.message);
-  if (!count) throw new NotFoundError("scout");
-
   const svc = getServiceClient();
-  const { error: rpcErr } = await svc.rpc("unschedule_scout", {
-    p_scout_id: id,
-  });
-  if (rpcErr) {
-    logEvent({
-      level: "warn",
-      fn: "scouts",
-      event: "unschedule_failed",
-      user_id: user.id,
-      scout_id: id,
-      msg: rpcErr.message,
-    });
-  }
+  const { data: deleted, error: rpcErr } = await svc.rpc(
+    "delete_scout_with_schedule",
+    {
+      p_scout_id: id,
+      p_user_id: user.id,
+    },
+  );
+  if (rpcErr) throw new Error(rpcErr.message);
+  if (!deleted) throw new NotFoundError("scout");
 
   return new Response(null, {
     status: 204,
@@ -973,12 +960,15 @@ async function runScout(user: AuthedUser, id: string): Promise<Response> {
   const { db } = getCallerClient(user);
   const { data: scout, error: readErr } = await db
     .from("scouts")
-    .select("id")
+    .select("id, is_active")
     .eq("id", id)
     .eq("user_id", user.id)
     .maybeSingle();
   if (readErr) throw new Error(readErr.message);
   if (!scout) throw new NotFoundError("scout");
+  if (scout.is_active === false) {
+    throw new ConflictError("scout is paused");
+  }
 
   const svc = getServiceClient();
   const { data: runId, error: rpcErr } = await svc.rpc("trigger_scout_run", {

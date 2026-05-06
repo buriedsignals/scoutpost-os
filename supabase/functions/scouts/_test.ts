@@ -136,6 +136,16 @@ Deno.test("scouts: POST /:id/run returns 202 with run_id UUID", async () => {
     assertEquals(createRes.status, 201);
     const created = await createRes.json();
 
+    const { error: activateErr } = await svc()
+      .from("scouts")
+      .update({
+        is_active: true,
+        schedule_cron: "0 6 * * 1",
+        baseline_established_at: new Date().toISOString(),
+      })
+      .eq("id", created.id);
+    if (activateErr) throw new Error(activateErr.message);
+
     const runRes = await fetch(
       functionUrl("scouts", `/${created.id}/run`),
       {
@@ -150,6 +160,51 @@ Deno.test("scouts: POST /:id/run returns 202 with run_id UUID", async () => {
     assertMatch(runBody.run_id, UUID_RE);
 
     // Cleanup
+    await fetch(functionUrl("scouts", `/${created.id}`), {
+      method: "DELETE",
+      headers: headers(user.token),
+    }).then((r) => r.body?.cancel());
+  } finally {
+    await user.cleanup();
+  }
+});
+
+Deno.test("scouts: POST /:id/run rejects paused scout before creating run", async () => {
+  const user = await createTestUser();
+  try {
+    const createRes = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Paused Runnable Scout",
+        type: "web",
+        url: "https://example.com",
+        topic: "run test",
+      }),
+    });
+    assertEquals(createRes.status, 201);
+    const created = await createRes.json();
+    assertEquals(created.is_active, false);
+
+    const runRes = await fetch(
+      functionUrl("scouts", `/${created.id}/run`),
+      {
+        method: "POST",
+        headers: headers(user.token),
+      },
+    );
+    assertEquals(runRes.status, 409);
+    const runBody = await runRes.json();
+    assertEquals(runBody.code, "conflict");
+    assertEquals(runBody.error, "scout is paused");
+
+    const { count, error: countErr } = await svc()
+      .from("scout_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("scout_id", created.id);
+    if (countErr) throw new Error(countErr.message);
+    assertEquals(count, 0);
+
     await fetch(functionUrl("scouts", `/${created.id}`), {
       method: "DELETE",
       headers: headers(user.token),

@@ -120,12 +120,16 @@
 
 	$: status = (() => {
 		if (!scout.last_run?.started_at) return { variant: 'waiting' as const, label: 'Awaiting first run' };
+		if (scout.last_run.status === 'running' || scout.last_run.status === 'queued')
+			return { variant: 'waiting' as const, label: 'Running' };
 		if (scout.last_run.status === 'failed' || scout.last_run.status === 'error')
 			return { variant: 'error' as const, label: 'Run failed' };
 		if ((scout.last_run.articles_count ?? 0) > 0)
 			return { variant: 'success' as const, label: 'New findings' };
 		return { variant: 'neutral' as const, label: 'No new findings' };
 	})();
+
+	$: canRun = scout.is_active !== false;
 
 	function handleBack() { onBack(); }
 </script>
@@ -159,7 +163,9 @@
 					<button
 						class="scout-shell-icon-btn run-btn"
 						on:click={() => onRun(scout.id)}
+						disabled={!canRun}
 						aria-label="Run now"
+						title={canRun ? 'Run now' : 'Resume scout to run'}
 					>
 						<Play size={14} />
 					</button>
@@ -248,6 +254,8 @@
 				<p class="summary-label">Last run summary</p>
 				{#if scout.last_run.status === 'failed' || scout.last_run.status === 'error'}
 					<p class="summary-body error">The last run encountered an error. Check logs or retry.</p>
+				{:else if scout.last_run.status === 'running' || scout.last_run.status === 'queued'}
+					<p class="summary-body neutral">Run in progress.</p>
 				{:else if articleCount !== null && articleCount > 0}
 					<p class="summary-body">Found <strong>{articleCount}</strong> new {articleCount === 1 ? 'finding' : 'findings'} in the most recent run.</p>
 				{:else}

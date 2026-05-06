@@ -39,6 +39,7 @@ import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
 import {
   firecrawlScrape,
+  firecrawlSearch,
   ScrapeResult,
 } from "../_shared/firecrawl.ts";
 import { geminiExtract } from "../_shared/gemini.ts";
@@ -92,6 +93,121 @@ interface ExtractedArticle {
   date?: string | null;
   matches_criteria?: boolean;
   matches_location?: boolean;
+}
+
+interface PrioritySourcePlan {
+  directUrls: string[];
+  domains: string[];
+}
+
+function partitionPrioritySources(sources: string[]): PrioritySourcePlan {
+  const directUrls: string[] = [];
+  const domains: string[] = [];
+  for (const source of sources) {
+    const normalized = normalizePrioritySource(source);
+    if (!normalized) continue;
+    if (normalized.kind === "url") directUrls.push(normalized.value);
+    else domains.push(normalized.value);
+  }
+  return {
+    directUrls: uniqueStrings(directUrls),
+    domains: uniqueStrings(domains),
+  };
+}
+
+function normalizePrioritySource(
+  source: string,
+): { kind: "url" | "domain"; value: string } | null {
+  const trimmed = source.trim();
+  if (!trimmed) return null;
+  const withProtocol = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  try {
+    const url = new URL(withProtocol);
+    const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+    const path = url.pathname.replace(/\/+$/, "");
+    if (!host.includes(".")) return null;
+    if (!path && !url.search) return { kind: "domain", value: host };
+    return { kind: "url", value: url.toString() };
+  } catch {
+    return null;
+  }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter((v) => v.trim().length > 0))];
+}
+
+async function discoverPriorityDomainHits(opts: {
+  domains: string[];
+  criteria: string | null;
+  locationLabel: string | null;
+  preferredLanguage: string;
+  countryCode: string | null;
+  excludedDomains: string[];
+}): Promise<{ hits: BeatHit[]; queries: string[] }> {
+  if (opts.domains.length === 0) return { hits: [], queries: [] };
+  const subject = compactSearchPart(opts.criteria || "news", 160);
+  const location = compactSearchPart(opts.locationLabel ?? "", 80);
+  const jobs = opts.domains.flatMap((domain) => {
+    const main = [subject, location].filter(Boolean).join(" ");
+    const fallback = [location, "news"].filter(Boolean).join(" ") ||
+      "recent news";
+    return uniqueStrings([
+      `site:${domain} ${main || fallback}`,
+      `site:${domain} ${fallback}`,
+    ]).map((query) => ({ domain, query }));
+  });
+  const results = await mapLimit(jobs, 4, async (job) => {
+    try {
+      const hits = await firecrawlSearch(job.query, {
+        limit: 5,
+        lang: opts.preferredLanguage,
+        location: opts.locationLabel ?? undefined,
+        country: opts.countryCode ?? undefined,
+        sources: ["web"],
+        ignoreInvalidURLs: true,
+        excludeDomains: opts.excludedDomains,
+      });
+      return hits
+        .filter((hit) => urlMatchesDomain(hit.url, job.domain))
+        .map((hit) => ({
+          ...hit,
+          date: hit.date ?? null,
+          _pass: "news" as const,
+          query: job.query,
+        }));
+    } catch (e) {
+      logEvent({
+        level: "warn",
+        fn: "beat-search",
+        event: "priority_search_failed",
+        query: job.query,
+        msg: e instanceof Error ? e.message : String(e),
+      });
+      return [];
+    }
+  });
+  const hits: BeatHit[] = [];
+  const seen = new Set<string>();
+  for (const result of results) {
+    for (const hit of result) {
+      if (!hit.url || seen.has(hit.url)) continue;
+      seen.add(hit.url);
+      hits.push(hit);
+    }
+  }
+  return { hits, queries: uniqueStrings(jobs.map((job) => job.query)) };
+}
+
+function compactSearchPart(value: string, limit: number): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function urlMatchesDomain(rawUrl: string | null | undefined, domain: string): boolean {
+  const host = safeDomain(rawUrl)?.replace(/^www\./i, "").toLowerCase();
+  return Boolean(host && (host === domain || host.endsWith(`.${domain}`)));
 }
 
 const ARTICLES_SCHEMA: Record<string, unknown> = {
@@ -198,14 +314,17 @@ async function runSearch(
   const priority = (input.priority_sources ?? []).map((s) => s.trim()).filter(
     (s) => s.length > 0,
   );
+  const priorityPlan = partitionPrioritySources(priority);
   const seen = new Set<string>();
   const excludeUrls = new Set(input.exclude_urls ?? []);
 
   let queries: string[] = [];
   let selectedHits: BeatHit[] = [];
 
-  if (priority.length > 0) {
-    selectedHits = priority.map((url) => ({ url }));
+  if (
+    priorityPlan.directUrls.length > 0 && priorityPlan.domains.length === 0
+  ) {
+    selectedHits = priorityPlan.directUrls.map((url) => ({ url }));
   } else {
     const location = parseBeatLocation(input.location);
     const scope: BeatScope = input.location && input.criteria
@@ -217,6 +336,25 @@ async function runSearch(
       ? "niche"
       : "reliable";
     const category = input.category as BeatCategory;
+    const locationLabel = location.city ||
+      (typeof input.location?.displayName === "string"
+        ? input.location.displayName
+        : null) ||
+      location.country;
+    if (priorityPlan.domains.length > 0) {
+      const priorityDiscovery = await discoverPriorityDomainHits({
+        domains: priorityPlan.domains,
+        criteria: input.criteria?.trim() || null,
+        locationLabel,
+        preferredLanguage: location.countryCode
+          ? countryPrimaryLanguage(location.countryCode)
+          : "en",
+        countryCode: location.countryCode,
+        excludedDomains: input.excluded_domains ?? [],
+      });
+      queries.push(...priorityDiscovery.queries);
+      selectedHits.push(...priorityDiscovery.hits);
+    }
     const discovery = await discoverBeatHits({
       scope,
       sourceMode,
@@ -230,8 +368,9 @@ async function runSearch(
         : "en",
       excludedDomains: input.excluded_domains,
     });
-    queries = discovery.queriesUsed;
-    selectedHits = discovery.hits;
+    queries.push(...discovery.queriesUsed);
+    selectedHits.push(...discovery.hits);
+    selectedHits.push(...priorityPlan.directUrls.map((url) => ({ url })));
   }
 
   const filteredHits: BeatHit[] = [];
@@ -549,7 +688,8 @@ async function mapLimit<T, R>(
 function safeDomain(raw: string | null | undefined): string | null {
   if (!raw) return null;
   try {
-    return new URL(raw).hostname.replace(/^www\./, "");
+    const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    return new URL(withProtocol).hostname.replace(/^www\./, "");
   } catch {
     return null;
   }
