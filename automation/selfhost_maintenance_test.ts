@@ -24,6 +24,7 @@ function assertNotIncludes(
 
 const repoRoot = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const doctorScript = `${repoRoot}/automation/selfhost-doctor.sh`;
+const manifestSetupScript = `${repoRoot}/automation/setup-from-manifest.sh`;
 const adoptScript = `${repoRoot}/automation/adopt-signup-allowlist.sh`;
 const workflowPath = `${repoRoot}/automation/sync-upstream.yml`;
 const hostedSupabaseRef = "gfmdziplticfoak" + "hrfpt";
@@ -119,7 +120,7 @@ Deno.test("selfhost doctor passes generated newsroom Supabase config", async () 
     "SUPABASE_URL=https://newsroom-project.supabase.co\n",
   );
   await Deno.writeTextFile(
-    `${tmp}/frontend/.env.production`,
+    `${tmp}/frontend/.env.production.local`,
     [
       "PUBLIC_DEPLOYMENT_TARGET=supabase",
       "PUBLIC_SUPABASE_URL=https://newsroom-project.supabase.co",
@@ -149,6 +150,25 @@ Deno.test("selfhost doctor blocks hosted Supabase refs in frontend env", async (
   await Deno.mkdir(`${tmp}/frontend`, { recursive: true });
   await Deno.writeTextFile(
     `${tmp}/frontend/.env.production`,
+    `PUBLIC_SUPABASE_URL=https://${hostedSupabaseRef}.supabase.co\n`,
+  );
+
+  const result = await run("bash", [doctorScript], tmp);
+
+  assert(result.code !== 0, "hosted Supabase ref should block doctor");
+  assertIncludes(
+    result.stdout,
+    "Hosted coJournalist Supabase project ref found",
+    "doctor stdout",
+  );
+});
+
+Deno.test("selfhost doctor blocks hosted Supabase refs in local frontend env", async () => {
+  const tmp = await Deno.makeTempDir();
+  await initRepo(tmp);
+  await Deno.mkdir(`${tmp}/frontend`, { recursive: true });
+  await Deno.writeTextFile(
+    `${tmp}/frontend/.env.production.local`,
     `PUBLIC_SUPABASE_URL=https://${hostedSupabaseRef}.supabase.co\n`,
   );
 
@@ -255,12 +275,38 @@ Deno.test("sync workflow is PR-based and does not apply database changes", async
   assertNotIncludes(workflow, "supabase db push", "workflow");
 });
 
+Deno.test("manifest setup does not run interactive Firecrawl browser auth by default", async () => {
+  const script = await Deno.readTextFile(manifestSetupScript);
+
+  assertIncludes(script, "COJOURNALIST_INSTALL_AGENT_TOOLING", "setup script");
+  assertIncludes(
+    script,
+    "Skipping optional local CLI installs",
+    "setup script",
+  );
+  assertNotIncludes(
+    script,
+    "firecrawl-cli@latest init --all --browser",
+    "setup script",
+  );
+});
+
+Deno.test("manifest setup uses Supabase access token instead of browser login", async () => {
+  const script = await Deno.readTextFile(manifestSetupScript);
+
+  assertIncludes(script, "MANIFEST_SUPABASE_ACCESS_TOKEN", "setup script");
+  assertIncludes(script, "export SUPABASE_ACCESS_TOKEN", "setup script");
+  assertIncludes(script, "supabase.access_token", "setup script");
+  assertNotIncludes(script, "$SUPABASE_CLI login", "setup script");
+});
+
 Deno.test("generated self-host setup artifacts are gitignored", async () => {
   const artifacts = [
     "cojournalist-setup.json",
     "cojournalist-install.sh",
     "cojournalist-agent-prompt.md",
     "cojournalist-docker-install.md",
+    "cojournalist-docker-install.sh",
     "newsroom-onboarding.md",
   ];
 

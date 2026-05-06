@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	buildAgentManifestPrompt,
 	buildDockerInstallerInstructions,
+	buildDockerInstallerScript,
 	buildInstallScript,
 	buildNewsroomOnboarding,
 	deriveAgentTargetFromManifest,
@@ -34,7 +35,8 @@ function manifest(overrides: Partial<SetupManifest> = {}): SetupManifest {
 			project_url: 'https://newsroomref.supabase.co',
 			anon_key: 'anon-secret',
 			service_role_key: 'service-secret',
-			jwt_secret: 'jwt-secret'
+			jwt_secret: 'jwt-secret',
+			access_token: 'sbp-secret'
 		},
 		frontend: {
 			provider: 'netlify',
@@ -102,6 +104,7 @@ describe('setup generator', () => {
 		const redacted = redactSetupManifest(manifest());
 
 		expect(redacted.services.gemini_api_key).toBe('gemi…redacted');
+		expect(redacted.supabase.access_token).toBe('sbp-…redacted');
 		expect(JSON.stringify(redacted)).not.toContain('gemini-secret');
 	});
 
@@ -114,6 +117,7 @@ describe('setup generator', () => {
 		const script = buildInstallScript(data);
 		const prompt = buildAgentManifestPrompt('./cojournalist-setup.json');
 		const docker = buildDockerInstallerInstructions();
+		const dockerScript = buildDockerInstallerScript();
 		const onboarding = buildNewsroomOnboarding(data);
 
 		expect(script).toContain('automation/setup-from-manifest.sh');
@@ -122,6 +126,7 @@ describe('setup generator', () => {
 		expect(prompt).toContain('ghcr.io/buriedsignals/cojournalist-installer:latest');
 		expect(prompt).toContain('Install the upstream sync workflow by default');
 		expect(prompt).toContain('For future downstream updates');
+		expect(prompt).toContain('supabase.access_token');
 		expect(prompt).toContain('maintenance reporting');
 		expect(docker).toContain('deploy/installer/Dockerfile');
 		expect(docker).toContain('recommended self-host setup path');
@@ -131,6 +136,15 @@ describe('setup generator', () => {
 			'-v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro"'
 		);
 		expect(docker).toContain('Do not paste cojournalist-setup.json into chat.');
+		expect(dockerScript).toContain('ghcr.io/buriedsignals/cojournalist-installer:latest');
+		expect(dockerScript).toContain('log() { printf "\\n== %s ==\\n" "$1" >&2; }');
+		expect(dockerScript).toContain('docker pull "$IMAGE" >&2');
+		expect(dockerScript).toContain('if [ -t 0 ] && [ -t 1 ]; then');
+		expect(dockerScript).toContain('cojournalist-os');
+		expect(dockerScript).toContain(
+			'docker build -f "$build_repo/deploy/installer/Dockerfile" -t "$LOCAL_IMAGE" "$build_repo" >&2'
+		);
+		expect(dockerScript).toContain('COJOURNALIST_SETUP_MANIFEST');
 		expect(onboarding).toContain('https://newsroomref.supabase.co/functions/v1');
 		expect(onboarding).toContain('If you use ChatGPT in the browser');
 		expect(onboarding).toContain('click Agents');

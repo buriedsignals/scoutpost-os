@@ -32,6 +32,7 @@ export interface SetupManifest {
 		anon_key?: string;
 		service_role_key?: string;
 		jwt_secret?: string;
+		access_token?: string;
 		org_id?: string;
 		region?: string;
 		db_password?: string;
@@ -71,6 +72,7 @@ const SECRET_KEYS = new Set([
 	'anon_key',
 	'service_role_key',
 	'jwt_secret',
+	'access_token',
 	'db_password',
 	'self_hosted_postgres_password',
 	'render_deploy_hook'
@@ -124,6 +126,7 @@ export function validateSetupManifest(manifest: SetupManifest): SetupValidationR
 		require(manifest.supabase.org_id, 'Supabase organization ID');
 		require(manifest.supabase.region, 'Supabase region');
 		require(manifest.supabase.db_password, 'Supabase database password');
+		require(manifest.supabase.access_token, 'Supabase access token');
 	}
 	if (manifest.supabase.mode === 'cloud-existing') {
 		require(manifest.supabase.project_ref, 'Supabase project ref');
@@ -131,6 +134,7 @@ export function validateSetupManifest(manifest: SetupManifest): SetupValidationR
 		require(manifest.supabase.anon_key, 'Supabase anon key');
 		require(manifest.supabase.service_role_key, 'Supabase service role key');
 		require(manifest.supabase.jwt_secret, 'Supabase JWT secret');
+		require(manifest.supabase.access_token, 'Supabase access token');
 	}
 	if (manifest.supabase.mode === 'self-hosted') {
 		require(manifest.supabase.project_url, 'Self-hosted Supabase URL');
@@ -179,9 +183,11 @@ export function buildAgentManifestPrompt(manifestPath = 'cojournalist-setup.json
 		'Deploy this newsroom-owned coJournalist instance from the local setup manifest.',
 		'Do not ask me to paste secrets into chat.',
 		`Read ${manifestPath} from disk and validate that it is version 1. Treat that file as the only source of deployment secrets and configuration.`,
+		'If cojournalist-docker-install.sh is present beside the manifest, run bash cojournalist-docker-install.sh install for initial setup, bash cojournalist-docker-install.sh doctor for validation, and bash cojournalist-docker-install.sh update for downstream maintenance PRs.',
 		`Prefer the Docker installer when Docker is available: run ${DOCKER_INSTALLER_IMAGE}, mount the deployment directory or repository at /workspace, mount the manifest read-only at /config/cojournalist-setup.json, and run install.`,
 		'If the prebuilt installer image is unavailable, build deploy/installer/Dockerfile from the coJournalist repository root and use the local cojournalist-installer image instead.',
 		'If Docker is unavailable, run automation/setup-from-manifest.sh with the manifest path from the coJournalist repository root.',
+		'For Supabase Cloud, use the manifest supabase.access_token for non-interactive Supabase CLI authentication. Do not run browser login inside Docker.',
 		'Do not print, summarize, cat, or paste secret values from the manifest. It is acceptable to report missing field names and redacted previews only.',
 		'Install the upstream sync workflow by default so this fork can receive coJournalist OSS maintenance updates.',
 		'After setup, run the Docker doctor path or automation/selfhost-doctor.sh, verify .github/workflows/sync-upstream.yml exists, and tell the operator which GitHub secrets are available for maintenance reporting.',
@@ -194,7 +200,13 @@ export function buildAgentManifestPrompt(manifestPath = 'cojournalist-setup.json
 export function buildDockerInstallerInstructions(manifestPath = 'cojournalist-setup.json'): string {
 	return `# coJournalist Docker installer
 
-This is the recommended self-host setup path. It runs the manifest installer in a disposable operator container so Node, Deno, Supabase CLI, GitHub CLI, jq, and OpenSSL do not need to be installed directly on the host.
+This is the recommended self-host setup path. The easiest route is to keep this file beside cojournalist-docker-install.sh and run:
+
+\`\`\`bash
+bash cojournalist-docker-install.sh install
+\`\`\`
+
+That script pulls the prebuilt installer image when available and builds the same image locally from coJournalist OSS if the registry image cannot be pulled. The container runs the manifest installer in a disposable operator environment so Node, Deno, Supabase CLI, GitHub CLI, jq, and OpenSSL do not need to be installed directly on the host.
 
 The manifest is the source of truth. Keep it on disk, mount it read-only, and do not paste it into chat.
 
@@ -251,6 +263,103 @@ docker run --rm -it \\
 \`\`\`
 
 Do not paste ${manifestPath} into chat. It contains local deployment credentials and should stay on disk.
+`;
+}
+
+export function buildDockerInstallerScript(manifestPath = 'cojournalist-setup.json'): string {
+	return `#!/usr/bin/env bash
+set -euo pipefail
+
+COMMAND="\${1:-install}"
+IMAGE="\${COJOURNALIST_INSTALLER_IMAGE:-${DOCKER_INSTALLER_IMAGE}}"
+LOCAL_IMAGE="\${COJOURNALIST_LOCAL_INSTALLER_IMAGE:-cojournalist-installer:local}"
+WORKSPACE="\${COJOURNALIST_WORKSPACE:-$PWD}"
+MANIFEST="\${COJOURNALIST_SETUP_MANIFEST:-$WORKSPACE/${manifestPath}}"
+UPSTREAM_REPO="\${COJOURNALIST_UPSTREAM_REPO:-https://github.com/buriedsignals/cojournalist-os.git}"
+
+log() { printf "\\n== %s ==\\n" "$1" >&2; }
+warn() { printf "WARN: %s\\n" "$1" >&2; }
+
+case "$COMMAND" in
+  install|doctor|update) ;;
+  *)
+    echo "Usage: $0 {install|doctor|update}" >&2
+    exit 2
+    ;;
+esac
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker Desktop or Docker Engine is required." >&2
+  echo "Install Docker, start it, then rerun this script." >&2
+  exit 1
+fi
+
+mkdir -p "$WORKSPACE"
+
+if [ "$COMMAND" = "install" ] && [ ! -f "$MANIFEST" ]; then
+  echo "Setup manifest not found: $MANIFEST" >&2
+  echo "Put ${manifestPath} next to this script, or set COJOURNALIST_SETUP_MANIFEST=/path/to/${manifestPath}." >&2
+  exit 2
+fi
+
+find_build_repo() {
+  if [ -f "$WORKSPACE/deploy/installer/Dockerfile" ]; then
+    printf "%s" "$WORKSPACE"
+    return 0
+  fi
+  if [ -f "$WORKSPACE/cojournalist-os/deploy/installer/Dockerfile" ]; then
+    printf "%s" "$WORKSPACE/cojournalist-os"
+    return 0
+  fi
+
+  if ! command -v git >/dev/null 2>&1; then
+    echo "The prebuilt installer image was unavailable, and git is required for the local-build fallback." >&2
+    echo "Install git or rerun after the GHCR image is public/readable." >&2
+    exit 1
+  fi
+
+  log "Clone coJournalist OSS for local installer image fallback"
+  git clone "$UPSTREAM_REPO" "$WORKSPACE/cojournalist-os"
+  printf "%s" "$WORKSPACE/cojournalist-os"
+}
+
+select_image() {
+  if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    printf "%s" "$IMAGE"
+    return 0
+  fi
+
+  log "Pull installer image"
+  if docker pull "$IMAGE" >&2; then
+    printf "%s" "$IMAGE"
+    return 0
+  fi
+
+  warn "Could not pull $IMAGE; building a local installer image instead."
+  local build_repo
+  build_repo="$(find_build_repo)"
+  log "Build local installer image"
+  docker build -f "$build_repo/deploy/installer/Dockerfile" -t "$LOCAL_IMAGE" "$build_repo" >&2
+  printf "%s" "$LOCAL_IMAGE"
+}
+
+RUN_IMAGE="$(select_image)"
+
+docker_args=(run --rm)
+if [ -t 0 ] && [ -t 1 ]; then
+  docker_args+=(-it)
+fi
+docker_args+=(-v "$WORKSPACE:/workspace")
+if [ -f "$MANIFEST" ]; then
+  docker_args+=(-v "$MANIFEST:/config/cojournalist-setup.json:ro")
+fi
+if [ "$COMMAND" = "update" ] && [ -d "$HOME/.config/gh" ]; then
+  docker_args+=(-v "$HOME/.config/gh:/root/.config/gh:ro")
+fi
+docker_args+=("$RUN_IMAGE" "$COMMAND")
+
+log "Run coJournalist installer: $COMMAND"
+docker "\${docker_args[@]}"
 `;
 }
 

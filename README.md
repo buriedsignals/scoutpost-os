@@ -70,6 +70,7 @@ before merge.
 
 ## Documentation
 
+- [Newsroom Docker install](docs/oss/newsroom-docker-install.md)
 - [API surface audit (post-cutover)](docs/architecture/api-surface-audit.md)
 - [FastAPI endpoints (legacy + auth + v1)](docs/architecture/fastapi-endpoints.md)
 - [Supabase Edge Functions](docs/supabase/edge-functions.md)

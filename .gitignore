@@ -18,6 +18,7 @@ cojournalist-setup.json
 cojournalist-install.sh
 cojournalist-agent-prompt.md
 cojournalist-docker-install.md
+cojournalist-docker-install.sh
 newsroom-onboarding.md
 
 # Python

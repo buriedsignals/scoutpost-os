@@ -117,6 +117,7 @@ scan_hosted_supabase_refs() {
   local files=(
     ".env"
     ".env.production"
+    "frontend/.env.production.local"
     "frontend/.env.production"
     "frontend/.env.local"
     "frontend/build/_app/env.js"
@@ -133,26 +134,30 @@ scan_hosted_supabase_refs() {
 }
 
 check_frontend_supabase_consistency() {
-  local root_url frontend_url vite_api_url expected_api
+  local root_url frontend_env frontend_url vite_api_url expected_api
   root_url="$(env_file_value ".env" "SUPABASE_URL" || true)"
   if [ -z "$root_url" ]; then
     root_url="$(env_file_value ".env" "PUBLIC_SUPABASE_URL" || true)"
   fi
-  frontend_url="$(env_file_value "frontend/.env.production" "PUBLIC_SUPABASE_URL" || true)"
-  vite_api_url="$(env_file_value "frontend/.env.production" "VITE_API_URL" || true)"
+  frontend_env="frontend/.env.production.local"
+  if [ ! -f "$frontend_env" ]; then
+    frontend_env="frontend/.env.production"
+  fi
+  frontend_url="$(env_file_value "$frontend_env" "PUBLIC_SUPABASE_URL" || true)"
+  vite_api_url="$(env_file_value "$frontend_env" "VITE_API_URL" || true)"
 
   root_url="$(normalize_url "$root_url")"
   frontend_url="$(normalize_url "$frontend_url")"
   vite_api_url="$(normalize_url "$vite_api_url")"
 
   if [ -n "$root_url" ] && [ -n "$frontend_url" ] && [ "$root_url" != "$frontend_url" ]; then
-    blocker "Root .env Supabase URL ($root_url) does not match frontend/.env.production PUBLIC_SUPABASE_URL ($frontend_url). Regenerate deployment files before deploying."
+    blocker "Root .env Supabase URL ($root_url) does not match $frontend_env PUBLIC_SUPABASE_URL ($frontend_url). Regenerate deployment files before deploying."
   fi
 
   if [ -n "$frontend_url" ] && [ -n "$vite_api_url" ]; then
     expected_api="${frontend_url}/functions/v1"
     if [ "$vite_api_url" != "$expected_api" ]; then
-      blocker "frontend/.env.production VITE_API_URL ($vite_api_url) does not point at PUBLIC_SUPABASE_URL ($frontend_url)."
+      blocker "$frontend_env VITE_API_URL ($vite_api_url) does not point at PUBLIC_SUPABASE_URL ($frontend_url)."
     fi
   fi
 }

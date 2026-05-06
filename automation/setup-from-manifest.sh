@@ -37,6 +37,7 @@ fi
 PROJECT_NAME="$(jqv '.project.name')"
 APP_URL="$(jq -r '(.project.app_url // .frontend.production_url // "")' "$MANIFEST" | sed 's:/*$::')"
 SUPABASE_MODE="$(jqv '.supabase.mode')"
+MANIFEST_SUPABASE_ACCESS_TOKEN="$(jqv '.supabase.access_token')"
 FRONTEND_PROVIDER="$(jqv '.frontend.provider')"
 ADMIN_EMAIL="$(jqv '.auth.admin_email')"
 SIGNUP_DOMAINS="$(jq -r '.auth.signup_allowed_domains // [] | map(select(. != "")) | join(",")' "$MANIFEST")"
@@ -63,14 +64,19 @@ if [ ! -d "supabase/functions" ] || [ ! -d "frontend" ]; then
 fi
 
 install_node_tooling() {
+  log "Agent and provider tooling"
+  if [ "${COJOURNALIST_INSTALL_AGENT_TOOLING:-false}" != "true" ]; then
+    ok "Skipping optional local CLI installs. The manifest supplies service credentials; install provider CLIs separately only if this operator machine needs them."
+    return
+  fi
+
   if ! command -v npm >/dev/null 2>&1; then
     warn "npm not found; skipping agent/helper CLI installs."
     return
   fi
 
-  log "Agent and provider tooling"
   if [ "$(jq -r 'if .agents.install_firecrawl_skill == false then "false" else "true" end' "$MANIFEST")" = "true" ]; then
-    npx -y firecrawl-cli@latest init --all --browser || warn "Firecrawl CLI/skill install failed; continue setup."
+    warn "Skipping Firecrawl browser authentication. The setup manifest already provides FIRECRAWL_API_KEY for the deployment."
   fi
   if [ "$(jq -r 'if .agents.install_supabase_skill == false then "false" else "true" end' "$MANIFEST")" = "true" ]; then
     npx skills add supabase/agent-skills --skill supabase || warn "Supabase skill install failed; continue setup."
@@ -108,6 +114,9 @@ install_node_tooling() {
 
 resolve_supabase() {
   log "Supabase"
+  if [ -n "$MANIFEST_SUPABASE_ACCESS_TOKEN" ]; then
+    export SUPABASE_ACCESS_TOKEN="$MANIFEST_SUPABASE_ACCESS_TOKEN"
+  fi
   if command -v supabase >/dev/null 2>&1; then
     SUPABASE_CLI="supabase"
   elif command -v npx >/dev/null 2>&1; then
@@ -119,8 +128,8 @@ resolve_supabase() {
 
   if [ "$SUPABASE_MODE" != "self-hosted" ]; then
     if ! $SUPABASE_CLI projects list >/dev/null 2>&1; then
-      warn "Supabase CLI is not authenticated; starting supabase login."
-      $SUPABASE_CLI login
+      echo "Supabase CLI is not authenticated. Add supabase.access_token to cojournalist-setup.json or set SUPABASE_ACCESS_TOKEN, then rerun setup." >&2
+      exit 1
     fi
   fi
 
@@ -276,7 +285,7 @@ SIGNUP_ALLOWED_DOMAINS=${SIGNUP_DOMAINS}
 ENVEOF
   chmod 600 .env
 
-  cat > frontend/.env.production <<ENVEOF
+  cat > frontend/.env.production.local <<ENVEOF
 PUBLIC_DEPLOYMENT_TARGET=supabase
 PUBLIC_SUPABASE_URL=${SUPABASE_URL}
 PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
@@ -285,7 +294,7 @@ PUBLIC_MAPTILER_API_KEY=${PUBLIC_MAPTILER_API_KEY}
 PUBLIC_MUCKROCK_ENABLED=false
 PUBLIC_LOCAL_DEMO_MODE=false
 ENVEOF
-  chmod 600 frontend/.env.production
+  chmod 600 frontend/.env.production.local
 }
 
 build_frontend() {

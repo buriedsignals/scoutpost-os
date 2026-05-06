@@ -75,13 +75,24 @@ supabase functions deploy --all
 ```
 
 Never accept upstream `supabase/config.toml` blindly over a local auth hook, and
-never overwrite `.env`, `.env.production`, or deployment-specific secrets during
-an upstream merge.
+never overwrite `.env`, `frontend/.env.production.local`, `.env.production`, or
+deployment-specific secrets during an upstream merge.
 
 ## Dockerized installer
 
-For operators who do not want to install the local toolchain, use the prebuilt
-installer image and mount the generated setup manifest read-only:
+For operators who do not want to install the local toolchain, download
+`cojournalist-setup.json` and `cojournalist-docker-install.sh` from `/setup`,
+keep them in the same directory, and run:
+
+```bash
+bash cojournalist-docker-install.sh install
+```
+
+The script pulls the prebuilt image when available. If the registry image cannot
+be pulled, it clones `cojournalist-os` into the workspace and builds the same
+installer image locally.
+
+The raw equivalent is:
 
 ```bash
 docker run --rm -it \
@@ -94,6 +105,17 @@ The container runs the same `automation/setup-from-manifest.sh` path as the
 non-Docker installer. If `/workspace` is not already a coJournalist checkout,
 the image clones `buriedsignals/cojournalist-os` into
 `/workspace/cojournalist-os`.
+Generated frontend secrets are written to `frontend/.env.production.local`,
+which is gitignored and keeps downstream update PRs cleaner than writing to the
+tracked `frontend/.env.production`.
+The installer skips optional local/provider CLI installs by default and never
+launches Firecrawl browser authentication inside Docker; the manifest
+`FIRECRAWL_API_KEY` is enough for deployment. Set
+`COJOURNALIST_INSTALL_AGENT_TOOLING=true` only when deliberately provisioning an
+operator machine with local CLIs.
+For Supabase Cloud, the setup manifest must include `supabase.access_token` or
+the environment must provide `SUPABASE_ACCESS_TOKEN`; the Docker installer
+refuses to start browser-based `supabase login`.
 
 It also exposes:
 

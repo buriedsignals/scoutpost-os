@@ -97,7 +97,15 @@ Before treating a self-hosted install as ready:
 Prefer the Docker path for self-hosted installs. It avoids installing Node,
 Deno, Supabase CLI, GitHub CLI, jq, and OpenSSL on the operator's host. It
 still reads the local `cojournalist-setup.json` manifest and runs the same setup
-script:
+script. The easiest path is the `/setup` download:
+
+```bash
+bash cojournalist-docker-install.sh install
+```
+
+That wrapper pulls the prebuilt installer image when available and falls back to
+building the same image locally from `cojournalist-os` when the registry image
+cannot be pulled. The raw equivalent is:
 
 ```bash
 docker run --rm -it \
@@ -110,6 +118,12 @@ Use the same image with `doctor` for read-only validation and `update` for
 upstream maintenance PR preparation.
 The same manifest should stay on disk and be mounted read-only; do not paste it
 into chat.
+Do not run interactive Firecrawl browser authentication in Docker. The manifest
+API key is the deployment credential; optional local/provider CLIs are opt-in
+with `COJOURNALIST_INSTALL_AGENT_TOOLING=true`.
+For Supabase Cloud, use `supabase.access_token` in the manifest or
+`SUPABASE_ACCESS_TOKEN` in the environment. Docker should not start browser
+login for Supabase CLI authentication.
 
 ## Upstream maintenance checks
 
@@ -123,9 +137,9 @@ Before merging upstream:
 - if the starting directory is not a Git worktree, look for a nested checkout
   such as `cojournalist-os/`
 - set a repository-local Git identity if `user.name` or `user.email` is missing
-- keep local `.env`, `frontend/.env.production`, Supabase config, and local
-  migrations out of the upstream merge commit unless the operator explicitly
-  asks to commit them
+- keep local `.env`, `frontend/.env.production.local`,
+  `frontend/.env.production`, Supabase config, and local migrations out of the
+  upstream merge commit unless the operator explicitly asks to commit them
 - if `supabase/config.toml` uses a local signup hook, run
   `automation/adopt-signup-allowlist.sh --domain <domain> --admin <email>`
   before switching to the upstream allowlist hook

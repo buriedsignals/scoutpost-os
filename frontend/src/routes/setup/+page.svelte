@@ -19,6 +19,7 @@
 	import {
 		buildAgentManifestPrompt,
 		buildDockerInstallerInstructions,
+		buildDockerInstallerScript,
 		buildInstallScript,
 		buildNewsroomOnboarding,
 		normalizeDomains,
@@ -45,6 +46,7 @@
 	let supabaseAnonKey = '';
 	let supabaseServiceKey = '';
 	let supabaseJwtSecret = '';
+	let supabaseAccessToken = '';
 	let supabaseOrgId = '';
 	let supabaseRegion = 'us-east-1';
 	let supabaseDbPassword = '';
@@ -63,6 +65,7 @@
 	$: redactedManifest = JSON.stringify(redactSetupManifest(manifest), null, 2);
 	$: installScript = buildInstallScript(manifest);
 	$: dockerInstructions = buildDockerInstallerInstructions();
+	$: dockerScript = buildDockerInstallerScript();
 	$: agentPrompt = buildAgentManifestPrompt('./cojournalist-setup.json');
 	$: agentPromptFile = `${agentPrompt}
 
@@ -128,6 +131,7 @@ Run the manifest installer from the repository root. Never ask the operator to p
 				anon_key: supabaseAnonKey.trim() || undefined,
 				service_role_key: supabaseServiceKey.trim() || undefined,
 				jwt_secret: supabaseJwtSecret.trim() || undefined,
+				access_token: supabaseAccessToken.trim() || undefined,
 				org_id: supabaseOrgId.trim() || undefined,
 				region: supabaseRegion.trim() || undefined,
 				db_password: supabaseDbPassword || undefined,
@@ -179,8 +183,11 @@ Run the manifest installer from the repository root. Never ask the operator to p
 		if (!(await validateBeforeDownload())) return;
 		download('cojournalist-setup.json', JSON.stringify(manifest, null, 2), 'application/json');
 		window.setTimeout(() => {
-			download('cojournalist-docker-install.md', dockerInstructions, 'text/markdown');
+			download('cojournalist-docker-install.sh', dockerScript, 'text/x-shellscript');
 		}, 150);
+		window.setTimeout(() => {
+			download('cojournalist-docker-install.md', dockerInstructions, 'text/markdown');
+		}, 300);
 	}
 
 	async function downloadOnboarding() {
@@ -418,9 +425,16 @@ Run the manifest installer from the repository root. Never ask the operator to p
 							</small>
 						</label>
 					</div>
+					<div class="grid two">
+						<label>
+							<span>Supabase access token</span>
+							<input type="password" bind:value={supabaseAccessToken} autocomplete="off" />
+							<small>Required for Docker to create the cloud project without browser login.</small>
+						</label>
+					</div>
 					<div class="setup-note">
-						<strong>Supabase CLI login:</strong>
-						the installer will use `supabase login` if your CLI is not already authenticated.
+						<strong>Supabase CLI auth:</strong>
+						Docker uses this token as `SUPABASE_ACCESS_TOKEN`; no browser login should run inside the container.
 						<a href="https://supabase.com/docs/guides/cli" target="_blank" rel="noopener noreferrer">
 							Install CLI <ExternalLink size={13} />
 						</a>
@@ -437,6 +451,13 @@ Run the manifest installer from the repository root. Never ask the operator to p
 						<label><span>Anon key</span><input type="password" bind:value={supabaseAnonKey} autocomplete="off" /></label>
 						<label><span>Service role key</span><input type="password" bind:value={supabaseServiceKey} autocomplete="off" /></label>
 						<label><span>JWT secret</span><input type="password" bind:value={supabaseJwtSecret} autocomplete="off" /></label>
+						{#if supabaseMode === 'cloud-existing'}
+							<label>
+								<span>Supabase access token</span>
+								<input type="password" bind:value={supabaseAccessToken} autocomplete="off" />
+								<small>Required for Docker to push migrations and deploy Edge Functions.</small>
+							</label>
+						{/if}
 						{#if supabaseMode === 'self-hosted'}
 							<label><span>Postgres password</span><input type="password" bind:value={selfHostedPostgresPassword} autocomplete="off" /></label>
 						{/if}
@@ -513,9 +534,9 @@ Run the manifest installer from the repository root. Never ask the operator to p
 					<div class="option recommended">
 						<Package class="option-icon" size={22} />
 						<h3>Docker installer</h3>
-						<p>Recommended. Download the credentials manifest plus Docker commands for install, doctor, and downstream update PRs.</p>
+						<p>Recommended. Download the credentials manifest plus one Docker script for install, doctor, and downstream update PRs.</p>
 						<button type="button" class="primary-button" on:click={downloadDockerInstaller}>
-							<Download size={16} /> Download Docker files
+							<Download size={16} /> Download Docker installer
 						</button>
 					</div>
 					<div class="option">
