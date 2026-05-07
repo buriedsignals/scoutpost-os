@@ -215,7 +215,7 @@ export async function generateQueries(opts: GenerateOpts): Promise<BeatQueryPlan
     const res = await geminiExtract<BeatQueryPlan>(prompt, QUERY_SCHEMA, {
       systemInstruction,
     });
-    return {
+    return normalizeQueryPlanForCompoundTopic({
       primary_language: (res.primary_language ?? "en").slice(0, 2).toLowerCase(),
       queries: Array.isArray(res.queries) ? res.queries.slice(0, numQueries) : [],
       discovery_queries: Array.isArray(res.discovery_queries) ? res.discovery_queries.slice(0, 5) : [],
@@ -232,7 +232,7 @@ export async function generateQueries(opts: GenerateOpts): Promise<BeatQueryPlan
       weak_terms: Array.isArray(res.weak_terms)
         ? res.weak_terms.filter((c): c is string => typeof c === "string" && c.trim().length > 0).slice(0, 8)
         : [],
-    };
+    }, opts, numQueries);
   } catch (e) {
     logEvent({
       level: "warn",
@@ -247,7 +247,7 @@ export async function generateQueries(opts: GenerateOpts): Promise<BeatQueryPlan
     else if (opts.criteria) queries.push(opts.criteria);
     else if (opts.city) queries.push(`${opts.city} news`);
     else if (opts.country) queries.push(`${opts.country} news`);
-    return {
+    return normalizeQueryPlanForCompoundTopic({
       primary_language: countryPrimaryLanguage(opts.countryCode ?? null),
       queries,
       discovery_queries: [],
@@ -256,8 +256,81 @@ export async function generateQueries(opts: GenerateOpts): Promise<BeatQueryPlan
       localized_query: queries[0],
       required_concepts: criteriaTokens(opts.criteria ?? queries[0]).slice(0, 8),
       weak_terms: [],
-    };
+    }, opts, numQueries);
   }
+}
+
+const AI_JOURNALISM_FALLBACK_QUERIES = [
+  "AI journalism newsrooms reporters editors publishers",
+  "generative AI journalism media organizations",
+  "AI use in newsrooms journalists publishers",
+  "artificial intelligence journalism media newsrooms",
+];
+
+const AI_JOURNALISM_FALLBACK_DISCOVERY_QUERIES = [
+  "site:niemanlab.org AI journalism",
+  "site:reutersinstitute.politics.ox.ac.uk AI journalism",
+  "site:apnews.com AI journalism",
+  "site:poynter.org AI journalism",
+  "site:journalism.co.uk AI journalism",
+];
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function queryLooksLikeAiJournalism(query: string): boolean {
+  const text = query.toLowerCase();
+  if (
+    text.includes("academic journal") ||
+    text.includes("research paper") ||
+    text.includes("scholarly")
+  ) return false;
+  return matchesAnyPattern(text, AI_JOURNALISM_AI_PATTERNS) &&
+    matchesAnyPattern(text, AI_JOURNALISM_MEDIA_PATTERNS);
+}
+
+function normalizeQueryPlanForCompoundTopic(
+  plan: BeatQueryPlan,
+  opts: GenerateOpts,
+  numQueries: number,
+): BeatQueryPlan {
+  if (compoundTopicProfile(opts.criteria, plan.required_concepts) !== "ai_journalism") return plan;
+
+  const queries = uniqueNonEmpty([
+    ...plan.queries.filter(queryLooksLikeAiJournalism),
+    ...AI_JOURNALISM_FALLBACK_QUERIES,
+  ]).slice(0, numQueries);
+  const discoveryQueries = uniqueNonEmpty([
+    ...plan.discovery_queries.filter(queryLooksLikeAiJournalism),
+    ...AI_JOURNALISM_FALLBACK_DISCOVERY_QUERIES,
+  ]).slice(0, 5);
+  const canonicalQuery = plan.canonical_query && queryLooksLikeAiJournalism(plan.canonical_query)
+    ? plan.canonical_query
+    : AI_JOURNALISM_FALLBACK_QUERIES[0];
+  const localizedQuery = plan.localized_query && queryLooksLikeAiJournalism(plan.localized_query)
+    ? plan.localized_query
+    : canonicalQuery;
+
+  return {
+    ...plan,
+    canonical_query: canonicalQuery,
+    localized_query: localizedQuery,
+    required_concepts: uniqueNonEmpty([
+      ...(plan.required_concepts ?? []),
+      "artificial intelligence",
+      "journalism media newsrooms publishers",
+    ]).slice(0, 8),
+    weak_terms: uniqueNonEmpty([
+      ...(plan.weak_terms ?? []),
+      "ai",
+      "technology",
+      "media",
+      "policy",
+    ]).slice(0, 8),
+    queries,
+    discovery_queries: discoveryQueries,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -370,6 +443,97 @@ export interface BeatDiscoveryResult {
   queriesUsed: string[];
 }
 
+export type BeatCandidateRejectReason =
+  | "invalid_url"
+  | "homepage"
+  | "listing_page"
+  | "sponsored"
+  | "browser_challenge"
+  | "social_platform";
+
+const LISTING_PATH_SEGMENTS = new Set([
+  "author",
+  "authors",
+  "category",
+  "categorie",
+  "kategorie",
+  "page",
+  "search",
+  "seite",
+  "tag",
+  "tags",
+  "topic",
+  "topics",
+]);
+
+const LISTING_PATH_SUFFIXES = [
+  "/news",
+  "/articles",
+  "/stories",
+  "/tag",
+  "/tags",
+  "/topics",
+  "/category",
+  "/kategorie",
+];
+
+const SOCIAL_PLATFORM_HOSTS = [
+  "facebook.com",
+  "instagram.com",
+  "linkedin.com",
+  "reddit.com",
+  "threads.net",
+  "tiktok.com",
+  "twitter.com",
+  "x.com",
+  "youtube.com",
+  "youtu.be",
+];
+
+export function beatCandidateRejectReason(
+  hit: Pick<BeatHit, "url" | "title" | "description">,
+): BeatCandidateRejectReason | null {
+  const rawUrl = hit.url ?? "";
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return "invalid_url";
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase().replace(/\/+$/, "") || "/";
+  const search = parsed.search.toLowerCase();
+  const text = `${host} ${path} ${search} ${hit.title ?? ""} ${hit.description ?? ""}`.toLowerCase();
+
+  if (SOCIAL_PLATFORM_HOSTS.some((domain) => host === domain || host.endsWith(`.${domain}`))) {
+    return "social_platform";
+  }
+  if (host.startsWith("sponsored.") || host.includes(".sponsored.") || path.includes("/sponsored/")) {
+    return "sponsored";
+  }
+  if (
+    text.includes("cloudflare") ||
+    text.includes("captcha") ||
+    text.includes("challenge-platform") ||
+    text.includes("browser verification")
+  ) {
+    return "browser_challenge";
+  }
+  if (path === "/") return "homepage";
+
+  const segments = path.split("/").filter(Boolean);
+  if (segments.some((segment) => LISTING_PATH_SEGMENTS.has(segment))) return "listing_page";
+  if (LISTING_PATH_SUFFIXES.some((suffix) => path === suffix || path.endsWith(suffix))) {
+    return "listing_page";
+  }
+  return null;
+}
+
+export function filterUsableBeatCandidates(hits: BeatHit[]): BeatHit[] {
+  return hits.filter((hit) => beatCandidateRejectReason(hit) === null);
+}
+
 /**
  * Shared Beat Scout discovery pipeline used by both preview (`beat-search`)
  * and scheduled execution (`scout-beat-execute`).
@@ -403,8 +567,23 @@ export async function discoverBeatHits(
     return { hits: [], plan, rawHits, queriesUsed };
   }
 
+  const usableRawHits = filterUsableBeatCandidates(rawHits);
+  if (usableRawHits.length !== rawHits.length) {
+    logEvent({
+      level: "info",
+      fn: "beat-pipeline",
+      event: "weak_candidates_filtered",
+      raw_count: rawHits.length,
+      usable_count: usableRawHits.length,
+      rejected_count: rawHits.length - usableRawHits.length,
+    });
+  }
+  if (usableRawHits.length === 0) {
+    return { hits: [], plan, rawHits, queriesUsed };
+  }
+
   const recency = getRecencyConfig(opts.scope, opts.category, opts.sourceMode);
-  const { dated, undated } = applyDateFilter(rawHits, recency);
+  const { dated, undated } = applyDateFilter(usableRawHits, recency);
   const capped = capUndatedResults(undated, recency);
   let hits = [...dated, ...capped];
   if (hits.length === 0) {
@@ -782,6 +961,8 @@ interface TopicSignals {
   strongTokens: Set<string>;
 }
 
+type CompoundTopicProfile = "ai_journalism" | null;
+
 function criteriaTokens(criteria: string | null | undefined): string[] {
   const tokens: string[] = [];
   for (const raw of (criteria ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
@@ -819,6 +1000,62 @@ function buildTopicSignals(
   return { tokens, strongTokens };
 }
 
+function matchesAnyPattern(text: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+const AI_JOURNALISM_AI_PATTERNS = [
+  /\bai\b/,
+  /\bartificial intelligence\b/,
+  /\bgenerative ai\b/,
+  /\bllms?\b/,
+  /\blarge language models?\b/,
+  /\bmachine learning\b/,
+];
+
+const AI_JOURNALISM_MEDIA_PATTERNS = [
+  /\bjournalis(?:m|t|ts|tic)\b/,
+  /\bnewsrooms?\b/,
+  /\bnews organizations?\b/,
+  /\bmedia organizations?\b/,
+  /\bmedia compan(?:y|ies)\b/,
+  /\bnews media\b/,
+  /\bpublishers?\b/,
+  /\breporters?\b/,
+  /\beditors?\b/,
+  /\bthe press\b/,
+  /\bnewspapers?\b/,
+  /\bbroadcasters?\b/,
+  /\bassociated press\b/,
+  /\bnieman(?:lab| lab)?\b/,
+  /\bpoynter\b/,
+  /\breuters institute\b/,
+  /\bwan-ifra\b/,
+  /\bcuny journalism\b/,
+];
+
+function compoundTopicProfile(
+  criteria: string | null | undefined,
+  requiredConcepts: string[] = [],
+): CompoundTopicProfile {
+  const text = hitText({ url: "", title: criteria ?? "", description: requiredConcepts.join(" ") } as BeatHit);
+  if (
+    matchesAnyPattern(text, AI_JOURNALISM_AI_PATTERNS) &&
+    matchesAnyPattern(text, AI_JOURNALISM_MEDIA_PATTERNS)
+  ) {
+    return "ai_journalism";
+  }
+  return null;
+}
+
+export function isAiJournalismCompoundMatch(
+  hit: Pick<BeatHit, "url" | "title" | "description">,
+): boolean {
+  const text = hitText({ url: hit.url, title: hit.title, description: hit.description } as BeatHit);
+  return matchesAnyPattern(text, AI_JOURNALISM_AI_PATTERNS) &&
+    matchesAnyPattern(text, AI_JOURNALISM_MEDIA_PATTERNS);
+}
+
 function tokenSetOverlapScore(haystack: string, tokens: Set<string>): number {
   let score = 0;
   for (const token of tokens) {
@@ -831,7 +1068,12 @@ function hitText(hit: BeatHit): string {
   return [hit.title, hit.description, hit.url].filter(Boolean).join(" ").toLowerCase();
 }
 
-function isGlobalTopicMatch(hit: BeatHit, signals: TopicSignals): boolean {
+function isGlobalTopicMatch(
+  hit: BeatHit,
+  signals: TopicSignals,
+  profile: CompoundTopicProfile = null,
+): boolean {
+  if (profile === "ai_journalism") return isAiJournalismCompoundMatch(hit);
   if (signals.tokens.size === 0) return true;
   const haystack = hitText(hit);
   const totalOverlap = tokenSetOverlapScore(haystack, signals.tokens);
@@ -849,8 +1091,9 @@ function filterGlobalTopicCandidates(
   weakTerms: string[] = [],
 ): BeatHit[] {
   const signals = buildTopicSignals(criteria, requiredConcepts, weakTerms);
+  const profile = compoundTopicProfile(criteria, requiredConcepts);
   if (signals.tokens.size === 0) return hits;
-  const filtered = hits.filter((hit) => isGlobalTopicMatch(hit, signals));
+  const filtered = hits.filter((hit) => isGlobalTopicMatch(hit, signals, profile));
   if (filtered.length === 0 && signals.strongTokens.size > 0) return [];
   return filtered.length > 0 ? filtered : hits;
 }
@@ -865,8 +1108,9 @@ function topicBackfillMatch(
   hit: BeatHit,
   signals: TopicSignals,
   minOverlap: number,
+  profile: CompoundTopicProfile = null,
 ): boolean {
-  if (!isGlobalTopicMatch(hit, signals)) return false;
+  if (!isGlobalTopicMatch(hit, signals, profile)) return false;
   if (minOverlap <= 1) return true;
   const haystack = hitText(hit);
   return tokenSetOverlapScore(haystack, signals.tokens) >= minOverlap ||
@@ -952,6 +1196,7 @@ export async function aiFilterResults(
     opts.requiredConcepts,
     opts.weakTerms,
   );
+  const topicProfile = compoundTopicProfile(opts.criteria, opts.requiredConcepts);
   const topicFloorMinOverlap = topicBackfillMinOverlap(topicTokens);
   const resultFloorLine = minTopicResults > 0
     ? `If at least ${minTopicResults} candidates are plausibly about the user's topic, keep at least ${minTopicResults}; do not require local relevance for this global topic scout.`
@@ -979,7 +1224,7 @@ export async function aiFilterResults(
     for (const idx of keep) {
       if (idx >= 0 && idx < candidates.length) {
         const candidate = candidates[idx];
-        if (!isGlobalTopic || isGlobalTopicMatch(candidate, topicSignals)) {
+        if (!isGlobalTopic || isGlobalTopicMatch(candidate, topicSignals, topicProfile)) {
           picked.push(candidate);
         }
       }
@@ -989,7 +1234,7 @@ export async function aiFilterResults(
       const pickedUrls = new Set(picked.map((h) => h.url));
       for (const candidate of candidates) {
         if (pickedUrls.has(candidate.url)) continue;
-        if (!topicBackfillMatch(candidate, topicSignals, topicFloorMinOverlap)) {
+        if (!topicBackfillMatch(candidate, topicSignals, topicFloorMinOverlap, topicProfile)) {
           continue;
         }
         picked.push(candidate);

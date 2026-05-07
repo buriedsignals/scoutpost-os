@@ -8,6 +8,7 @@ import {
   extractCivicLinksFromHtml,
   extractCivicLinksFromPages,
   filterCivicDiscoveryCandidates,
+  isCivicDirectDocumentUrl,
   isCivicScrapableUrl,
   rankCivicDiscoveryUrls,
 } from "./civic_links.ts";
@@ -221,4 +222,22 @@ Deno.test("isCivicScrapableUrl rejects image, video, and archive assets", () => 
     isCivicScrapableUrl("https://city.example.org/archive/minutes.zip"),
     false,
   );
+});
+
+Deno.test("isCivicDirectDocumentUrl identifies tracked PDF documents", () => {
+  const directPdfUrls = [
+    "https://www.cityofmadison.com/council/documents/meeting-minutes.pdf",
+    "https://www.berlin.de/ba-mitte/politik-und-verwaltung/bezirksverordnetenversammlung/protokoll.pdf",
+    "https://www.paris.fr/documents/proces-verbal-conseil-municipal.pdf",
+    "https://www.gemeinde-pontresina.ch/fileadmin/protokoll.pdf",
+    "https://city.example.org/minutes.pdf?download=1",
+  ];
+  for (const url of directPdfUrls) {
+    assertEquals(isCivicDirectDocumentUrl(url), true);
+  }
+  assertEquals(
+    isCivicDirectDocumentUrl("https://city.example.org/council/minutes"),
+    false,
+  );
+  assertEquals(isCivicDirectDocumentUrl("not-a-url.pdf"), false);
 });

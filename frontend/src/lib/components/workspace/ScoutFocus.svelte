@@ -2,7 +2,13 @@
 	import { MapPin, Tag, Calendar, Play, Trash2, ArrowLeft, X, Check, Globe, AtSign } from 'lucide-svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import DemoBadge from '$lib/components/ui/DemoBadge.svelte';
-	import { getScoutTypeDisplay, normalizeScoutType, truncateUrl } from '$lib/utils/scouts';
+	import {
+		getScoutTypeDisplay,
+		normalizeScoutType,
+		truncateUrl,
+		getScoutStatus,
+		getScoutStatusLabel
+	} from '$lib/utils/scouts';
 	import { parseTopicTags } from '$lib/utils/topics';
 	import type { Scout } from '$lib/types/workspace';
 
@@ -108,6 +114,7 @@
 
 	$: lastRunLabel = scout.last_run?.started_at ? `Last run ${timeSince(scout.last_run.started_at)}` : 'Awaiting first run';
 	$: articleCount = scout.last_run?.articles_count ?? null;
+	$: knownCount = scout.last_run?.merged_existing_count ?? 0;
 
 	$: scheduleLabel = (() => {
 		if (!scout.regularity) return null;
@@ -118,16 +125,8 @@
 		return r.charAt(0).toUpperCase() + r.slice(1);
 	})();
 
-	$: status = (() => {
-		if (!scout.last_run?.started_at) return { variant: 'waiting' as const, label: 'Awaiting first run' };
-		if (scout.last_run.status === 'running' || scout.last_run.status === 'queued')
-			return { variant: 'waiting' as const, label: 'Running' };
-		if (scout.last_run.status === 'failed' || scout.last_run.status === 'error')
-			return { variant: 'error' as const, label: 'Run failed' };
-		if ((scout.last_run.articles_count ?? 0) > 0)
-			return { variant: 'success' as const, label: 'New findings' };
-		return { variant: 'neutral' as const, label: 'No new findings' };
-	})();
+	$: status = getScoutStatus({ type: normalizedType, last_run: scout.last_run });
+	$: statusLabel = getScoutStatusLabel(status);
 
 	$: canRun = scout.is_active !== false;
 
@@ -257,9 +256,13 @@
 				{:else if scout.last_run.status === 'running' || scout.last_run.status === 'queued'}
 					<p class="summary-body neutral">Run in progress.</p>
 				{:else if articleCount !== null && articleCount > 0}
-					<p class="summary-body">Found <strong>{articleCount}</strong> new {articleCount === 1 ? 'finding' : 'findings'} in the most recent run.</p>
+					<p class="summary-body">
+						Found <strong>{articleCount}</strong> new {articleCount === 1 ? 'finding' : 'findings'}{knownCount > 0 ? ` and ${knownCount} already known` : ''} in the most recent run.
+					</p>
+				{:else if knownCount > 0}
+					<p class="summary-body neutral">The most recent run only found findings already in your inbox.</p>
 				{:else}
-					<p class="summary-body neutral">No new findings in the most recent run.</p>
+					<p class="summary-body neutral">No findings were saved in the most recent run.</p>
 				{/if}
 			</div>
 		{/if}
@@ -271,9 +274,10 @@
 				class:status-error={status.variant === 'error'}
 				class:status-waiting={status.variant === 'waiting'}
 				class:status-neutral={status.variant === 'neutral'}
+				class:status-warning={status.variant === 'warning'}
 			>
 				<span class="scout-shell-status-dot"></span>
-				{status.label}
+				{statusLabel}
 			</span>
 			{#if scout.consecutive_failures && scout.consecutive_failures > 0}
 				<span class="failure-note">{scout.consecutive_failures} consecutive failure{scout.consecutive_failures === 1 ? '' : 's'}</span>

@@ -128,8 +128,10 @@ export interface FirecrawlSearchOptions {
   location?: string;
   country?: string;
   sources?: Array<"web" | "news">;
+  categories?: Array<"github" | "pdf" | "research">;
   tbs?: string;
   ignoreInvalidURLs?: boolean;
+  includeDomains?: string[];
   excludeDomains?: string[];
 }
 
@@ -144,14 +146,16 @@ export async function firecrawlSearch(
 ): Promise<SearchHit[]> {
   const body: Record<string, unknown> = {
     query,
-    limit: Math.min(Math.max(1, opts.limit ?? 10), 20),
+    limit: Math.min(Math.max(1, opts.limit ?? 10), 100),
     ignoreInvalidURLs: opts.ignoreInvalidURLs ?? true,
   };
   if (opts.sources?.length) body.sources = opts.sources;
+  if (opts.categories?.length) body.categories = opts.categories;
   if (opts.lang) body.lang = opts.lang;
   if (opts.location) body.location = opts.location;
   if (opts.country) body.country = opts.country;
   if (opts.tbs) body.tbs = opts.tbs;
+  if (opts.includeDomains?.length) body.includeDomains = opts.includeDomains;
   if (opts.excludeDomains?.length) body.excludeDomains = opts.excludeDomains;
   if (opts.scrape) {
     body.scrapeOptions = { formats: ["markdown"], onlyMainContent: true };
@@ -211,19 +215,46 @@ export async function firecrawlSearch(
  */
 export async function firecrawlMap(
   url: string,
-  opts: { limit?: number; includeSubdomains?: boolean } = {},
+  opts: {
+    limit?: number;
+    includeSubdomains?: boolean;
+    search?: string;
+    sitemap?: "include" | "only" | "skip";
+    ignoreQueryParameters?: boolean;
+    ignoreCache?: boolean;
+    timeoutMs?: number;
+    country?: string;
+    languages?: string[];
+  } = {},
 ): Promise<string[]> {
+  const requestBody: Record<string, unknown> = {
+    url,
+    limit: Math.min(Math.max(1, opts.limit ?? 200), 100_000),
+    includeSubdomains: opts.includeSubdomains ?? true,
+  };
+  if (opts.search) requestBody.search = opts.search;
+  if (opts.sitemap) requestBody.sitemap = opts.sitemap;
+  if (opts.ignoreQueryParameters !== undefined) {
+    requestBody.ignoreQueryParameters = opts.ignoreQueryParameters;
+  }
+  if (opts.ignoreCache !== undefined) {
+    requestBody.ignoreCache = opts.ignoreCache;
+  }
+  if (opts.timeoutMs !== undefined) requestBody.timeout = opts.timeoutMs;
+  if (opts.country || opts.languages?.length) {
+    requestBody.location = {
+      ...(opts.country ? { country: opts.country } : {}),
+      ...(opts.languages?.length ? { languages: opts.languages } : {}),
+    };
+  }
+
   const res = await fetch(`${FIRECRAWL_BASE}/map`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${firecrawlApiKey()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      url,
-      limit: Math.min(Math.max(1, opts.limit ?? 200), 500),
-      includeSubdomains: opts.includeSubdomains ?? true,
-    }),
+    body: JSON.stringify(requestBody),
   });
   if (!res.ok) {
     throw new ApiError(
@@ -231,11 +262,14 @@ export async function firecrawlMap(
       502,
     );
   }
-  const body = await res.json();
-  const links = Array.isArray(body?.links)
-    ? body.links
-    : Array.isArray(body?.data?.links)
-    ? body.data.links
+  const responseJson = await res.json() as {
+    links?: unknown[];
+    data?: { links?: unknown[] };
+  };
+  const links = Array.isArray(responseJson?.links)
+    ? responseJson.links
+    : Array.isArray(responseJson?.data?.links)
+    ? responseJson.data.links
     : [];
   return links
     .map((l: unknown) =>

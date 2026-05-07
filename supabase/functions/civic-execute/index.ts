@@ -34,6 +34,7 @@ import { firecrawlChangeTrackingScrape } from "../_shared/firecrawl.ts";
 import {
   classifyCivicMeetingUrls,
   extractCivicLinksFromPages,
+  isCivicDirectDocumentUrl,
   isCivicScrapableUrl,
 } from "../_shared/civic_links.ts";
 import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
@@ -221,6 +222,32 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         continue;
       }
 
+      const directDocumentUrl = isCivicDirectDocumentUrl(url)
+        ? normalizeCivicUrl(url)
+        : null;
+      if (directDocumentUrl) {
+        if (
+          queueSeen.has(directDocumentUrl) ||
+          (result.change_status === "same" && scoutSeen.has(directDocumentUrl))
+        ) {
+          continue;
+        }
+        if (
+          await enqueueCivicDocument(db, {
+            userId: scout.user_id as string,
+            scoutId: scout.id as string,
+            runId,
+            url: directDocumentUrl,
+            docKind: "pdf",
+          })
+        ) {
+          skipSet.add(directDocumentUrl);
+          queueSeen.add(directDocumentUrl);
+          queuedCount += 1;
+        }
+        continue;
+      }
+
       if (result.change_status === "same") {
         continue;
       }
@@ -236,25 +263,15 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         if (skipSet.has(docUrl)) continue;
 
         const docKind = docUrl.toLowerCase().endsWith(".pdf") ? "pdf" : "html";
-        const { error: queueErr } = await db
-          .from("civic_extraction_queue")
-          .insert({
-            user_id: scout.user_id,
-            scout_id: scout.id,
-            scout_run_id: runId,
-            source_url: docUrl,
-            doc_kind: docKind,
-            status: "pending",
-          });
-        if (queueErr) {
-          logEvent({
-            level: "warn",
-            fn: "civic-execute",
-            event: "queue_insert_failed",
-            scout_id: scoutId,
+        if (
+          !(await enqueueCivicDocument(db, {
+            userId: scout.user_id as string,
+            scoutId: scout.id as string,
+            runId,
             url: docUrl,
-            msg: queueErr.message,
-          });
+            docKind,
+          }))
+        ) {
           continue;
         }
 
@@ -371,6 +388,38 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
+
+async function enqueueCivicDocument(
+  db: SupabaseClient,
+  input: {
+    userId: string;
+    scoutId: string;
+    runId: string;
+    url: string;
+    docKind: "pdf" | "html";
+  },
+): Promise<boolean> {
+  const { error } = await db
+    .from("civic_extraction_queue")
+    .insert({
+      user_id: input.userId,
+      scout_id: input.scoutId,
+      scout_run_id: input.runId,
+      source_url: input.url,
+      doc_kind: input.docKind,
+      status: "pending",
+    });
+  if (!error) return true;
+  logEvent({
+    level: "warn",
+    fn: "civic-execute",
+    event: "queue_insert_failed",
+    scout_id: input.scoutId,
+    url: input.url,
+    msg: error.message,
+  });
+  return false;
+}
 
 /**
  * Return the set of source_urls already present in civic_extraction_queue

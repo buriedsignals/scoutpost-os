@@ -2,7 +2,13 @@
 	import { Globe, MapPin, Tag, Calendar, Play, Trash2, X, Check } from 'lucide-svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import DemoBadge from '$lib/components/ui/DemoBadge.svelte';
-	import { truncateUrl, getScoutTypeDisplay, normalizeScoutType } from '$lib/utils/scouts';
+	import {
+		truncateUrl,
+		getScoutTypeDisplay,
+		normalizeScoutType,
+		getScoutStatus,
+		getScoutStatusLabel
+	} from '$lib/utils/scouts';
 	import { parseTopicTags } from '$lib/utils/topics';
 	import { tooltip } from '$lib/utils/tooltip';
 	import type { Scout } from '$lib/types/workspace';
@@ -50,20 +56,8 @@
 		return rel ? `Last run ${rel}` : 'Awaiting first run';
 	})();
 
-	interface StatusDisplay {
-		variant: 'success' | 'error' | 'waiting' | 'neutral';
-		label: string;
-	}
-
-	$: status = ((): StatusDisplay => {
-		if (!scout.last_run?.started_at) return { variant: 'waiting', label: 'Awaiting first run' };
-		const runStatus = scout.last_run.status;
-		if (runStatus === 'running' || runStatus === 'queued') return { variant: 'waiting', label: 'Running' };
-		if (runStatus === 'failed' || runStatus === 'error') return { variant: 'error', label: 'Run failed' };
-		const count = scout.last_run.articles_count ?? 0;
-		if (count > 0) return { variant: 'success', label: 'New findings' };
-		return { variant: 'neutral', label: 'No new findings' };
-	})();
+	$: status = getScoutStatus({ type: normalizedType, last_run: scout.last_run });
+	$: statusLabel = getScoutStatusLabel(status);
 
 	$: canRun = scout.is_active !== false;
 
@@ -199,10 +193,11 @@
 			class:status-success={status.variant === 'success'}
 			class:status-error={status.variant === 'error'}
 			class:status-neutral={status.variant === 'neutral'}
+			class:status-warning={status.variant === 'warning'}
 			class:status-waiting={status.variant === 'waiting'}
 		>
 			<span class="scout-shell-status-dot"></span>
-			{status.label}
+			{statusLabel}
 		</span>
 		{#if scheduleLabel}
 			<span class="scout-shell-schedule">{scheduleLabel}</span>

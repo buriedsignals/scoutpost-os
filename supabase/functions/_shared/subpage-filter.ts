@@ -47,7 +47,10 @@ export function isLikelyArticleUrl(url: string): boolean {
   }
 
   const cleanPath = parsed.pathname.replace(/\/+$/, "");
-  if (hasTraversal(cleanPath) || hasStaticAsset(cleanPath)) return false;
+  if (
+    hasTraversal(cleanPath) || hasStaticAsset(cleanPath) ||
+    isUtilityPath(cleanPath)
+  ) return false;
 
   const segments = cleanPath.split("/").filter(Boolean);
   if (segments.length < 2) return false;
@@ -56,6 +59,7 @@ export function isLikelyArticleUrl(url: string): boolean {
   if (segments.some((segment) => /^\d{4}-\d{2}-\d{2}$/.test(segment))) {
     return true;
   }
+  if (hasSplitDatePath(segments)) return true;
   if (segments.some((segment) => /^ld\.\d+$/i.test(segment))) return true;
   if (/(^|-)ld\.\d+$/i.test(last)) return true;
   if (/\.(html?|php|aspx)$/i.test(last)) return true;
@@ -71,6 +75,22 @@ export function hasDeterministicListingSignal(
   if (isLikelyArticleUrl(indexUrl)) return false;
   const articleCandidates = candidateUrls.filter(isLikelyArticleUrl).length;
   return articleCandidates >= MIN_DETERMINISTIC_ARTICLE_CANDIDATES;
+}
+
+export function isStrictChildUrl(url: string, indexUrl: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const index = new URL(indexUrl);
+    if (normalizeHost(parsed.hostname) !== normalizeHost(index.hostname)) {
+      return false;
+    }
+    const indexPath = index.pathname.replace(/\/+$/, "");
+    const cleanPath = parsed.pathname.replace(/\/+$/, "");
+    if (!indexPath) return cleanPath !== "";
+    return cleanPath.startsWith(indexPath + "/");
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -102,13 +122,22 @@ export function filterSubpageUrls(links: string[], indexUrl: string): string[] {
     if (normalizeHost(parsed.hostname) !== indexHost) return false;
     if (!validateDomain(parsed.hostname).valid) return false;
     const cleanPath = parsed.pathname.replace(/\/+$/, "");
-    if (hasTraversal(cleanPath) || hasStaticAsset(cleanPath)) return false;
+    if (
+      hasTraversal(cleanPath) || hasStaticAsset(cleanPath) ||
+      isUtilityPath(cleanPath)
+    ) return false;
     if (!indexPath && !isLikelyArticleUrl(url)) return false;
     if (cleanPath.startsWith(indexPath + "/")) return true;
     if (isLikelyArticleUrl(url)) return true;
     return false;
   });
-  return filtered.sort((a, b) =>
+
+  const strictChildren = filtered.filter((url) =>
+    isStrictChildUrl(url, indexUrl)
+  );
+  const eligible = strictChildren.length > 0 ? strictChildren : filtered;
+
+  return eligible.sort((a, b) =>
     Number(isLikelyArticleUrl(b)) - Number(isLikelyArticleUrl(a))
   );
 }
@@ -124,4 +153,30 @@ function hasTraversal(path: string): boolean {
 function hasStaticAsset(path: string): boolean {
   return /\.(css|js|mjs|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|map|xml|json)$/i
     .test(path);
+}
+
+function isUtilityPath(path: string): boolean {
+  return /\/(?:ical|rss)\.php$/i.test(path);
+}
+
+function hasSplitDatePath(segments: string[]): boolean {
+  for (let i = 0; i <= segments.length - 4; i += 1) {
+    const year = Number(segments[i]);
+    const month = Number(segments[i + 1]);
+    const day = Number(segments[i + 2]);
+    if (
+      /^\d{4}$/.test(segments[i] ?? "") &&
+      /^(0[1-9]|1[0-2])$/.test(segments[i + 1] ?? "") &&
+      /^(0[1-9]|[12]\d|3[01])$/.test(segments[i + 2] ?? "") &&
+      year >= 1990 &&
+      year <= 2100 &&
+      month >= 1 &&
+      month <= 12 &&
+      day >= 1 &&
+      day <= 31
+    ) {
+      return true;
+    }
+  }
+  return false;
 }

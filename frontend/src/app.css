@@ -1109,6 +1109,10 @@
     background: var(--color-secondary-soft);
     color: var(--color-secondary);
   }
+  &.status-warning {
+    background: rgba(184, 122, 26, 0.12);
+    color: var(--color-warning);
+  }
   &.status-neutral {
     background: var(--color-surface);
     color: var(--color-ink-muted);
@@ -1133,6 +1137,13 @@
   &.scout-shell-status {
     background: var(--color-secondary-soft);
     color: var(--color-secondary);
+  }
+}
+
+@utility status-warning {
+  &.scout-shell-status {
+    background: rgba(184, 122, 26, 0.12);
+    color: var(--color-warning);
   }
 }
 

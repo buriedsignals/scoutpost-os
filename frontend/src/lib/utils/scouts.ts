@@ -199,12 +199,25 @@ export function stripMarkdown(text: string): string {
 
 export type StatusVariant = 'success' | 'error' | 'neutral' | 'warning' | 'waiting';
 
-export type StatusKey = 'awaitingFirstRun' | 'runFailed' | 'newFindings' | 'match' | 'noChanges' | 'noMatch';
+export type StatusKey =
+	| 'awaitingFirstRun'
+	| 'running'
+	| 'runFailed'
+	| 'newFindings'
+	| 'alreadyKnown'
+	| 'match'
+	| 'noChanges'
+	| 'noMatch'
+	| 'noSavedFindings';
 
 /** Scout data needed for status display. */
 export interface ScoutStatusInput {
 	type: ScoutType;
 	last_run?: {
+		started_at?: string | null;
+		status?: string | null;
+		articles_count?: number | null;
+		merged_existing_count?: number | null;
 		scraper_status?: boolean | null;
 		criteria_status?: boolean | null;
 		card_summary?: string;
@@ -214,6 +227,23 @@ export interface ScoutStatusInput {
 export interface ScoutStatusResult {
 	variant: StatusVariant;
 	key: StatusKey;
+}
+
+export const SCOUT_STATUS_LABELS: Record<StatusKey, string> = {
+	awaitingFirstRun: 'Awaiting first run',
+	running: 'Running',
+	runFailed: 'Run failed',
+	newFindings: 'New findings',
+	alreadyKnown: 'Already known',
+	match: 'Criteria matched',
+	noChanges: 'No changes',
+	noMatch: 'No criteria match',
+	noSavedFindings: 'No findings saved'
+};
+
+export function getScoutStatusLabel(status: ScoutStatusResult | StatusKey): string {
+	const key = typeof status === 'string' ? status : status.key;
+	return SCOUT_STATUS_LABELS[key];
 }
 
 /**
@@ -230,21 +260,44 @@ const STATUS_CASCADE: Array<{
 	{
 		key: 'awaitingFirstRun',
 		variant: 'waiting',
-		match: (s) => !s.last_run,
+		match: (s) => !s.last_run || ('started_at' in s.last_run && !s.last_run.started_at),
 	},
-	// Priority 2: Execution failed
+	// Priority 2a: Execution in progress
+	{
+		key: 'running',
+		variant: 'waiting',
+		match: (s) => s.last_run?.status === 'running' || s.last_run?.status === 'queued',
+	},
+	// Priority 2b: Execution failed
 	{
 		key: 'runFailed',
 		variant: 'error',
-		match: (s) => s.last_run?.scraper_status === false,
+		match: (s) =>
+			s.last_run?.scraper_status === false ||
+			s.last_run?.status === 'failed' ||
+			s.last_run?.status === 'error',
 	},
-	// Priority 3a: Criteria matched — pulse, social, or civic
+	// Priority 3a: Units were saved by the latest run
+	{
+		key: 'newFindings',
+		variant: 'success',
+		match: (s) => (s.last_run?.articles_count ?? 0) > 0,
+	},
+	// Priority 3b: The run found only facts already present in the inbox
+	{
+		key: 'alreadyKnown',
+		variant: 'neutral',
+		match: (s) =>
+			(s.last_run?.articles_count ?? 0) === 0 &&
+			(s.last_run?.merged_existing_count ?? 0) > 0,
+	},
+	// Priority 3c: Criteria matched — pulse, social, or civic
 	{
 		key: 'newFindings',
 		variant: 'success',
 		match: (s) => s.last_run?.criteria_status === true && (s.type === 'pulse' || s.type === 'social' || s.type === 'civic'),
 	},
-	// Priority 3b: Criteria matched — web
+	// Priority 3d: Criteria matched — web
 	{
 		key: 'match',
 		variant: 'success',
@@ -256,13 +309,19 @@ const STATUS_CASCADE: Array<{
 		variant: 'neutral',
 		match: (s) => s.type === 'web' && s.last_run?.card_summary?.toLowerCase().includes('no changes') === true,
 	},
-	// Priority 4b: Web scout — changes detected but criteria not met
+	// Priority 4b: Workspace runs report saved-unit counts but not criteria detail.
+	{
+		key: 'noSavedFindings',
+		variant: 'neutral',
+		match: (s) => s.last_run !== null && s.last_run !== undefined && 'articles_count' in s.last_run,
+	},
+	// Priority 4c: Web scout — changes detected but criteria not met
 	{
 		key: 'noMatch',
 		variant: 'warning',
 		match: (s) => s.type === 'web',
 	},
-	// Priority 4c: pulse — no new results
+	// Priority 4d: pulse — no new results
 	{
 		key: 'noChanges',
 		variant: 'neutral',

@@ -55,6 +55,7 @@
 	let pendingNewScoutType: ActivePanel | null = null;
 	let pendingWatchdog: ReturnType<typeof setTimeout> | null = null;
 	let retiringDemoWorkspace = false;
+	let lastExternalRefreshAt = 0;
 
 	async function simulateDemoMutation() {
 		await tick();
@@ -231,6 +232,16 @@
 		: unitsState.units;
 	$: verifyingUnitId = drawerActionLoading === 'verify' ? unitActionLoadingId : null;
 
+	async function refreshAfterExternalActivity() {
+		if (!browser || !bootstrapped || demoActive) return;
+		if (document.visibilityState === 'hidden') return;
+		const now = Date.now();
+		if (now - lastExternalRefreshAt < 15_000) return;
+		lastExternalRefreshAt = now;
+		await scoutsStore.load();
+		await unitsStore.load(selection.scoutId);
+	}
+
 	function pushUnitDetailHistory(unitId: string) {
 		if (!browser) return;
 		const state = { ...(history.state ?? {}), cojoUnitDetailId: unitId };
@@ -266,7 +277,17 @@
 			if (!unitDetailHistoryActive) return;
 			closeActiveUnit(false);
 		};
+		const handleFocus = () => {
+			void refreshAfterExternalActivity();
+		};
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === 'visible') {
+				void refreshAfterExternalActivity();
+			}
+		};
 		window.addEventListener('popstate', handlePopState);
+		window.addEventListener('focus', handleFocus);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
 
 		void (async () => {
 			await Promise.all([scoutsStore.load(), unitsStore.load(null)]);
@@ -277,7 +298,11 @@
 			bootstrapped = true;
 		})();
 
-		return () => window.removeEventListener('popstate', handlePopState);
+		return () => {
+			window.removeEventListener('popstate', handlePopState);
+			window.removeEventListener('focus', handleFocus);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+		};
 	});
 
 	$: if (bootstrapped) {

@@ -456,6 +456,14 @@ export function isCivicScrapableUrl(url: string): boolean {
   }
 }
 
+export function isCivicDirectDocumentUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.toLowerCase().endsWith(".pdf");
+  } catch {
+    return false;
+  }
+}
+
 function hasDeniedCivicAssetExtension(urlOrHref: string): boolean {
   const withoutQuery = urlOrHref.split(/[?#]/)[0].toLowerCase();
   return CIVIC_DENYLIST_EXTENSIONS.some((ext) => withoutQuery.endsWith(ext));

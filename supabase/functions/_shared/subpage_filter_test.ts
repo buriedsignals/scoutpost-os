@@ -3,6 +3,7 @@ import {
   filterSubpageUrls,
   hasDeterministicListingSignal,
   isLikelyArticleUrl,
+  isStrictChildUrl,
 } from "./subpage-filter.ts";
 
 const INDEX = "https://www.example.ch/news/press-releases/";
@@ -32,6 +33,59 @@ Deno.test("filterSubpageUrls keeps safe same-host article routes outside the ind
   const article =
     "https://www.bzbasel.ch/aargau/fricktal/zeiningen-steiner-logistic-ag-wird-uebernommen-ld.4158147";
   assertEquals(filterSubpageUrls([article], index), [article]);
+});
+
+Deno.test("filterSubpageUrls prefers strict child URLs when a listing path has them", () => {
+  const index = "https://www.arlesheim.ch/de/aktuelles/";
+  const target =
+    "https://www.arlesheim.ch/de/aktuelles/aktuelle_meldungen/newsarchiv.php";
+  const input = [
+    "https://www.arlesheim.ch/de/verwaltung/abteilungen/finanzen-steuern.php",
+    "https://www.arlesheim.ch/de/politik/gemeinderat/mitglieder.php",
+    target,
+  ];
+
+  assertEquals(filterSubpageUrls(input, index), [target]);
+});
+
+Deno.test("filterSubpageUrls drops calendar/feed utility endpoints", () => {
+  const event =
+    "https://www.arlesheim.ch/de/veranstaltungen/4942_fasnachtsumzug.php";
+  const input = [
+    "https://www.arlesheim.ch/de/veranstaltungen/ical.php?i=4942",
+    "https://www.arlesheim.ch/de/veranstaltungen/rss.php",
+    event,
+  ];
+
+  assertEquals(
+    filterSubpageUrls(input, "https://www.arlesheim.ch/de/veranstaltungen/"),
+    [event],
+  );
+});
+
+Deno.test("isStrictChildUrl requires same host and path-segment parentage", () => {
+  const index = "https://www.arlesheim.ch/de/aktuelles/";
+  assertEquals(
+    isStrictChildUrl(
+      "https://www.arlesheim.ch/de/aktuelles/aktuelle_meldungen/newsarchiv.php",
+      index,
+    ),
+    true,
+  );
+  assertEquals(
+    isStrictChildUrl(
+      "https://www.arlesheim.ch/de/aktuelles-archiv/item.php",
+      index,
+    ),
+    false,
+  );
+  assertEquals(
+    isStrictChildUrl(
+      "https://www.example.ch/de/aktuelles/aktuelle_meldungen/newsarchiv.php",
+      index,
+    ),
+    false,
+  );
 });
 
 Deno.test("filterSubpageUrls treats www and bare host as the same host", () => {
@@ -147,7 +201,15 @@ Deno.test("isLikelyArticleUrl recognizes only concrete article route shapes", ()
   assertEquals(isLikelyArticleUrl("https://example.ch/news/story.php"), true);
   assertEquals(isLikelyArticleUrl("https://example.ch/news/story.aspx"), true);
   assertEquals(isLikelyArticleUrl("https://example.ch/story/ld.4158147"), true);
+  assertEquals(
+    isLikelyArticleUrl(
+      "https://www.engadinerpost.ch/news/2026/05/06/Getruebte-Freude-im-Bildungshaus",
+    ),
+    true,
+  );
   assertEquals(isLikelyArticleUrl("https://example.ch/news/contact"), false);
+  assertEquals(isLikelyArticleUrl("https://example.ch/news/2026/05"), false);
+  assertEquals(isLikelyArticleUrl("https://example.ch/news/rss.php"), false);
   assertEquals(isLikelyArticleUrl("https://example.ch/news/app.js"), false);
 });
 

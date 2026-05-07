@@ -14,6 +14,7 @@ import {
 	truncateUrl,
 	stripMarkdown,
 	getScoutStatus,
+	getScoutStatusLabel,
 	type ScoutStatusInput
 } from '$lib/utils/scouts';
 
@@ -213,6 +214,22 @@ describe('getScoutStatus', () => {
 		expect(getScoutStatus(scout)).toEqual({ variant: 'waiting', key: 'awaitingFirstRun' });
 	});
 
+	it('workspace last_run without started_at → awaiting first run', () => {
+		const scout: ScoutStatusInput = {
+			type: 'web',
+			last_run: { started_at: null, status: null, articles_count: 0 }
+		};
+		expect(getScoutStatus(scout)).toEqual({ variant: 'waiting', key: 'awaitingFirstRun' });
+	});
+
+	it('queued workspace run → running (waiting)', () => {
+		const scout: ScoutStatusInput = {
+			type: 'web',
+			last_run: { started_at: '2026-05-07T08:00:00Z', status: 'queued', articles_count: 0 }
+		};
+		expect(getScoutStatus(scout)).toEqual({ variant: 'waiting', key: 'running' });
+	});
+
 	// Priority 2: Execution failed
 	it('scraper_status false → run failed (error)', () => {
 		const scout: ScoutStatusInput = {
@@ -230,7 +247,44 @@ describe('getScoutStatus', () => {
 		expect(getScoutStatus(scout)).toEqual({ variant: 'error', key: 'runFailed' });
 	});
 
+	it('failed workspace run → run failed (error)', () => {
+		const scout: ScoutStatusInput = {
+			type: 'web',
+			last_run: { started_at: '2026-05-07T08:00:00Z', status: 'failed', articles_count: 0 }
+		};
+		expect(getScoutStatus(scout)).toEqual({ variant: 'error', key: 'runFailed' });
+	});
+
 	// Priority 3: Criteria matched
+	it('workspace run with saved articles → new findings (success)', () => {
+		const scout: ScoutStatusInput = {
+			type: 'web',
+			last_run: { started_at: '2026-05-07T08:00:00Z', status: 'completed', articles_count: 2 }
+		};
+		expect(getScoutStatus(scout)).toEqual({ variant: 'success', key: 'newFindings' });
+	});
+
+	it('workspace run with only duplicates → already known (neutral)', () => {
+		const scout: ScoutStatusInput = {
+			type: 'pulse',
+			last_run: {
+				started_at: '2026-05-07T08:00:00Z',
+				status: 'completed',
+				articles_count: 0,
+				merged_existing_count: 3
+			}
+		};
+		expect(getScoutStatus(scout)).toEqual({ variant: 'neutral', key: 'alreadyKnown' });
+	});
+
+	it('workspace run with no saved articles → no findings saved (neutral)', () => {
+		const scout: ScoutStatusInput = {
+			type: 'web',
+			last_run: { started_at: '2026-05-07T08:00:00Z', status: 'completed', articles_count: 0 }
+		};
+		expect(getScoutStatus(scout)).toEqual({ variant: 'neutral', key: 'noSavedFindings' });
+	});
+
 	it('criteria matched for pulse → new findings (success)', () => {
 		const scout: ScoutStatusInput = {
 			type: 'pulse',
@@ -272,4 +326,13 @@ describe('getScoutStatus', () => {
 		expect(getScoutStatus(scout)).toEqual({ variant: 'neutral', key: 'noChanges' });
 	});
 
+});
+
+describe('getScoutStatusLabel', () => {
+	it('maps status keys to user-facing labels', () => {
+		expect(getScoutStatusLabel('alreadyKnown')).toBe('Already known');
+		expect(getScoutStatusLabel({ variant: 'neutral', key: 'noSavedFindings' })).toBe(
+			'No findings saved'
+		);
+	});
 });

@@ -47,6 +47,7 @@ import {
   BeatHit,
   BeatScope,
   BeatSourceMode,
+  beatCandidateRejectReason,
   discoverBeatHits,
   generateBeatSummary,
 } from "../_shared/beat_pipeline.ts";
@@ -169,6 +170,7 @@ async function discoverPriorityDomainHits(opts: {
     });
     return hits
       .filter((hit) => urlMatchesDomain(hit.url, job.domain))
+      .filter((hit) => beatCandidateRejectReason(hit) === null)
       .map((hit) => ({
         ...hit,
         date: hit.date ?? null,

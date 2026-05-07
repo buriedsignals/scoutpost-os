@@ -296,7 +296,9 @@ after a production deploy.
 
 The AI journalism canary is the regression sentinel for broad-topic drift. It
 requires both AI and journalism/media concepts and rejects the earlier broad-AI
-drift terms.
+drift terms. Beat retrieval also rejects social/video/community platforms
+before scraping; those sources belong to Social Scout or manual research, not
+automated Beat ingestion.
 
 When this pipeline changes, deploy both functions that import `_shared/beat_pipeline.ts`:
 
