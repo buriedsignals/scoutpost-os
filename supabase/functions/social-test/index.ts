@@ -29,7 +29,7 @@
 
 import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
-import { AuthedUser, requireUser } from "../_shared/auth.ts";
+import { AuthedUser, requireUserOrApiKey } from "../_shared/auth.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
@@ -66,7 +66,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   let user: AuthedUser;
   try {
-    user = await requireUser(req);
+    user = await requireUserOrApiKey(req);
   } catch (e) {
     return jsonFromError(e);
   }
