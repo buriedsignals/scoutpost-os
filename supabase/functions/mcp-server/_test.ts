@@ -91,7 +91,7 @@ Deno.test("metadata: protected resource advertises same MCP resource", async () 
     assertEquals(body.scopes_supported, ["mcp"]);
     assertEquals(
       body.resource_documentation,
-      "https://www.scoutpost.ai/skills/cojournalist.md",
+      "https://www.scoutpost.ai/skills/scoutpost.md",
     );
   } finally {
     if (original === undefined) Deno.env.delete("MCP_SERVER_BASE_URL");

@@ -103,9 +103,9 @@ The journalist stays responsible for verification. Your job is to help monitor, 
 - Docs text: https://www.scoutpost.ai/docs.txt
 - Pricing: https://www.scoutpost.ai/pricing
 - FAQ: https://www.scoutpost.ai/faq
-- Setup skill: https://www.scoutpost.ai/skills/cojournalist-setup.md
+- Setup skill: https://www.scoutpost.ai/skills/scoutpost-setup.md
 
-Canonical URL: `https://www.scoutpost.ai/skills/cojournalist.md`
+Canonical URL: `https://www.scoutpost.ai/skills/scoutpost.md`
 
 Legacy compatibility URL: `https://www.scoutpost.ai/skill.md`
 
@@ -117,7 +117,7 @@ Use this skill when the user wants to deploy, self-host, install, or provision S
 
 This is **not** the day-to-day product-use skill. For operating scouts and units inside the hosted product, use:
 
-- https://www.scoutpost.ai/skills/cojournalist.md
+- https://www.scoutpost.ai/skills/scoutpost.md
 
 ## What this skill covers
 
@@ -139,4 +139,4 @@ This setup path walks an agent through:
 - Apify
 - static hosting for the frontend
 
-Canonical URL: `https://www.scoutpost.ai/skills/cojournalist-setup.md`
+Canonical URL: `https://www.scoutpost.ai/skills/scoutpost-setup.md`

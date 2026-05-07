@@ -8,7 +8,7 @@ Scoutpost is source-available under the Sustainable Use License. Newsrooms can u
 
 Self-hosting is supported. You bring your own Supabase, Gemini, Firecrawl, Resend, Apify, and hosting setup. The public setup skill is:
 
-- https://www.scoutpost.ai/skills/cojournalist-setup.md
+- https://www.scoutpost.ai/skills/scoutpost-setup.md
 
 ## Hosted vs self-hosted
 

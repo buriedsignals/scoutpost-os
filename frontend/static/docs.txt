@@ -34,8 +34,8 @@ Scoutpost lets journalists create scheduled scouts that monitor pages, local new
 
 ## Public skills
 
-- Product skill: https://www.scoutpost.ai/skills/cojournalist.md
-- Setup skill: https://www.scoutpost.ai/skills/cojournalist-setup.md
+- Product skill: https://www.scoutpost.ai/skills/scoutpost.md
+- Setup skill: https://www.scoutpost.ai/skills/scoutpost-setup.md
 
 ## Product behavior to preserve
 

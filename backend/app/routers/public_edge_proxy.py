@@ -183,7 +183,7 @@ def _mcp_protected_resource_metadata(request: Request) -> JSONResponse:
             "bearer_methods_supported": ["header"],
             "scopes_supported": ["mcp"],
             "resource_documentation": (
-                "https://www.scoutpost.ai/skills/cojournalist.md"
+                "https://www.scoutpost.ai/skills/scoutpost.md"
             ),
         },
         headers={"Cache-Control": "public, max-age=300"},
@@ -223,7 +223,7 @@ def _rewrite_mcp_metadata(
         body.setdefault("bearer_methods_supported", ["header"])
         body.setdefault("scopes_supported", ["mcp"])
         body["resource_documentation"] = (
-            "https://www.scoutpost.ai/skills/cojournalist.md"
+            "https://www.scoutpost.ai/skills/scoutpost.md"
         )
 
     return JSONResponse(

@@ -128,7 +128,7 @@ scan_hosted_supabase_refs() {
     [ -f "$file" ] || continue
     if grep -q "$HOSTED_SUPABASE_REF" "$file"; then
       matches="$(grep -n "$HOSTED_SUPABASE_REF" "$file" | cut -d: -f1 | paste -sd, -)"
-      blocker "Hosted coJournalist Supabase project ref found in $file line(s): $matches. Regenerate this deployment config for the newsroom project."
+      blocker "Hosted Scoutpost Supabase project ref found in $file line(s): $matches. Regenerate this deployment config for the newsroom project."
     fi
   done
 }
@@ -174,7 +174,7 @@ if [ -z "${REPO_ROOT:-}" ]; then
 fi
 
 cd "$REPO_ROOT"
-printf "coJournalist self-host doctor\n"
+printf "Scoutpost self-host doctor\n"
 printf "Repository: %s\n\n" "$REPO_ROOT"
 if [ "$FOUND_NESTED_REPO" -eq 1 ]; then
   info "Current directory is not a Git worktree; using nested checkout $REPO_ROOT"
@@ -212,8 +212,8 @@ USER_NAME="$(git config user.name || true)"
 USER_EMAIL="$(git config user.email || true)"
 if [ -z "$USER_NAME" ] || [ -z "$USER_EMAIL" ]; then
   warn "Git committer identity is missing in this repository."
-  printf "  git config user.name \"coJournalist Maintenance\"\n"
-  printf "  git config user.email \"maintenance@cojournalist.local\"\n"
+  printf "  git config user.name \"Scoutpost Maintenance\"\n"
+  printf "  git config user.email \"maintenance@scoutpost.local\"\n"
 else
   ok "Git committer identity is configured."
 fi
@@ -258,7 +258,7 @@ fi
 
 printf "\nRecommended existing-install update path:\n"
 printf "  git fetch upstream master\n"
-printf "  git switch -c cojournalist/upstream-maintenance-$(date -u +%Y-%m-%d)\n"
+printf "  git switch -c scoutpost/upstream-maintenance-$(date -u +%Y-%m-%d)\n"
 printf "  automation/selfhost-doctor.sh\n"
 printf "  git merge upstream/master\n"
 printf "  # review local migrations and auth-hook changes before applying database updates\n"

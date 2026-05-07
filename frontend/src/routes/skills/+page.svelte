@@ -6,14 +6,14 @@
 	const skills = [
 		{
 			title: 'Product skill',
-			href: '/skills/cojournalist.md',
+			href: '/skills/scoutpost.md',
 			icon: Bot,
 			description:
 				'Use this when an AI assistant should operate Scoutpost through MCP, CLI, or REST: create scouts, run monitors, search units, and respect editorial verification.'
 		},
 		{
 			title: 'Setup skill',
-			href: '/skills/cojournalist-setup.md',
+			href: '/skills/scoutpost-setup.md',
 			icon: Wrench,
 			description:
 				'Use this when an AI assistant should deploy or self-host Scoutpost on newsroom infrastructure.'
@@ -28,8 +28,8 @@
 		content="Public Scoutpost skill files for AI agents: product operation, MCP and CLI usage, and self-hosted setup."
 	/>
 	<link rel="alternate" type="text/plain" title="skills.txt" href="/skills.txt" />
-	<link rel="alternate" type="text/markdown" title="Scoutpost skill" href="/skills/cojournalist.md" />
-	<link rel="alternate" type="text/markdown" title="Scoutpost setup skill" href="/skills/cojournalist-setup.md" />
+	<link rel="alternate" type="text/markdown" title="Scoutpost skill" href="/skills/scoutpost.md" />
+	<link rel="alternate" type="text/markdown" title="Scoutpost setup skill" href="/skills/scoutpost-setup.md" />
 </svelte:head>
 
 <div class="skills-page">

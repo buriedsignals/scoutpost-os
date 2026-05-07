@@ -71,7 +71,7 @@ If both CLI and MCP are available, prefer the CLI for shell-capable agents becau
 - Docs text: https://www.scoutpost.ai/docs.txt
 - Pricing: https://www.scoutpost.ai/pricing
 - FAQ: https://www.scoutpost.ai/faq
-- Setup skill: https://www.scoutpost.ai/skills/cojournalist-setup.md
+- Setup skill: https://www.scoutpost.ai/skills/scoutpost-setup.md
 
 ## CLI and MCP parity
 
@@ -102,10 +102,10 @@ When in doubt, say that a claim is unverified and cite the source.
 
 This file is the **product-use** skill. If the user wants to deploy, self-host, or provision Scoutpost, use the setup skill instead:
 
-- https://www.scoutpost.ai/skills/cojournalist-setup.md
+- https://www.scoutpost.ai/skills/scoutpost-setup.md
 
 ## Canonical location
 
-Canonical URL: `https://www.scoutpost.ai/skills/cojournalist.md`
+Canonical URL: `https://www.scoutpost.ai/skills/scoutpost.md`
 
 Legacy compatibility URL: `https://www.scoutpost.ai/skill.md`

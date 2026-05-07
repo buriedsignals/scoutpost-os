@@ -1,6 +1,6 @@
-You are Codex working in our self-hosted coJournalist repository.
+You are Codex working in our self-hosted Scoutpost repository.
 
-Goal: install upstream maintenance sync if it is missing, then do a one-time pull of all current upstream coJournalist OSS updates.
+Goal: install upstream maintenance sync if it is missing, then do a one-time pull of all current upstream Scoutpost OSS updates.
 
 Important rules:
 - Do not ask us to paste secrets into chat.
@@ -18,7 +18,7 @@ Please do this:
 1. Inspect the repository.
    - Run `git status --short`.
    - Run `git remote -v`.
-   - Confirm whether this is a fork/clone of coJournalist.
+   - Confirm whether this is a fork/clone of Scoutpost.
    - If the current directory is not a Git worktree, search one level down
      for a nested checkout and continue there. Do not initialize a new repo
      over an existing deployment directory.
@@ -33,12 +33,12 @@ Please do this:
 
 3. Create a maintenance branch.
    - Use a branch name like:
-     `cojournalist/upstream-maintenance-YYYY-MM-DD`
+     `scoutpost/upstream-maintenance-YYYY-MM-DD`
    - Before merging, make sure this repository has a local commit identity.
      If `git config user.name` or `git config user.email` is empty, set a
      repository-local automation identity such as:
-     `git config user.name "coJournalist Maintenance"`
-     `git config user.email "maintenance@cojournalist.local"`
+     `git config user.name "Scoutpost Maintenance"`
+     `git config user.email "maintenance@scoutpost.local"`
 
 4. Pull current upstream updates once.
    - Merge `upstream/master` into the branch.

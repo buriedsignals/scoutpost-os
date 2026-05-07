@@ -82,8 +82,11 @@ PUBLIC_MARKDOWN_FILES = {
     "/skills": "skills.txt",
 }
 PUBLIC_SKILL_FILES = {
-    "cojournalist.md": "skills/cojournalist.md",
-    "cojournalist-setup.md": "skills/cojournalist-setup.md",
+    "scoutpost.md": "skills/scoutpost.md",
+    "scoutpost-setup.md": "skills/scoutpost-setup.md",
+    # Legacy aliases for agents or docs cached before the Scoutpost rename.
+    "cojournalist.md": "skills/scoutpost.md",
+    "cojournalist-setup.md": "skills/scoutpost-setup.md",
 }
 
 

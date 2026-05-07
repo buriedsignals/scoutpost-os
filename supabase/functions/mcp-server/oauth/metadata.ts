@@ -48,7 +48,7 @@ export function protectedResourceHandler(_req: Request): Response {
     bearer_methods_supported: ["header"],
     scopes_supported: ["mcp"],
     resource_documentation:
-      "https://www.scoutpost.ai/skills/cojournalist.md",
+      "https://www.scoutpost.ai/skills/scoutpost.md",
   };
   return new Response(JSON.stringify(body), {
     status: 200,

@@ -16,6 +16,19 @@ describe("agent target resolution", () => {
     expect(target.apiBaseUrl).toBe("https://www.scoutpost.ai/functions/v1");
   });
 
+  it("canonicalizes legacy hosted origins to Scoutpost", () => {
+    const target = resolveAgentTargetContext({
+      deploymentTarget: "supabase",
+      supabaseUrl: "https://newsroom.supabase.co",
+      origin: "https://cojournalist.ai",
+      hostname: "cojournalist.ai",
+    });
+
+    expect(target.appUrl).toBe("https://www.scoutpost.ai");
+    expect(target.apiBaseUrl).toBe("https://www.scoutpost.ai/functions/v1");
+    expect(target.skillUrl).toBe("https://www.scoutpost.ai/skills/scoutpost.md");
+  });
+
   it("uses the newsroom Supabase project for self-hosted recipes", () => {
     const target = resolveAgentTargetContext({
       deploymentTarget: "supabase",

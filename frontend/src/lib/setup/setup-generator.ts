@@ -184,7 +184,7 @@ export function deriveAgentTargetFromManifest(
       `${
         supabaseUrl || "https://<project-ref>.supabase.co"
       }/functions/v1/mcp-server`,
-    skillUrl: `${appUrl}/skills/cojournalist.md`,
+    skillUrl: `${appUrl}/skills/scoutpost.md`,
     apiKeyCreateUrl: appUrl,
     supabaseAnonKey: manifest.supabase.anon_key || "<SUPABASE_ANON_KEY>",
     customMcpUrl: customMcpUrl || undefined,

@@ -337,7 +337,7 @@ install_sync_workflow
 
 cat <<EOF
 
-coJournalist setup completed.
+Scoutpost setup completed.
 
 App URL: ${APP_URL:-<set after frontend deploy>}
 Supabase URL: ${SUPABASE_URL}

@@ -4,13 +4,13 @@ Scoutpost publishes two public skill files for AI agents.
 
 ## 1. Product skill
 
-URL: https://www.scoutpost.ai/skills/cojournalist.md
+URL: https://www.scoutpost.ai/skills/scoutpost.md
 
 Use this when the agent should operate the product: connect through MCP or CLI, create scouts, search units, export findings, and respect editorial verification.
 
 ## 2. Setup skill
 
-URL: https://www.scoutpost.ai/skills/cojournalist-setup.md
+URL: https://www.scoutpost.ai/skills/scoutpost-setup.md
 
 Use this when the agent should deploy or self-host Scoutpost on the user's own infrastructure.
 

@@ -1,27 +1,27 @@
 ---
-name: cojournalist-setup
+name: scoutpost-setup
 description: >
-  Deploy a fresh coJournalist instance on the user's own infrastructure. Use
-  whenever the user says "set up coJournalist", "deploy coJournalist", "install
-  coJournalist", "self-host coJournalist", or drops this repo into an agent
+  Deploy a fresh Scoutpost instance on the user's own infrastructure. Use
+  whenever the user says "set up Scoutpost", "deploy Scoutpost", "install
+  Scoutpost", "self-host Scoutpost", or drops this repo into an agent
   asking to be provisioned. Walks end-to-end: fork the repo, collect API keys,
   provision Supabase, deploy Edge Functions, build the frontend, and install
   the sync-upstream GitHub Action.
 trigger: >
   Activates on user requests for deployment / setup / self-hosting of
-  coJournalist, or when the agent first enters this repo with a provisioning
+  Scoutpost, or when the agent first enters this repo with a provisioning
   task.
 agent_agnostic: true
 ---
 
-# coJournalist self-hosted setup
+# Scoutpost self-hosted setup
 
 Agent-agnostic skill. This file is the entry point whichever AI coding agent
 (Claude Code, Cursor, Codex, Windsurf, Gemini CLI, etc.) the user drops into
 the repo. It is intentionally tracked (lives under `automation/`, not
 `.claude/`) so every agent sees the same instructions.
 
-This skill orchestrates the full deployment of coJournalist on the user's own
+This skill orchestrates the full deployment of Scoutpost on the user's own
 Supabase project. The canonical, step-by-step reference lives in
 `automation/SETUP_AGENT.md` — **read that file in full before you start**. It
 contains the exact commands for each step, including API-key collection,
@@ -36,7 +36,7 @@ Supabase linking, Edge Function deployment, and the frontend build.
   rules-file users can add a rule that says "for setup/deploy tasks, follow
   `automation/SKILL.md`".
 - **Generic (any MCP/CLI agent)**: the user can paste:
-  > Read `automation/SKILL.md` and follow it to set up coJournalist.
+  > Read `automation/SKILL.md` and follow it to set up Scoutpost.
 
 ## Preconditions
 

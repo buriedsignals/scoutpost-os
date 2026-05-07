@@ -158,7 +158,7 @@ Deno.test("selfhost doctor blocks hosted Supabase refs in frontend env", async (
   assert(result.code !== 0, "hosted Supabase ref should block doctor");
   assertIncludes(
     result.stdout,
-    "Hosted coJournalist Supabase project ref found",
+    "Hosted Scoutpost Supabase project ref found",
     "doctor stdout",
   );
 });
@@ -177,7 +177,7 @@ Deno.test("selfhost doctor blocks hosted Supabase refs in local frontend env", a
   assert(result.code !== 0, "hosted Supabase ref should block doctor");
   assertIncludes(
     result.stdout,
-    "Hosted coJournalist Supabase project ref found",
+    "Hosted Scoutpost Supabase project ref found",
     "doctor stdout",
   );
 });

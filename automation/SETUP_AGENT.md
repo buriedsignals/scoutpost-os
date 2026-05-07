@@ -1,4 +1,4 @@
-# coJournalist Self-Hosted Setup
+# Scoutpost Self-Hosted Setup
 
 Use this when the user wants to deploy `buriedsignals/scoutpost-os`.
 

@@ -74,7 +74,7 @@ local `scout` config.
 - Docs: `/docs` on the deployed app
 - Docs text: `/docs.txt` on the deployed app
 - FAQ: `/faq` on the deployed app
-- Setup skill: `/skills/cojournalist-setup.md` on the deployed app
+- Setup skill: `/skills/scoutpost-setup.md` on the deployed app
 
 ## CLI and MCP parity
 
@@ -105,10 +105,10 @@ When in doubt, say that a claim is unverified and cite the source.
 
 This file is the **product-use** skill. If the user wants to deploy, self-host, or provision Scoutpost, use the setup skill instead:
 
-- https://www.scoutpost.ai/skills/cojournalist-setup.md
+- https://www.scoutpost.ai/skills/scoutpost-setup.md
 
 ## Canonical location
 
-Canonical URL: `https://www.scoutpost.ai/skills/cojournalist.md`
+Canonical URL: `https://www.scoutpost.ai/skills/scoutpost.md`
 
 Legacy compatibility URL: `https://www.scoutpost.ai/skill.md`

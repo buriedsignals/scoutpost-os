@@ -33,7 +33,7 @@ export const HOSTED_AGENT_TARGET: AgentTargetContext = {
   appUrl: "https://www.scoutpost.ai",
   apiBaseUrl: "https://www.scoutpost.ai/functions/v1",
   mcpUrl: "https://www.scoutpost.ai/mcp",
-  skillUrl: "https://www.scoutpost.ai/skills/cojournalist.md",
+  skillUrl: "https://www.scoutpost.ai/skills/scoutpost.md",
   apiKeyCreateUrl: "https://www.scoutpost.ai",
 };
 
@@ -41,7 +41,7 @@ function trimSlash(value: string): string {
   return value.trim().replace(/\/$/, "");
 }
 
-export function isHostedCojournalistHost(
+export function isHostedScoutpostHost(
   hostname: string | undefined,
 ): boolean {
   return Boolean(hostname && HOSTED_HOSTS.has(hostname));
@@ -65,8 +65,12 @@ export function resolveAgentTargetContext(
 ): AgentTargetContext {
   const origin = trimSlash(input.origin || HOSTED_AGENT_TARGET.appUrl);
   const supabaseUrl = trimSlash(input.supabaseUrl || "");
-  const isHosted = input.deploymentTarget !== "supabase" ||
-    isHostedCojournalistHost(input.hostname);
+  const isSaasHost = isHostedScoutpostHost(input.hostname);
+  const isHosted = input.deploymentTarget !== "supabase" || isSaasHost;
+
+  if (isSaasHost) {
+    return HOSTED_AGENT_TARGET;
+  }
 
   if (isHosted || !supabaseUrl) {
     return {
@@ -75,7 +79,7 @@ export function resolveAgentTargetContext(
       apiKeyCreateUrl: origin || HOSTED_AGENT_TARGET.apiKeyCreateUrl,
       skillUrl: `${
         origin || HOSTED_AGENT_TARGET.appUrl
-      }/skills/cojournalist.md`,
+      }/skills/scoutpost.md`,
     };
   }
 
@@ -86,7 +90,7 @@ export function resolveAgentTargetContext(
     appUrl: origin,
     apiBaseUrl: `${supabaseUrl}/functions/v1`,
     mcpUrl: customMcpUrl || `${supabaseUrl}/functions/v1/mcp-server`,
-    skillUrl: `${origin}/skills/cojournalist.md`,
+    skillUrl: `${origin}/skills/scoutpost.md`,
     apiKeyCreateUrl: origin,
     supabaseAnonKey: input.supabaseAnonKey,
     customMcpUrl: customMcpUrl || undefined,

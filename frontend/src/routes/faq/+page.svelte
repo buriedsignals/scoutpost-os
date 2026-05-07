@@ -6,8 +6,8 @@
 	<title>FAQ — Scoutpost</title>
 	<meta name="description" content="Frequently asked questions about Scoutpost — AI scouts, agent integration, the Sustainable Use License, hosted accounts, and self-hosting." />
 	<link rel="alternate" type="text/plain" title="faq.txt" href="/faq.txt" />
-	<link rel="alternate" type="text/markdown" title="Scoutpost skill" href="/skills/cojournalist.md" />
-	<link rel="alternate" type="text/markdown" title="Scoutpost setup skill" href="/skills/cojournalist-setup.md" />
+	<link rel="alternate" type="text/markdown" title="Scoutpost skill" href="/skills/scoutpost.md" />
+	<link rel="alternate" type="text/markdown" title="Scoutpost setup skill" href="/skills/scoutpost-setup.md" />
 </svelte:head>
 
 <div class="faq-page">

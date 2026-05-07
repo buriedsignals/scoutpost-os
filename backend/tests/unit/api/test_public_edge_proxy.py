@@ -168,7 +168,7 @@ def test_mcp_proxy_serves_protected_resource_metadata_without_upstream(monkeypat
     assert res.json()["bearer_methods_supported"] == ["header"]
     assert res.json()["scopes_supported"] == ["mcp"]
     assert res.json()["resource_documentation"] == (
-        "https://www.scoutpost.ai/skills/cojournalist.md"
+        "https://www.scoutpost.ai/skills/scoutpost.md"
     )
     assert fake.calls == []
 

@@ -2,7 +2,11 @@
 	import { onMount } from 'svelte';
 	import { Copy, Check, Plus, Trash2, ExternalLink, Key } from 'lucide-svelte';
 	import { apiClient } from '$lib/api-client';
-	import { getSupabaseProjectRef } from '$lib/utils/agent-targets';
+	import {
+		HOSTED_AGENT_TARGET,
+		getSupabaseProjectRef,
+		isHostedScoutpostHost
+	} from '$lib/utils/agent-targets';
 	import * as m from '$lib/paraglide/messages';
 
 	// --- State ---
@@ -28,22 +32,14 @@
 	const origin = typeof window !== 'undefined' ? window.location.origin : '';
 	const hostedBroker =
 		typeof window !== 'undefined' &&
-		[
-			'scoutpost.ai',
-			'www.scoutpost.ai',
-			'cojournalist.ai',
-			'www.cojournalist.ai',
-			'cojournalist.onrender.com'
-		].includes(
-			window.location.hostname
-		);
+		isHostedScoutpostHost(window.location.hostname);
 	const apiBase = hostedBroker
-		? `${origin}/functions/v1`
+		? HOSTED_AGENT_TARGET.apiBaseUrl
 		: isSupabase
 			? `${supabaseUrl}/functions/v1`
 			: `${origin}/api/v1`;
 	const specUrl = hostedBroker
-		? `${origin}/functions/v1/openapi-spec`
+		? `${HOSTED_AGENT_TARGET.apiBaseUrl}/openapi-spec`
 		: isSupabase
 			? `${supabaseUrl}/functions/v1/openapi-spec`
 			: `${origin}/api/openapi.json`;

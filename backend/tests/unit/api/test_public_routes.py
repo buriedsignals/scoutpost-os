@@ -24,21 +24,21 @@ def test_public_skills_route_serves_prerendered_html(monkeypatch, tmp_path):
 
 
 def test_public_skill_markdown_file_is_served_directly(monkeypatch, tmp_path):
-    _write(tmp_path / "skills/cojournalist.md", "# coJournalist skill\n")
+    _write(tmp_path / "skills/scoutpost.md", "# Scoutpost skill\n")
     monkeypatch.setattr(main, "FRONTEND_DIST", tmp_path)
 
-    res = TestClient(app).get("/skills/cojournalist.md")
+    res = TestClient(app).get("/skills/scoutpost.md")
 
     assert res.status_code == 200
     assert res.headers["content-type"].startswith("text/markdown")
-    assert "# coJournalist skill" in res.text
+    assert "# Scoutpost skill" in res.text
 
 
 def test_public_setup_skill_markdown_file_is_served_directly(monkeypatch, tmp_path):
-    _write(tmp_path / "skills/cojournalist-setup.md", "# setup skill\n")
+    _write(tmp_path / "skills/scoutpost-setup.md", "# setup skill\n")
     monkeypatch.setattr(main, "FRONTEND_DIST", tmp_path)
 
-    res = TestClient(app).get("/skills/cojournalist-setup.md")
+    res = TestClient(app).get("/skills/scoutpost-setup.md")
 
     assert res.status_code == 200
     assert res.headers["content-type"].startswith("text/markdown")
@@ -48,8 +48,8 @@ def test_public_setup_skill_markdown_file_is_served_directly(monkeypatch, tmp_pa
 def test_canonical_skill_files_exist_in_static_tree():
     static = Path(__file__).resolve().parents[4] / "frontend" / "static"
 
-    assert (static / "skills" / "cojournalist.md").is_file()
-    assert (static / "skills" / "cojournalist-setup.md").is_file()
+    assert (static / "skills" / "scoutpost.md").is_file()
+    assert (static / "skills" / "scoutpost-setup.md").is_file()
     assert (static / "skill.md").is_file()
 
 

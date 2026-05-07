@@ -31,7 +31,7 @@ Scoutpost is built for local and investigative reporting. The public product sto
 - Documentation: https://www.scoutpost.ai/docs
 - Docs in text form: https://www.scoutpost.ai/docs.txt
 - Skills index: https://www.scoutpost.ai/skills
-- Product skill: https://www.scoutpost.ai/skills/cojournalist.md
-- Setup skill: https://www.scoutpost.ai/skills/cojournalist-setup.md
+- Product skill: https://www.scoutpost.ai/skills/scoutpost.md
+- Setup skill: https://www.scoutpost.ai/skills/scoutpost-setup.md
 - llms.txt: https://www.scoutpost.ai/llms.txt
 - Full flattened docs: https://www.scoutpost.ai/llms-full.txt

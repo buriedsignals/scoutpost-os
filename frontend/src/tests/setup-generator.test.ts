@@ -78,7 +78,7 @@ describe('setup generator', () => {
 
 		expect(target.apiBaseUrl).toBe('https://newsroomref.supabase.co/functions/v1');
 		expect(target.mcpUrl).toBe('https://newsroomref.supabase.co/functions/v1/mcp-server');
-		expect(target.skillUrl).toBe('https://newsroom.example.com/skills/cojournalist.md');
+		expect(target.skillUrl).toBe('https://newsroom.example.com/skills/scoutpost.md');
 	});
 
 	it('does not require a production app URL during initial setup', () => {
@@ -97,7 +97,7 @@ describe('setup generator', () => {
 
 		expect(result.errors).not.toContain('App URL is required.');
 		expect(result.errors).not.toContain('Production URL is required.');
-		expect(target.skillUrl).toBe('https://<your-frontend-domain>/skills/cojournalist.md');
+		expect(target.skillUrl).toBe('https://<your-frontend-domain>/skills/scoutpost.md');
 	});
 
 	it('redacts secrets in previews', () => {

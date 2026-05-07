@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { HOSTED_AGENT_TARGET, isHostedScoutpostHost } from '$lib/utils/agent-targets';
 
 	const SWAGGER_VERSION = '5.17.14';
 	const SWAGGER_CSS = `https://unpkg.com/swagger-ui-dist@${SWAGGER_VERSION}/swagger-ui.css`;
@@ -7,20 +8,11 @@
 	const SWAGGER_PRESET = `https://unpkg.com/swagger-ui-dist@${SWAGGER_VERSION}/swagger-ui-standalone-preset.js`;
 
 	const supabaseUrl = (import.meta.env.PUBLIC_SUPABASE_URL ?? '').replace(/\/$/, '');
-	const origin = typeof window !== 'undefined' ? window.location.origin : '';
 	const hostedBroker =
 		typeof window !== 'undefined' &&
-		[
-			'scoutpost.ai',
-			'www.scoutpost.ai',
-			'cojournalist.ai',
-			'www.cojournalist.ai',
-			'cojournalist.onrender.com'
-		].includes(
-			window.location.hostname
-		);
+		isHostedScoutpostHost(window.location.hostname);
 	const specUrl = hostedBroker
-		? `${origin}/functions/v1/openapi-spec`
+		? `${HOSTED_AGENT_TARGET.apiBaseUrl}/openapi-spec`
 		: supabaseUrl
 			? `${supabaseUrl}/functions/v1/openapi-spec`
 			: '/api/openapi.json';

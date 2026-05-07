@@ -120,8 +120,8 @@
 	<link rel="alternate" type="text/plain" title="docs.txt" href="/docs.txt" />
 	<link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt" />
 	<link rel="alternate" type="text/plain" title="llms-full.txt" href="/llms-full.txt" />
-	<link rel="alternate" type="text/markdown" title="Scoutpost skill" href="/skills/cojournalist.md" />
-	<link rel="alternate" type="text/markdown" title="Scoutpost setup skill" href="/skills/cojournalist-setup.md" />
+	<link rel="alternate" type="text/markdown" title="Scoutpost skill" href="/skills/scoutpost.md" />
+	<link rel="alternate" type="text/markdown" title="Scoutpost setup skill" href="/skills/scoutpost-setup.md" />
 </svelte:head>
 
 <div class="docs">
@@ -214,8 +214,8 @@
 							<li><a href="/llms-full.txt"><code>/llms-full.txt</code></a> — full flattened docs</li>
 							<li><a href="/docs.txt"><code>/docs.txt</code></a> — short text version of the public docs</li>
 							<li><a href="/skills"><code>/skills</code></a> — public skills index</li>
-							<li><a href="/skills/cojournalist.md"><code>/skills/cojournalist.md</code></a> — product skill</li>
-							<li><a href="/skills/cojournalist-setup.md"><code>/skills/cojournalist-setup.md</code></a> — setup skill</li>
+							<li><a href="/skills/scoutpost.md"><code>/skills/scoutpost.md</code></a> — product skill</li>
+							<li><a href="/skills/scoutpost-setup.md"><code>/skills/scoutpost-setup.md</code></a> — setup skill</li>
 							<li>
 								<a href="/swagger"><code>/swagger</code></a> — interactive OpenAPI 3.1 browser; raw
 								spec at <code>/functions/v1/openapi-spec</code>
@@ -672,8 +672,8 @@ scout units delete <unit-id>`}</code></pre>
 								<tr><td>llms-full.txt</td><td><a href="/llms-full.txt">/llms-full.txt</a></td></tr>
 								<tr><td>docs.txt</td><td><a href="/docs.txt">/docs.txt</a></td></tr>
 								<tr><td>skills</td><td><a href="/skills">/skills</a></td></tr>
-								<tr><td>Product skill</td><td><a href="/skills/cojournalist.md">/skills/cojournalist.md</a></td></tr>
-								<tr><td>Setup skill</td><td><a href="/skills/cojournalist-setup.md">/skills/cojournalist-setup.md</a></td></tr>
+								<tr><td>Product skill</td><td><a href="/skills/scoutpost.md">/skills/scoutpost.md</a></td></tr>
+								<tr><td>Setup skill</td><td><a href="/skills/scoutpost-setup.md">/skills/scoutpost-setup.md</a></td></tr>
 							</tbody>
 						</table>
 					</div>

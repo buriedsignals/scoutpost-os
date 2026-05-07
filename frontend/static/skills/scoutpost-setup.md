@@ -9,7 +9,7 @@ description: >
 
 Use this when the user wants to install, self-host, configure, or validate
 Scoutpost. For day-to-day newsroom use, prefer the product skill at
-`https://www.scoutpost.ai/skills/cojournalist.md`.
+`https://www.scoutpost.ai/skills/scoutpost.md`.
 
 ## Public surfaces
 
@@ -150,4 +150,4 @@ Before merging upstream:
 
 ## Canonical location
 
-Canonical URL: `https://www.scoutpost.ai/skills/cojournalist-setup.md`
+Canonical URL: `https://www.scoutpost.ai/skills/scoutpost-setup.md`
