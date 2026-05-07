@@ -17,6 +17,7 @@
 	let saveSuccess = false;
 	let errorMessage: string | null = null;
 	let initialized = false;
+	const muckrockAccountUrl = '#';
 
 	// Reset initialization when modal closes
 	$: if (!open) {
@@ -188,9 +189,7 @@
 							</span>
 						</div>
 						<a
-							href={$authStore.user?.username
-								? `#`
-								: '#'}
+							href={muckrockAccountUrl}
 							target="_blank"
 							rel="noopener noreferrer"
 							class="muckrock-link"
