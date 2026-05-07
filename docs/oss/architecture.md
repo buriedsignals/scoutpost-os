@@ -34,7 +34,7 @@ Two repos, one development workflow:
 | Repo | Visibility | Purpose | Updated |
 |------|-----------|---------|---------|
 | `buriedsignals/cojournalist` | Private | All development. AWS SaaS + Supabase adapter + deploy configs + automation scripts. | Every push |
-| `buriedsignals/cojournalist-os` | Public | Automated mirror. Supabase code + deploy configs + automation scripts, no AWS code. All features. | Auto on push to main (after CI passes) |
+| `buriedsignals/scoutpost-os` | Public | Automated mirror. Supabase code + deploy configs + automation scripts, no AWS code. All features. | Auto on push to main (after CI passes) |
 
 ### Mirror Pipeline
 
@@ -105,7 +105,7 @@ jobs:
         with:
           source-directory: .
           destination-github-username: buriedsignals
-          destination-repository-name: cojournalist-os
+          destination-repository-name: scoutpost-os
           target-branch: main
           create-target-branch-if-needed: true
 ```
@@ -774,7 +774,7 @@ services:
   - type: web
     name: cojournalist-api
     runtime: python
-    repo: https://github.com/buriedsignals/cojournalist-os
+    repo: https://github.com/buriedsignals/scoutpost-os
     branch: main
     rootDir: backend
     buildCommand: pip install -r requirements.txt
@@ -811,7 +811,7 @@ services:
   - type: web
     name: cojournalist-frontend
     runtime: static
-    repo: https://github.com/buriedsignals/cojournalist-os
+    repo: https://github.com/buriedsignals/scoutpost-os
     branch: main
     rootDir: frontend
     buildCommand: npm install && npm run build
@@ -1079,7 +1079,7 @@ Set up the distribution pipeline.
 
 1. Write `render.yaml` blueprint
 2. Write `docker-compose.yml` for self-hosted
-3. Create `cojournalist-os` public repo on GitHub (only one mirror repo needed)
+3. Create `scoutpost-os` public repo on GitHub (only one mirror repo needed)
 4. Build `mirror-oss.yml` GitHub Action with validation step (imports stripped codebase and verifies it starts)
 5. Write setup documentation
 6. Verify: mirror runs on push to main, stripped codebase boots with `DEPLOYMENT_TARGET=supabase`

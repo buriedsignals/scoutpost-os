@@ -34,13 +34,15 @@
  *   EMAIL_ALLOWLIST (optional) — comma-separated emails / @domain patterns
  *
  * redirect_uri registered with MuckRock (client 879742):
- *   production:  https://www.scoutpost.ai/api/auth/callback
+ *   production:  https://scoutpost.ai/api/auth/callback
  *   development: http://localhost:5173/api/auth/callback
  * Production requests proxy through the Render backend at
  * backend/app/routers/muckrock_proxy.py which 302s to this EF's /callback.
  * The `MUCKROCK_CALLBACK_URL` EF secret is set to the production string so
  * callbackUrl() returns it on both the authorize and token-exchange calls
- * (RFC 6749 §4.1.3 byte-match).
+ * (RFC 6749 §4.1.3 byte-match). Do not infer this from PUBLIC_APP_URL in
+ * production: the app can live on www while MuckRock requires an apex
+ * redirect_uri byte-match.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";

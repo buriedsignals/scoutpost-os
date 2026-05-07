@@ -53,7 +53,7 @@ services:
   - type: web
     name: cojournalist-api
     runtime: python
-    repo: https://github.com/buriedsignals/cojournalist-os
+    repo: https://github.com/buriedsignals/scoutpost-os
     branch: main
     rootDir: backend
     buildCommand: pip install -r requirements.txt
@@ -106,7 +106,7 @@ services:
   - type: web
     name: cojournalist-frontend
     runtime: static
-    repo: https://github.com/buriedsignals/cojournalist-os
+    repo: https://github.com/buriedsignals/scoutpost-os
     branch: main
     rootDir: frontend
     buildCommand: npm install && npm run build
@@ -395,13 +395,13 @@ The public OSS repo is created via `gh`, and the Sustainable Use License (modele
 - [ ] **Step 1: Create the public GitHub repo**
 
 ```bash
-gh repo create buriedsignals/cojournalist-os \
+gh repo create buriedsignals/scoutpost-os \
   --public \
   --description "AI-powered local news monitoring for newsrooms. Self-hosted on Supabase." \
   --homepage "https://www.scoutpost.ai"
 ```
 
-Expected: `https://github.com/buriedsignals/cojournalist-os`
+Expected: `https://github.com/buriedsignals/scoutpost-os`
 
 - [ ] **Step 2: Create the Sustainable Use License**
 
@@ -482,7 +482,7 @@ This is a manual step. Create a GitHub Personal Access Token (PAT) with `repo` s
 ```bash
 # Manual: Go to GitHub Settings -> Developer Settings -> Personal Access Tokens
 # Create a fine-grained token with:
-#   - Repository access: buriedsignals/cojournalist-os (write)
+#   - Repository access: buriedsignals/scoutpost-os (write)
 #   - Permissions: Contents (read/write)
 #
 # Then add it as a secret to the private dev repo:
@@ -616,7 +616,7 @@ jobs:
         with:
           source-directory: .
           destination-github-username: buriedsignals
-          destination-repository-name: cojournalist-os
+          destination-repository-name: scoutpost-os
           target-branch: main
           create-target-branch-if-needed: true
           commit-message: "mirror: sync from upstream (${{ github.sha }})"
@@ -713,7 +713,7 @@ supabase secrets set INTERNAL_SERVICE_KEY=your-service-key --project-ref YOUR_PR
 
 ### 1.4 Deploy to Render
 
-1. Fork the `buriedsignals/cojournalist-os` repo to your GitHub account
+1. Fork the `buriedsignals/scoutpost-os` repo to your GitHub account
 2. Go to [render.com](https://render.com) -> "New Blueprint Instance"
 3. Connect your forked repo
 4. Render reads `deploy/render/render.yaml` and creates both services
@@ -743,8 +743,8 @@ Best for: Newsrooms with Docker infrastructure or wanting full control.
 ### 2.1 Clone and Configure
 
 ```bash
-git clone https://github.com/buriedsignals/cojournalist-os.git
-cd cojournalist-os/deploy/docker
+git clone https://github.com/buriedsignals/scoutpost-os.git
+cd scoutpost-os/deploy/docker
 cp .env.example .env
 ```
 
@@ -832,7 +832,7 @@ The `sync-upstream.yml` GitHub Action runs weekly and:
 ### Without License Key (Manual)
 
 ```bash
-git remote add upstream https://github.com/buriedsignals/cojournalist-os.git
+git remote add upstream https://github.com/buriedsignals/scoutpost-os.git
 git fetch upstream
 git merge upstream/main
 # Check for new files in supabase/migrations/ and run them
@@ -889,10 +889,10 @@ Expected: All three files report OK.
 - [ ] **Step 3: Verify OSS repo exists (if created)**
 
 ```bash
-gh repo view buriedsignals/cojournalist-os --json name,visibility
+gh repo view buriedsignals/scoutpost-os --json name,visibility
 ```
 
-Expected: `{"name":"cojournalist-os","visibility":"PUBLIC"}`
+Expected: `{"name":"scoutpost-os","visibility":"PUBLIC"}`
 
 - [ ] **Step 4: Verify .env.example covers all docker-compose env vars**
 

@@ -1,6 +1,6 @@
 # coJournalist Self-Hosted Setup
 
-Use this when the user wants to deploy `buriedsignals/cojournalist-os`.
+Use this when the user wants to deploy `buriedsignals/scoutpost-os`.
 
 ## Deployment Model
 
@@ -36,8 +36,8 @@ Supabase:
 1. Clone the OSS repo and use branch `master`.
 
 ```bash
-git clone https://github.com/buriedsignals/cojournalist-os.git
-cd cojournalist-os
+git clone https://github.com/buriedsignals/scoutpost-os.git
+cd scoutpost-os
 git checkout master
 ```
 
@@ -128,7 +128,7 @@ run `supabase db push` or deploy functions automatically.
 - Do not use `main` for the public OSS repo. Use `master`.
 - Install the sync workflow by default and push it to `origin master`.
 - Do not ask the user to paste secrets into AI chat. Prefer the generated
-  `cojournalist-setup.json` manifest and `automation/setup-from-manifest.sh`.
+  `scoutpost-setup.json` manifest and `automation/setup-from-manifest.sh`.
 - For existing deployments, run `automation/selfhost-doctor.sh` before merging
   upstream. Do not re-clone, overwrite `.env`, or accept upstream
   `supabase/config.toml` over a local auth hook without adopting the allowlist.

@@ -49,7 +49,7 @@ find_repo_root() {
   fi
 
   if [ "${#roots[@]}" -gt 1 ]; then
-    blocker "Multiple nested Git checkouts found; cd into the intended cojournalist-os checkout before updating."
+    blocker "Multiple nested Git checkouts found; cd into the intended scoutpost-os checkout before updating."
   else
     blocker "No Git checkout found here or one level down."
   fi
@@ -121,7 +121,7 @@ scan_hosted_supabase_refs() {
     "frontend/.env.production"
     "frontend/.env.local"
     "frontend/build/_app/env.js"
-    "cojournalist-setup.json"
+    "scoutpost-setup.json"
     "generated-cli-instructions.txt"
   )
   for file in "${files[@]}"; do

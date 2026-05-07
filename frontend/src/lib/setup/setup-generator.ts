@@ -9,7 +9,7 @@ export type FrontendProvider =
   | "manual";
 
 export const DOCKER_INSTALLER_IMAGE =
-  "ghcr.io/buriedsignals/cojournalist-installer:latest";
+  "ghcr.io/buriedsignals/scoutpost-installer:latest";
 
 export interface SetupManifest {
   version: 1;
@@ -208,15 +208,15 @@ export function redactSetupManifest<T>(value: T): T {
 }
 
 export function buildAgentManifestPrompt(
-  manifestPath = "cojournalist-setup.json",
+  manifestPath = "scoutpost-setup.json",
 ): string {
   return [
     "Deploy this newsroom-owned Scoutpost instance from the local setup manifest.",
     "Do not ask me to paste secrets into chat.",
     `Read ${manifestPath} from disk and validate that it is version 1. Treat that file as the only source of deployment secrets and configuration.`,
-    "If cojournalist-docker-install.sh is present beside the manifest, run bash cojournalist-docker-install.sh install for initial setup, bash cojournalist-docker-install.sh doctor for validation, and bash cojournalist-docker-install.sh update for downstream maintenance PRs.",
-    `Prefer the Docker installer when Docker is available: run ${DOCKER_INSTALLER_IMAGE}, mount the deployment directory or repository at /workspace, mount the manifest read-only at /config/cojournalist-setup.json, and run install.`,
-    "If the prebuilt installer image is unavailable, build deploy/installer/Dockerfile from the Scoutpost repository root and use the local cojournalist-installer image instead.",
+    "If scoutpost-docker-install.sh is present beside the manifest, run bash scoutpost-docker-install.sh install for initial setup, bash scoutpost-docker-install.sh doctor for validation, and bash scoutpost-docker-install.sh update for downstream maintenance PRs.",
+    `Prefer the Docker installer when Docker is available: run ${DOCKER_INSTALLER_IMAGE}, mount the deployment directory or repository at /workspace, mount the manifest read-only at /config/scoutpost-setup.json, and run install.`,
+    "If the prebuilt installer image is unavailable, build deploy/installer/Dockerfile from the Scoutpost repository root and use the local scoutpost-installer image instead.",
     "If Docker is unavailable, run automation/setup-from-manifest.sh with the manifest path from the Scoutpost repository root.",
     "For Supabase Cloud, use the manifest supabase.access_token for non-interactive Supabase CLI authentication. Do not run browser login inside Docker.",
     "Do not print, summarize, cat, or paste secret values from the manifest. It is acceptable to report missing field names and redacted previews only.",
@@ -229,14 +229,14 @@ export function buildAgentManifestPrompt(
 }
 
 export function buildDockerInstallerInstructions(
-  manifestPath = "cojournalist-setup.json",
+  manifestPath = "scoutpost-setup.json",
 ): string {
   return `# Scoutpost Docker installer
 
-This is the recommended self-host setup path. The easiest route is to keep this file beside cojournalist-docker-install.sh and run:
+This is the recommended self-host setup path. The easiest route is to keep this file beside scoutpost-docker-install.sh and run:
 
 \`\`\`bash
-bash cojournalist-docker-install.sh install
+bash scoutpost-docker-install.sh install
 \`\`\`
 
 That script pulls the prebuilt installer image when available and builds the same image locally from Scoutpost OSS if the registry image cannot be pulled. The container runs the manifest installer in a disposable operator environment so Node, Deno, Supabase CLI, GitHub CLI, jq, and OpenSSL do not need to be installed directly on the host.
@@ -247,7 +247,7 @@ Expected local files:
 
 - ./${manifestPath}
 
-The prebuilt image clones Scoutpost OSS into /workspace/cojournalist-os if /workspace is not already a checkout. For downstream update PRs, mount the newsroom fork checkout as /workspace.
+The prebuilt image clones Scoutpost OSS into /workspace/scoutpost-os if /workspace is not already a checkout. For downstream update PRs, mount the newsroom fork checkout as /workspace.
 
 ## Initial install
 
@@ -256,7 +256,7 @@ Run from the directory that contains ${manifestPath}:
 \`\`\`bash
 docker run --rm -it \\
   -v "$PWD:/workspace" \\
-  -v "$PWD/${manifestPath}:/config/cojournalist-setup.json:ro" \\
+  -v "$PWD/${manifestPath}:/config/scoutpost-setup.json:ro" \\
   ${DOCKER_INSTALLER_IMAGE} install
 \`\`\`
 
@@ -265,7 +265,7 @@ docker run --rm -it \\
 \`\`\`bash
 docker run --rm -it \\
   -v "$PWD:/workspace" \\
-  -v "$PWD/${manifestPath}:/config/cojournalist-setup.json:ro" \\
+  -v "$PWD/${manifestPath}:/config/scoutpost-setup.json:ro" \\
   ${DOCKER_INSTALLER_IMAGE} doctor
 \`\`\`
 
@@ -277,7 +277,7 @@ Run this from the downstream newsroom fork checkout when you want to pull curren
 docker run --rm -it \\
   -v "$PWD:/workspace" \\
   -v "$HOME/.config/gh:/root/.config/gh:ro" \\
-  -v "$PWD/${manifestPath}:/config/cojournalist-setup.json:ro" \\
+  -v "$PWD/${manifestPath}:/config/scoutpost-setup.json:ro" \\
   ${DOCKER_INSTALLER_IMAGE} update
 \`\`\`
 
@@ -288,11 +288,11 @@ The update command fetches upstream, prepares a maintenance branch, refreshes th
 If the prebuilt image is unavailable, run these commands from a Scoutpost checkout:
 
 \`\`\`bash
-docker build -f deploy/installer/Dockerfile -t cojournalist-installer .
+docker build -f deploy/installer/Dockerfile -t scoutpost-installer .
 docker run --rm -it \\
   -v "$PWD:/workspace" \\
-  -v "$PWD/${manifestPath}:/config/cojournalist-setup.json:ro" \\
-  cojournalist-installer install
+  -v "$PWD/${manifestPath}:/config/scoutpost-setup.json:ro" \\
+  scoutpost-installer install
 \`\`\`
 
 Do not paste ${manifestPath} into chat. It contains local deployment credentials and should stay on disk.
@@ -300,17 +300,17 @@ Do not paste ${manifestPath} into chat. It contains local deployment credentials
 }
 
 export function buildDockerInstallerScript(
-  manifestPath = "cojournalist-setup.json",
+  manifestPath = "scoutpost-setup.json",
 ): string {
   return `#!/usr/bin/env bash
 set -euo pipefail
 
 COMMAND="\${1:-install}"
-IMAGE="\${COJOURNALIST_INSTALLER_IMAGE:-${DOCKER_INSTALLER_IMAGE}}"
-LOCAL_IMAGE="\${COJOURNALIST_LOCAL_INSTALLER_IMAGE:-cojournalist-installer:local}"
-WORKSPACE="\${COJOURNALIST_WORKSPACE:-$PWD}"
-MANIFEST="\${COJOURNALIST_SETUP_MANIFEST:-$WORKSPACE/${manifestPath}}"
-UPSTREAM_REPO="\${COJOURNALIST_UPSTREAM_REPO:-https://github.com/buriedsignals/cojournalist-os.git}"
+IMAGE="\${SCOUTPOST_INSTALLER_IMAGE:-\${COJOURNALIST_INSTALLER_IMAGE:-${DOCKER_INSTALLER_IMAGE}}}"
+LOCAL_IMAGE="\${SCOUTPOST_LOCAL_INSTALLER_IMAGE:-\${COJOURNALIST_LOCAL_INSTALLER_IMAGE:-scoutpost-installer:local}}"
+WORKSPACE="\${SCOUTPOST_WORKSPACE:-\${COJOURNALIST_WORKSPACE:-$PWD}}"
+MANIFEST="\${SCOUTPOST_SETUP_MANIFEST:-\${COJOURNALIST_SETUP_MANIFEST:-$WORKSPACE/${manifestPath}}}"
+UPSTREAM_REPO="\${SCOUTPOST_UPSTREAM_REPO:-\${COJOURNALIST_UPSTREAM_REPO:-https://github.com/buriedsignals/scoutpost-os.git}}"
 
 log() { printf "\\n== %s ==\\n" "$1" >&2; }
 warn() { printf "WARN: %s\\n" "$1" >&2; }
@@ -333,7 +333,7 @@ mkdir -p "$WORKSPACE"
 
 if [ "$COMMAND" = "install" ] && [ ! -f "$MANIFEST" ]; then
   echo "Setup manifest not found: $MANIFEST" >&2
-  echo "Put ${manifestPath} next to this script, or set COJOURNALIST_SETUP_MANIFEST=/path/to/${manifestPath}." >&2
+  echo "Put ${manifestPath} next to this script, or set SCOUTPOST_SETUP_MANIFEST=/path/to/${manifestPath}." >&2
   exit 2
 fi
 
@@ -342,8 +342,8 @@ find_build_repo() {
     printf "%s" "$WORKSPACE"
     return 0
   fi
-  if [ -f "$WORKSPACE/cojournalist-os/deploy/installer/Dockerfile" ]; then
-    printf "%s" "$WORKSPACE/cojournalist-os"
+  if [ -f "$WORKSPACE/scoutpost-os/deploy/installer/Dockerfile" ]; then
+    printf "%s" "$WORKSPACE/scoutpost-os"
     return 0
   fi
 
@@ -354,8 +354,8 @@ find_build_repo() {
   fi
 
   log "Clone Scoutpost OSS for local installer image fallback"
-  git clone "$UPSTREAM_REPO" "$WORKSPACE/cojournalist-os"
-  printf "%s" "$WORKSPACE/cojournalist-os"
+  git clone "$UPSTREAM_REPO" "$WORKSPACE/scoutpost-os"
+  printf "%s" "$WORKSPACE/scoutpost-os"
 }
 
 select_image() {
@@ -386,7 +386,7 @@ if [ -t 0 ] && [ -t 1 ]; then
 fi
 docker_args+=(-v "$WORKSPACE:/workspace")
 if [ -f "$MANIFEST" ]; then
-  docker_args+=(-v "$MANIFEST:/config/cojournalist-setup.json:ro")
+  docker_args+=(-v "$MANIFEST:/config/scoutpost-setup.json:ro")
 fi
 if [ "$COMMAND" = "update" ] && [ -d "$HOME/.config/gh" ]; then
   docker_args+=(-v "$HOME/.config/gh:/root/.config/gh:ro")
@@ -403,12 +403,12 @@ export function buildInstallScript(manifest: SetupManifest): string {
   return `#!/usr/bin/env bash
 set -euo pipefail
 
-MANIFEST_PATH="\${COJOURNALIST_SETUP_MANIFEST:-}"
+MANIFEST_PATH="\${SCOUTPOST_SETUP_MANIFEST:-\${COJOURNALIST_SETUP_MANIFEST:-}}"
 if [ -z "$MANIFEST_PATH" ]; then
-  MANIFEST_PATH="$(mktemp "\${TMPDIR:-/tmp}/cojournalist-setup.XXXXXX.json")"
-  cat > "$MANIFEST_PATH" <<'COJOURNALIST_MANIFEST_JSON'
+  MANIFEST_PATH="$(mktemp "\${TMPDIR:-/tmp}/scoutpost-setup.XXXXXX.json")"
+  cat > "$MANIFEST_PATH" <<'SCOUTPOST_MANIFEST_JSON'
 ${manifestJson}
-COJOURNALIST_MANIFEST_JSON
+SCOUTPOST_MANIFEST_JSON
   chmod 600 "$MANIFEST_PATH"
 fi
 
@@ -423,15 +423,15 @@ if [ -f "$SCRIPT_DIR/automation/setup-from-manifest.sh" ]; then
   exit 0
 fi
 
-WORK_DIR="\${COJOURNALIST_SETUP_WORK_DIR:-\${TMPDIR:-/tmp}/cojournalist-setup-work}"
-REPO_DIR="$WORK_DIR/cojournalist-os"
+WORK_DIR="\${SCOUTPOST_SETUP_WORK_DIR:-\${COJOURNALIST_SETUP_WORK_DIR:-\${TMPDIR:-/tmp}/scoutpost-setup-work}}"
+REPO_DIR="$WORK_DIR/scoutpost-os"
 mkdir -p "$WORK_DIR"
 if [ -d "$REPO_DIR/.git" ]; then
   git -C "$REPO_DIR" fetch origin master
   git -C "$REPO_DIR" checkout master
   git -C "$REPO_DIR" pull --ff-only origin master
 else
-  git clone https://github.com/buriedsignals/cojournalist-os.git "$REPO_DIR"
+  git clone https://github.com/buriedsignals/scoutpost-os.git "$REPO_DIR"
   git -C "$REPO_DIR" checkout master
 fi
 

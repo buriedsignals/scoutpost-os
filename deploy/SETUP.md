@@ -36,8 +36,8 @@ You also need:
 ### 1. Clone the OSS repo
 
 ```bash
-git clone https://github.com/buriedsignals/cojournalist-os.git
-cd cojournalist-os
+git clone https://github.com/buriedsignals/scoutpost-os.git
+cd scoutpost-os
 git checkout master
 ```
 

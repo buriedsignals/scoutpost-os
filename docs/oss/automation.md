@@ -19,7 +19,7 @@ These files are public and no longer use any license-gated flow.
 
 ## Sync workflow
 
-`automation/sync-upstream.yml` is designed for forks of `buriedsignals/cojournalist-os` on branch `master`.
+`automation/sync-upstream.yml` is designed for forks of `buriedsignals/scoutpost-os` on branch `master`.
 
 It opens or updates a PR from `cojournalist/sync-upstream` to `master`.
 It does not push directly to `master`, run `supabase db push`, or redeploy
@@ -81,15 +81,15 @@ deployment-specific secrets during an upstream merge.
 ## Dockerized installer
 
 For operators who do not want to install the local toolchain, download
-`cojournalist-setup.json` and `cojournalist-docker-install.sh` from `/setup`,
+`scoutpost-setup.json` and `scoutpost-docker-install.sh` from `/setup`,
 keep them in the same directory, and run:
 
 ```bash
-bash cojournalist-docker-install.sh install
+bash scoutpost-docker-install.sh install
 ```
 
 The script pulls the prebuilt image when available. If the registry image cannot
-be pulled, it clones `cojournalist-os` into the workspace and builds the same
+be pulled, it clones `scoutpost-os` into the workspace and builds the same
 installer image locally.
 
 The raw equivalent is:
@@ -97,14 +97,14 @@ The raw equivalent is:
 ```bash
 docker run --rm -it \
   -v "$PWD:/workspace" \
-  -v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro" \
-  ghcr.io/buriedsignals/cojournalist-installer:latest install
+  -v "$PWD/scoutpost-setup.json:/config/scoutpost-setup.json:ro" \
+  ghcr.io/buriedsignals/scoutpost-installer:latest install
 ```
 
 The container runs the same `automation/setup-from-manifest.sh` path as the
 non-Docker installer. If `/workspace` is not already a coJournalist checkout,
-the image clones `buriedsignals/cojournalist-os` into
-`/workspace/cojournalist-os`.
+the image clones `buriedsignals/scoutpost-os` into
+`/workspace/scoutpost-os`.
 Generated frontend secrets are written to `frontend/.env.production.local`,
 which is gitignored and keeps downstream update PRs cleaner than writing to the
 tracked `frontend/.env.production`.
@@ -122,14 +122,14 @@ It also exposes:
 ```bash
 docker run --rm -it \
   -v "$PWD:/workspace" \
-  -v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro" \
-  ghcr.io/buriedsignals/cojournalist-installer:latest doctor
+  -v "$PWD/scoutpost-setup.json:/config/scoutpost-setup.json:ro" \
+  ghcr.io/buriedsignals/scoutpost-installer:latest doctor
 
 docker run --rm -it \
   -v "$PWD:/workspace" \
-  -v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro" \
+  -v "$PWD/scoutpost-setup.json:/config/scoutpost-setup.json:ro" \
   -v "$HOME/.config/gh:/root/.config/gh:ro" \
-  ghcr.io/buriedsignals/cojournalist-installer:latest update
+  ghcr.io/buriedsignals/scoutpost-installer:latest update
 ```
 
 Run `update` from the downstream newsroom fork checkout. It prepares a

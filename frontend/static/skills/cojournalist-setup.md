@@ -34,7 +34,7 @@ Use Deno 2.x to install directly from the public mirror:
 Hosted example:
 
 ```bash
-deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/cojournalist-os/master/cli/scout.ts
+deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts
 scout config set api_url=https://www.scoutpost.ai/functions/v1
 scout config set api_key=<cj_... API key>
 scout scouts list
@@ -96,22 +96,22 @@ Before treating a self-hosted install as ready:
 
 Prefer the Docker path for self-hosted installs. It avoids installing Node,
 Deno, Supabase CLI, GitHub CLI, jq, and OpenSSL on the operator's host. It
-still reads the local `cojournalist-setup.json` manifest and runs the same setup
+still reads the local `scoutpost-setup.json` manifest and runs the same setup
 script. The easiest path is the `/setup` download:
 
 ```bash
-bash cojournalist-docker-install.sh install
+bash scoutpost-docker-install.sh install
 ```
 
 That wrapper pulls the prebuilt installer image when available and falls back to
-building the same image locally from `cojournalist-os` when the registry image
+building the same image locally from `scoutpost-os` when the registry image
 cannot be pulled. The raw equivalent is:
 
 ```bash
 docker run --rm -it \
   -v "$PWD:/workspace" \
-  -v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro" \
-  ghcr.io/buriedsignals/cojournalist-installer:latest install
+  -v "$PWD/scoutpost-setup.json:/config/scoutpost-setup.json:ro" \
+  ghcr.io/buriedsignals/scoutpost-installer:latest install
 ```
 
 Use the same image with `doctor` for read-only validation and `update` for
@@ -135,7 +135,7 @@ Before merging upstream:
 - run `automation/selfhost-doctor.sh` from the checkout or parent deployment
   directory
 - if the starting directory is not a Git worktree, look for a nested checkout
-  such as `cojournalist-os/`
+  such as `scoutpost-os/`
 - set a repository-local Git identity if `user.name` or `user.email` is missing
 - keep local `.env`, `frontend/.env.production.local`,
   `frontend/.env.production`, Supabase config, and local migrations out of the

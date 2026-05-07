@@ -25,8 +25,8 @@ RUN apt-get update \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
-COPY automation/docker-install-entrypoint.sh /usr/local/bin/cojournalist-installer
+COPY automation/docker-install-entrypoint.sh /usr/local/bin/scoutpost-installer
 
 WORKDIR /workspace
-ENTRYPOINT ["cojournalist-installer"]
+ENTRYPOINT ["scoutpost-installer"]
 CMD ["install"]

@@ -9,7 +9,7 @@ services:
   - type: web
     name: cojournalist-api-optional
     runtime: python
-    repo: https://github.com/buriedsignals/cojournalist-os
+    repo: https://github.com/buriedsignals/scoutpost-os
     branch: master
     rootDir: backend
     buildCommand: pip install -r requirements.txt
@@ -73,7 +73,7 @@ services:
   - type: web
     name: cojournalist-frontend
     runtime: static
-    repo: https://github.com/buriedsignals/cojournalist-os
+    repo: https://github.com/buriedsignals/scoutpost-os
     branch: master
     rootDir: frontend
     buildCommand: npm ci && npm run build

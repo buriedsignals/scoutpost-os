@@ -30,7 +30,7 @@
 		type SupabaseMode
 	} from '$lib/setup/setup-generator';
 
-	let projectName = 'cojournalist-newsroom';
+	let projectName = 'scoutpost-newsroom';
 	let appUrl = '';
 	let geminiKey = '';
 	let firecrawlKey = '';
@@ -52,7 +52,7 @@
 	let supabaseDbPassword = '';
 	let selfHostedPostgresPassword = '';
 	let frontendProvider: FrontendProvider = 'netlify';
-	let frontendSiteName = 'cojournalist-newsroom';
+	let frontendSiteName = 'scoutpost-newsroom';
 	let customMcpUrl = '';
 	let includeFastapiAddon = false;
 	let installSyncWorkflow = true;
@@ -66,11 +66,11 @@
 	$: installScript = buildInstallScript(manifest);
 	$: dockerInstructions = buildDockerInstallerInstructions();
 	$: dockerScript = buildDockerInstallerScript();
-	$: agentPrompt = buildAgentManifestPrompt('./cojournalist-setup.json');
+	$: agentPrompt = buildAgentManifestPrompt('./scoutpost-setup.json');
 	$: agentPromptFile = `${agentPrompt}
 
 Expected local files:
-- ./cojournalist-setup.json
+- ./scoutpost-setup.json
 - automation/setup-from-manifest.sh in the Scoutpost repository
 
 Run the manifest installer from the repository root. Never ask the operator to paste API keys, JWT secrets, service role keys, or deploy hooks into chat.`;
@@ -168,25 +168,25 @@ Run the manifest installer from the repository root. Never ask the operator to p
 
 	async function downloadInstaller() {
 		if (!(await validateBeforeDownload())) return;
-		download('cojournalist-install.sh', installScript, 'text/x-shellscript');
+		download('scoutpost-install.sh', installScript, 'text/x-shellscript');
 	}
 
 	async function downloadAgentInstructions() {
 		if (!(await validateBeforeDownload())) return;
-		download('cojournalist-setup.json', JSON.stringify(manifest, null, 2), 'application/json');
+		download('scoutpost-setup.json', JSON.stringify(manifest, null, 2), 'application/json');
 		window.setTimeout(() => {
-			download('cojournalist-agent-prompt.md', agentPromptFile, 'text/markdown');
+			download('scoutpost-agent-prompt.md', agentPromptFile, 'text/markdown');
 		}, 150);
 	}
 
 	async function downloadDockerInstaller() {
 		if (!(await validateBeforeDownload())) return;
-		download('cojournalist-setup.json', JSON.stringify(manifest, null, 2), 'application/json');
+		download('scoutpost-setup.json', JSON.stringify(manifest, null, 2), 'application/json');
 		window.setTimeout(() => {
-			download('cojournalist-docker-install.sh', dockerScript, 'text/x-shellscript');
+			download('scoutpost-docker-install.sh', dockerScript, 'text/x-shellscript');
 		}, 150);
 		window.setTimeout(() => {
-			download('cojournalist-docker-install.md', dockerInstructions, 'text/markdown');
+			download('scoutpost-docker-install.md', dockerInstructions, 'text/markdown');
 		}, 300);
 	}
 
@@ -542,7 +542,7 @@ Run the manifest installer from the repository root. Never ask the operator to p
 					<div class="option">
 						<FileJson class="option-icon" size={22} />
 						<h3>Generate agent instructions</h3>
-						<p>Download `cojournalist-setup.json` plus a prompt that tells the agent to prefer Docker and read the local manifest.</p>
+						<p>Download `scoutpost-setup.json` plus a prompt that tells the agent to prefer Docker and read the local manifest.</p>
 						<button type="button" class="primary-button" on:click={downloadAgentInstructions}>
 							<FileText size={16} /> Download JSON + prompt
 						</button>

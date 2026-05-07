@@ -10,7 +10,7 @@ key or legacy JWT bearer token.
 Requires [Deno](https://deno.com) v2.x on `$PATH`.
 
 ```bash
-deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/cojournalist-os/master/cli/scout.ts
+deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts
 ```
 
 Verify install:
@@ -24,8 +24,8 @@ scout --version
 If you want a self-contained executable instead of a Deno shim:
 
 ```bash
-git clone https://github.com/buriedsignals/cojournalist-os.git
-cd cojournalist-os/cli
+git clone https://github.com/buriedsignals/scoutpost-os.git
+cd scoutpost-os/cli
 deno task compile-mac-arm        # or compile-mac-x86 on Intel
 sudo mv dist/scout-darwin-arm64 /usr/local/bin/scout
 sudo chmod +x /usr/local/bin/scout
@@ -40,7 +40,7 @@ scout --version
 ### Release binaries
 
 Release binaries will appear at
-<https://github.com/buriedsignals/cojournalist-os/releases> once the public
+<https://github.com/buriedsignals/scoutpost-os/releases> once the public
 mirror starts publishing signed assets.
 
 ### Homebrew

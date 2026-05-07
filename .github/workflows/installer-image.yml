@@ -16,7 +16,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/cojournalist-installer
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/scoutpost-installer
 
 jobs:
   publish:
@@ -47,4 +47,4 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.description=coJournalist self-host installer and maintenance operator
+            org.opencontainers.image.description=Scoutpost self-host installer and maintenance operator

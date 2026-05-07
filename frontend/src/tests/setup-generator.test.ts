@@ -115,7 +115,7 @@ describe('setup generator', () => {
 	it('generates installer, prompt, and onboarding without hosted operational targets', () => {
 		const data = manifest();
 		const script = buildInstallScript(data);
-		const prompt = buildAgentManifestPrompt('./cojournalist-setup.json');
+		const prompt = buildAgentManifestPrompt('./scoutpost-setup.json');
 		const docker = buildDockerInstallerInstructions();
 		const dockerScript = buildDockerInstallerScript();
 		const onboarding = buildNewsroomOnboarding(data);
@@ -123,28 +123,28 @@ describe('setup generator', () => {
 		expect(script).toContain('automation/setup-from-manifest.sh');
 		expect(prompt).toContain('Do not ask me to paste secrets into chat.');
 		expect(prompt).toContain('Prefer the Docker installer when Docker is available');
-		expect(prompt).toContain('ghcr.io/buriedsignals/cojournalist-installer:latest');
+		expect(prompt).toContain('ghcr.io/buriedsignals/scoutpost-installer:latest');
 		expect(prompt).toContain('Install the upstream sync workflow by default');
 		expect(prompt).toContain('For future downstream updates');
 		expect(prompt).toContain('supabase.access_token');
 		expect(prompt).toContain('maintenance reporting');
 		expect(docker).toContain('deploy/installer/Dockerfile');
 		expect(docker).toContain('recommended self-host setup path');
-		expect(docker).toContain('ghcr.io/buriedsignals/cojournalist-installer:latest install');
+		expect(docker).toContain('ghcr.io/buriedsignals/scoutpost-installer:latest install');
 		expect(docker).toContain('Downstream updates');
 		expect(docker).toContain(
-			'-v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro"'
+			'-v "$PWD/scoutpost-setup.json:/config/scoutpost-setup.json:ro"'
 		);
-		expect(docker).toContain('Do not paste cojournalist-setup.json into chat.');
-		expect(dockerScript).toContain('ghcr.io/buriedsignals/cojournalist-installer:latest');
+		expect(docker).toContain('Do not paste scoutpost-setup.json into chat.');
+		expect(dockerScript).toContain('ghcr.io/buriedsignals/scoutpost-installer:latest');
 		expect(dockerScript).toContain('log() { printf "\\n== %s ==\\n" "$1" >&2; }');
 		expect(dockerScript).toContain('docker pull "$IMAGE" >&2');
 		expect(dockerScript).toContain('if [ -t 0 ] && [ -t 1 ]; then');
-		expect(dockerScript).toContain('cojournalist-os');
+		expect(dockerScript).toContain('scoutpost-os');
 		expect(dockerScript).toContain(
 			'docker build -f "$build_repo/deploy/installer/Dockerfile" -t "$LOCAL_IMAGE" "$build_repo" >&2'
 		);
-		expect(dockerScript).toContain('COJOURNALIST_SETUP_MANIFEST');
+		expect(dockerScript).toContain('SCOUTPOST_SETUP_MANIFEST');
 		expect(onboarding).toContain('https://newsroomref.supabase.co/functions/v1');
 		expect(onboarding).toContain('If you use ChatGPT in the browser');
 		expect(onboarding).toContain('click Agents');

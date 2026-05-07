@@ -66,10 +66,10 @@ gh run cancel <run-id>
    - 4 matrix builds (mac arm/x86, linux arm/x86)
    - macOS binaries are code-signed + notarized via Apple
    - Release published on the PUBLIC mirror
-     (`buriedsignals/cojournalist-os`) with 4 binaries + 4 sha256 files,
+     (`buriedsignals/scoutpost-os`) with 4 binaries + 4 sha256 files,
      via `OSS_RELEASE_PAT`. Anyone can `curl` the assets without auth.
-5. Smoke test after public assets exist: `curl -fsSL https://github.com/buriedsignals/cojournalist-os/releases/latest/download/scout-darwin-arm64 -o /tmp/scout && chmod +x /tmp/scout && /tmp/scout --version`.
-   Until then, smoke test the source install: `deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/cojournalist-os/master/cli/scout.ts && scout --version`.
+5. Smoke test after public assets exist: `curl -fsSL https://github.com/buriedsignals/scoutpost-os/releases/latest/download/scout-darwin-arm64 -o /tmp/scout && chmod +x /tmp/scout && /tmp/scout --version`.
+   Until then, smoke test the source install: `deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts && scout --version`.
 
 ## Tag naming
 
@@ -128,7 +128,7 @@ The four valid config keys are: `api_url`, `auth_token`, `api_key`,
 
 ## Secrets
 
-All on the private `buriedsignals/coJournalist` repo:
+All on the private `buriedsignals/scoutpost` repo:
 
 | Secret | Purpose |
 |---|---|
@@ -139,7 +139,7 @@ All on the private `buriedsignals/coJournalist` repo:
 | `APPLE_API_KEY_P8` | App Store Connect API key file contents |
 | `APPLE_API_KEY_ID` | Key ID |
 | `APPLE_API_ISSUER_ID` | Issuer ID |
-| `OSS_RELEASE_PAT` | Fine-grained PAT with `contents: write` on `buriedsignals/cojournalist-os` — publishes release assets on the public mirror |
+| `OSS_RELEASE_PAT` | Fine-grained PAT with `contents: write` on `buriedsignals/scoutpost-os` — publishes release assets on the public mirror |
 
 Cert valid 5 years (renew 2031). Renewal reminder: `2027-04-15` decide
 whether to keep paying Apple Developer Program ($109/yr).

@@ -20,7 +20,7 @@ Scoutpost lets journalists create scheduled scouts that monitor pages, local new
 - **MCP**: `https://www.scoutpost.ai/mcp`
 - **REST API**: `https://www.scoutpost.ai/functions/v1`
 - **OpenAPI**: `https://www.scoutpost.ai/functions/v1/openapi-spec`
-- **CLI**: `scout`, documented at `https://github.com/buriedsignals/cojournalist-os/blob/main/cli/README.md`
+- **CLI**: `scout`, documented at `https://github.com/buriedsignals/scoutpost-os/blob/main/cli/README.md`
 
 ## Public docs
 

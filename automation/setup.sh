@@ -33,7 +33,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Upstream OSS repo
-UPSTREAM_REPO="buriedsignals/cojournalist-os"
+UPSTREAM_REPO="buriedsignals/scoutpost-os"
 
 # ---------------------------------------------------------------------------
 # Utility functions
@@ -116,8 +116,8 @@ fork_repo() {
     # Check if fork already exists
     GH_USER=$(gh api user --jq '.login')
 
-    if gh repo view "${GH_USER}/cojournalist-os" &>/dev/null; then
-        log_warn "Fork already exists: ${GH_USER}/cojournalist-os"
+    if gh repo view "${GH_USER}/scoutpost-os" &>/dev/null; then
+        log_warn "Fork already exists: ${GH_USER}/scoutpost-os"
         read -rp "  Use existing fork? (y/n): " use_existing
         if [ "$use_existing" != "y" ]; then
             log_error "Please delete the existing fork first, then re-run setup."
@@ -125,15 +125,15 @@ fork_repo() {
         fi
     else
         gh repo fork "${UPSTREAM_REPO}" --clone=false
-        log_success "Forked to ${GH_USER}/cojournalist-os"
+        log_success "Forked to ${GH_USER}/scoutpost-os"
     fi
 
     # Clone the fork
-    REPO_DIR="cojournalist-os"
+    REPO_DIR="scoutpost-os"
     if [ -d "$REPO_DIR" ]; then
         log_warn "Directory ${REPO_DIR} already exists. Using it."
     else
-        gh repo clone "${GH_USER}/cojournalist-os"
+        gh repo clone "${GH_USER}/scoutpost-os"
         log_success "Cloned to ./${REPO_DIR}"
     fi
 
@@ -453,7 +453,7 @@ deploy_render() {
     echo ""
     echo "  1. Go to https://dashboard.render.com"
     echo "  2. Click 'New' -> 'Blueprint'"
-    echo "  3. Connect your forked repo: ${GH_USER}/cojournalist-os"
+    echo "  3. Connect your forked repo: ${GH_USER}/scoutpost-os"
     echo "  4. Render reads deploy/render/render.yaml automatically"
     echo "  5. Fill in the environment variables when prompted"
     echo ""
@@ -518,7 +518,7 @@ install_sync_action() {
         echo ""
         prompt_optional RENDER_DEPLOY_HOOK "Render deploy hook URL"
         if [ -n "$RENDER_DEPLOY_HOOK" ]; then
-            echo "$RENDER_DEPLOY_HOOK" | gh secret set RENDER_DEPLOY_HOOK --repo "${GH_USER}/cojournalist-os"
+            echo "$RENDER_DEPLOY_HOOK" | gh secret set RENDER_DEPLOY_HOOK --repo "${GH_USER}/scoutpost-os"
         fi
     fi
 

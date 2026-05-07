@@ -23,6 +23,7 @@ Deno.env.set(
   "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
 );
 Deno.env.set("PUBLIC_APP_URL", "https://www.scoutpost.ai");
+Deno.env.set("MUCKROCK_CALLBACK_URL", "https://scoutpost.ai/api/auth/callback");
 Deno.env.set("MUCKROCK_CLIENT_ID", "test-client");
 Deno.env.set("MUCKROCK_CLIENT_SECRET", "test-secret");
 
@@ -117,7 +118,7 @@ Deno.test("login: 302s to MuckRock authorize with broker-tagged state", async ()
   const qs = new URL(loc).searchParams;
   assertEquals(qs.get("client_id"), "test-client");
   assertEquals(qs.get("response_type"), "code");
-  assertEquals(qs.get("redirect_uri"), "https://www.scoutpost.ai/api/auth/callback");
+  assertEquals(qs.get("redirect_uri"), "https://scoutpost.ai/api/auth/callback");
   const state = qs.get("state") ?? "";
   if (!state.startsWith("mcp.")) {
     throw new Error(`expected mcp. state prefix, got ${state.slice(0, 8)}`);

@@ -65,9 +65,9 @@ The user needs:
    `SETUP_AGENT.md`. Help the user install anything missing before
    continuing.
 3. **Clone / fork** — the repo is public, clone via
-   `gh repo fork buriedsignals/cojournalist-os --clone` or plain `git clone`.
+   `gh repo fork buriedsignals/scoutpost-os --clone` or plain `git clone`.
 4. **Collect setup values** — prefer the `/setup` generator or
-   `cojournalist-setup.json` manifest so secrets stay out of chat. Explain what
+   `scoutpost-setup.json` manifest so secrets stay out of chat. Explain what
    each service does. Do not skip MapTiler or the Resend domain verification
    step.
 5. **Provision Supabase** — managed or self-hosted Docker. Run migrations
@@ -90,7 +90,7 @@ The user needs:
   scout pipelines (Civic = 20 credits/run in hosted mode; real API cost
   self-hosted) all incur charges. Surface this before provisioning.
 - **Don't put secrets in chat.** Use the generated manifest or local shell
-  prompts. Agents should read `cojournalist-setup.json` from disk and run
+  prompts. Agents should read `scoutpost-setup.json` from disk and run
   `automation/setup-from-manifest.sh`.
 - **Don't assume defaults.** Prompt the user for every decision and secret —
   regions, tier selection, signup domains, sender address. No silent choices.

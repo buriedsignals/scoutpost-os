@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ $# -ne 1 ]; then
-  echo "Usage: automation/setup-from-manifest.sh <cojournalist-setup.json>" >&2
+  echo "Usage: automation/setup-from-manifest.sh <scoutpost-setup.json>" >&2
   exit 2
 fi
 
@@ -59,13 +59,13 @@ for required in PROJECT_NAME SUPABASE_MODE FRONTEND_PROVIDER ADMIN_EMAIL SIGNUP_
 done
 
 if [ ! -d "supabase/functions" ] || [ ! -d "frontend" ]; then
-  echo "Run this script from the coJournalist repository root." >&2
+  echo "Run this script from the Scoutpost repository root." >&2
   exit 1
 fi
 
 install_node_tooling() {
   log "Agent and provider tooling"
-  if [ "${COJOURNALIST_INSTALL_AGENT_TOOLING:-false}" != "true" ]; then
+  if [ "${SCOUTPOST_INSTALL_AGENT_TOOLING:-${COJOURNALIST_INSTALL_AGENT_TOOLING:-false}}" != "true" ]; then
     ok "Skipping optional local CLI installs. The manifest supplies service credentials; install provider CLIs separately only if this operator machine needs them."
     return
   fi
@@ -128,7 +128,7 @@ resolve_supabase() {
 
   if [ "$SUPABASE_MODE" != "self-hosted" ]; then
     if ! $SUPABASE_CLI projects list >/dev/null 2>&1; then
-      echo "Supabase CLI is not authenticated. Add supabase.access_token to cojournalist-setup.json or set SUPABASE_ACCESS_TOKEN, then rerun setup." >&2
+      echo "Supabase CLI is not authenticated. Add supabase.access_token to scoutpost-setup.json or set SUPABASE_ACCESS_TOKEN, then rerun setup." >&2
       exit 1
     fi
   fi

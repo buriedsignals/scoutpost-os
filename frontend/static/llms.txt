@@ -42,11 +42,11 @@ Scoutpost is built for local reporting, investigative workflows, and newsroom mo
 - [REST docs](https://www.scoutpost.ai/docs#rest): Public REST integration guidance
 - [OpenAPI spec](https://www.scoutpost.ai/functions/v1/openapi-spec): Machine-readable REST schema
 - [Swagger UI](https://www.scoutpost.ai/swagger): Interactive API reference
-- [CLI README](https://github.com/buriedsignals/cojournalist-os/blob/main/cli/README.md): `scout` install and usage
-- [MCP bridge README](https://github.com/buriedsignals/cojournalist-os/blob/main/mcp/README.md): Stdio bridge for MCP clients
+- [CLI README](https://github.com/buriedsignals/scoutpost-os/blob/main/cli/README.md): `scout` install and usage
+- [MCP bridge README](https://github.com/buriedsignals/scoutpost-os/blob/main/mcp/README.md): Stdio bridge for MCP clients
 
 ## Source and support
 
-- [GitHub repo](https://github.com/buriedsignals/cojournalist-os): Public source
-- [GitHub releases](https://github.com/buriedsignals/cojournalist-os/releases): Release notes and binaries
-- [GitHub issues](https://github.com/buriedsignals/cojournalist-os/issues): Bugs and feature requests
+- [GitHub repo](https://github.com/buriedsignals/scoutpost-os): Public source
+- [GitHub releases](https://github.com/buriedsignals/scoutpost-os/releases): Release notes and binaries
+- [GitHub issues](https://github.com/buriedsignals/scoutpost-os/issues): Bugs and feature requests

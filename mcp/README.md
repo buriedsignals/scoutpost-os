@@ -19,8 +19,8 @@ Needs [Deno](https://deno.com) v2.x (`brew install deno`). Release binaries are
 planned, but do not use `releases/latest/download` until public assets exist.
 
 ```bash
-git clone https://github.com/buriedsignals/cojournalist-os.git
-cd cojournalist-os/mcp
+git clone https://github.com/buriedsignals/scoutpost-os.git
+cd scoutpost-os/mcp
 deno task compile-mac-arm        # or compile-mac-x86 on Intel
 sudo mv dist/scout-mcp-darwin-arm64 /usr/local/bin/scout-mcp
 sudo chmod +x /usr/local/bin/scout-mcp
@@ -140,7 +140,7 @@ Push a `mcp-v*` tag on the private monorepo — the
 [`mcp-release.yml`](../.github/workflows/mcp-release.yml) workflow
 compiles for all four platforms, codesigns + notarizes macOS binaries
 with the Apple Developer cert, and publishes the release on
-[`buriedsignals/cojournalist-os`](https://github.com/buriedsignals/cojournalist-os/releases)
+[`buriedsignals/scoutpost-os`](https://github.com/buriedsignals/scoutpost-os/releases)
 so anyone can `curl` the assets without GitHub auth.
 
 ```bash

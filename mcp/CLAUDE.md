@@ -63,9 +63,9 @@ Identical pattern to the CLI (see `cli/CLAUDE.md`):
    - 4 matrix builds (mac arm/x86, linux arm/x86)
    - macOS binaries are code-signed + notarized via the same Apple
      Developer cert used for `scout`
-   - Release published on `buriedsignals/cojournalist-os` (public OSS
+   - Release published on `buriedsignals/scoutpost-os` (public OSS
      mirror) with 4 binaries + 4 sha256 files, via `OSS_RELEASE_PAT`.
-5. Smoke test after public assets exist: `curl -fsSL https://github.com/buriedsignals/cojournalist-os/releases/latest/download/scout-mcp-darwin-arm64 -o /tmp/scout-mcp && chmod +x /tmp/scout-mcp && /tmp/scout-mcp --version`.
+5. Smoke test after public assets exist: `curl -fsSL https://github.com/buriedsignals/scoutpost-os/releases/latest/download/scout-mcp-darwin-arm64 -o /tmp/scout-mcp && chmod +x /tmp/scout-mcp && /tmp/scout-mcp --version`.
    Until then, smoke test a source build from `mcp/`: `deno task compile-mac-arm && ./dist/scout-mcp-darwin-arm64 --version`.
 
 ## Tag naming
@@ -119,4 +119,4 @@ Two reasons:
 Identical to the CLI release — `APPLE_CERT_P12`, `APPLE_CERT_PASSWORD`,
 `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID`, `APPLE_API_KEY_P8`,
 `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`, `OSS_RELEASE_PAT`. All sit on
-the private `buriedsignals/coJournalist` repo.
+the private `buriedsignals/scoutpost` repo.

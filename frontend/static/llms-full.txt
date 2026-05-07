@@ -56,8 +56,8 @@ Verification is a hard product boundary. Agents can help search and summarize, b
 - **REST base**: https://www.scoutpost.ai/functions/v1
 - **OpenAPI**: https://www.scoutpost.ai/functions/v1/openapi-spec
 - **Swagger**: https://www.scoutpost.ai/swagger
-- **CLI docs**: https://github.com/buriedsignals/cojournalist-os/blob/main/cli/README.md
-- **MCP bridge docs**: https://github.com/buriedsignals/cojournalist-os/blob/main/mcp/README.md
+- **CLI docs**: https://github.com/buriedsignals/scoutpost-os/blob/main/cli/README.md
+- **MCP bridge docs**: https://github.com/buriedsignals/scoutpost-os/blob/main/mcp/README.md
 
 ## 6. Hosted pricing
 

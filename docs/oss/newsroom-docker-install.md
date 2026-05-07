@@ -33,9 +33,9 @@ The browser creates local files on the operator machine:
 
 | File | Contains secrets? | Purpose |
 | --- | --- | --- |
-| `cojournalist-setup.json` | Yes | Deployment manifest with API keys, Supabase config, auth domains, and hosting choices |
-| `cojournalist-docker-install.sh` | No | Wrapper that pulls or builds the installer image and mounts the manifest |
-| `cojournalist-docker-install.md` | No | Human-readable Docker command reference |
+| `scoutpost-setup.json` | Yes | Deployment manifest with API keys, Supabase config, auth domains, and hosting choices |
+| `scoutpost-docker-install.sh` | No | Wrapper that pulls or builds the installer image and mounts the manifest |
+| `scoutpost-docker-install.md` | No | Human-readable Docker command reference |
 | `newsroom-onboarding.md` | No | Short guide to give journalists after deployment |
 
 The credentials are not baked into the Docker image. The manifest stays on disk
@@ -63,7 +63,7 @@ For Supabase Cloud, the manifest field `supabase.access_token` is used as
 Put the downloaded files in one directory, then run:
 
 ```bash
-bash cojournalist-docker-install.sh install
+bash scoutpost-docker-install.sh install
 ```
 
 The wrapper tries this first:
@@ -71,20 +71,20 @@ The wrapper tries this first:
 ```bash
 docker run --rm \
   -v "$PWD:/workspace" \
-  -v "$PWD/cojournalist-setup.json:/config/cojournalist-setup.json:ro" \
-  ghcr.io/buriedsignals/cojournalist-installer:latest install
+  -v "$PWD/scoutpost-setup.json:/config/scoutpost-setup.json:ro" \
+  ghcr.io/buriedsignals/scoutpost-installer:latest install
 ```
 
 If the prebuilt image cannot be pulled, the wrapper clones
-`https://github.com/buriedsignals/cojournalist-os.git` into
-`./cojournalist-os` and builds the same installer image locally.
+`https://github.com/buriedsignals/scoutpost-os.git` into
+`./scoutpost-os` and builds the same installer image locally.
 
 ## What install does
 
 The installer:
 
 1. Finds or clones the Scoutpost OSS checkout.
-2. Reads `cojournalist-setup.json`.
+2. Reads `scoutpost-setup.json`.
 3. Authenticates Supabase CLI with `supabase.access_token` when present.
 4. Creates or links the Supabase project depending on the manifest mode.
 5. Pushes Supabase config and migrations when a project ref is available.
@@ -104,7 +104,7 @@ Generated local env files and setup artifacts are gitignored.
 After install:
 
 ```bash
-bash cojournalist-docker-install.sh doctor
+bash scoutpost-docker-install.sh doctor
 ```
 
 Doctor checks for:
@@ -123,7 +123,7 @@ Warnings are not always blockers. A blocker means fix the issue before deploy.
 Run updates from the newsroom fork checkout:
 
 ```bash
-bash cojournalist-docker-install.sh update
+bash scoutpost-docker-install.sh update
 ```
 
 For GitHub PR creation, the wrapper mounts local GitHub CLI auth when available:
@@ -154,7 +154,7 @@ install the `scout` CLI onto journalists' machines.
 After deployment, install `scout` per editor or agent machine:
 
 ```bash
-deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/cojournalist-os/main/cli/scout.ts
+deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/main/cli/scout.ts
 scout config set api_url=https://<your-supabase-url>/functions/v1
 scout config set supabase_anon_key=<SUPABASE_ANON_KEY>
 scout config set api_key=cj_...
@@ -168,7 +168,7 @@ unless it is intentionally using the hosted SaaS.
 ## Security model
 
 - The Docker image is public and contains no newsroom credentials.
-- `cojournalist-setup.json` contains secrets and must not be committed.
+- `scoutpost-setup.json` contains secrets and must not be committed.
 - The manifest is mounted read-only into Docker.
 - Generated env files are local and gitignored.
 - Firecrawl browser authentication is not run inside Docker; the manifest API

@@ -58,7 +58,7 @@ async function initRepo(path: string) {
 
 Deno.test("selfhost doctor finds a nested checkout", async () => {
   const tmp = await Deno.makeTempDir();
-  const repo = `${tmp}/cojournalist-os`;
+  const repo = `${tmp}/scoutpost-os`;
   await initRepo(repo);
   await Deno.writeTextFile(
     `${repo}/supabase/config.toml`,
@@ -302,11 +302,11 @@ Deno.test("manifest setup uses Supabase access token instead of browser login", 
 
 Deno.test("generated self-host setup artifacts are gitignored", async () => {
   const artifacts = [
-    "cojournalist-setup.json",
-    "cojournalist-install.sh",
-    "cojournalist-agent-prompt.md",
-    "cojournalist-docker-install.md",
-    "cojournalist-docker-install.sh",
+    "scoutpost-setup.json",
+    "scoutpost-install.sh",
+    "scoutpost-agent-prompt.md",
+    "scoutpost-docker-install.md",
+    "scoutpost-docker-install.sh",
     "newsroom-onboarding.md",
   ];
 

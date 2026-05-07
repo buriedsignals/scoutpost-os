@@ -13,7 +13,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     env:
-      SYNC_BRANCH: cojournalist/sync-upstream
+      SYNC_BRANCH: scoutpost/sync-upstream
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout fork
@@ -34,12 +34,12 @@ jobs:
 
       - name: Configure git
         run: |
-          git config user.name "coJournalist Sync Bot"
+          git config user.name "Scoutpost Sync Bot"
           git config user.email "sync@scoutpost.ai"
 
       - name: Add upstream remote
         run: |
-          git remote add upstream https://github.com/buriedsignals/cojournalist-os.git || true
+          git remote add upstream https://github.com/buriedsignals/scoutpost-os.git || true
           git fetch upstream master
 
       - name: Inspect upstream changes
@@ -137,13 +137,13 @@ jobs:
           PR_NUMBER="$(gh pr list --head "$SYNC_BRANCH" --base master --state open --json number --jq '.[0].number // empty')"
           if [ -n "$PR_NUMBER" ]; then
             gh pr edit "$PR_NUMBER" \
-              --title "sync: merge upstream coJournalist OSS" \
+              --title "sync: merge upstream Scoutpost OSS" \
               --body-file /tmp/sync-upstream-pr.md
           else
             gh pr create \
               --base master \
               --head "$SYNC_BRANCH" \
-              --title "sync: merge upstream coJournalist OSS" \
+              --title "sync: merge upstream Scoutpost OSS" \
               --body-file /tmp/sync-upstream-pr.md
           fi
 

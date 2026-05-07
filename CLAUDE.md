@@ -296,7 +296,7 @@ directly from the public mirror with Deno.
 - Pre-release suffixes (marked as prerelease on GitHub): `-rc1`, `-beta1`,
   `-alpha1`
 - Current install (anyone, no auth):
-  `deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/cojournalist-os/master/cli/scout.ts`
+  `deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts`
 - Planned binaries: `scout-darwin-arm64`, `scout-darwin-x86_64`,
   `scout-linux-arm64`, `scout-linux-x86_64` — each with a sibling `.sha256`
   file after the first public release is published.

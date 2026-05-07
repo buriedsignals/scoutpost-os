@@ -24,4 +24,4 @@ Scoutpost, formerly coJournalist, helps journalists monitor beats, sources, page
 - FAQ page: https://www.scoutpost.ai/faq
 - Skills index: https://www.scoutpost.ai/skills
 - Docs: https://www.scoutpost.ai/docs
-- GitHub: https://github.com/buriedsignals/cojournalist-os
+- GitHub: https://github.com/buriedsignals/scoutpost-os

@@ -19,6 +19,11 @@ cojournalist-install.sh
 cojournalist-agent-prompt.md
 cojournalist-docker-install.md
 cojournalist-docker-install.sh
+scoutpost-setup.json
+scoutpost-install.sh
+scoutpost-agent-prompt.md
+scoutpost-docker-install.md
+scoutpost-docker-install.sh
 newsroom-onboarding.md
 
 # Python

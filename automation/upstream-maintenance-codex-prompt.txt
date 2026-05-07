@@ -9,7 +9,7 @@ Important rules:
 - Prefer a branch and PR if this repo is connected to GitHub. Do not force-push.
 
 Repository context:
-- Upstream OSS repo: https://github.com/buriedsignals/cojournalist-os.git
+- Upstream OSS repo: https://github.com/buriedsignals/scoutpost-os.git
 - Upstream branch: master
 - Maintenance workflow path: .github/workflows/sync-upstream.yml
 
@@ -27,7 +27,7 @@ Please do this:
 
 2. Prepare upstream.
    - If there is no `upstream` remote, add:
-     `git remote add upstream https://github.com/buriedsignals/cojournalist-os.git`
+     `git remote add upstream https://github.com/buriedsignals/scoutpost-os.git`
    - Run:
      `git fetch upstream master`
 

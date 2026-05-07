@@ -1,6 +1,8 @@
 # scoutpost.ai Domain Migration Runbook
 
-Canonical production URL: `https://www.scoutpost.ai`
+Canonical app URL: `https://www.scoutpost.ai`
+
+MuckRock OAuth callback URL: `https://scoutpost.ai/api/auth/callback`
 
 Legacy URL during migration: `https://www.cojournalist.ai`
 
@@ -11,13 +13,13 @@ Legacy URL during migration: `https://www.cojournalist.ai`
 3. Point GoDaddy nameservers to the two Cloudflare nameservers assigned to the `scoutpost.ai` zone.
 4. Add `scoutpost.ai` and `www.scoutpost.ai` as Render custom domains for the existing production service.
 5. Ask MuckRock to add:
-   - OAuth callback: `https://www.scoutpost.ai/api/auth/callback`
+   - OAuth callback: `https://scoutpost.ai/api/auth/callback`
    - Webhook: `https://www.scoutpost.ai/api/auth/webhook`
 6. Verify Resend domain records for `scoutpost.ai`, then send one test email from `updates@scoutpost.ai` and one alert-style test from `alerts@scoutpost.ai`.
 7. Update Supabase Edge Function secrets:
    - `PUBLIC_APP_URL=https://www.scoutpost.ai`
    - `APP_POST_LOGIN_REDIRECT=https://www.scoutpost.ai/auth/callback`
-   - `MUCKROCK_CALLBACK_URL=https://www.scoutpost.ai/api/auth/callback`
+   - `MUCKROCK_CALLBACK_URL=https://scoutpost.ai/api/auth/callback`
    - `MCP_SERVER_BASE_URL=https://www.scoutpost.ai/mcp`
 8. Deploy the app branch and run the smoke checklist below.
 9. Only after smoke passes, redirect browser traffic from `cojournalist.ai` to `scoutpost.ai`. Do not redirect `/api/auth/callback` or `/api/auth/webhook` until MuckRock confirms the old URLs are no longer used.
@@ -109,7 +111,7 @@ curl -sI https://www.scoutpost.ai/api/auth/has-users | head
 Manual checks:
 
 - `/login` starts MuckRock sign-in.
-- MuckRock redirects to `https://www.scoutpost.ai/api/auth/callback`.
+- MuckRock redirects to `https://scoutpost.ai/api/auth/callback`.
 - Browser lands on `https://www.scoutpost.ai/auth/callback`, then enters the workspace.
 - `/docs`, `/skills/cojournalist.md`, `/swagger`, `/mcp`, and `/functions/v1/openapi-spec` load from the new domain.
 - One Resend test email arrives from `updates@scoutpost.ai`.
