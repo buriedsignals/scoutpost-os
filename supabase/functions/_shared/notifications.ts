@@ -887,7 +887,14 @@ export function buildBaseHtml(p: BaseHtmlParams): string {
         <td align="center" bgcolor="${COLORS.bg}" style="padding: 24px 16px;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="${COLORS.surfaceAlt}" style="width: 100%; max-width: 640px; border: 1px solid ${COLORS.borderStrong}; background: ${COLORS.surfaceAlt};">
             <tr>
-              <td bgcolor="${COLORS.surfaceAlt}" style="padding: 24px 24px 20px 24px; border-bottom: 1px solid ${COLORS.border}; background: ${COLORS.surfaceAlt};">
+              <td bgcolor="${COLORS.surfaceAlt}" style="padding: 24px 24px 8px 24px; background: ${COLORS.surfaceAlt};">
+                <a href="https://www.scoutpost.ai" style="text-decoration: none; border: 0;">
+                  <img src="https://www.scoutpost.ai/logo-scoutpost-email@2x.png" alt="scoutpost" width="180" height="45" style="display: block; border: 0; outline: none; text-decoration: none; max-width: 100%; height: auto;" />
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td bgcolor="${COLORS.surfaceAlt}" style="padding: 16px 24px 20px 24px; border-bottom: 1px solid ${COLORS.border}; background: ${COLORS.surfaceAlt};">
             <div style="margin-bottom: 14px; font-family: ${FONT_MONO}; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: ${accentColor};">
                 ${escapeHtml(p.eyebrowLabel)}${
     p.contextLabel

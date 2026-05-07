@@ -133,10 +133,10 @@
 				<div class="auth-shell">
 					<div class="auth-card">
 						{#if notAvailable}
-							<img src="/logo-cojournalist.svg" alt="Scoutpost" class="auth-logo" />
-							<p class="coming-soon-title">Coming Soon</p>
+							<img src="/logo-scoutpost.svg" alt="Scoutpost" class="auth-logo" />
+							<p class="coming-soon-title">Access not available</p>
 							<p class="coming-soon-text">
-								Scoutpost is not currently available for new signups. We'll notify you when access opens up.
+								Scoutpost hosted accounts are in limited access. This hosted account is not enabled yet; if you expected access, contact the Scoutpost team.
 							</p>
 						{:else}
 							{#if showSupabaseAuth()}
@@ -221,7 +221,7 @@
 				PUBLIC BETA
 			</div>
 
-			<img src="/logo-cojournalist.svg" alt="Scoutpost" class="headline-logo" />
+			<img src="/logo-scoutpost.svg" alt="Scoutpost" class="headline-logo" />
 
 			<p class="tagline">
 				Let your AI monitor the

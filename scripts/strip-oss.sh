@@ -360,6 +360,10 @@ src = src.replace("Sign in with MuckRock", "Sign in")
 # Collapse the MuckRock-authenticate prompt + signup link (post-2026-04-22 copy)
 src = re.sub(r'<p class="auth-prompt">Authenticate with MuckRock to continue</p>', '<p class="auth-prompt">Sign in</p>', src)
 src = re.sub(r'<a\s+class="auth-signup-link"[^>]*>.*?</a>', '', src, flags=re.DOTALL)
+src = src.replace(
+    "This MuckRock account is not enabled yet; if you expected access, contact the Scoutpost team.",
+    "This hosted account is not enabled yet; if you expected access, contact the Scoutpost team.",
+)
 # Strip CSS / JS comments that name MuckRock (validator greps the file
 # content case-insensitively, so even a doc-comment inside <style> trips it).
 src = re.sub(r'/\*[^*]*?[Mm]uck[Rr]ock[^/]*?\*/', '', src, flags=re.DOTALL)

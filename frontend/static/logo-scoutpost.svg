@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 120" role="img" aria-label="scoutpost">
+  <title>scoutpost</title>
+  <g transform="translate(8, 10)">
+    <circle cx="46" cy="54" r="30" fill="none" stroke="#6B3FA0" stroke-width="6.5"/>
+    <line x1="46" y1="54" x2="82" y2="18" stroke="#C77A1D" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="46" cy="54" r="3.5" fill="#6B3FA0"/>
+    <circle cx="82" cy="18" r="4" fill="#C77A1D"/>
+  </g>
+  <text x="128" y="84" font-family="Geist, Inter, system-ui, sans-serif" font-weight="500" font-size="72" letter-spacing="-1.8" fill="#201A2A">scoutpost</text>
+</svg>
