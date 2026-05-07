@@ -172,7 +172,7 @@
 					<a href="/faq">FAQ</a>
 					<a href="/skills">Skills</a>
 					<a href="/docs.txt">docs.txt</a>
-					<a href="https://github.com/buriedsignals/cojournalist-os" target="_blank" rel="noopener noreferrer">
+					<a href="https://github.com/buriedsignals/scoutpost-os" target="_blank" rel="noopener noreferrer">
 						GitHub
 						<ExternalLink size={11} />
 					</a>
@@ -564,12 +564,12 @@ curl "https://www.scoutpost.ai/functions/v1/units?verified=false&limit=20" \\
 
 					<SharpCodeBlock
 						ariaLabel="Copy CLI install"
-						copyValue={`deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/cojournalist-os/master/cli/scout.ts
+						copyValue={`deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts
 scout config set api_url=https://www.scoutpost.ai/functions/v1
 scout config set api_key=<cj_... API key>
 scout scouts list`}
 						code={`# Install (requires Deno 2.x)
-deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/cojournalist-os/master/cli/scout.ts
+deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts
 
 # Configure (generate a cj_... API key in the app: Agents → API → Create key)
 scout config set api_url=https://www.scoutpost.ai/functions/v1
@@ -762,7 +762,7 @@ scout units delete <unit-id>`}</code></pre>
 						your Firecrawl, Gemini, Apify, and Resend keys. Same feature set as SaaS. No telemetry.
 					</p>
 					<p>
-						The <a href="https://github.com/buriedsignals/cojournalist-os" target="_blank" rel="noopener noreferrer"
+						The <a href="https://github.com/buriedsignals/scoutpost-os" target="_blank" rel="noopener noreferrer"
 							>GitHub repo</a
 						>
 						has an automated setup flow — drop your AI coding agent into the repo, run the
@@ -778,7 +778,7 @@ scout units delete <unit-id>`}</code></pre>
 						<li><a href="/faq">FAQ</a> — licensing, self-hosting, editorial workflow</li>
 						<li><a href="/">Pricing</a> — plans, credits, team seats</li>
 						<li>
-							<a href="https://github.com/buriedsignals/cojournalist-os/issues" target="_blank" rel="noopener noreferrer"
+							<a href="https://github.com/buriedsignals/scoutpost-os/issues" target="_blank" rel="noopener noreferrer"
 								>Open an issue</a
 							>
 							— bugs and feature requests
@@ -787,7 +787,7 @@ scout units delete <unit-id>`}</code></pre>
 							In-app <strong>Feedback</strong> button — routes to Linear, a human reads it
 						</li>
 						<li>
-							<a href="https://github.com/buriedsignals/cojournalist-os/discussions" target="_blank" rel="noopener">GitHub discussions</a>
+							<a href="https://github.com/buriedsignals/scoutpost-os/discussions" target="_blank" rel="noopener">GitHub discussions</a>
 							— for questions and help from the community
 						</li>
 					</ul>
@@ -796,7 +796,7 @@ scout units delete <unit-id>`}</code></pre>
 				<footer class="foot">
 					<a href={backHref} class="foot-link">← Back to Scoutpost</a>
 					<a
-						href="https://github.com/buriedsignals/cojournalist-os"
+						href="https://github.com/buriedsignals/scoutpost-os"
 						target="_blank"
 						rel="noopener noreferrer"
 						class="foot-link"

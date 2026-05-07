@@ -166,7 +166,7 @@
 		<section>
 			<h2>Contact</h2>
 			<p>
-				For data requests or to exercise your rights under GDPR: click the help icon inside the app — it opens a private channel to the maintainer. For general questions, open an issue on <a href="https://github.com/buriedsignals/cojournalist-os/issues" target="_blank" rel="noopener">GitHub</a>.
+				For data requests or to exercise your rights under GDPR: click the help icon inside the app — it opens a private channel to the maintainer. For general questions, open an issue on <a href="https://github.com/buriedsignals/scoutpost-os/issues" target="_blank" rel="noopener">GitHub</a>.
 			</p>
 			<p>
 				Buried Signals &middot; Zurich, Switzerland

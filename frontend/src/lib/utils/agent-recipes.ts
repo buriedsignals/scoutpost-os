@@ -89,9 +89,9 @@ export interface Recipe {
 }
 
 export const CLI_README_URL =
-  "https://github.com/buriedsignals/cojournalist-os/blob/main/cli/README.md";
+  "https://github.com/buriedsignals/scoutpost-os/blob/main/cli/README.md";
 const CLI_DENO_INSTALL_URL =
-  "https://raw.githubusercontent.com/buriedsignals/cojournalist-os/master/cli/scout.ts";
+  "https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts";
 export const MCP_URL = HOSTED_AGENT_TARGET.mcpUrl;
 export const SKILL_URL = HOSTED_AGENT_TARGET.skillUrl;
 

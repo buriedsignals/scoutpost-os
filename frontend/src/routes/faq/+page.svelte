@@ -135,7 +135,7 @@
 		</div>
 
 		<p class="footer-note">
-			More questions? <a href="https://github.com/buriedsignals/cojournalist-os/issues" target="_blank" rel="noopener">Open an issue on GitHub</a>.
+			More questions? <a href="https://github.com/buriedsignals/scoutpost-os/issues" target="_blank" rel="noopener">Open an issue on GitHub</a>.
 			AI resources live at <a href="/skills">/skills</a> and <a href="/faq.txt">/faq.txt</a>.
 		</p>
 	</div>
