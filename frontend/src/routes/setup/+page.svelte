@@ -70,7 +70,43 @@
 	$: signupDomains = normalizeDomains(signupDomainsText);
 	$: manualDocsUrls = normalizeUrlList(manualProviderDocsText);
 	$: isManualProvider = dataPlatformProvider === 'manual';
-	$: manifest = buildManifest();
+	let manifest: SetupManifest;
+	$: {
+		projectName;
+		appUrl;
+		geminiKey;
+		firecrawlKey;
+		apifyToken;
+		resendKey;
+		resendFromEmail;
+		maptilerKey;
+		adminEmail;
+		signupDomains;
+		dataPlatformProvider;
+		supabaseMode;
+		supabaseProjectRef;
+		supabaseProjectUrl;
+		supabaseAnonKey;
+		supabaseServiceKey;
+		supabaseJwtSecret;
+		supabaseAccessToken;
+		supabaseOrgId;
+		supabaseRegion;
+		supabaseDbPassword;
+		selfHostedPostgresPassword;
+		manualProviderName;
+		manualDocsUrls;
+		manualProviderNotes;
+		manualApiBaseUrl;
+		manualMcpUrl;
+		frontendProvider;
+		frontendSiteName;
+		customMcpUrl;
+		includeFastapiAddon;
+		installSyncWorkflow;
+		renderDeployHook;
+		manifest = buildManifest();
+	}
 	$: validation = validateSetupManifest(manifest);
 	$: redactedManifest = JSON.stringify(redactSetupManifest(manifest), null, 2);
 	$: installScript = buildInstallScript(manifest);
@@ -469,19 +505,19 @@ Run the manifest installer from the repository root. Never ask the operator to p
 								{/each}
 							</select>
 						</label>
-						<label>
+						<div class="field-group">
 							<span class="field-top">
-								<span>Database password</span>
+								<label for="supabase-db-password">Database password</label>
 								<button type="button" class="inline-action" on:click={generateDatabasePassword}>
 									<RefreshCw size={13} /> Generate
 								</button>
 							</span>
-							<input type="password" bind:value={supabaseDbPassword} autocomplete="off" />
+							<input id="supabase-db-password" type="password" bind:value={supabaseDbPassword} autocomplete="off" />
 							<small>
 								The installer uses Supabase CLI auth, but project creation still requires a
 								database password. Save it in your password manager.
 							</small>
-						</label>
+						</div>
 					</div>
 					<div class="grid two">
 						<label>
@@ -820,6 +856,7 @@ Run the manifest installer from the repository root. Never ask the operator to p
 	}
 
 	label,
+	.field-group,
 	.single {
 		display: flex;
 		flex-direction: column;
@@ -835,11 +872,18 @@ Run the manifest installer from the repository root. Never ask the operator to p
 		font-weight: 500;
 	}
 
-	label small {
+	label small,
+	.field-group small {
 		color: var(--color-ink-muted);
 		font-size: 0.78rem;
 		font-weight: 400;
 		line-height: 1.45;
+	}
+
+	.field-top label {
+		display: inline;
+		font-size: inherit;
+		font-weight: inherit;
 	}
 
 	.field-top {

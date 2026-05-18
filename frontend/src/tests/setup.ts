@@ -40,3 +40,7 @@ if (typeof Element !== 'undefined' && typeof Element.prototype.animate !== 'func
 		} as unknown as Animation;
 	};
 }
+
+if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
+	Element.prototype.scrollIntoView = function () {};
+}

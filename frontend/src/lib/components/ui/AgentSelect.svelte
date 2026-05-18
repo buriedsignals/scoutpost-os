@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { ChevronDown } from 'lucide-svelte';
 	import { AGENTS, type AgentSlug } from '$lib/utils/agent-icons';
 
@@ -8,11 +8,38 @@
 
 	let open = false;
 	let wrap: HTMLDivElement;
+	let menu: HTMLUListElement;
+	let canScrollUp = false;
+	let canScrollDown = false;
 
 	$: current = AGENTS.find((a) => a.slug === value) ?? AGENTS[0];
 
-	function pick(slug: AgentSlug) {
+	function updateScrollIndicators() {
+		if (!menu) {
+			canScrollUp = false;
+			canScrollDown = false;
+			return;
+		}
+		canScrollUp = menu.scrollTop > 2;
+		canScrollDown = menu.scrollTop + menu.clientHeight < menu.scrollHeight - 2;
+	}
+
+	function closeMenu() {
 		open = false;
+		canScrollUp = false;
+		canScrollDown = false;
+	}
+
+	async function toggleMenu() {
+		open = !open;
+		if (open) {
+			await tick();
+			updateScrollIndicators();
+		}
+	}
+
+	function pick(slug: AgentSlug) {
+		closeMenu();
 		if (slug !== value) {
 			value = slug;
 			onChange(slug);
@@ -21,11 +48,11 @@
 
 	function onDocClick(e: MouseEvent) {
 		if (!open) return;
-		if (wrap && !wrap.contains(e.target as Node)) open = false;
+		if (wrap && !wrap.contains(e.target as Node)) closeMenu();
 	}
 
 	function onKey(e: KeyboardEvent) {
-		if (e.key === 'Escape') open = false;
+		if (e.key === 'Escape') closeMenu();
 	}
 
 	onMount(() => {
@@ -42,7 +69,7 @@
 	<button
 		type="button"
 		class="trigger"
-		on:click|stopPropagation={() => (open = !open)}
+		on:click|stopPropagation={toggleMenu}
 		aria-haspopup="listbox"
 		aria-expanded={open}
 	>
@@ -68,36 +95,38 @@
 	</button>
 
 	{#if open}
-		<ul class="menu" role="listbox">
-			{#each AGENTS as a (a.slug)}
-				<li>
-					<button
-						type="button"
-						class="item"
-						class:selected={a.slug === value}
-						role="option"
-						aria-selected={a.slug === value}
-						on:click|stopPropagation={() => pick(a.slug)}
-					>
-						<svg
-							class="icon"
-							viewBox="0 0 24 24"
-							width="14"
-							height="14"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							aria-hidden="true"
+		<div class="menu-wrap" class:scroll-up={canScrollUp} class:scroll-down={canScrollDown}>
+			<ul class="menu" role="listbox" bind:this={menu} on:scroll={updateScrollIndicators}>
+				{#each AGENTS as a (a.slug)}
+					<li>
+						<button
+							type="button"
+							class="item"
+							class:selected={a.slug === value}
+							role="option"
+							aria-selected={a.slug === value}
+							on:click|stopPropagation={() => pick(a.slug)}
 						>
-							{@html a.iconInner}
-						</svg>
-						<span class="name">{a.name}</span>
-					</button>
-				</li>
-			{/each}
-		</ul>
+							<svg
+								class="icon"
+								viewBox="0 0 24 24"
+								width="14"
+								height="14"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								aria-hidden="true"
+							>
+								{@html a.iconInner}
+							</svg>
+							<span class="name">{a.name}</span>
+						</button>
+					</li>
+				{/each}
+			</ul>
+		</div>
 	{/if}
 </div>
 
@@ -158,21 +187,58 @@
 		color: var(--color-ink-subtle);
 	}
 
-	.menu {
+	.menu-wrap {
 		position: absolute;
 		left: 0;
 		top: calc(100% + 4px);
 		z-index: 50;
 		min-width: 100%;
-		margin: 0;
-		padding: 0.25rem;
-		list-style: none;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
 		border-radius: 0;
 		box-shadow: 0 10px 25px -10px rgba(15, 23, 42, 0.2);
-		max-height: 22rem;
+		max-height: min(34rem, calc(100vh - 8rem));
+		overflow: hidden;
+	}
+
+	.menu-wrap::before,
+	.menu-wrap::after {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		z-index: 2;
+		height: 1.75rem;
+		pointer-events: none;
+		opacity: 0;
+		transition: opacity 0.12s ease;
+	}
+
+	.menu-wrap::before {
+		top: 0;
+		background: linear-gradient(to bottom, var(--color-surface-alt), rgba(255, 255, 255, 0));
+		box-shadow: inset 0 10px 10px -12px rgba(15, 23, 42, 0.5);
+	}
+
+	.menu-wrap::after {
+		bottom: 0;
+		background: linear-gradient(to top, var(--color-surface-alt), rgba(255, 255, 255, 0));
+		box-shadow: inset 0 -12px 12px -14px rgba(15, 23, 42, 0.55);
+	}
+
+	.menu-wrap.scroll-up::before,
+	.menu-wrap.scroll-down::after {
+		opacity: 1;
+	}
+
+	.menu {
+		position: relative;
+		max-height: min(34rem, calc(100vh - 8rem));
 		overflow-y: auto;
+		margin: 0;
+		padding: 0.25rem;
+		list-style: none;
+		scrollbar-gutter: stable;
 	}
 
 	.item {
