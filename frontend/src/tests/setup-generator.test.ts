@@ -5,6 +5,7 @@ import {
 	buildDockerInstallerScript,
 	buildInstallScript,
 	buildNewsroomOnboarding,
+	buildProviderPortingPacket,
 	deriveAgentTargetFromManifest,
 	normalizeDomains,
 	redactSetupManifest,
@@ -28,6 +29,11 @@ function manifest(overrides: Partial<SetupManifest> = {}): SetupManifest {
 		auth: {
 			admin_email: 'admin@example.com',
 			signup_allowed_domains: ['example.com']
+		},
+		data_platform: {
+			provider: 'supabase',
+			provider_name: 'Supabase',
+			integration_mode: 'managed'
 		},
 		supabase: {
 			mode: 'cloud-existing',
@@ -150,5 +156,39 @@ describe('setup generator', () => {
 		expect(onboarding).toContain('click Agents');
 		expect(onboarding).not.toContain('anon-secret');
 		expect(`${prompt}\n${docker}\n${onboarding}`).not.toContain('www.scoutpost.ai');
+	});
+
+	it('supports manual provider manifests without Supabase credentials', () => {
+		const data = manifest({
+			data_platform: {
+				provider: 'manual',
+				provider_name: 'Internal platform',
+				integration_mode: 'manual',
+				docs_urls: ['https://platform.example.com/database'],
+				operator_notes: 'Use company auth and approved managed Postgres.'
+			},
+			supabase: {
+				mode: 'cloud-create'
+			}
+		});
+		const result = validateSetupManifest(data);
+		const prompt = buildAgentManifestPrompt('./scoutpost-setup.json', data);
+		const packet = buildProviderPortingPacket(data, './scoutpost-setup.json');
+		const target = deriveAgentTargetFromManifest(data);
+
+		expect(result.valid).toBe(true);
+		expect(result.errors).not.toContain('Supabase organization ID is required.');
+		expect(prompt).toContain('manual provider path');
+		expect(prompt).toContain('docs/supabase/migrations.md');
+		expect(prompt).toContain('supabase/migrations/');
+		expect(prompt).toContain('Fetch current official provider documentation');
+		expect(prompt).toContain('explicit human approval');
+		expect(prompt).toContain('Do not run Supabase CLI commands');
+		expect(packet).toContain('Provider: Internal platform');
+		expect(packet).toContain('Migration index: docs/supabase/migrations.md');
+		expect(packet).toContain('Migration directory: supabase/migrations/');
+		expect(packet).toContain('Human review gate');
+		expect(target.deploymentKind).toBe('manual');
+		expect(target.apiBaseUrl).toBe('https://<your-api-base-url>');
 	});
 });

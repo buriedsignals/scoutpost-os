@@ -36,6 +36,7 @@ fi
 
 PROJECT_NAME="$(jqv '.project.name')"
 APP_URL="$(jq -r '(.project.app_url // .frontend.production_url // "")' "$MANIFEST" | sed 's:/*$::')"
+DATA_PLATFORM_PROVIDER="$(jq -r '.data_platform.provider // "supabase"' "$MANIFEST")"
 SUPABASE_MODE="$(jqv '.supabase.mode')"
 MANIFEST_SUPABASE_ACCESS_TOKEN="$(jqv '.supabase.access_token')"
 FRONTEND_PROVIDER="$(jqv '.frontend.provider')"
@@ -51,17 +52,124 @@ PUBLIC_MAPTILER_API_KEY="$(jqv '.services.public_maptiler_api_key')"
 CUSTOM_MCP_URL="$(jqv '.agents.custom_mcp_url' | sed 's:/*$::')"
 RENDER_DEPLOY_HOOK="$(jqv '.options.render_deploy_hook')"
 
-for required in PROJECT_NAME SUPABASE_MODE FRONTEND_PROVIDER ADMIN_EMAIL SIGNUP_DOMAINS GEMINI_API_KEY FIRECRAWL_API_KEY APIFY_API_TOKEN RESEND_API_KEY RESEND_FROM_EMAIL PUBLIC_MAPTILER_API_KEY; do
+case "$DATA_PLATFORM_PROVIDER" in
+  supabase|manual) ;;
+  *)
+    echo "Unknown data_platform.provider: $DATA_PLATFORM_PROVIDER" >&2
+    exit 1
+    ;;
+esac
+
+for required in PROJECT_NAME FRONTEND_PROVIDER ADMIN_EMAIL SIGNUP_DOMAINS GEMINI_API_KEY FIRECRAWL_API_KEY APIFY_API_TOKEN RESEND_API_KEY RESEND_FROM_EMAIL PUBLIC_MAPTILER_API_KEY; do
   if [ -z "${!required:-}" ]; then
     echo "Manifest missing required value: $required" >&2
     exit 1
   fi
 done
 
+if [ "$DATA_PLATFORM_PROVIDER" = "supabase" ] && [ -z "$SUPABASE_MODE" ]; then
+  echo "Manifest missing required value: SUPABASE_MODE" >&2
+  exit 1
+fi
+
 if [ ! -d "supabase/functions" ] || [ ! -d "frontend" ]; then
   echo "Run this script from the Scoutpost repository root." >&2
   exit 1
 fi
+
+write_manual_provider_packet() {
+  log "Manual provider packet"
+  local provider_name provider_notes api_base mcp_url app_url docs_file
+  provider_name="$(jqv '.data_platform.provider_name')"
+  provider_notes="$(jqv '.data_platform.operator_notes')"
+  api_base="$(jqv '.data_platform.api_base_url')"
+  mcp_url="$(jqv '.data_platform.mcp_url')"
+  app_url="${APP_URL:-To be assigned after frontend deploy.}"
+  docs_file="$(mktemp "${TMPDIR:-/tmp}/scoutpost-provider-docs.XXXXXX")"
+  jq -r '.data_platform.docs_urls // [] | map(select(. != "")) | .[]' "$MANIFEST" > "$docs_file"
+
+  if [ -z "$provider_name" ] && [ -z "$provider_notes" ]; then
+    echo "Manual provider mode requires data_platform.provider_name or data_platform.operator_notes." >&2
+    rm -f "$docs_file"
+    exit 1
+  fi
+
+  {
+    cat <<EOF
+# Scoutpost provider porting packet
+
+Provider: ${provider_name:-Manual provider}
+Manifest: $MANIFEST
+
+## Operator notes
+
+${provider_notes:-None supplied.}
+
+## Provider references
+
+EOF
+    if [ -s "$docs_file" ]; then
+      sed 's/^/- /' "$docs_file"
+    else
+      printf "%s\n" "- Add official provider documentation before implementation."
+    fi
+    cat <<EOF
+
+## Target endpoints
+
+- App URL: $app_url
+- API base URL: ${api_base:-To be defined by the provider integration.}
+- MCP URL: ${mcp_url:-To be defined by the provider integration.}
+
+## Canonical Scoutpost source material
+
+- Migration index: docs/supabase/migrations.md
+- Migration directory: supabase/migrations/
+- Runtime directory: supabase/functions/
+- Agent/API contract: docs/mcp/clients.md and supabase/functions/mcp-server/
+
+The Supabase migrations are the canonical product data model. Do not apply them
+blindly to another provider. Translate them into the selected provider's
+database, auth, scheduling, secrets, and API model for human review.
+
+## Runtime assumptions to translate
+
+- Supabase Auth user identity and JWT verification.
+- Row-level security policies and service-role bypass.
+- PostgREST/Supabase client conventions used by Edge Functions.
+- SQL RPCs used by CLI, MCP, API keys, credits, search, scheduling, and queues.
+- pgvector embeddings and vector indexes.
+- pg_cron scheduled jobs.
+- pg_net HTTP dispatch to worker functions.
+- Vault-backed secrets for scheduled execution.
+- Supabase Edge Functions as the current API, worker, MCP, and auth runtime.
+
+## Migration translation checklist
+
+- Tables, columns, constraints, defaults, and enum/check constraints.
+- Indexes, including trigram and vector-search equivalents.
+- Access control equivalent for every RLS policy.
+- Auth identity mapping from provider users to Scoutpost user IDs.
+- API key storage, hashing, validation, and bearer-token precedence.
+- Scout scheduling and retry behavior.
+- Background HTTP dispatch for scout execution and queue workers.
+- Secrets management for service keys and provider API credentials.
+- RPC/function equivalents for search, deduplication, credits, queues, and MCP.
+- Local validation and CI smoke tests before production use.
+
+## Human review gate
+
+Before applying anything, produce a reviewable implementation plan with provider
+documentation links, a migration mapping table, unsupported semantics, exact
+commands, rollback notes, and files to change.
+
+Do not apply database, auth, scheduling, secrets, or production infrastructure
+changes without explicit operator approval.
+EOF
+  } > scoutpost-provider-porting.md
+  rm -f "$docs_file"
+  ok "Wrote scoutpost-provider-porting.md. Manual provider mode does not run Supabase CLI commands."
+}
 
 install_node_tooling() {
   log "Agent and provider tooling"
@@ -325,6 +433,24 @@ install_sync_workflow() {
   fi
   warn "For automatic migration updates, add GitHub secret SUPABASE_ACCESS_TOKEN in the fork."
 }
+
+if [ "$DATA_PLATFORM_PROVIDER" = "manual" ]; then
+  write_manual_provider_packet
+  cat <<EOF
+
+Scoutpost manual provider packet generated.
+
+Provider: $(jqv '.data_platform.provider_name')
+App URL: ${APP_URL:-<set after frontend deploy>}
+Packet: scoutpost-provider-porting.md
+
+Next: have the operator's technical team review the packet, inspect
+docs/supabase/migrations.md and supabase/migrations/, fetch the selected
+provider's official documentation, and prepare a provider-specific integration
+plan before applying any infrastructure changes.
+EOF
+  exit 0
+fi
 
 install_node_tooling
 resolve_supabase

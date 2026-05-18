@@ -1,4 +1,4 @@
-export type DeploymentKind = "hosted" | "supabase";
+export type DeploymentKind = "hosted" | "supabase" | "manual";
 
 export interface AgentTargetContext {
   deploymentKind: DeploymentKind;

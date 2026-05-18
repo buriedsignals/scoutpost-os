@@ -300,11 +300,91 @@ Deno.test("manifest setup uses Supabase access token instead of browser login", 
   assertNotIncludes(script, "$SUPABASE_CLI login", "setup script");
 });
 
+Deno.test("manifest setup manual provider writes porting packet without Supabase execution", async () => {
+  const tmp = await Deno.makeTempDir();
+  await Deno.mkdir(`${tmp}/frontend`, { recursive: true });
+  await Deno.mkdir(`${tmp}/supabase/functions`, { recursive: true });
+  await Deno.mkdir(`${tmp}/supabase/migrations`, { recursive: true });
+  const manifest = {
+    version: 1,
+    project: {
+      name: "manual-newsroom",
+      app_url: "https://newsroom.example.com",
+    },
+    services: {
+      gemini_api_key: "gemini-secret",
+      firecrawl_api_key: "firecrawl-secret",
+      apify_api_token: "apify-secret",
+      resend_api_key: "resend-secret",
+      resend_from_email: "scouts@example.com",
+      public_maptiler_api_key: "maptiler-secret",
+    },
+    auth: {
+      admin_email: "admin@example.com",
+      signup_allowed_domains: ["example.com"],
+    },
+    data_platform: {
+      provider: "manual",
+      provider_name: "Internal platform",
+      integration_mode: "manual",
+      docs_urls: ["https://platform.example.com/docs"],
+      operator_notes: "Use company auth and approved managed Postgres.",
+    },
+    supabase: { mode: "cloud-create" },
+    frontend: {
+      provider: "manual",
+      production_url: "https://newsroom.example.com",
+    },
+    agents: {
+      install_firecrawl_skill: true,
+      install_supabase_skill: false,
+      install_render_skill: false,
+    },
+    options: {
+      include_fastapi_addon: false,
+      install_sync_workflow: false,
+    },
+  };
+  await Deno.writeTextFile(
+    `${tmp}/scoutpost-setup.json`,
+    JSON.stringify(manifest),
+  );
+
+  const result = await run("bash", [
+    manifestSetupScript,
+    `${tmp}/scoutpost-setup.json`,
+  ], tmp);
+  const packet = await Deno.readTextFile(
+    `${tmp}/scoutpost-provider-porting.md`,
+  );
+
+  assert(result.code === 0, result.stderr || result.stdout);
+  assertIncludes(result.stdout, "Manual provider packet", "setup stdout");
+  assertIncludes(
+    result.stdout,
+    "does not run Supabase CLI commands",
+    "setup stdout",
+  );
+  assertIncludes(packet, "Provider: Internal platform", "provider packet");
+  assertIncludes(
+    packet,
+    "Migration index: docs/supabase/migrations.md",
+    "provider packet",
+  );
+  assertIncludes(
+    packet,
+    "Migration directory: supabase/migrations/",
+    "provider packet",
+  );
+  assertNotIncludes(result.stdout, "supabase db push", "setup stdout");
+});
+
 Deno.test("generated self-host setup artifacts are gitignored", async () => {
   const artifacts = [
     "scoutpost-setup.json",
     "scoutpost-install.sh",
     "scoutpost-agent-prompt.md",
+    "scoutpost-provider-porting.md",
     "scoutpost-docker-install.md",
     "scoutpost-docker-install.sh",
     "newsroom-onboarding.md",

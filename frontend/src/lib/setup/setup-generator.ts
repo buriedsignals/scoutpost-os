@@ -1,6 +1,8 @@
 import type { AgentTargetContext } from "$lib/utils/agent-targets";
 
 export type SupabaseMode = "cloud-create" | "cloud-existing" | "self-hosted";
+export type DataPlatformProvider = "supabase" | "manual";
+export type DataPlatformIntegrationMode = "managed" | "manual";
 export type FrontendProvider =
   | "netlify"
   | "vercel"
@@ -30,6 +32,15 @@ export interface SetupManifest {
   auth: {
     admin_email: string;
     signup_allowed_domains: string[];
+  };
+  data_platform?: {
+    provider: DataPlatformProvider;
+    provider_name?: string;
+    integration_mode: DataPlatformIntegrationMode;
+    docs_urls?: string[];
+    operator_notes?: string;
+    api_base_url?: string;
+    mcp_url?: string;
   };
   supabase: {
     mode: SupabaseMode;
@@ -88,6 +99,10 @@ function trimSlash(value: string): string {
   return value.trim().replace(/\/$/, "");
 }
 
+function isManualProvider(manifest: SetupManifest): boolean {
+  return manifest.data_platform?.provider === "manual";
+}
+
 export function normalizeDomains(raw: string | string[]): string[] {
   const values = Array.isArray(raw) ? raw : raw.split(/[\n,]+/);
   const seen = new Set<string>();
@@ -136,6 +151,15 @@ export function validateSetupManifest(
     errors.push("At least one signup domain is required.");
   }
 
+  if (isManualProvider(manifest)) {
+    const providerName = manifest.data_platform?.provider_name?.trim() || "";
+    const operatorNotes = manifest.data_platform?.operator_notes?.trim() || "";
+    if (!providerName && !operatorNotes) {
+      errors.push("Manual provider name or operator notes are required.");
+    }
+    return { valid: errors.length === 0, errors };
+  }
+
   if (manifest.supabase.mode === "cloud-create") {
     require(manifest.supabase.org_id, "Supabase organization ID");
     require(manifest.supabase.region, "Supabase region");
@@ -170,6 +194,22 @@ export function deriveAgentTargetFromManifest(
     manifest.project.app_url || manifest.frontend.production_url ||
       "https://<your-frontend-domain>",
   );
+  if (isManualProvider(manifest)) {
+    const customMcpUrl = manifest.data_platform?.mcp_url ||
+      manifest.agents.custom_mcp_url || "";
+    return {
+      deploymentKind: "manual",
+      appUrl,
+      apiBaseUrl: trimSlash(
+        manifest.data_platform?.api_base_url || "https://<your-api-base-url>",
+      ),
+      mcpUrl: trimSlash(customMcpUrl || "https://<your-mcp-url>"),
+      skillUrl: `${appUrl}/skills/scoutpost.md`,
+      apiKeyCreateUrl: appUrl,
+      customMcpUrl: customMcpUrl ? trimSlash(customMcpUrl) : undefined,
+    };
+  }
+
   const supabaseUrl = trimSlash(manifest.supabase.project_url || "");
   const customMcpUrl = manifest.agents.custom_mcp_url
     ? trimSlash(manifest.agents.custom_mcp_url)
@@ -209,7 +249,33 @@ export function redactSetupManifest<T>(value: T): T {
 
 export function buildAgentManifestPrompt(
   manifestPath = "scoutpost-setup.json",
+  manifest?: SetupManifest,
 ): string {
+  if (manifest && isManualProvider(manifest)) {
+    const providerName = manifest.data_platform?.provider_name?.trim() ||
+      "the selected manual provider";
+    const docs = manifest.data_platform?.docs_urls?.filter(Boolean) ?? [];
+    const docsLine = docs.length
+      ? `Provider docs supplied by the operator: ${docs.join(", ")}.`
+      : "Ask the operator for provider documentation if none is discoverable, then use current official provider documentation before proposing changes.";
+    return [
+      "Plan a newsroom-owned Scoutpost deployment from the local setup manifest.",
+      "Do not ask me to paste secrets into chat.",
+      `Read ${manifestPath} from disk and validate that it is version 1. Treat that file as the only source of deployment configuration.`,
+      `This manifest uses the manual provider path for ${providerName}. The operator's technical team owns the provider integration.`,
+      "Do not run Supabase CLI commands, do not run supabase db push, and do not deploy Edge Functions unless the operator explicitly changes the manifest to the supported Supabase path.",
+      "Read docs/supabase/migrations.md from the Scoutpost repository.",
+      "Inspect supabase/migrations/ in numeric order. Treat those migrations as the canonical Scoutpost data model and operational contract, not as provider-neutral commands.",
+      "Identify Supabase-specific constructs that need provider decisions: Supabase Auth, RLS policies, Edge Functions, PostgREST conventions, pgvector, pg_cron, pg_net, Vault secrets, RPCs, and service-role access.",
+      docsLine,
+      "Fetch current official provider documentation before proposing translated migrations or runtime changes.",
+      "Prepare proposed migration and runtime changes in a reviewable artifact for a human reviewer. Include assumptions, unsupported features, and any manual operator steps.",
+      "Ask for explicit human approval before applying any database, auth, scheduling, secrets, or production infrastructure change.",
+      "After the provider integration exists, use the newsroom's own app URL, API base, MCP URL, and skill URL from the manifest-generated deployment only.",
+      "Do not connect CLI, MCP, or REST clients to scoutpost.ai unless the manifest explicitly says this is the hosted SaaS.",
+    ].join("\n");
+  }
+
   return [
     "Deploy this newsroom-owned Scoutpost instance from the local setup manifest.",
     "Do not ask me to paste secrets into chat.",
@@ -226,6 +292,92 @@ export function buildAgentManifestPrompt(
     "Use the Supabase project URL, API base, MCP URL, and skill URL from the manifest-generated deployment only.",
     "Do not connect CLI, MCP, or REST clients to scoutpost.ai unless the manifest explicitly says this is the hosted SaaS.",
   ].join("\n");
+}
+
+export function buildProviderPortingPacket(
+  manifest: SetupManifest,
+  manifestPath = "scoutpost-setup.json",
+): string {
+  const platform = manifest.data_platform;
+  const providerName = platform?.provider_name?.trim() ||
+    "Manual provider";
+  const docs = platform?.docs_urls?.filter(Boolean) ?? [];
+  const notes = platform?.operator_notes?.trim() || "None supplied.";
+  const apiBase = platform?.api_base_url?.trim() ||
+    "To be defined by the provider integration.";
+  const mcpUrl = platform?.mcp_url?.trim() ||
+    manifest.agents.custom_mcp_url?.trim() ||
+    "To be defined by the provider integration.";
+
+  return `# Scoutpost provider porting packet
+
+Provider: ${providerName}
+Manifest: ${manifestPath}
+
+## Operator notes
+
+${notes}
+
+## Provider references
+
+${docs.length ? docs.map((url) => `- ${url}`).join("\n") : "- Add official provider documentation before implementation."}
+
+## Target endpoints
+
+- App URL: ${manifest.project.app_url || manifest.frontend.production_url || "To be assigned after frontend deploy."}
+- API base URL: ${apiBase}
+- MCP URL: ${mcpUrl}
+
+## Canonical Scoutpost source material
+
+- Migration index: docs/supabase/migrations.md
+- Migration directory: supabase/migrations/
+- Runtime directory: supabase/functions/
+- Agent/API contract: docs/mcp/clients.md and supabase/functions/mcp-server/
+
+The Supabase migrations are the canonical product data model. Do not apply them
+blindly to another provider. Translate them into the selected provider's
+database, auth, scheduling, secrets, and API model for human review.
+
+## Runtime assumptions to translate
+
+- Supabase Auth user identity and JWT verification.
+- Row-level security policies and service-role bypass.
+- PostgREST/Supabase client conventions used by Edge Functions.
+- SQL RPCs used by CLI, MCP, API keys, credits, search, scheduling, and queues.
+- pgvector embeddings and vector indexes.
+- pg_cron scheduled jobs.
+- pg_net HTTP dispatch to worker functions.
+- Vault-backed secrets for scheduled execution.
+- Supabase Edge Functions as the current API, worker, MCP, and auth runtime.
+
+## Migration translation checklist
+
+- Tables, columns, constraints, defaults, and enum/check constraints.
+- Indexes, including trigram and vector-search equivalents.
+- Access control equivalent for every RLS policy.
+- Auth identity mapping from provider users to Scoutpost user IDs.
+- API key storage, hashing, validation, and bearer-token precedence.
+- Scout scheduling and retry behavior.
+- Background HTTP dispatch for scout execution and queue workers.
+- Secrets management for service keys and provider API credentials.
+- RPC/function equivalents for search, deduplication, credits, queues, and MCP.
+- Local validation and CI smoke tests before production use.
+
+## Human review gate
+
+Before applying anything, produce a reviewable implementation plan with:
+
+- provider documentation links used
+- migration mapping table
+- unsupported or changed semantics
+- commands that would be run
+- rollback plan
+- exact files to change
+
+Do not apply database, auth, scheduling, secrets, or production infrastructure
+changes without explicit operator approval.
+`;
 }
 
 export function buildDockerInstallerInstructions(

@@ -16,8 +16,10 @@ Scoutpost. For day-to-day newsroom use, prefer the product skill at
 For hosted SaaS, the public app is `https://www.scoutpost.ai`.
 
 For self-hosted deployments, use the newsroom's own deployed app URL and the
-Supabase/API/MCP targets generated during setup. Do not point newsroom agents at
-the hosted scoutpost.ai Supabase project.
+API/MCP targets generated during setup. Supabase is the supported managed setup
+path. Manual / bring your own platform is a CTO-owned planning and porting
+path, not an automatic provider deployment. Do not point newsroom agents at the
+hosted scoutpost.ai Supabase project.
 
 ## Hosted agent setup
 
@@ -80,7 +82,7 @@ metadata all match what the MCP client connects to.
 
 ## Self-hosted setup checks
 
-Before treating a self-hosted install as ready:
+Before treating a Supabase self-hosted install as ready:
 
 - apply all Supabase migrations
 - deploy Edge Functions
@@ -92,12 +94,35 @@ Before treating a self-hosted install as ready:
 - verify MCP `initialize` and `tools/list` against the self-hosted MCP URL
 - verify a read-only CLI call with a `cj_...` API key
 
+## Manual provider setup
+
+If `/setup` generated `scoutpost-provider-porting.md`, the operator selected
+Manual / bring your own platform. In that mode:
+
+- read the local `scoutpost-setup.json`
+- read `scoutpost-provider-porting.md`
+- inspect `docs/supabase/migrations.md`
+- inspect `supabase/migrations/` in numeric order
+- treat those migrations as Scoutpost's canonical data model and operational
+  contract, not as provider-neutral commands
+- fetch current official documentation for the selected provider before
+  proposing migration or runtime translations
+- prepare reviewable changes for the operator's technical team
+- do not run `supabase db push`, deploy Edge Functions, or apply provider
+  infrastructure changes unless the operator explicitly approves that exact
+  action
+
+Manual providers must account for Supabase-specific runtime assumptions:
+Supabase Auth, RLS, Edge Functions, PostgREST conventions, `pgvector`,
+`pg_cron`, `pg_net`, Vault secrets, SQL RPCs, service-role access, API keys,
+CLI, and MCP.
+
 ## Dockerized setup option
 
-Prefer the Docker path for self-hosted installs. It avoids installing Node,
-Deno, Supabase CLI, GitHub CLI, jq, and OpenSSL on the operator's host. It
-still reads the local `scoutpost-setup.json` manifest and runs the same setup
-script. The easiest path is the `/setup` download:
+Prefer the Docker path for Supabase self-hosted installs. It avoids installing
+Node, Deno, Supabase CLI, GitHub CLI, jq, and OpenSSL on the operator's host.
+It still reads the local `scoutpost-setup.json` manifest and runs the same
+setup script. The easiest path is the `/setup` download:
 
 ```bash
 bash scoutpost-docker-install.sh install
@@ -124,6 +149,9 @@ with `COJOURNALIST_INSTALL_AGENT_TOOLING=true`.
 For Supabase Cloud, use `supabase.access_token` in the manifest or
 `SUPABASE_ACCESS_TOKEN` in the environment. Docker should not start browser
 login for Supabase CLI authentication.
+
+For manual provider manifests, the setup script writes
+`scoutpost-provider-porting.md` and exits without running Supabase CLI commands.
 
 ## Upstream maintenance checks
 

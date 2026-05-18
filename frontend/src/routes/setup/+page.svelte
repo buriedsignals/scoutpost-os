@@ -22,9 +22,11 @@
 		buildDockerInstallerScript,
 		buildInstallScript,
 		buildNewsroomOnboarding,
+		buildProviderPortingPacket,
 		normalizeDomains,
 		redactSetupManifest,
 		validateSetupManifest,
+		type DataPlatformProvider,
 		type FrontendProvider,
 		type SetupManifest,
 		type SupabaseMode
@@ -40,6 +42,7 @@
 	let maptilerKey = '';
 	let adminEmail = '';
 	let signupDomainsText = '';
+	let dataPlatformProvider: DataPlatformProvider = 'supabase';
 	let supabaseMode: SupabaseMode = 'cloud-create';
 	let supabaseProjectRef = '';
 	let supabaseProjectUrl = '';
@@ -51,6 +54,11 @@
 	let supabaseRegion = 'us-east-1';
 	let supabaseDbPassword = '';
 	let selfHostedPostgresPassword = '';
+	let manualProviderName = '';
+	let manualProviderDocsText = '';
+	let manualProviderNotes = '';
+	let manualApiBaseUrl = '';
+	let manualMcpUrl = '';
 	let frontendProvider: FrontendProvider = 'netlify';
 	let frontendSiteName = 'scoutpost-newsroom';
 	let customMcpUrl = '';
@@ -60,24 +68,28 @@
 	let generated = false;
 
 	$: signupDomains = normalizeDomains(signupDomainsText);
+	$: manualDocsUrls = normalizeUrlList(manualProviderDocsText);
+	$: isManualProvider = dataPlatformProvider === 'manual';
 	$: manifest = buildManifest();
 	$: validation = validateSetupManifest(manifest);
 	$: redactedManifest = JSON.stringify(redactSetupManifest(manifest), null, 2);
 	$: installScript = buildInstallScript(manifest);
 	$: dockerInstructions = buildDockerInstallerInstructions();
 	$: dockerScript = buildDockerInstallerScript();
-	$: agentPrompt = buildAgentManifestPrompt('./scoutpost-setup.json');
+	$: providerPortingPacket = buildProviderPortingPacket(manifest, './scoutpost-setup.json');
+	$: agentPrompt = buildAgentManifestPrompt('./scoutpost-setup.json', manifest);
 	$: agentPromptFile = `${agentPrompt}
 
 Expected local files:
 - ./scoutpost-setup.json
 - automation/setup-from-manifest.sh in the Scoutpost repository
+${isManualProvider ? '- ./scoutpost-provider-porting.md' : ''}
 
 Run the manifest installer from the repository root. Never ask the operator to paste API keys, JWT secrets, service role keys, or deploy hooks into chat.`;
 	$: onboardingDoc = buildNewsroomOnboarding(manifest);
 
 	const costItems = [
-		{ service: 'Supabase', estimate: '$25', note: 'Pro project for Auth, Postgres, Edge Functions' },
+		{ service: 'Database/runtime', estimate: '$25+', note: 'Supabase managed stack by default; manual platforms vary' },
 		{ service: 'Firecrawl', estimate: '$83-$99', note: 'Standard subscription, annual vs monthly billing' },
 		{ service: 'Apify', estimate: '$29', note: 'Starter subscription for social source collection' },
 		{ service: 'Gemini', estimate: '$1-$10', note: 'Moderate Flash-Lite usage for extraction and summaries' },
@@ -124,6 +136,25 @@ Run the manifest installer from the repository root. Never ask the operator to p
 				admin_email: adminEmail.trim(),
 				signup_allowed_domains: signupDomains
 			},
+			data_platform: {
+				provider: dataPlatformProvider,
+				provider_name:
+					dataPlatformProvider === 'supabase'
+						? 'Supabase'
+						: manualProviderName.trim() || undefined,
+				integration_mode: dataPlatformProvider === 'supabase' ? 'managed' : 'manual',
+				docs_urls: dataPlatformProvider === 'manual' ? manualDocsUrls : undefined,
+				operator_notes:
+					dataPlatformProvider === 'manual' ? manualProviderNotes.trim() || undefined : undefined,
+				api_base_url:
+					dataPlatformProvider === 'manual'
+						? manualApiBaseUrl.trim().replace(/\/$/, '') || undefined
+						: undefined,
+				mcp_url:
+					dataPlatformProvider === 'manual'
+						? manualMcpUrl.trim().replace(/\/$/, '') || undefined
+						: undefined
+			},
 			supabase: {
 				mode: supabaseMode,
 				project_ref: supabaseProjectRef.trim() || undefined,
@@ -145,7 +176,7 @@ Run the manifest installer from the repository root. Never ask the operator to p
 			agents: {
 				custom_mcp_url: customMcpUrl.trim().replace(/\/$/, '') || undefined,
 				install_firecrawl_skill: true,
-				install_supabase_skill: true,
+				install_supabase_skill: dataPlatformProvider === 'supabase',
 				install_render_skill: frontendProvider === 'render'
 			},
 			options: {
@@ -154,6 +185,17 @@ Run the manifest installer from the repository root. Never ask the operator to p
 				render_deploy_hook: renderDeployHook.trim() || undefined
 			}
 		};
+	}
+
+	function normalizeUrlList(raw: string): string[] {
+		const seen = new Set<string>();
+		for (const value of raw.split(/[\n,]+/)) {
+			const url = value.trim();
+			if (/^https?:\/\//i.test(url)) {
+				seen.add(url.replace(/\/$/, ''));
+			}
+		}
+		return Array.from(seen);
 	}
 
 	async function validateBeforeDownload() {
@@ -177,16 +219,36 @@ Run the manifest installer from the repository root. Never ask the operator to p
 		window.setTimeout(() => {
 			download('scoutpost-agent-prompt.md', agentPromptFile, 'text/markdown');
 		}, 150);
+		if (isManualProvider) {
+			window.setTimeout(() => {
+				download('scoutpost-provider-porting.md', providerPortingPacket, 'text/markdown');
+			}, 300);
+		}
 	}
 
 	async function downloadDockerInstaller() {
 		if (!(await validateBeforeDownload())) return;
+		if (isManualProvider) {
+			downloadManualProviderPacket();
+			return;
+		}
 		download('scoutpost-setup.json', JSON.stringify(manifest, null, 2), 'application/json');
 		window.setTimeout(() => {
 			download('scoutpost-docker-install.sh', dockerScript, 'text/x-shellscript');
 		}, 150);
 		window.setTimeout(() => {
 			download('scoutpost-docker-install.md', dockerInstructions, 'text/markdown');
+		}, 300);
+	}
+
+	async function downloadManualProviderPacket() {
+		if (!(await validateBeforeDownload())) return;
+		download('scoutpost-setup.json', JSON.stringify(manifest, null, 2), 'application/json');
+		window.setTimeout(() => {
+			download('scoutpost-agent-prompt.md', agentPromptFile, 'text/markdown');
+		}, 150);
+		window.setTimeout(() => {
+			download('scoutpost-provider-porting.md', providerPortingPacket, 'text/markdown');
 		}, 300);
 	}
 
@@ -232,9 +294,9 @@ Run the manifest installer from the repository root. Never ask the operator to p
 			<div class="eyebrow">SELF-HOST SETUP</div>
 			<h1>Generate your newsroom installer</h1>
 			<p>
-				Fill this out locally in your browser. Docker is the recommended install path: the
-				generated manifest stays on disk, mounts read-only into the operator container, and is reused
-				for validation and downstream update PRs.
+				Fill this out locally in your browser. Supabase is the supported install path; manual
+				platforms get a provider porting packet so your technical team can translate the
+				Scoutpost data model and runtime contract.
 			</p>
 		</header>
 
@@ -243,9 +305,9 @@ Run the manifest installer from the repository root. Never ask the operator to p
 				<div class="eyebrow">20-PERSON NEWSROOM ESTIMATE</div>
 				<h2 id="cost-title">$140-$165/month typical</h2>
 				<p>
-					Assumes managed Supabase, Firecrawl Standard, Apify Starter, free Resend, free MapTiler,
-					one static frontend, and moderate Gemini Flash-Lite usage. Heavy scout volume may raise
-					usage later, but the setup baseline is mostly fixed subscriptions.
+					Assumes the Supabase managed stack, Firecrawl Standard, Apify Starter, free Resend,
+					free MapTiler, one static frontend, and moderate Gemini Flash-Lite usage. Manual
+					platforms vary by provider and internal infrastructure policy.
 				</p>
 			</div>
 			<div class="cost-list">
@@ -269,7 +331,7 @@ Run the manifest installer from the repository root. Never ask the operator to p
 					<label>
 						<span>Project name</span>
 						<input bind:value={projectName} />
-						<small>Used for Supabase, hosting defaults, and local generated files.</small>
+						<small>Used for hosting defaults, provider setup, and local generated files.</small>
 					</label>
 					<label>
 						<span>Public app URL <em>optional for first setup</em></span>
@@ -381,26 +443,22 @@ Run the manifest installer from the repository root. Never ask the operator to p
 					<label>
 						<span>Allowed signup domains</span>
 						<textarea bind:value={signupDomainsText} placeholder="example.com&#10;newsroom.org"></textarea>
-						<small>One per line or comma-separated. The Supabase auth hook rejects other domains.</small>
+						<small>One per line or comma-separated. The selected auth layer should reject other domains.</small>
 					</label>
 				</div>
 			</section>
 
 			<section class="section">
 				<div class="section-heading">
-					<div class="eyebrow">SUPABASE</div>
-					<h2>Database, auth, and Edge Functions</h2>
+					<div class="eyebrow">DATABASE AND RUNTIME</div>
+					<h2>Choose the platform path</h2>
 				</div>
 				<div class="choice-row">
-					<label><input type="radio" bind:group={supabaseMode} value="cloud-create" /> Create cloud project</label>
-					<label><input type="radio" bind:group={supabaseMode} value="cloud-existing" /> Existing cloud project</label>
-					<label><input type="radio" bind:group={supabaseMode} value="self-hosted" /> Self-hosted</label>
-					<a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer">
-						Supabase dashboard <ExternalLink size={13} />
-					</a>
+					<label><input type="radio" bind:group={dataPlatformProvider} value="supabase" /> Supabase</label>
+					<label><input type="radio" bind:group={dataPlatformProvider} value="manual" /> Manual / bring your own platform</label>
 				</div>
 
-				{#if supabaseMode === 'cloud-create'}
+				{#if dataPlatformProvider === 'supabase'}
 					<div class="grid three">
 						<label><span>Organization ID</span><input bind:value={supabaseOrgId} /></label>
 						<label>
@@ -435,6 +493,9 @@ Run the manifest installer from the repository root. Never ask the operator to p
 					<div class="setup-note">
 						<strong>Supabase CLI auth:</strong>
 						Docker uses this token as `SUPABASE_ACCESS_TOKEN`; no browser login should run inside the container.
+						<a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer">
+							Supabase dashboard <ExternalLink size={13} />
+						</a>
 						<a href="https://supabase.com/docs/guides/cli" target="_blank" rel="noopener noreferrer">
 							Install CLI <ExternalLink size={13} />
 						</a>
@@ -444,24 +505,32 @@ Run the manifest installer from the repository root. Never ask the operator to p
 					</div>
 				{:else}
 					<div class="grid two">
-						{#if supabaseMode === 'cloud-existing'}
-							<label><span>Project ref</span><input bind:value={supabaseProjectRef} /></label>
-						{/if}
-						<label><span>Supabase URL</span><input bind:value={supabaseProjectUrl} /></label>
-						<label><span>Anon key</span><input type="password" bind:value={supabaseAnonKey} autocomplete="off" /></label>
-						<label><span>Service role key</span><input type="password" bind:value={supabaseServiceKey} autocomplete="off" /></label>
-						<label><span>JWT secret</span><input type="password" bind:value={supabaseJwtSecret} autocomplete="off" /></label>
-						{#if supabaseMode === 'cloud-existing'}
-							<label>
-								<span>Supabase access token</span>
-								<input type="password" bind:value={supabaseAccessToken} autocomplete="off" />
-								<small>Required for Docker to push migrations and deploy Edge Functions.</small>
-							</label>
-						{/if}
-						{#if supabaseMode === 'self-hosted'}
-							<label><span>Postgres password</span><input type="password" bind:value={selfHostedPostgresPassword} autocomplete="off" /></label>
-						{/if}
+						<label>
+							<span>Provider name</span>
+							<input bind:value={manualProviderName} placeholder="Internal platform, Cloud SQL, Neon, company Postgres..." />
+							<small>Used in generated agent instructions and the CTO review packet.</small>
+						</label>
+						<label>
+							<span>Provider docs URLs <em>optional</em></span>
+							<textarea bind:value={manualProviderDocsText} placeholder="https://docs.example.com/database&#10;https://docs.example.com/auth"></textarea>
+							<small>Official docs or internal platform docs, one per line or comma-separated.</small>
+						</label>
+						<label>
+							<span>API base URL <em>optional</em></span>
+							<input bind:value={manualApiBaseUrl} placeholder="https://api.newsroom.example.com" />
+							<small>Leave blank if the provider integration will define this later.</small>
+						</label>
+						<label>
+							<span>MCP public URL <em>optional</em></span>
+							<input bind:value={manualMcpUrl} placeholder="https://mcp.newsroom.example.com" />
+							<small>Leave blank until the runtime exposes an MCP endpoint.</small>
+						</label>
 					</div>
+					<label class="single manual-notes">
+						<span>Operator notes</span>
+						<textarea bind:value={manualProviderNotes} placeholder="Internal auth requirements, database policy, cloud account constraints, CI/CD expectations..."></textarea>
+						<small>The generated prompt tells the agent to translate Scoutpost's canonical migrations for human review, not to auto-apply provider changes.</small>
+					</label>
 				{/if}
 			</section>
 
@@ -492,8 +561,9 @@ Run the manifest installer from the repository root. Never ask the operator to p
 							<span>
 								Keep this fork updated from Scoutpost OSS
 								<small>
-									Adds a weekly GitHub workflow that merges upstream code. For automatic Supabase
-									migrations, add a GitHub secret named SUPABASE_ACCESS_TOKEN.
+									Adds a weekly GitHub workflow that merges upstream code. Supabase deployments can
+									add SUPABASE_ACCESS_TOKEN for reviewed migration updates; manual providers must
+									review provider-specific migration translations.
 								</small>
 							</span>
 						</label>
@@ -533,28 +603,38 @@ Run the manifest installer from the repository root. Never ask the operator to p
 				<div class="output-options">
 					<div class="option recommended">
 						<Package class="option-icon" size={22} />
-						<h3>Docker installer</h3>
-						<p>Recommended. Download the credentials manifest plus one Docker script for install, doctor, and downstream update PRs.</p>
-						<button type="button" class="primary-button" on:click={downloadDockerInstaller}>
-							<Download size={16} /> Download Docker installer
+						<h3>{isManualProvider ? 'Provider porting packet' : 'Docker installer'}</h3>
+						<p>
+							{isManualProvider
+								? 'Download the manifest, agent prompt, and CTO-owned provider translation checklist.'
+								: 'Recommended. Download the credentials manifest plus one Docker script for install, doctor, and downstream update PRs.'}
+						</p>
+						<button type="button" class="primary-button" on:click={isManualProvider ? downloadManualProviderPacket : downloadDockerInstaller}>
+							<Download size={16} /> {isManualProvider ? 'Download porting packet' : 'Download Docker installer'}
 						</button>
 					</div>
 					<div class="option">
 						<FileJson class="option-icon" size={22} />
 						<h3>Generate agent instructions</h3>
-						<p>Download `scoutpost-setup.json` plus a prompt that tells the agent to prefer Docker and read the local manifest.</p>
+						<p>
+							{isManualProvider
+								? 'Download `scoutpost-setup.json` plus a prompt that tells the agent to inspect migrations and prepare reviewable provider changes.'
+								: 'Download `scoutpost-setup.json` plus a prompt that tells the agent to prefer Docker and read the local manifest.'}
+						</p>
 						<button type="button" class="primary-button" on:click={downloadAgentInstructions}>
 							<FileText size={16} /> Download JSON + prompt
 						</button>
 					</div>
-					<div class="option">
-						<Terminal class="option-icon" size={22} />
-						<h3>Shell fallback</h3>
-						<p>Download a runnable shell script with the same manifest embedded for environments where Docker is unavailable.</p>
-						<button type="button" class="primary-button" on:click={downloadInstaller}>
-							<Download size={16} /> Download .sh
-						</button>
-					</div>
+					{#if !isManualProvider}
+						<div class="option">
+							<Terminal class="option-icon" size={22} />
+							<h3>Shell fallback</h3>
+							<p>Download a runnable shell script with the same manifest embedded for environments where Docker is unavailable.</p>
+							<button type="button" class="primary-button" on:click={downloadInstaller}>
+								<Download size={16} /> Download .sh
+							</button>
+						</div>
+					{/if}
 				</div>
 
 				<button type="button" class="secondary-button" on:click={downloadOnboarding}>
@@ -567,6 +647,10 @@ Run the manifest installer from the repository root. Never ask the operator to p
 			<section class="preview">
 				<h2>Agent prompt preview</h2>
 				<SharpCodeBlock code={agentPromptFile} ariaLabel="Copy agent manifest prompt" />
+				{#if isManualProvider}
+					<h2>Provider porting preview</h2>
+					<SharpCodeBlock code={providerPortingPacket} ariaLabel="Copy provider porting packet" />
+				{/if}
 				<h2>Redacted manifest preview</h2>
 				<SharpCodeBlock code={redactedManifest} ariaLabel="Copy redacted manifest" />
 			</section>
@@ -767,8 +851,7 @@ Run the manifest installer from the repository root. Never ask the operator to p
 	}
 
 	a,
-	.field-top a,
-	.choice-row a {
+	.field-top a {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
@@ -925,6 +1008,10 @@ Run the manifest installer from the repository root. Never ask the operator to p
 	}
 
 	.advanced-options .single {
+		margin-top: var(--space-4);
+	}
+
+	.manual-notes {
 		margin-top: var(--space-4);
 	}
 
