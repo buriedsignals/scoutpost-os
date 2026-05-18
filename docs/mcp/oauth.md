@@ -17,7 +17,7 @@ GET https://www.scoutpost.ai/.well-known/oauth-protected-resource/mcp
   "authorization_servers": ["https://www.scoutpost.ai/mcp"],
   "bearer_methods_supported": ["header"],
   "scopes_supported": ["mcp"],
-  "resource_documentation": "https://www.scoutpost.ai/skills/cojournalist.md"
+  "resource_documentation": "https://www.scoutpost.ai/skills/scoutpost.md"
 }
 ```
 

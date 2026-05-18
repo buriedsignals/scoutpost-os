@@ -128,7 +128,10 @@ key to `en.json` and all 12 language files (`da`, `de`, `es`, `fi`, `fr`, `it`, 
 ### Backend Unit Tests
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests/unit/ -v
+cd backend
+uv venv --python 3.13 .venv
+uv pip install --python .venv/bin/python -r requirements-dev.txt
+.venv/bin/python -m pytest tests/unit/ -v
 ```
 
 Tests use `unittest.mock.AsyncMock` to stub all port adapters. No live database or AWS
@@ -137,7 +140,21 @@ connection is required. See `backend/tests/CLAUDE.md` for test structure.
 ### Frontend Tests
 
 ```bash
-cd frontend && npm test
+cd frontend
+nvm use
+npm ci
+npm test
+```
+
+### Coverage Baseline
+
+Coverage reporting is informational for now; do not add global thresholds until
+the baseline is measured and stable.
+
+```bash
+cd frontend && npm run test:coverage
+cd backend && .venv/bin/python -m pytest tests/unit --cov=app --cov-report=term-missing
+cd supabase/functions && deno task test:coverage
 ```
 
 ---

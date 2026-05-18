@@ -454,8 +454,6 @@ verify_jwt = false
 [functions.scout-health-monitor]
 verify_jwt = false
 
-[functions.notifications-benchmark]
-verify_jwt = false
 
 [functions.scout-templates]
 verify_jwt = false

@@ -21,6 +21,19 @@ export default defineConfig({
 		include: ['src/**/*.test.ts'],
 		environment: 'jsdom',
 		globals: true,
-		setupFiles: ['src/tests/setup.ts']
+		setupFiles: ['src/tests/setup.ts'],
+		coverage: {
+			provider: 'v8',
+			reporter: ['text', 'json-summary', 'lcov'],
+			reportsDirectory: 'coverage',
+			include: ['src/**/*.{ts,svelte}'],
+			exclude: [
+				'src/**/*.test.ts',
+				'src/tests/**',
+				'src/lib/paraglide/**',
+				'src/app.d.ts',
+				'src/app.html'
+			]
+		}
 	}
 });

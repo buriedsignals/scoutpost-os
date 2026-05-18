@@ -38,7 +38,6 @@ Auth: Bearer JWT (Supabase auth) **or** Bearer `cj_…` API key plus
 | `manage-schedule` | Cron management for scouts | Live |
 | `mcp-server` | Remote MCP JSON-RPC + OAuth discovery/PKCE + API-key auth | Live |
 | `newsletter-subscribe` | Resend newsletter subscribe | Live |
-| `notifications-benchmark` | Internal benchmark for notification latency | Live |
 | `openapi-spec` | Serves the `/api/v1` OpenAPI JSON | Live |
 | `projects` | Investigation project CRUD | Live |
 | `promise-digest` | Civic promise weekly digest | Live (cron) |

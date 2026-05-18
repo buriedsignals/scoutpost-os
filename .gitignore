@@ -83,6 +83,15 @@ mcp/dist/
 
 # pytest
 .pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Coverage reports
+coverage/
+frontend/coverage/
+backend/coverage.xml
+supabase/functions/coverage/
 
 # Git worktrees
 .worktrees/

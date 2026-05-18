@@ -73,6 +73,7 @@ rm -rf backend/app/routers/threat_modeling/
 # -------------------------------------------------------------------
 rm -f .github/workflows/mirror-*.yml
 rm -f .github/workflows/claude*.yml
+rm -f .github/workflows/weekly-oss-benchmarks.yml
 # CLI release workflow depends on Apple signing secrets that only exist on
 # the private monorepo. OSS forks can restore this and add their own secrets.
 rm -f .github/workflows/cli-release.yml
@@ -105,6 +106,22 @@ fi
 # migration tooling (pulls DynamoDB via MuckRock-issued IAM creds).
 # -------------------------------------------------------------------
 rm -rf scripts/migrate/
+
+# Private live benchmark harness. These scripts assume hosted Supabase Auth
+# Admin access, internal service auth, and production operator credentials.
+rm -f scripts/_bench_shared.ts
+rm -f scripts/_bench_quality.ts
+rm -f scripts/benchmark-web.ts
+rm -f scripts/benchmark-subpage-follow.ts
+rm -f scripts/benchmark-social.ts
+rm -f scripts/benchmark-civic.ts
+rm -f scripts/benchmark-beat.ts
+rm -f scripts/benchmark-dedup.ts
+rm -f scripts/benchmark-oss-suite.ts
+rm -f scripts/notifications-benchmark.ts
+rm -rf supabase/functions/notifications-benchmark/
+sed_if_exists -i '/^\[functions\.notifications-benchmark\]$/,+1d' supabase/config.toml
+sed_if_exists -i '/notifications-benchmark/d' docs/architecture/api-surface-audit.md
 
 # -------------------------------------------------------------------
 # Public setup assets remain in the OSS mirror. /setup links to these

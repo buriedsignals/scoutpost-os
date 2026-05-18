@@ -1,0 +1,15 @@
+[run]
+source = app
+omit =
+    */tests/*
+    */__pycache__/*
+    app/scripts/*
+    app/migrations/*
+
+[report]
+show_missing = True
+skip_covered = True
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:

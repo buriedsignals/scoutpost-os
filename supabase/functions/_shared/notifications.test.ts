@@ -12,6 +12,7 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   buildBaseHtml,
+  buildPageScoutMatchedArticles,
   buildProfileUrl,
   escapeHtml,
   groupFactsBySource,
@@ -355,6 +356,98 @@ Deno.test("Page Scout renders metadata panels and matched content section", () =
   assertStringIncludes(html, EMAIL_STRINGS.en.criteria);
   assertStringIncludes(html, EMAIL_STRINGS.en.see_what_matched);
   assertStringIncludes(html, EMAIL_STRINGS.en.page_scout_cue);
+  assertStringIncludes(html, 'href="https://example.com/page"');
+  assertStringIncludes(html, "New agenda paragraph added.");
+});
+
+Deno.test("Page Scout matched article uses exact subpage URL and excerpt", () => {
+  const articles = buildPageScoutMatchedArticles({
+    matchedUrl: "https://healthinsider.news/new-study",
+    matchedTitle: "New study",
+    matchedSummary: "The article added a correction and a new byline.",
+  });
+  assertEquals(articles, [{
+    title: "New study",
+    url: "https://healthinsider.news/new-study",
+    summary: "The article added a correction and a new byline.",
+    source: "healthinsider.news",
+  }]);
+});
+
+Deno.test("Page Scout matched article renders without extracted title", () => {
+  const articles = buildPageScoutMatchedArticles({
+    matchedUrl: "https://healthinsider.news/articles/new-weight-loss-research",
+    matchedTitle: null,
+    matchedSummary: "New article content was detected.",
+  });
+  assertEquals(articles[0].title, "new weight loss research");
+  const html = renderArticleCards(articles, "#123456");
+  assertStringIncludes(
+    html,
+    'href="https://healthinsider.news/articles/new-weight-loss-research"',
+  );
+  assertStringIncludes(html, "New article content was detected.");
+});
+
+Deno.test("Page Scout key findings and matched section link the exact subpage", () => {
+  const matchedUrl =
+    "https://healthinsider.news/articles/2026-05-18-healthinsider-site.html";
+  const matchedSummary =
+    "ScoutpostBenchmarkSentinel article excerpt with a new byline and correction.";
+  const html = buildBaseHtml({
+    variant: "page",
+    eyebrowLabel: getString("page_scout", "en"),
+    contextLabel: getString("scout_alert", "en"),
+    headerTitle: getString("scout_alert", "en"),
+    headerSubtitle: "healthinsider-site",
+    summary:
+      `- New article posted: [Healthinsider site benchmark](${matchedUrl})\n` +
+      "- Correction note and contributor byline added.",
+    articles: buildPageScoutMatchedArticles({
+      matchedUrl,
+      matchedTitle: "Healthinsider site benchmark",
+      matchedSummary,
+    }),
+    articlesSectionTitle: getString("see_what_matched", "en"),
+    metadataPanels: [{
+      label: getString("monitoring_url", "en"),
+      value: "https://healthinsider.news/",
+      href: "https://healthinsider.news/",
+    }],
+    cueText: getString("page_scout_cue", "en"),
+    language: "en",
+  });
+
+  assertStringIncludes(html, EMAIL_STRINGS.en.key_findings);
+  assertStringIncludes(html, EMAIL_STRINGS.en.see_what_matched);
+  assertStringIncludes(html, `href="${matchedUrl}"`);
+  assertStringIncludes(html, matchedSummary);
+  assertEquals(html.split(`href="${matchedUrl}"`).length - 1, 2);
+});
+
+Deno.test("Page Scout omits matched section when there is no matched URL", () => {
+  const articles = buildPageScoutMatchedArticles({
+    matchedUrl: null,
+    matchedTitle: "Ignored",
+    matchedSummary: "Ignored",
+  });
+  const html = buildBaseHtml({
+    variant: "page",
+    eyebrowLabel: getString("page_scout", "en"),
+    contextLabel: getString("scout_alert", "en"),
+    headerTitle: getString("scout_alert", "en"),
+    headerSubtitle: "Root fallback scout",
+    summary: "The root page changed, but no matched subpage was available.",
+    articles,
+    articlesSectionTitle: articles.length > 0
+      ? getString("see_what_matched", "en")
+      : "",
+    language: "en",
+  });
+
+  assertEquals(articles, []);
+  assertStringIncludes(html, EMAIL_STRINGS.en.key_findings);
+  assert(!html.includes(EMAIL_STRINGS.en.see_what_matched));
 });
 
 Deno.test("Beat Scout renders editorial digest section plus government section", () => {

@@ -72,6 +72,7 @@ export interface PageScoutAlertParams extends BaseAlertParams {
   summary: string;
   matchedUrl?: string | null;
   matchedTitle?: string | null;
+  matchedSummary?: string | null;
 }
 
 export interface BeatAlertParams extends BaseAlertParams {
@@ -231,14 +232,7 @@ export async function sendPageScoutAlert(
     const cueText = getString("page_scout_cue", language);
     const seeWhatMatched = getString("see_what_matched", language);
 
-    const articles: Article[] = params.matchedUrl && params.matchedTitle
-      ? [{
-        title: params.matchedTitle,
-        url: params.matchedUrl,
-        summary: "",
-        source: "",
-      }]
-      : [];
+    const articles = buildPageScoutMatchedArticles(params);
     const articlesSectionTitle = articles.length > 0 ? seeWhatMatched : "";
 
     const html = buildBaseHtml({
@@ -273,6 +267,22 @@ export async function sendPageScoutAlert(
       html,
     };
   });
+}
+
+export function buildPageScoutMatchedArticles(
+  params: Pick<
+    PageScoutAlertParams,
+    "matchedUrl" | "matchedTitle" | "matchedSummary"
+  >,
+): Article[] {
+  const url = cleanOptionalText(params.matchedUrl);
+  if (!url) return [];
+  return [{
+    title: cleanOptionalText(params.matchedTitle) ?? matchedTitleFromUrl(url),
+    url,
+    summary: cleanOptionalText(params.matchedSummary) ?? "",
+    source: matchedSourceFromUrl(url),
+  }];
 }
 
 export async function sendBeatAlert(
@@ -620,7 +630,9 @@ async function guarded(
   try {
     const { data: run, error: runErr } = await svc
       .from("scout_runs")
-      .select("notification_sent, notification_status, notification_provider_id")
+      .select(
+        "notification_sent, notification_status, notification_provider_id",
+      )
       .eq("id", runId)
       .maybeSingle();
     if (runErr) throw new Error(runErr.message);
@@ -1320,6 +1332,37 @@ export function escapeHtml(s: string | null | undefined): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function cleanOptionalText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function matchedTitleFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const path = decodeURIComponent(parsed.pathname)
+      .replace(/\/+$/, "")
+      .split("/")
+      .filter(Boolean)
+      .pop()
+      ?.replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (path) return path.slice(0, 120);
+    return parsed.hostname;
+  } catch {
+    return "Matched page";
+  }
+}
+
+function matchedSourceFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
 }
 
 export function buildProfileUrl(platform: string, handle: string): string {

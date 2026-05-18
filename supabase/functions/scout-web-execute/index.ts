@@ -263,6 +263,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           summary,
           matchedUrl: result.matchedUrl ?? null,
           matchedTitle: result.matchedTitle ?? null,
+          matchedSummary: result.matchedSummary ?? null,
         });
         if (!notification.ok) {
           await markNotificationResult(
@@ -417,6 +418,7 @@ interface PipelineResult {
   summary?: string;
   matchedUrl?: string | null;
   matchedTitle?: string | null;
+  matchedSummary?: string | null;
   rawHtml?: string | null;
 }
 
@@ -619,6 +621,7 @@ async function runPipeline(
   const insertedStatements: string[] = [];
   let matchedUrl: string | null = null;
   let matchedTitle: string | null = null;
+  let matchedSummary: string | null = null;
 
   // Hard gate: listing pages yield no Phase A units — full articles come via Phase B.
   const phaseAUnits = indexIsListingPage ? [] : withHeadlineFallback(
@@ -654,6 +657,7 @@ async function runPipeline(
   if (phaseA.firstMatchedUrl) {
     matchedUrl = phaseA.firstMatchedUrl;
     matchedTitle = phaseA.firstMatchedTitle ?? null;
+    matchedSummary = phaseA.firstMatchedSummary ?? null;
   }
 
   // =========================================================================
@@ -678,6 +682,7 @@ async function runPipeline(
       if (!matchedUrl && subpageResult.firstMatchedUrl) {
         matchedUrl = subpageResult.firstMatchedUrl;
         matchedTitle = subpageResult.firstMatchedTitle ?? null;
+        matchedSummary = subpageResult.firstMatchedSummary ?? null;
       }
       logEvent({
         level: "info",
@@ -720,6 +725,7 @@ async function runPipeline(
     summary: summary || undefined,
     matchedUrl,
     matchedTitle,
+    matchedSummary,
   };
 }
 
@@ -911,6 +917,36 @@ function looksLikeNavigationDocument(markdown: string): boolean {
   return linkCount >= 10 && wordCount < 160;
 }
 
+function chooseSubpageSourceUrl(
+  scrapeSourceUrl: string | null | undefined,
+  requestedSubUrl: string,
+  monitoredRootUrl: string,
+): string {
+  const source = scrapeSourceUrl?.trim();
+  if (!source) return requestedSubUrl;
+  const normalizedSource = normalizeComparableUrl(source);
+  const normalizedRoot = normalizeComparableUrl(monitoredRootUrl);
+  const normalizedRequested = normalizeComparableUrl(requestedSubUrl);
+  if (
+    normalizedSource && normalizedRoot && normalizedRequested &&
+    normalizedSource === normalizedRoot &&
+    normalizedRequested !== normalizedRoot
+  ) {
+    return requestedSubUrl;
+  }
+  return source;
+}
+
+function normalizeComparableUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
 function cleanTitle(title: string | null): string {
   return (title ?? "")
     .replace(/\s+/g, " ")
@@ -948,6 +984,7 @@ async function runPhaseB(
   insertedStatements: string[];
   firstMatchedUrl: string | null;
   firstMatchedTitle: string | null;
+  firstMatchedSummary: string | null;
 }> {
   // 3. Dedup against already-seen subpage URLs from stored units
   const { data: seenRows } = await svc
@@ -977,6 +1014,7 @@ async function runPhaseB(
   const insertedStatements: string[] = [];
   let firstMatchedUrl: string | null = null;
   let firstMatchedTitle: string | null = null;
+  let firstMatchedSummary: string | null = null;
 
   for (let i = 0; i < processable.length; i++) {
     if (Date.now() >= deadlineMs) {
@@ -1003,7 +1041,11 @@ async function runPhaseB(
         failed++;
         continue;
       }
-      const subSourceUrl = subScrape.source_url || subUrl;
+      const subSourceUrl = chooseSubpageSourceUrl(
+        subScrape.source_url,
+        subUrl,
+        scout.url,
+      );
       const subSourceDomain = deriveSourceDomain(subSourceUrl);
       const subPublishedDate = sourcePublishedDate({ scrape: subScrape });
       const deterministicArticle = isLikelyArticleUrl(subSourceUrl) ||
@@ -1113,6 +1155,7 @@ async function runPhaseB(
       if (!firstMatchedUrl && result.firstMatchedUrl) {
         firstMatchedUrl = result.firstMatchedUrl;
         firstMatchedTitle = result.firstMatchedTitle ?? null;
+        firstMatchedSummary = result.firstMatchedSummary ?? null;
       }
       for (const statement of result.insertedStatements) {
         if (insertedStatements.length >= 3) break;
@@ -1144,6 +1187,7 @@ async function runPhaseB(
     insertedStatements,
     firstMatchedUrl,
     firstMatchedTitle,
+    firstMatchedSummary,
   };
 }
 
@@ -1181,6 +1225,13 @@ async function insertRawCapture(
 /**
  * Extract units into information_units with dedup. Returns count inserted.
  */
+function firstMatchedSummaryForUnit(
+  unit: { statement: string; context_excerpt?: string },
+): string {
+  const excerpt = unit.context_excerpt?.trim();
+  return excerpt || unit.statement.trim();
+}
+
 async function insertExtractedUnits(
   svc: SupabaseClient,
   units: Array<
@@ -1207,6 +1258,7 @@ async function insertExtractedUnits(
   insertedStatements: string[];
   firstMatchedUrl: string | null;
   firstMatchedTitle: string | null;
+  firstMatchedSummary: string | null;
 }> {
   if (units.length === 0) {
     return {
@@ -1215,6 +1267,7 @@ async function insertExtractedUnits(
       insertedStatements: [],
       firstMatchedUrl: null,
       firstMatchedTitle: null,
+      firstMatchedSummary: null,
     };
   }
 
@@ -1225,6 +1278,7 @@ async function insertExtractedUnits(
   const factCheckConfig = loadFactCheckConfig();
   let firstMatchedUrl: string | null = null;
   let firstMatchedTitle: string | null = null;
+  let firstMatchedSummary: string | null = null;
 
   for (const u of units) {
     if (!u || typeof u.statement !== "string" || !u.statement.trim()) continue;
@@ -1306,6 +1360,7 @@ async function insertExtractedUnits(
       if (!firstMatchedUrl) {
         firstMatchedUrl = sourceUrl;
         firstMatchedTitle = sourceTitle;
+        firstMatchedSummary = firstMatchedSummaryForUnit(u);
       }
     } else if (result.mergedExisting && result.occurrenceCreated) {
       mergedExisting += 1;
@@ -1317,6 +1372,7 @@ async function insertExtractedUnits(
     insertedStatements,
     firstMatchedUrl,
     firstMatchedTitle,
+    firstMatchedSummary,
   };
 }
 
