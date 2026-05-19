@@ -38,7 +38,7 @@ asyncpg>=0.30.0
 supabase>=2.0.0
 
 # Stripe (license key management)
-stripe>=8.0.0
+stripe>=15.1.0
 
 # YAML parsing (AgentSPEX agent definitions)
 PyYAML>=6.0
