@@ -207,7 +207,7 @@ jobs:
         run: ls -la dist/
 
       - name: Create GitHub release on public mirror
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           repository: buriedsignals/scoutpost-os
           token: ${{ secrets.OSS_RELEASE_PAT }}
