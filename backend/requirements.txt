@@ -41,4 +41,4 @@ supabase>=2.0.0
 stripe>=8.0.0
 
 # YAML parsing (AgentSPEX agent definitions)
-PyYAML>=6.0
+PyYAML>=6.0.3
