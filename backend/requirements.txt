@@ -33,7 +33,7 @@ slowapi>=0.1.9
 langdetect==1.0.9
 
 # Supabase / PostgreSQL (asyncpg connection pool for Supabase adapters)
-asyncpg>=0.30.0
+asyncpg>=0.31.0
 # Supabase Python client (async admin API for auth.users email lookup)
 supabase>=2.0.0
 
