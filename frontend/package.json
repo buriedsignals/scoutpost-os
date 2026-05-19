@@ -43,7 +43,7 @@
     "@inlang/paraglide-js": "^2.16.0",
     "@supabase/supabase-js": "2.102.1",
     "dompurify": "^3.2.3",
-    "lucide-svelte": "^0.468.0",
+    "lucide-svelte": "^1.0.1",
     "marked": "^17.0.0"
   },
   "overrides": {
