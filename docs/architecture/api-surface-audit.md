@@ -59,15 +59,16 @@ Frontend is served by the same service in dev; static SPA in production.
 
 | Router | Mount | Purpose | Status |
 |---|---|---|---|
-| `auth.py` | `/api/auth/*` | MuckRock OAuth login/callback/me/status/logout/webhook | Live (SaaS-only — stripped from OSS) |
+| `local_auth.py` | `/api/auth/login`, `/api/auth/callback` | Local-only MuckRock broker for localhost SaaS smoke tests; mounted only with `LOCAL_MUCKROCK_AUTH_BROKER=true`. | Live (dev only) |
+| `muckrock_proxy.py` | `/api/auth/webhook`, `/api/auth/callback` | Compatibility proxy to Supabase `billing-webhook`, `auth-muckrock`, and `mcp-auth` EFs for MuckRock-registered URLs. | Live (SaaS-only) |
+| `public_edge_proxy.py` | `/functions/v1/*`, `/mcp*` | Same-origin proxy to hosted Supabase Edge Functions and MCP. | Live |
 | `onboarding.py` | `/api/onboarding/*` | Onboarding initialize/status/tour-complete | Live |
 | `user.py` | `/api/user/*` | User preferences (mirrors EF; legacy callers) | Live |
 | `units.py` | `/api/units/*` | Units helpers (legacy callers) | Live |
 | `license.py` | `/api/license/*` | License key gating (OSS sustainable-use model) | Live |
 | `v1.py` | `/api/v1/*` | Public REST API (CLI uses this OR the Supabase EF URL) | Live |
 | `feedback.py` | `/api/feedback` | Linear support widget — POST creates issues | Live (SaaS-only — stripped from OSS) |
-| `admin.py` | `/api/admin/*` | Internal billing/usage dashboard | Live (SaaS-only — stripped from OSS, gated by `require_admin`) |
-| `threat_modeling/` | `/api/threat-modeling/*` | Internal threat assessment doc | Live (SaaS-only — stripped from OSS) |
+| `threat_modeling/` | `/api/threat-modeling/*` | Internal threat assessment doc; currently gated out while `deployment_target == "supabase"`. | Residual |
 
 ### Removed in this PR (cutover finish)
 
@@ -121,9 +122,9 @@ Still required:
 
 - `DATABASE_URL` — asyncpg pool in `adapters/supabase/connection.py`
 - `SUPABASE_SERVICE_KEY` — admin ops in `adapters/supabase/auth.py` + `adapters/supabase/scheduler.py`
-- `SUPABASE_JWT_SECRET` — JWT verification in `adapters/supabase/auth.py`
+- `SUPABASE_JWT_SECRET` — residual FastAPI HS256 JWT verification in `adapters/supabase/auth.py`; ES256 tokens verify via Supabase JWKS
 - `SUPABASE_ANON_KEY` — used by frontend bundle; not actively read by backend (could be removed but harmless)
-- `MUCKROCK_CLIENT_ID`, `MUCKROCK_CLIENT_SECRET`, `SESSION_SECRET` — auth broker
+- `MUCKROCK_CLIENT_ID`, `MUCKROCK_CLIENT_SECRET`, `SESSION_SECRET` — MuckRock auth broker and HMAC state signing
 - `OPENROUTER_API_KEY`, `LLM_MODEL`, `GEMINI_API_KEY` — LLM
 - `FIRECRAWL_API_KEY` — web scraping
 - `APIFY_API_TOKEN` — social scraping

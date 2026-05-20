@@ -202,7 +202,7 @@ AI-powered local news monitoring platform. Users create "scouts" that monitor we
 | Backend | FastAPI (Python), hosted on Render — production at `https://scoutpost.ai/api` |
 | Database | DynamoDB (scout metadata + run history) |
 | Scheduling | AWS EventBridge Scheduler |
-| Auth | MuckRock OAuth 2.0 (SaaS, session cookies) / Supabase Auth (OSS, Bearer JWT) |
+| Auth | MuckRock OAuth broker -> Supabase Auth JWT (SaaS) / Supabase Auth (OSS, Bearer JWT) |
 | AI | Gemini 2.5 Flash-Lite (default LLM, direct API), OpenRouter (fallback), Firecrawl (web search) |
 | Email | Resend |
 | Maps | MapTiler (geocoding) |
@@ -413,7 +413,7 @@ feature branch → push → CI runs
 ### Backend (Render)
 - `MUCKROCK_CLIENT_ID` - MuckRock OAuth client ID
 - `MUCKROCK_CLIENT_SECRET` - MuckRock OAuth client secret
-- `SESSION_SECRET` - JWT session signing key
+- `SESSION_SECRET` - HMAC signing key for OAuth/MCP broker state; legacy session JWT fallback only
 - `OAUTH_REDIRECT_BASE` - Public URL the browser sees (needed behind proxy, e.g. `http://localhost:5173`)
 - `OPENROUTER_API_KEY` - AI access
 - `LLM_MODEL` - LLM model identifier (default: `gemini-2.5-flash-lite`). Gemini models route to Google AI direct API; others route to OpenRouter.

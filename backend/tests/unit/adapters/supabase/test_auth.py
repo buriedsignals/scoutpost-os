@@ -2,6 +2,7 @@
 
 import hmac
 import time
+import warnings
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import jwt
@@ -64,6 +65,30 @@ class TestGetCurrentUser:
         from fastapi import HTTPException
         with pytest.raises(HTTPException) as exc_info:
             await auth_adapter.get_current_user(request)
+        assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_rejects_hs256_token_when_legacy_secret_is_too_short(
+        self,
+        mock_settings,
+        mock_user_storage,
+    ):
+        mock_settings.supabase_jwt_secret = "short"
+        with patch("app.adapters.supabase.auth.get_settings", return_value=mock_settings):
+            adapter = SupabaseAuth(user_storage=mock_user_storage)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            token = _make_jwt(
+                {"sub": "user-123", "exp": int(time.time()) + 3600},
+                "short",
+            )
+        request = MagicMock()
+        request.headers.get.return_value = f"Bearer {token}"
+
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            await adapter.get_current_user(request)
         assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio

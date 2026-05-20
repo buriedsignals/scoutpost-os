@@ -14,8 +14,8 @@ FastAPI now hosts a thin set of endpoints: the auth broker (MuckRock OAuth + Sup
 ## Authentication
 
 ### User Endpoints
-Protected by session cookies (MuckRock OAuth, SaaS) or Bearer JWT (Supabase Auth, OSS).
-The `get_current_user()` dependency in `dependencies/auth.py` delegates to the deployment-target-aware adapter via `providers.get_auth()`.
+Protected by Supabase Bearer JWTs in the current post-cutover runtime.
+The `get_current_user()` dependency in `dependencies/auth.py` delegates to `providers.get_auth()`, which returns `SupabaseAuth` while `deployment_target == "supabase"`. The older session-cookie branch remains as residual fallback code only.
 
 ### Lambda / Edge Function Endpoints (Internal)
 Protected by `X-Service-Key` header. Key stored in AWS Secrets Manager (SaaS) or `.env` (self-hosted).

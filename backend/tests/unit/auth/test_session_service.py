@@ -9,6 +9,7 @@ These tests verify that:
 5. Each session gets a unique session ID
 """
 import time
+import warnings
 
 import jwt
 import pytest
@@ -46,6 +47,28 @@ class TestCreateValidateRoundtrip:
         token = service.create_session("user-789")
         claims = service.validate_session(token)
         assert claims["exp"] > time.time()
+
+
+class TestSecretStrength:
+    """Tests for HS256 signing secret guardrails."""
+
+    def test_rejects_short_secret_on_create(self):
+        """Session creation should fail fast when HS256 is configured weakly."""
+        service = SessionService(secret="short")
+        with pytest.raises(jwt.InvalidKeyError):
+            service.create_session("user-123")
+
+    def test_rejects_token_signed_with_short_secret(self):
+        """Session validation should reject weak-key HS256 tokens."""
+        service = SessionService(secret="short")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            token = jwt.encode(
+                {"sub": "user-123", "exp": time.time() + 3600},
+                "short",
+                algorithm="HS256",
+            )
+        assert service.validate_session(token) is None
 
 
 class TestTamperedToken:

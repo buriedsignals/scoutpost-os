@@ -222,7 +222,10 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: pip install pip-audit
-      - run: pip-audit -r backend/requirements.txt
+      # PYSEC-2025-183/CVE-2025-45768 is a disputed, no-fixed-version PyJWT
+      # advisory about weak HMAC keys. Residual FastAPI HS256 JWT paths use
+      # PyJWT's minimum-key-length enforcement so weak keys fail closed.
+      - run: pip-audit -r backend/requirements.txt --ignore-vuln PYSEC-2025-183
 
   audit-frontend:
     runs-on: ubuntu-latest

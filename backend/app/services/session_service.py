@@ -16,6 +16,7 @@ from typing import Optional
 import jwt
 
 logger = logging.getLogger(__name__)
+STRICT_HS256_JWT = jwt.PyJWT(options={"enforce_minimum_key_length": True})
 
 
 class SessionService:
@@ -50,7 +51,7 @@ class SessionService:
         }
         if org_id:
             payload["org_id"] = org_id
-        return jwt.encode(payload, self.secret, algorithm="HS256")
+        return STRICT_HS256_JWT.encode(payload, self.secret, algorithm="HS256")
 
     def validate_session(self, token: str) -> Optional[dict]:
         """Validate and decode a session JWT.
@@ -62,7 +63,7 @@ class SessionService:
             Claims dict (sub, sid, iat, exp) if valid, None otherwise.
         """
         try:
-            claims = jwt.decode(token, self.secret, algorithms=["HS256"])
+            claims = STRICT_HS256_JWT.decode(token, self.secret, algorithms=["HS256"])
             return claims
         except jwt.PyJWTError:
             logger.debug("Session validation failed", exc_info=True)

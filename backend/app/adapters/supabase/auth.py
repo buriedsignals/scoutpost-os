@@ -23,6 +23,7 @@ from app.config import get_settings
 from app.ports.auth import AuthPort
 
 logger = logging.getLogger(__name__)
+STRICT_HS256_JWT = pyjwt.PyJWT(options={"enforce_minimum_key_length": True})
 
 
 class SupabaseAuth(AuthPort):
@@ -91,7 +92,7 @@ class SupabaseAuth(AuthPort):
                     options={"verify_aud": False},
                 )
             elif alg == "HS256":
-                payload = pyjwt.decode(
+                payload = STRICT_HS256_JWT.decode(
                     token,
                     self.jwt_secret,
                     algorithms=["HS256"],
@@ -108,6 +109,11 @@ class SupabaseAuth(AuthPort):
                 detail="Token has expired",
             )
         except pyjwt.InvalidTokenError as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid token: {e}",
+            )
+        except pyjwt.PyJWTError as e:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Invalid token: {e}",
