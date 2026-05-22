@@ -14,30 +14,12 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# All v2 functions. Order doesn't matter; deploys are independent.
-FUNCTIONS=(
-  # CRUD + search
-  projects
-  scouts
-  units
-  entities
-  reflections
-  user
-  ingest
-  openapi-spec
-  scout-templates
-  civic-test
-  # Scout execution pipelines
-  execute-scout
-  scout-web-execute
-  scout-beat-execute
-  civic-execute
-  civic-extract-worker
-  social-kickoff
-  apify-callback
-  apify-reconcile
-  scout-health-monitor
-)
+# Deploy every local function directory that has an index.ts. Keeping this
+# derived from the filesystem prevents new functions from being omitted here.
+FUNCTIONS=()
+while IFS= read -r index_file; do
+  FUNCTIONS+=("$(basename "$(dirname "$index_file")")")
+done < <(find supabase/functions -mindepth 2 -maxdepth 2 -name index.ts | sort)
 
 # Functions that already have a [functions.X] block with verify_jwt=false in
 # supabase/config.toml will carry that setting. Everything else defaults to

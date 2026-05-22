@@ -400,14 +400,15 @@ verify_jwt = false
 [functions.projects]
 verify_jwt = false
 
+[functions.runs]
+verify_jwt = false
+
 [functions.scouts]
 verify_jwt = false
 
 [functions.api-keys]
 verify_jwt = false
 
-[functions.admin-report]
-verify_jwt = false
 
 [functions.entities]
 verify_jwt = false
@@ -470,19 +471,4 @@ verify_jwt = false
 [functions.mcp-server]
 verify_jwt = false
 
-# auth-muckrock is browser-facing (MuckRock OAuth redirect). No Supabase JWT
-# is available; OAuth state is validated via HMAC-signed tokens in-handler.
-[functions.auth-muckrock]
-verify_jwt = false
 
-# mcp-auth is the MCP-only sibling of auth-muckrock. Browser-facing for the
-# remote MCP OAuth chain (claude.ai, Claude Desktop, Cowork). Same lack of
-# JWT, same in-handler HMAC state validation, but isolated so MCP changes
-# can never break web sign-in.
-[functions.mcp-auth]
-verify_jwt = false
-
-# newsletter-subscribe is called pre-auth from the /login marketing panel.
-# No JWT available; the EF just proxies to buriedsignals.com/api/subscribe.
-[functions.newsletter-subscribe]
-verify_jwt = false

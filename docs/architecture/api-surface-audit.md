@@ -21,12 +21,10 @@ Auth: Bearer JWT (Supabase auth) **or** Bearer `cj_…` API key plus
 | Function | Purpose | Status |
 |---|---|---|
 | `_shared/` | Internal helpers (auth, db, firecrawl, gemini, notifications) | Live (not an endpoint) |
-| `admin-report` | Monthly billing/usage report aggregation | Live |
 | `api-keys` | CRUD for `cj_…` API keys (per-user, max 5) | Live (PR #71) |
 | `apify-callback` | Apify webhook target — completes social runs | Live |
 | `apify-reconcile` | Periodic backfill for stuck Apify jobs | Live (cron) |
 | `beat-search` | Beat Scout AI search — direct call surface | Live |
-| `billing-webhook` | MuckRock plan/credits webhook | Paused (depends on PR 2a) |
 | `civic` | Civic Scout CRUD | Live |
 | `civic-execute` | Civic scout run executor | Live (cron) |
 | `civic-extract-worker` | Async PDF parsing worker | Live |
@@ -37,7 +35,6 @@ Auth: Bearer JWT (Supabase auth) **or** Bearer `cj_…` API key plus
 | `main` | Health/heartbeat | Live |
 | `manage-schedule` | Cron management for scouts | Live |
 | `mcp-server` | Remote MCP JSON-RPC + OAuth discovery/PKCE + API-key auth | Live |
-| `newsletter-subscribe` | Resend newsletter subscribe | Live |
 | `openapi-spec` | Serves the `/api/v1` OpenAPI JSON | Live |
 | `projects` | Investigation project CRUD | Live |
 | `promise-digest` | Civic promise weekly digest | Live (cron) |
@@ -60,7 +57,6 @@ Frontend is served by the same service in dev; static SPA in production.
 | Router | Mount | Purpose | Status |
 |---|---|---|---|
 | `local_auth.py` | `/api/auth/login`, `/api/auth/callback` | Local-only MuckRock broker for localhost SaaS smoke tests; mounted only with `LOCAL_MUCKROCK_AUTH_BROKER=true`. | Live (dev only) |
-| `muckrock_proxy.py` | `/api/auth/webhook`, `/api/auth/callback` | Compatibility proxy to Supabase `billing-webhook`, `auth-muckrock`, and `mcp-auth` EFs for MuckRock-registered URLs. | Live (SaaS-only) |
 | `public_edge_proxy.py` | `/functions/v1/*`, `/mcp*` | Same-origin proxy to hosted Supabase Edge Functions and MCP. | Live |
 | `onboarding.py` | `/api/onboarding/*` | Onboarding initialize/status/tour-complete | Live |
 | `user.py` | `/api/user/*` | User preferences (mirrors EF; legacy callers) | Live |

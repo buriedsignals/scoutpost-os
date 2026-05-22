@@ -26,10 +26,27 @@ sed_if_exists() {
   sed "$@"
 }
 
+strip_edge_function() {
+  local fn="$1"
+  rm -rf "supabase/functions/${fn}/"
+  sed_if_exists -i "/^\[functions\.${fn}\]$/,+1d" supabase/config.toml
+  sed_if_exists -i "/${fn}/d" docs/architecture/api-surface-audit.md
+}
+
 echo "=== Stripping SaaS-only code ==="
 
 HOSTED_SUPABASE_REF="gfmdziplticfoak"
 HOSTED_SUPABASE_REF="${HOSTED_SUPABASE_REF}hrfpt"
+
+# Local-only artifacts can appear when developers validate the strip step from
+# a working copy instead of a clean CI checkout. Remove them before the hosted
+# reference scan so ignored secrets/caches do not poison the OSS mirror check.
+rm -rf .claude/
+rm -f .env .env.local .env.production .env.test .env.test.local
+rm -f supabase/.env supabase/.env.local supabase/.env.test supabase/.env.test.local
+rm -rf supabase/.temp/
+rm -rf mcp/dist/
+find . -type d -name __pycache__ -prune -exec rm -rf {} +
 
 # AWS infrastructure was removed in the v2 migration — nothing to strip here.
 # (aws/ and backend/app/adapters/aws/ no longer exist in the SaaS source tree.)
@@ -68,11 +85,24 @@ rm -f backend/app/routers/feedback.py
 # Backend: remove threat modeling dashboard (internal security assessment)
 rm -rf backend/app/routers/threat_modeling/
 
+# Supabase Edge Functions: remove hosted/SaaS-only endpoints before OSS
+# deploy discovery runs. Self-hosted deployments should not deploy MuckRock
+# OAuth/billing, hosted admin invoicing, or Buried Signals newsletter proxies.
+strip_edge_function admin-report
+strip_edge_function auth-muckrock
+strip_edge_function billing-webhook
+strip_edge_function mcp-auth
+strip_edge_function newsletter-subscribe
+sed_if_exists -i '/^# auth-muckrock is browser-facing/,+1d' supabase/config.toml
+sed_if_exists -i '/^# mcp-auth is the MCP-only sibling/,+4d' supabase/config.toml
+sed_if_exists -i '/^# newsletter-subscribe is called pre-auth/,+1d' supabase/config.toml
+
 # -------------------------------------------------------------------
 # CI/CD: remove workflows that reference the dev repo
 # -------------------------------------------------------------------
 rm -f .github/workflows/mirror-*.yml
 rm -f .github/workflows/claude*.yml
+rm -f .github/workflows/qa-matrix.yml
 rm -f .github/workflows/weekly-oss-benchmarks.yml
 # CLI release workflow depends on Apple signing secrets that only exist on
 # the private monorepo. OSS forks can restore this and add their own secrets.
@@ -122,11 +152,12 @@ rm -f scripts/benchmark-social.ts
 rm -f scripts/benchmark-civic.ts
 rm -f scripts/benchmark-beat.ts
 rm -f scripts/benchmark-dedup.ts
+rm -f scripts/benchmark-qa-matrix.ts
+rm -f scripts/exa-vs-firecrawl-coverage.ts
+rm -f scripts/exa-vs-firecrawl-coverage_test.ts
 rm -f scripts/benchmark-oss-suite.ts
 rm -f scripts/notifications-benchmark.ts
-rm -rf supabase/functions/notifications-benchmark/
-sed_if_exists -i '/^\[functions\.notifications-benchmark\]$/,+1d' supabase/config.toml
-sed_if_exists -i '/notifications-benchmark/d' docs/architecture/api-surface-audit.md
+strip_edge_function notifications-benchmark
 
 # -------------------------------------------------------------------
 # Public setup assets remain in the OSS mirror. /setup links to these
@@ -486,6 +517,25 @@ sed_if_exists -i "s|${HOSTED_SUPABASE_REF}|<project-ref>|g" scripts/deploy-funct
 # -------------------------------------------------------------------
 echo "=== Validating OSS build ==="
 FAIL=0
+HOSTED_ONLY_EDGE_FUNCTIONS=(
+  admin-report
+  auth-muckrock
+  billing-webhook
+  mcp-auth
+  newsletter-subscribe
+  notifications-benchmark
+)
+
+for fn in "${HOSTED_ONLY_EDGE_FUNCTIONS[@]}"; do
+  if [ -d "supabase/functions/${fn}" ]; then
+    echo "ERROR: hosted-only Edge Function still present in OSS build: ${fn}"
+    FAIL=1
+  fi
+  if grep -q "^\[functions\.${fn}\]$" supabase/config.toml 2>/dev/null; then
+    echo "ERROR: hosted-only Edge Function config still present in OSS build: ${fn}"
+    FAIL=1
+  fi
+done
 
 if grep -ri "muckrock" --exclude="auth-supabase.ts" --exclude="types.ts" --exclude="PreferencesModal.svelte" --exclude-dir="faq" --exclude-dir="paraglide" --exclude-dir="tests" frontend/src/ 2>/dev/null; then
   echo "ERROR: MuckRock references found in OSS build"
