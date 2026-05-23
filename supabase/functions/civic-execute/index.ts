@@ -258,6 +258,19 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         continue;
       }
 
+      if (result.change_status === "removed") {
+        scrapeFailureCount += 1;
+        trackedUrlStatus.push({
+          url,
+          status: "scrape_failed",
+          change_status: result.change_status,
+          upstream_status: 404,
+          queued_documents: 0,
+          error: "firecrawl changeTracking reported removed",
+        });
+        continue;
+      }
+
       const directDocumentUrl = isCivicDirectDocumentUrl(url)
         ? normalizeCivicUrl(url)
         : null;
