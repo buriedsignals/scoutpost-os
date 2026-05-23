@@ -4,16 +4,9 @@ import {
   normalizeSocialDatasetPosts,
   SOCIAL_APIFY_ACTORS,
 } from "../supabase/functions/_shared/social_baseline.ts";
+import { envAny } from "./_bench_shared.ts";
 
 type Platform = "instagram" | "x" | "facebook" | "tiktok";
-
-function envAny(...names: string[]): string | null {
-  for (const name of names) {
-    const value = Deno.env.get(name);
-    if (value) return value;
-  }
-  return null;
-}
 
 interface ActorCase {
   platform: Platform;

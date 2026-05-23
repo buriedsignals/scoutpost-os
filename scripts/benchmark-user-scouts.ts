@@ -5,25 +5,11 @@ import {
   parseArgs,
   unwrapItems,
 } from "../cli/lib/client.ts";
+import { envAny, envFlag } from "./_bench_shared.ts";
 
 type ScoutType = "web" | "beat" | "civic" | "social";
 type Platform = "instagram" | "x" | "facebook" | "tiktok";
 type CaseKind = ScoutType | "actors";
-
-function envAny(...names: string[]): string | null {
-  for (const name of names) {
-    const value = Deno.env.get(name);
-    if (value) return value;
-  }
-  return null;
-}
-
-function envFlag(...names: string[]): boolean {
-  return names.some((name) => {
-    const value = Deno.env.get(name)?.trim().toLowerCase();
-    return value === "1" || value === "true";
-  });
-}
 
 interface Scout {
   id: string;

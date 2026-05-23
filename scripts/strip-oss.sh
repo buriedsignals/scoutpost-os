@@ -153,8 +153,6 @@ rm -f scripts/benchmark-civic.ts
 rm -f scripts/benchmark-beat.ts
 rm -f scripts/benchmark-dedup.ts
 rm -f scripts/benchmark-qa-matrix.ts
-rm -f scripts/exa-vs-firecrawl-coverage.ts
-rm -f scripts/exa-vs-firecrawl-coverage_test.ts
 rm -f scripts/benchmark-oss-suite.ts
 rm -f scripts/notifications-benchmark.ts
 strip_edge_function notifications-benchmark

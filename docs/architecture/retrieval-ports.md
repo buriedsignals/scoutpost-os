@@ -58,13 +58,8 @@ without re-baselining or changing canonical-unit dedup.
 | `total_cost_dollars` | Exa response cost when returned by the API |
 | `metadata.shadow` | Discovery-only A/B shadow row |
 
-Live head-to-head comparison is gated and non-mutating:
-
-```bash
-SCOUT_LIVE_BENCHMARK=1 SCOUT_ALLOW_PROD_FIRECRAWL=1 \
-  deno run --allow-env --allow-net scripts/exa-vs-firecrawl-coverage.ts
-```
-
-The migration gate remains: Exa must beat Firecrawl on at least 9 of the 13
-global audit scenarios with no critical regression on the hardest cases before
-default flips.
+The migration gate has already been satisfied: Exa beat Firecrawl on all 13
+global audit scenarios with no critical regression on the hardest cases. The
+one-off Exa-vs-Firecrawl comparison script was removed after that migration
+decision; ongoing safety coverage now lives in the Beat benchmark, QA matrix,
+and `beat_ab_runs` canary telemetry.
