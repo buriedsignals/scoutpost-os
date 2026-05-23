@@ -220,6 +220,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       unitsMerged: result.merged_existing_count,
       criteriaStatus: result.criteria_ran,
       notificationStatus: willNotify ? "pending" : "skipped",
+      sourcesScraped: 1,
+      sourcesFailed: 0,
     });
 
     // Reset failure counter + (if changed) stamp baseline_established_at.
@@ -515,7 +517,32 @@ async function runPipeline(
     });
   }
 
-  if (changeStatus === "same") {
+  let phaseBLinks = rawHtml?.trim()
+    ? extractLinksFromHtml(rawHtml, scout.url)
+    : [];
+  if (phaseBLinks.length === 0 && markdown.trim()) {
+    const markdownLinks = extractLinksFromMarkdown(markdown, scout.url);
+    if (markdownLinks.length > 0) {
+      phaseBLinks = markdownLinks;
+      logEvent({
+        level: "info",
+        fn: "scout-web-execute",
+        event: "phase_b_using_markdown_links",
+        scout_id: scout.id,
+        run_id: runId,
+        links_found: markdownLinks.length,
+      });
+    }
+  }
+  const phaseBCandidates = phaseBLinks.length > 0
+    ? filterSubpageUrls(phaseBLinks.map(([url]) => url), scout.url)
+    : [];
+  const deterministicListingPage = hasDeterministicListingSignal(
+    scout.url,
+    phaseBCandidates,
+  );
+
+  if (changeStatus === "same" && !deterministicListingPage) {
     if (
       scout.provider !== "firecrawl_plain" &&
       webCanonicalHashEnabled() &&
@@ -571,30 +598,6 @@ async function runPipeline(
   // Always run extraction; criteria narrows focus when set.
   await markRunStage(svc, runId, "extract");
   const hasCriteria = !!scout.criteria?.trim();
-  let phaseBLinks = scrape.rawHtml?.trim()
-    ? extractLinksFromHtml(scrape.rawHtml, scout.url)
-    : [];
-  if (phaseBLinks.length === 0 && markdown.trim()) {
-    const markdownLinks = extractLinksFromMarkdown(markdown, scout.url);
-    if (markdownLinks.length > 0) {
-      phaseBLinks = markdownLinks;
-      logEvent({
-        level: "info",
-        fn: "scout-web-execute",
-        event: "phase_b_using_markdown_links",
-        scout_id: scout.id,
-        run_id: runId,
-        links_found: markdownLinks.length,
-      });
-    }
-  }
-  const phaseBCandidates = phaseBLinks.length > 0
-    ? filterSubpageUrls(phaseBLinks.map(([url]) => url), scout.url)
-    : [];
-  const deterministicListingPage = hasDeterministicListingSignal(
-    scout.url,
-    phaseBCandidates,
-  );
 
   const extracted = deterministicListingPage
     ? { units: [], isListingPage: true }
