@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "project": {
+    "name": "scoutpost-newsroom",
+    "app_url": "https://newsroom.example.com"
+  },
+  "services": {
+    "gemini_api_key": "replace-me",
+    "firecrawl_api_key": "replace-me",
+    "apify_api_token": "replace-me",
+    "resend_api_key": "replace-me",
+    "resend_from_email": "scouts@newsroom.example.com",
+    "public_maptiler_api_key": "replace-me"
+  },
+  "auth": {
+    "admin_email": "admin@example.com",
+    "signup_allowed_domains": ["example.com"]
+  },
+  "data_platform": {
+    "provider": "supabase",
+    "provider_name": "Supabase",
+    "integration_mode": "managed"
+  },
+  "supabase": {
+    "mode": "cloud-create",
+    "org_id": "replace-me",
+    "region": "us-east-1",
+    "db_password": "replace-me",
+    "access_token": "replace-me"
+  },
+  "frontend": {
+    "provider": "netlify",
+    "site_name": "scoutpost-newsroom",
+    "production_url": "https://newsroom.example.com"
+  },
+  "agents": {
+    "install_firecrawl_skill": true,
+    "install_supabase_skill": true,
+    "install_render_skill": false
+  },
+  "options": {
+    "include_fastapi_addon": false,
+    "install_sync_workflow": true
+  }
+}

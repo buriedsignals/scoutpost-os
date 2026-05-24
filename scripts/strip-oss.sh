@@ -123,12 +123,12 @@ rm -f docs/architecture/records-and-deduplication.md
 rm -f DESIGN.md
 rm -rf .firecrawl/
 
-# MCP docs are kept in the OSS mirror, but SaaS examples must not expose the
+# Public docs are kept in the OSS mirror, but SaaS examples must not expose the
 # hosted coJournalist project ref.
-if [ -d docs/mcp ]; then
+if [ -d docs ]; then
   while IFS= read -r -d '' file; do
     sed_if_exists -i "s|${HOSTED_SUPABASE_REF}|<project-ref>|g" "$file"
-  done < <(find docs/mcp -type f -name '*.md' -print0)
+  done < <(find docs -type f -name '*.md' -print0)
 fi
 
 # -------------------------------------------------------------------

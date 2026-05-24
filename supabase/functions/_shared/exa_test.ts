@@ -285,17 +285,17 @@ Deno.test("resolveBeatRetrievalPort — per-scout override tolerates case and wh
 
 Deno.test("resolveBeatRetrievalPort — ignores invalid env values instead of breaking scout defaults", () => {
   return withEnv({ BEAT_RETRIEVAL: "disabled" }, () => {
-    assertEquals(resolveBeatRetrievalPort(null), "firecrawl");
-    assertEquals(resolveBeatRetrievalPort({}), "firecrawl");
-    assertEquals(resolveBeatRetrievalPort({ retrieval: "exa" }), "exa");
+    assertEquals(resolveBeatRetrievalPort(null), "exa");
+    assertEquals(resolveBeatRetrievalPort({}), "exa");
+    assertEquals(resolveBeatRetrievalPort({ retrieval: "firecrawl" }), "firecrawl");
   });
 });
 
-Deno.test("resolveBeatRetrievalPort — defaults to firecrawl when unset everywhere", () => {
+Deno.test("resolveBeatRetrievalPort — defaults to exa when unset everywhere", () => {
   return withEnv({ BEAT_RETRIEVAL: null }, () => {
-    assertEquals(resolveBeatRetrievalPort(null), "firecrawl");
-    assertEquals(resolveBeatRetrievalPort({}), "firecrawl");
-    assertEquals(resolveBeatRetrievalPort({ retrieval: "junk" }), "firecrawl");
+    assertEquals(resolveBeatRetrievalPort(null), "exa");
+    assertEquals(resolveBeatRetrievalPort({}), "exa");
+    assertEquals(resolveBeatRetrievalPort({ retrieval: "junk" }), "exa");
   });
 });
 

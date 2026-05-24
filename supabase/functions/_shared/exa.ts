@@ -226,9 +226,9 @@ export async function exaSearchWithMetadata(
 
 /**
  * Per-scout retrieval port resolver. Reads in priority order:
- *   1. BEAT_RETRIEVAL env (global kill-switch)
+ *   1. BEAT_RETRIEVAL env (global kill-switch — set to "firecrawl" to roll back)
  *   2. scout.metadata.retrieval (per-scout override)
- *   3. default "firecrawl" until A/B benchmark flips the default
+ *   3. default "exa"
  */
 export function resolveBeatRetrievalPort(
   scoutMetadata: Record<string, unknown> | null | undefined,
@@ -238,7 +238,7 @@ export function resolveBeatRetrievalPort(
 
   const scoutFlag = normalizeRetrievalPort(scoutMetadata?.retrieval);
   if (scoutFlag) return scoutFlag;
-  return "firecrawl";
+  return "exa";
 }
 
 export function normalizeRetrievalPort(

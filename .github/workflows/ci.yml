@@ -70,7 +70,7 @@ jobs:
           deno-version: v2.x
 
       - name: Shell syntax
-        run: bash -n automation/selfhost-doctor.sh automation/adopt-signup-allowlist.sh automation/setup-from-manifest.sh automation/setup.sh
+        run: bash -n automation/selfhost-doctor.sh automation/adopt-signup-allowlist.sh automation/setup-from-manifest.sh automation/docker-install-entrypoint.sh
 
       - name: Deno formatting
         run: deno fmt --check automation/selfhost_maintenance_test.ts supabase/functions/_shared/selfhost_runtime_smoke_test.ts
@@ -106,11 +106,11 @@ jobs:
       - name: Verify public setup assets survive strip
         run: |
           test -f automation/SETUP_AGENT.md
-          test -f automation/setup.sh
           test -f automation/selfhost-doctor.sh
           test -f automation/adopt-signup-allowlist.sh
           test -f automation/selfhost_maintenance_test.ts
           test -f automation/sync-upstream.yml
+          test -f deploy/installer/scoutpost-setup.example.json
           test -f deploy/SETUP.md
           test -f deploy/render/render.yaml
 
@@ -135,7 +135,10 @@ jobs:
   selfhost-runtime-smoke:
     name: Self-host local runtime smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 25 was enough for a single supabase start. With up to 3 retries to absorb
+    # transient public.ecr.aws image-pull flakes the worst case is ~3 cold
+    # pulls. 40 leaves headroom for that plus the actual smoke test.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
       - uses: denoland/setup-deno@v2
@@ -145,13 +148,40 @@ jobs:
         env:
           SUPABASE_CLI_VERSION: 2.99.0
         run: |
-          curl -fsSL -o /tmp/supabase.tar.gz "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/supabase_${SUPABASE_CLI_VERSION}_linux_amd64.tar.gz"
+          # GitHub releases occasionally 502 on download; retry curl.
+          for attempt in 1 2 3; do
+            if curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors \
+              -o /tmp/supabase.tar.gz \
+              "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/supabase_${SUPABASE_CLI_VERSION}_linux_amd64.tar.gz"; then
+              break
+            fi
+            echo "supabase CLI download failed (attempt $attempt); retrying"
+            sleep $((attempt * 5))
+          done
           sudo tar -xzf /tmp/supabase.tar.gz -C /usr/local/bin
           supabase --version
 
       - name: Start local Supabase
+        # `supabase start` pulls a dozen images from public.ecr.aws on a cold
+        # GitHub runner. Transient ECR pull timeouts/resets are the dominant
+        # flake mode for this job. Retry the start up to 3 times, tearing
+        # down between attempts so we get a clean docker network each try.
         run: |
-          supabase start
+          set -e
+          attempt=0
+          max_attempts=3
+          until supabase start; do
+            attempt=$((attempt + 1))
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "supabase start failed after $attempt attempts" >&2
+              docker ps -a || true
+              docker images || true
+              exit 1
+            fi
+            echo "supabase start failed (attempt $attempt/$max_attempts); tearing down and retrying after backoff"
+            supabase stop --no-backup || true
+            sleep $((10 * attempt))
+          done
           supabase db reset --local --yes
           supabase status -o env | tee /tmp/scout-supabase.env
 

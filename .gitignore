@@ -12,6 +12,13 @@ supabase/functions/deno.lock
 TOM.md
 cojournalist-pat.txt
 supabase-keys.txt
+exa.txt
+*.secret.txt
+
+# Ephemeral HTML explainers / progress reports (operator-only, not for repo)
+scoutpost-*-clarification.html
+scoutpost-*-progress-*.html
+scoutpost-*-report-*.html
 
 # Generated self-host setup artifacts (contain deployment secrets)
 cojournalist-setup.json

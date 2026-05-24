@@ -1,321 +1,46 @@
 <script lang="ts">
 	import {
 		ArrowLeft,
-		Bot,
+		CheckCircle2,
 		Download,
 		ExternalLink,
 		FileJson,
-		FileText,
-		Package,
-		Mail,
-		Map,
-		RefreshCw,
-		Server,
+		LockKeyhole,
+		ShieldCheck,
 		Terminal
 	} from 'lucide-svelte';
-	import { tick } from 'svelte';
 	import SharpAction from '$lib/components/docs/SharpAction.svelte';
 	import SharpCodeBlock from '$lib/components/docs/SharpCodeBlock.svelte';
-	import {
-		buildAgentManifestPrompt,
-		buildDockerInstallerInstructions,
-		buildDockerInstallerScript,
-		buildInstallScript,
-		buildNewsroomOnboarding,
-		buildProviderPortingPacket,
-		normalizeDomains,
-		redactSetupManifest,
-		validateSetupManifest,
-		type DataPlatformProvider,
-		type FrontendProvider,
-		type SetupManifest,
-		type SupabaseMode
-	} from '$lib/setup/setup-generator';
+	import { DOCKER_INSTALLER_IMAGE } from '$lib/setup/setup-generator';
 
-	let projectName = 'scoutpost-newsroom';
-	let appUrl = '';
-	let geminiKey = '';
-	let firecrawlKey = '';
-	let apifyToken = '';
-	let resendKey = '';
-	let resendFromEmail = 'scouts@newsroom.example.com';
-	let maptilerKey = '';
-	let adminEmail = '';
-	let signupDomainsText = '';
-	let dataPlatformProvider: DataPlatformProvider = 'supabase';
-	let supabaseMode: SupabaseMode = 'cloud-create';
-	let supabaseProjectRef = '';
-	let supabaseProjectUrl = '';
-	let supabaseAnonKey = '';
-	let supabaseServiceKey = '';
-	let supabaseJwtSecret = '';
-	let supabaseAccessToken = '';
-	let supabaseOrgId = '';
-	let supabaseRegion = 'us-east-1';
-	let supabaseDbPassword = '';
-	let selfHostedPostgresPassword = '';
-	let manualProviderName = '';
-	let manualProviderDocsText = '';
-	let manualProviderNotes = '';
-	let manualApiBaseUrl = '';
-	let manualMcpUrl = '';
-	let frontendProvider: FrontendProvider = 'netlify';
-	let frontendSiteName = 'scoutpost-newsroom';
-	let customMcpUrl = '';
-	let includeFastapiAddon = false;
-	let installSyncWorkflow = true;
-	let renderDeployHook = '';
-	let generated = false;
+	const installCommand = `mkdir -p scoutpost-install
+cd scoutpost-install
+curl -fsSLO https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/deploy/installer/scoutpost-setup.example.json
+cp scoutpost-setup.example.json scoutpost-setup.json
+chmod 600 scoutpost-setup.json
+$EDITOR scoutpost-setup.json
+docker run --rm -it \\
+  -v "$PWD:/workspace" \\
+  -v "$PWD/scoutpost-setup.json:/config/scoutpost-setup.json:ro" \\
+  ${DOCKER_INSTALLER_IMAGE} install`;
 
-	$: signupDomains = normalizeDomains(signupDomainsText);
-	$: manualDocsUrls = normalizeUrlList(manualProviderDocsText);
-	$: isManualProvider = dataPlatformProvider === 'manual';
-	let manifest: SetupManifest;
-	$: {
-		projectName;
-		appUrl;
-		geminiKey;
-		firecrawlKey;
-		apifyToken;
-		resendKey;
-		resendFromEmail;
-		maptilerKey;
-		adminEmail;
-		signupDomains;
-		dataPlatformProvider;
-		supabaseMode;
-		supabaseProjectRef;
-		supabaseProjectUrl;
-		supabaseAnonKey;
-		supabaseServiceKey;
-		supabaseJwtSecret;
-		supabaseAccessToken;
-		supabaseOrgId;
-		supabaseRegion;
-		supabaseDbPassword;
-		selfHostedPostgresPassword;
-		manualProviderName;
-		manualDocsUrls;
-		manualProviderNotes;
-		manualApiBaseUrl;
-		manualMcpUrl;
-		frontendProvider;
-		frontendSiteName;
-		customMcpUrl;
-		includeFastapiAddon;
-		installSyncWorkflow;
-		renderDeployHook;
-		manifest = buildManifest();
-	}
-	$: validation = validateSetupManifest(manifest);
-	$: redactedManifest = JSON.stringify(redactSetupManifest(manifest), null, 2);
-	$: installScript = buildInstallScript(manifest);
-	$: dockerInstructions = buildDockerInstallerInstructions();
-	$: dockerScript = buildDockerInstallerScript();
-	$: providerPortingPacket = buildProviderPortingPacket(manifest, './scoutpost-setup.json');
-	$: agentPrompt = buildAgentManifestPrompt('./scoutpost-setup.json', manifest);
-	$: agentPromptFile = `${agentPrompt}
+	const doctorCommand = `docker run --rm -it \\
+  -v "$PWD:/workspace" \\
+  -v "$PWD/scoutpost-setup.json:/config/scoutpost-setup.json:ro" \\
+  ${DOCKER_INSTALLER_IMAGE} doctor`;
 
-Expected local files:
-- ./scoutpost-setup.json
-- automation/setup-from-manifest.sh in the Scoutpost repository
-${isManualProvider ? '- ./scoutpost-provider-porting.md' : ''}
-
-Run the manifest installer from the repository root. Never ask the operator to paste API keys, JWT secrets, service role keys, or deploy hooks into chat.`;
-	$: onboardingDoc = buildNewsroomOnboarding(manifest);
-
-	const costItems = [
-		{ service: 'Database/runtime', estimate: '$25+', note: 'Supabase managed stack by default; manual platforms vary' },
-		{ service: 'Firecrawl', estimate: '$83-$99', note: 'Standard subscription, annual vs monthly billing' },
-		{ service: 'Apify', estimate: '$29', note: 'Starter subscription for social source collection' },
-		{ service: 'Gemini', estimate: '$1-$10', note: 'Moderate Flash-Lite usage for extraction and summaries' },
-		{ service: 'Resend', estimate: '$0', note: 'Free plan can cover one verified domain at lower volume' },
-		{ service: 'MapTiler', estimate: '$0', note: 'Free plan is enough to start for maps and geocoding' },
-		{ service: 'Hosting', estimate: '$0-$25', note: 'Static frontend on selected provider' }
-	];
-
-	const supabaseRegions = [
-		{ value: 'us-east-1', label: 'US East - North Virginia (us-east-1)' },
-		{ value: 'us-west-1', label: 'US West - North California (us-west-1)' },
-		{ value: 'us-west-2', label: 'US West - Oregon (us-west-2)' },
-		{ value: 'ca-central-1', label: 'Canada - Central (ca-central-1)' },
-		{ value: 'eu-west-1', label: 'EU West - Ireland (eu-west-1)' },
-		{ value: 'eu-west-2', label: 'EU West - London (eu-west-2)' },
-		{ value: 'eu-west-3', label: 'EU West - Paris (eu-west-3)' },
-		{ value: 'eu-central-1', label: 'EU Central - Frankfurt (eu-central-1)' },
-		{ value: 'eu-north-1', label: 'EU North - Stockholm (eu-north-1)' },
-		{ value: 'ap-south-1', label: 'Asia Pacific - Mumbai (ap-south-1)' },
-		{ value: 'ap-southeast-1', label: 'Asia Pacific - Singapore (ap-southeast-1)' },
-		{ value: 'ap-southeast-2', label: 'Asia Pacific - Sydney (ap-southeast-2)' },
-		{ value: 'ap-northeast-1', label: 'Asia Pacific - Tokyo (ap-northeast-1)' },
-		{ value: 'ap-northeast-2', label: 'Asia Pacific - Seoul (ap-northeast-2)' },
-		{ value: 'sa-east-1', label: 'South America - Sao Paulo (sa-east-1)' }
-	];
-
-	function buildManifest(): SetupManifest {
-		const cleanAppUrl = appUrl.trim().replace(/\/$/, '');
-		return {
-			version: 1,
-			project: {
-				name: projectName.trim(),
-				app_url: cleanAppUrl
-			},
-			services: {
-				gemini_api_key: geminiKey.trim(),
-				firecrawl_api_key: firecrawlKey.trim(),
-				apify_api_token: apifyToken.trim(),
-				resend_api_key: resendKey.trim(),
-				resend_from_email: resendFromEmail.trim(),
-				public_maptiler_api_key: maptilerKey.trim()
-			},
-			auth: {
-				admin_email: adminEmail.trim(),
-				signup_allowed_domains: signupDomains
-			},
-			data_platform: {
-				provider: dataPlatformProvider,
-				provider_name:
-					dataPlatformProvider === 'supabase'
-						? 'Supabase'
-						: manualProviderName.trim() || undefined,
-				integration_mode: dataPlatformProvider === 'supabase' ? 'managed' : 'manual',
-				docs_urls: dataPlatformProvider === 'manual' ? manualDocsUrls : undefined,
-				operator_notes:
-					dataPlatformProvider === 'manual' ? manualProviderNotes.trim() || undefined : undefined,
-				api_base_url:
-					dataPlatformProvider === 'manual'
-						? manualApiBaseUrl.trim().replace(/\/$/, '') || undefined
-						: undefined,
-				mcp_url:
-					dataPlatformProvider === 'manual'
-						? manualMcpUrl.trim().replace(/\/$/, '') || undefined
-						: undefined
-			},
-			supabase: {
-				mode: supabaseMode,
-				project_ref: supabaseProjectRef.trim() || undefined,
-				project_url: supabaseProjectUrl.trim().replace(/\/$/, '') || undefined,
-				anon_key: supabaseAnonKey.trim() || undefined,
-				service_role_key: supabaseServiceKey.trim() || undefined,
-				jwt_secret: supabaseJwtSecret.trim() || undefined,
-				access_token: supabaseAccessToken.trim() || undefined,
-				org_id: supabaseOrgId.trim() || undefined,
-				region: supabaseRegion.trim() || undefined,
-				db_password: supabaseDbPassword || undefined,
-				self_hosted_postgres_password: selfHostedPostgresPassword || undefined
-			},
-			frontend: {
-				provider: frontendProvider,
-				site_name: frontendSiteName.trim() || undefined,
-				production_url: cleanAppUrl
-			},
-			agents: {
-				custom_mcp_url: customMcpUrl.trim().replace(/\/$/, '') || undefined,
-				install_firecrawl_skill: true,
-				install_supabase_skill: dataPlatformProvider === 'supabase',
-				install_render_skill: frontendProvider === 'render'
-			},
-			options: {
-				include_fastapi_addon: includeFastapiAddon,
-				install_sync_workflow: installSyncWorkflow,
-				render_deploy_hook: renderDeployHook.trim() || undefined
-			}
-		};
-	}
-
-	function normalizeUrlList(raw: string): string[] {
-		const seen = new Set<string>();
-		for (const value of raw.split(/[\n,]+/)) {
-			const url = value.trim();
-			if (/^https?:\/\//i.test(url)) {
-				seen.add(url.replace(/\/$/, ''));
-			}
-		}
-		return Array.from(seen);
-	}
-
-	async function validateBeforeDownload() {
-		generated = true;
-		await tick();
-		if (!validation.valid) {
-			document.querySelector('.validation-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-			return false;
-		}
-		return true;
-	}
-
-	async function downloadInstaller() {
-		if (!(await validateBeforeDownload())) return;
-		download('scoutpost-install.sh', installScript, 'text/x-shellscript');
-	}
-
-	async function downloadAgentInstructions() {
-		if (!(await validateBeforeDownload())) return;
-		download('scoutpost-setup.json', JSON.stringify(manifest, null, 2), 'application/json');
-		window.setTimeout(() => {
-			download('scoutpost-agent-prompt.md', agentPromptFile, 'text/markdown');
-		}, 150);
-		if (isManualProvider) {
-			window.setTimeout(() => {
-				download('scoutpost-provider-porting.md', providerPortingPacket, 'text/markdown');
-			}, 300);
-		}
-	}
-
-	async function downloadDockerInstaller() {
-		if (!(await validateBeforeDownload())) return;
-		if (isManualProvider) {
-			downloadManualProviderPacket();
-			return;
-		}
-		download('scoutpost-setup.json', JSON.stringify(manifest, null, 2), 'application/json');
-		window.setTimeout(() => {
-			download('scoutpost-docker-install.sh', dockerScript, 'text/x-shellscript');
-		}, 150);
-		window.setTimeout(() => {
-			download('scoutpost-docker-install.md', dockerInstructions, 'text/markdown');
-		}, 300);
-	}
-
-	async function downloadManualProviderPacket() {
-		if (!(await validateBeforeDownload())) return;
-		download('scoutpost-setup.json', JSON.stringify(manifest, null, 2), 'application/json');
-		window.setTimeout(() => {
-			download('scoutpost-agent-prompt.md', agentPromptFile, 'text/markdown');
-		}, 150);
-		window.setTimeout(() => {
-			download('scoutpost-provider-porting.md', providerPortingPacket, 'text/markdown');
-		}, 300);
-	}
-
-	async function downloadOnboarding() {
-		if (!(await validateBeforeDownload())) return;
-		download('newsroom-onboarding.md', onboardingDoc, 'text/markdown');
-	}
-
-	function generateDatabasePassword() {
-		const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_.~';
-		const values = new Uint32Array(28);
-		crypto.getRandomValues(values);
-		supabaseDbPassword = Array.from(values, (value) => chars[value % chars.length]).join('');
-	}
-
-	function download(filename: string, contents: string, type: string) {
-		const blob = new Blob([contents], { type });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = filename;
-		a.click();
-		setTimeout(() => URL.revokeObjectURL(url), 1000);
-	}
+	const updateCommand = `docker run --rm -it \\
+  -v "$PWD:/workspace" \\
+  -v "$HOME/.config/gh:/root/.config/gh:ro" \\
+  -v "$PWD/scoutpost-setup.json:/config/scoutpost-setup.json:ro" \\
+  ${DOCKER_INSTALLER_IMAGE} update`;
 </script>
 
 <svelte:head>
-	<title>Self-host setup — Scoutpost</title>
+	<title>Self-host setup - Scoutpost</title>
 	<meta
 		name="description"
-		content="Generate a self-hosted Scoutpost installer without pasting secrets into AI chat."
+		content="Docker-only self-host setup for Scoutpost. Keep deployment secrets local and mount the manifest read-only into the installer container."
 	/>
 </svelte:head>
 
@@ -328,369 +53,97 @@ Run the manifest installer from the repository root. Never ask the operator to p
 
 		<header class="header">
 			<div class="eyebrow">SELF-HOST SETUP</div>
-			<h1>Generate your newsroom installer</h1>
+			<h1>Install Scoutpost with Docker</h1>
 			<p>
-				Fill this out locally in your browser. Supabase is the supported install path; manual
-				platforms get a provider porting packet so your technical team can translate the
-				Scoutpost data model and runtime contract.
+				The supported self-host path is a local Docker operator container. Create the setup
+				manifest on your machine, keep it out of Git, and mount it read-only when you run the
+				installer.
 			</p>
 		</header>
 
-		<section class="cost-panel" aria-labelledby="cost-title">
+		<section class="trust-panel" aria-label="Setup safety">
 			<div>
-				<div class="eyebrow">20-PERSON NEWSROOM ESTIMATE</div>
-				<h2 id="cost-title">$140-$165/month typical</h2>
-				<p>
-					Assumes the Supabase managed stack, Firecrawl Standard, Apify Starter, free Resend,
-					free MapTiler, one static frontend, and moderate Gemini Flash-Lite usage. Manual
-					platforms vary by provider and internal infrastructure policy.
-				</p>
+				<ShieldCheck size={22} />
+				<strong>No browser secret collection</strong>
+				<span>API keys, service-role keys, JWT secrets, and deploy hooks stay in a local file.</span>
 			</div>
-			<div class="cost-list">
-				{#each costItems as item}
-					<div>
-						<strong>{item.service}</strong>
-						<span>{item.estimate}</span>
-						<small>{item.note}</small>
-					</div>
-				{/each}
+			<div>
+				<LockKeyhole size={22} />
+				<strong>Read-only secret mount</strong>
+				<span>The installer reads <code>scoutpost-setup.json</code> from <code>/config</code>.</span>
+			</div>
+			<div>
+				<CheckCircle2 size={22} />
+				<strong>Repeatable operator image</strong>
+				<span>Git, Deno, Node, Supabase CLI, GitHub CLI, jq, and OpenSSL live in the container.</span>
 			</div>
 		</section>
 
-		<form class="setup-form" on:submit|preventDefault={downloadInstaller}>
-			<section class="section">
-				<div class="section-heading">
-					<div class="eyebrow">PROJECT</div>
-					<h2>Newsroom identity</h2>
-				</div>
-				<div class="grid two">
-					<label>
-						<span>Project name</span>
-						<input bind:value={projectName} />
-						<small>Used for hosting defaults, provider setup, and local generated files.</small>
-					</label>
-					<label>
-						<span>Public app URL <em>optional for first setup</em></span>
-						<input bind:value={appUrl} placeholder="https://newsroom.example.com" />
-						<small>
-							Not required to provision. Add it after hosting if you want onboarding links prefilled.
-						</small>
-					</label>
-				</div>
-			</section>
+		<section class="section">
+			<div class="section-heading">
+				<div class="eyebrow">STEP 1</div>
+				<h2>Create the local manifest</h2>
+			</div>
+			<p>
+				Download the example manifest, copy it to <code>scoutpost-setup.json</code>, and fill it
+				in locally. The filled manifest contains secrets and must not be committed.
+			</p>
+			<div class="actions">
+				<a
+					class="primary-link"
+					href="https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/deploy/installer/scoutpost-setup.example.json"
+				>
+					<FileJson size={16} /> Download example manifest
+				</a>
+				<a
+					class="secondary-link"
+					href="https://github.com/buriedsignals/scoutpost-os/blob/master/docs/oss/newsroom-docker-install.md"
+				>
+					<ExternalLink size={16} /> Read Docker install guide
+				</a>
+			</div>
+		</section>
 
-			<section class="section">
-				<div class="section-heading">
-					<div class="eyebrow">SERVICE KEYS</div>
-					<h2>AI, extraction, email, and maps</h2>
-				</div>
+		<section class="section">
+			<div class="section-heading">
+				<div class="eyebrow">STEP 2</div>
+				<h2>Run the installer</h2>
+			</div>
+			<SharpCodeBlock code={installCommand} ariaLabel="Copy Docker install command" />
+		</section>
 
-				<div class="service-category">
-					<h3><Bot size={17} /> AI model</h3>
-					<div class="grid two">
-						<label>
-							<span class="field-top">
-								<span>Gemini API key</span>
-								<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">
-									Get key <ExternalLink size={13} />
-								</a>
-							</span>
-							<input type="password" bind:value={geminiKey} autocomplete="off" />
-							<small>Runs relevance checks, summaries, unit extraction, and embeddings.</small>
-						</label>
-					</div>
-				</div>
+		<section class="section">
+			<div class="section-heading">
+				<div class="eyebrow">STEP 3</div>
+				<h2>Validate the deployment</h2>
+			</div>
+			<SharpCodeBlock code={doctorCommand} ariaLabel="Copy Docker doctor command" />
+		</section>
 
-				<div class="service-category">
-					<h3><Server size={17} /> Web and social collection</h3>
-					<div class="grid two">
-						<label>
-							<span class="field-top">
-								<span>Firecrawl API key</span>
-								<a href="https://www.firecrawl.dev/app/api-keys" target="_blank" rel="noopener noreferrer">
-									Get key <ExternalLink size={13} />
-								</a>
-							</span>
-							<input type="password" bind:value={firecrawlKey} autocomplete="off" />
-							<small>Scrapes pages, tracks changes, searches the web, and parses documents.</small>
-						</label>
-						<label>
-							<span class="field-top">
-								<span>Apify API token</span>
-								<a href="https://console.apify.com/account/integrations" target="_blank" rel="noopener noreferrer">
-									Get token <ExternalLink size={13} />
-								</a>
-							</span>
-							<input type="password" bind:value={apifyToken} autocomplete="off" />
-							<small>Runs social media actors for Social Scouts.</small>
-						</label>
-					</div>
-				</div>
+		<section class="section">
+			<div class="section-heading">
+				<div class="eyebrow">MAINTENANCE</div>
+				<h2>Prepare update PRs from the same container</h2>
+			</div>
+			<p>
+				Run updates from a newsroom fork checkout. Mounting GitHub CLI auth lets the installer
+				open a reviewable pull request instead of pushing directly.
+			</p>
+			<SharpCodeBlock code={updateCommand} ariaLabel="Copy Docker update command" />
+		</section>
 
-				<div class="service-category">
-					<h3><Mail size={17} /> Email notifications</h3>
-					<div class="grid two">
-						<label>
-							<span class="field-top">
-								<span>Resend API key</span>
-								<a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer">
-									Get key <ExternalLink size={13} />
-								</a>
-							</span>
-							<input type="password" bind:value={resendKey} autocomplete="off" />
-							<small>Sends scout alerts, onboarding messages, and admin notifications.</small>
-						</label>
-						<label>
-							<span>Resend sender email</span>
-							<input bind:value={resendFromEmail} />
-							<small>Use a verified sender on your newsroom domain.</small>
-						</label>
-					</div>
-				</div>
-
-				<div class="service-category">
-					<h3><Map size={17} /> Location and maps</h3>
-					<div class="grid two">
-						<label>
-							<span class="field-top">
-								<span>MapTiler API key</span>
-								<a href="https://cloud.maptiler.com/account/keys/" target="_blank" rel="noopener noreferrer">
-									Get key <ExternalLink size={13} />
-								</a>
-							</span>
-							<input type="password" bind:value={maptilerKey} autocomplete="off" />
-							<small>Required for location scouting, geocoding, and map search.</small>
-						</label>
-					</div>
-				</div>
-			</section>
-
-			<section class="section">
-				<div class="section-heading">
-					<div class="eyebrow">SIGNUP CONTROLS</div>
-					<h2>Admin and allowed domains</h2>
-				</div>
-				<div class="grid auth-grid">
-					<label>
-						<span>Admin email</span>
-						<input bind:value={adminEmail} placeholder="it-admin@example.com" />
-						<small>Seeded as the deployment owner and support contact.</small>
-					</label>
-					<label>
-						<span>Allowed signup domains</span>
-						<textarea bind:value={signupDomainsText} placeholder="example.com&#10;newsroom.org"></textarea>
-						<small>One per line or comma-separated. The selected auth layer should reject other domains.</small>
-					</label>
-				</div>
-			</section>
-
-			<section class="section">
-				<div class="section-heading">
-					<div class="eyebrow">DATABASE AND RUNTIME</div>
-					<h2>Choose the platform path</h2>
-				</div>
-				<div class="choice-row">
-					<label><input type="radio" bind:group={dataPlatformProvider} value="supabase" /> Supabase</label>
-					<label><input type="radio" bind:group={dataPlatformProvider} value="manual" /> Manual / bring your own platform</label>
-				</div>
-
-				{#if dataPlatformProvider === 'supabase'}
-					<div class="grid three">
-						<label><span>Organization ID</span><input bind:value={supabaseOrgId} /></label>
-						<label>
-							<span>Region</span>
-							<select bind:value={supabaseRegion}>
-								{#each supabaseRegions as region}
-									<option value={region.value}>{region.label}</option>
-								{/each}
-							</select>
-						</label>
-						<div class="field-group">
-							<span class="field-top">
-								<label for="supabase-db-password">Database password</label>
-								<button type="button" class="inline-action" on:click={generateDatabasePassword}>
-									<RefreshCw size={13} /> Generate
-								</button>
-							</span>
-							<input id="supabase-db-password" type="password" bind:value={supabaseDbPassword} autocomplete="off" />
-							<small>
-								The installer uses Supabase CLI auth, but project creation still requires a
-								database password. Save it in your password manager.
-							</small>
-						</div>
-					</div>
-					<div class="grid two">
-						<label>
-							<span>Supabase access token</span>
-							<input type="password" bind:value={supabaseAccessToken} autocomplete="off" />
-							<small>Required for Docker to create the cloud project without browser login.</small>
-						</label>
-					</div>
-					<div class="setup-note">
-						<strong>Supabase CLI auth:</strong>
-						Docker uses this token as `SUPABASE_ACCESS_TOKEN`; no browser login should run inside the container.
-						<a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer">
-							Supabase dashboard <ExternalLink size={13} />
-						</a>
-						<a href="https://supabase.com/docs/guides/cli" target="_blank" rel="noopener noreferrer">
-							Install CLI <ExternalLink size={13} />
-						</a>
-						<a href="https://supabase.com/dashboard/project/_/settings/database" target="_blank" rel="noopener noreferrer">
-							Database settings <ExternalLink size={13} />
-						</a>
-					</div>
-				{:else}
-					<div class="grid two">
-						<label>
-							<span>Provider name</span>
-							<input bind:value={manualProviderName} placeholder="Internal platform, Cloud SQL, Neon, company Postgres..." />
-							<small>Used in generated agent instructions and the CTO review packet.</small>
-						</label>
-						<label>
-							<span>Provider docs URLs <em>optional</em></span>
-							<textarea bind:value={manualProviderDocsText} placeholder="https://docs.example.com/database&#10;https://docs.example.com/auth"></textarea>
-							<small>Official docs or internal platform docs, one per line or comma-separated.</small>
-						</label>
-						<label>
-							<span>API base URL <em>optional</em></span>
-							<input bind:value={manualApiBaseUrl} placeholder="https://api.newsroom.example.com" />
-							<small>Leave blank if the provider integration will define this later.</small>
-						</label>
-						<label>
-							<span>MCP public URL <em>optional</em></span>
-							<input bind:value={manualMcpUrl} placeholder="https://mcp.newsroom.example.com" />
-							<small>Leave blank until the runtime exposes an MCP endpoint.</small>
-						</label>
-					</div>
-					<label class="single manual-notes">
-						<span>Operator notes</span>
-						<textarea bind:value={manualProviderNotes} placeholder="Internal auth requirements, database policy, cloud account constraints, CI/CD expectations..."></textarea>
-						<small>The generated prompt tells the agent to translate Scoutpost's canonical migrations for human review, not to auto-apply provider changes.</small>
-					</label>
-				{/if}
-			</section>
-
-			<section class="section">
-				<div class="section-heading">
-					<div class="eyebrow">FRONTEND HOSTING</div>
-					<h2>Static app deployment</h2>
-				</div>
-				<div class="choice-row">
-					<label><input type="radio" bind:group={frontendProvider} value="netlify" /> Netlify</label>
-					<label><input type="radio" bind:group={frontendProvider} value="vercel" /> Vercel</label>
-					<label><input type="radio" bind:group={frontendProvider} value="cloudflare" /> Cloudflare Pages</label>
-					<label><input type="radio" bind:group={frontendProvider} value="render" /> Render</label>
-					<label><input type="radio" bind:group={frontendProvider} value="manual" /> Manual</label>
-				</div>
-				<div class="grid two">
-					<label><span>Site/project name</span><input bind:value={frontendSiteName} /></label>
-					<label>
-						<span>Custom MCP public URL <em>optional</em></span>
-						<input bind:value={customMcpUrl} placeholder="https://mcp.newsroom.example.com" />
-					</label>
-				</div>
-				<details class="advanced-options">
-					<summary>Advanced deployment options</summary>
-					<div class="choice-row options">
-						<label>
-							<input type="checkbox" bind:checked={installSyncWorkflow} />
-							<span>
-								Keep this fork updated from Scoutpost OSS
-								<small>
-									Adds a weekly GitHub workflow that merges upstream code. Supabase deployments can
-									add SUPABASE_ACCESS_TOKEN for reviewed migration updates; manual providers must
-									review provider-specific migration translations.
-								</small>
-							</span>
-						</label>
-						<label>
-							<input type="checkbox" bind:checked={includeFastapiAddon} />
-							<span>
-								Legacy REST API add-on
-								<small>Only needed if you require the older `/api/v1` FastAPI surface.</small>
-							</span>
-						</label>
-					</div>
-					<label class="single">
-						<span>Render deploy hook <em>optional</em></span>
-						<input bind:value={renderDeployHook} />
-						<small>Used only if Render should redeploy automatically after upstream syncs.</small>
-					</label>
-				</details>
-			</section>
-
-			<section class="section generate-section">
-				<div class="section-heading">
-					<div class="eyebrow">GENERATE</div>
-					<h2>Choose one setup path</h2>
-				</div>
-
-				{#if generated && !validation.valid}
-					<div class="validation-panel" role="alert">
-						<strong>Fix these fields:</strong>
-						<ul>
-							{#each validation.errors as error}
-								<li>{error}</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-
-				<div class="output-options">
-					<div class="option recommended">
-						<Package class="option-icon" size={22} />
-						<h3>{isManualProvider ? 'Provider porting packet' : 'Docker installer'}</h3>
-						<p>
-							{isManualProvider
-								? 'Download the manifest, agent prompt, and CTO-owned provider translation checklist.'
-								: 'Recommended. Download the credentials manifest plus one Docker script for install, doctor, and downstream update PRs.'}
-						</p>
-						<button type="button" class="primary-button" on:click={isManualProvider ? downloadManualProviderPacket : downloadDockerInstaller}>
-							<Download size={16} /> {isManualProvider ? 'Download porting packet' : 'Download Docker installer'}
-						</button>
-					</div>
-					<div class="option">
-						<FileJson class="option-icon" size={22} />
-						<h3>Generate agent instructions</h3>
-						<p>
-							{isManualProvider
-								? 'Download `scoutpost-setup.json` plus a prompt that tells the agent to inspect migrations and prepare reviewable provider changes.'
-								: 'Download `scoutpost-setup.json` plus a prompt that tells the agent to prefer Docker and read the local manifest.'}
-						</p>
-						<button type="button" class="primary-button" on:click={downloadAgentInstructions}>
-							<FileText size={16} /> Download JSON + prompt
-						</button>
-					</div>
-					{#if !isManualProvider}
-						<div class="option">
-							<Terminal class="option-icon" size={22} />
-							<h3>Shell fallback</h3>
-							<p>Download a runnable shell script with the same manifest embedded for environments where Docker is unavailable.</p>
-							<button type="button" class="primary-button" on:click={downloadInstaller}>
-								<Download size={16} /> Download .sh
-							</button>
-						</div>
-					{/if}
-				</div>
-
-				<button type="button" class="secondary-button" on:click={downloadOnboarding}>
-					<FileText size={16} /> Download newsroom onboarding doc
-				</button>
-			</section>
-		</form>
-
-		{#if generated && validation.valid}
-			<section class="preview">
-				<h2>Agent prompt preview</h2>
-				<SharpCodeBlock code={agentPromptFile} ariaLabel="Copy agent manifest prompt" />
-				{#if isManualProvider}
-					<h2>Provider porting preview</h2>
-					<SharpCodeBlock code={providerPortingPacket} ariaLabel="Copy provider porting packet" />
-				{/if}
-				<h2>Redacted manifest preview</h2>
-				<SharpCodeBlock code={redactedManifest} ariaLabel="Copy redacted manifest" />
-			</section>
-		{/if}
+		<section class="section">
+			<div class="section-heading">
+				<div class="eyebrow">BEST PRACTICES</div>
+				<h2>Operator rules</h2>
+			</div>
+			<ul class="rules">
+				<li><Terminal size={16} /> Run Docker locally; do not paste the manifest into chat.</li>
+				<li><LockKeyhole size={16} /> Keep <code>scoutpost-setup.json</code> mode <code>0600</code>.</li>
+				<li><Download size={16} /> Pull the published image or build <code>deploy/installer/Dockerfile</code> from source.</li>
+				<li><ShieldCheck size={16} /> Run <code>doctor</code> before and after updates.</li>
+			</ul>
+		</section>
 	</div>
 </div>
 
@@ -702,7 +155,7 @@ Run the manifest installer from the repository root. Never ask the operator to p
 	}
 
 	.content {
-		max-width: 1120px;
+		max-width: 1040px;
 		margin: 0 auto;
 		padding: var(--space-8) var(--space-6) var(--space-16);
 	}
@@ -726,8 +179,8 @@ Run the manifest installer from the repository root. Never ask the operator to p
 	}
 
 	.header p,
-	.cost-panel p,
-	.option p {
+	.section p,
+	.trust-panel span {
 		margin: 0;
 		color: var(--color-ink-muted);
 		line-height: 1.65;
@@ -743,63 +196,24 @@ Run the manifest installer from the repository root. Never ask the operator to p
 		text-transform: uppercase;
 	}
 
-	.cost-panel {
+	.trust-panel {
 		display: grid;
-		grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-		gap: var(--space-8);
-		margin-bottom: var(--space-8);
-		padding: var(--space-6);
-		border: 1px solid var(--color-border-strong);
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--space-4);
+		margin-bottom: var(--space-10);
+	}
+
+	.trust-panel div {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-5);
+		border: 1px solid var(--color-border);
 		background: var(--color-surface-alt);
 	}
 
-	.cost-panel h2 {
-		margin: 0 0 var(--space-3);
-		font-family: var(--font-display);
-		font-size: 2rem;
-		font-weight: 600;
-		line-height: 1.05;
-	}
-
-	.cost-list {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 0;
-		border-top: 1px solid var(--color-border);
-		border-left: 1px solid var(--color-border);
-	}
-
-	.cost-list div {
-		display: grid;
-		grid-template-columns: 1fr auto;
-		gap: var(--space-1) var(--space-3);
-		padding: var(--space-3);
-		border-right: 1px solid var(--color-border);
-		border-bottom: 1px solid var(--color-border);
-		background: var(--color-bg);
-		min-width: 0;
-	}
-
-	.cost-list strong,
-	.cost-list span {
-		font-size: 0.9rem;
-	}
-
-	.cost-list small {
-		grid-column: 1 / -1;
-		color: var(--color-ink-muted);
-		line-height: 1.45;
-	}
-
-	.setup-form,
-	.preview {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-8);
-	}
-
 	.section {
-		padding-top: var(--space-6);
+		padding: var(--space-7) 0;
 		border-top: 1px solid var(--color-border);
 	}
 
@@ -810,8 +224,7 @@ Run the manifest installer from the repository root. Never ask the operator to p
 		margin-bottom: var(--space-5);
 	}
 
-	.section h2,
-	.preview h2 {
+	.section h2 {
 		margin: 0;
 		font-family: var(--font-display);
 		font-size: 1.75rem;
@@ -819,376 +232,73 @@ Run the manifest installer from the repository root. Never ask the operator to p
 		line-height: 1.15;
 	}
 
-	.service-category {
-		margin-top: var(--space-6);
-	}
-
-	.service-category:first-of-type {
-		margin-top: 0;
-	}
-
-	.service-category h3,
-	.option h3 {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		margin: 0 0 var(--space-4);
-		font-size: 0.95rem;
-		font-weight: 700;
-	}
-
-	.grid {
-		display: grid;
-		gap: var(--space-4);
-	}
-
-	.two {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-
-	.three {
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-	}
-
-	.auth-grid {
-		grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
-		align-items: start;
-	}
-
-	label,
-	.field-group,
-	.single {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		font-size: 0.86rem;
-		font-weight: 650;
-		min-width: 0;
-	}
-
-	label em {
-		color: var(--color-ink-muted);
-		font-style: normal;
-		font-weight: 500;
-	}
-
-	label small,
-	.field-group small {
-		color: var(--color-ink-muted);
-		font-size: 0.78rem;
-		font-weight: 400;
-		line-height: 1.45;
-	}
-
-	.field-top label {
-		display: inline;
-		font-size: inherit;
-		font-weight: inherit;
-	}
-
-	.field-top {
+	.actions {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--space-2);
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	a,
-	.field-top a {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		color: var(--color-primary);
-		font-size: 0.78rem;
-		font-weight: 650;
-		text-decoration: none;
-	}
-
-	a:hover {
-		color: var(--color-primary-deep);
-		text-decoration: underline;
-	}
-
-	input,
-	select,
-	textarea {
-		width: 100%;
-		min-width: 0;
-		border: 1px solid var(--color-border);
-		border-radius: 0;
-		background: var(--color-surface-alt);
-		color: var(--color-ink);
-		padding: 0.78rem 0.85rem;
-		font: inherit;
-		font-weight: 400;
-	}
-
-	textarea {
-		min-height: 7rem;
-		resize: vertical;
-	}
-
-	input:focus,
-	select:focus,
-	textarea:focus {
-		outline: 2px solid var(--color-primary);
-		outline-offset: 2px;
-		border-color: var(--color-primary);
-	}
-
-	.choice-row {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2);
-		align-items: center;
-		margin: 0 0 var(--space-5);
-	}
-
-	.choice-row label {
-		flex-direction: row;
-		align-items: flex-start;
-		gap: var(--space-2);
-		font-weight: 600;
-	}
-
-	.choice-row:not(.options) label {
-		align-items: center;
-		min-height: 2.5rem;
-		padding: 0.6rem 0.8rem;
-		border: 1px solid var(--color-border);
-		background: var(--color-surface-alt);
-		line-height: 1.1;
-		cursor: pointer;
-		transition:
-			background 150ms ease,
-			border-color 150ms ease,
-			color 150ms ease;
-	}
-
-	.choice-row:not(.options) label:hover {
-		border-color: var(--color-border-strong);
-		color: var(--color-primary-deep);
-	}
-
-	.choice-row:not(.options) label:has(input:checked) {
-		border-color: var(--color-primary);
-		background: var(--color-primary-soft);
-		color: var(--color-primary-deep);
-	}
-
-	.choice-row label span {
-		display: grid;
-		gap: var(--space-1);
-	}
-
-	.choice-row input {
-		width: auto;
-	}
-
-	.choice-row input[type='radio'],
-	.choice-row input[type='checkbox'] {
-		flex: 0 0 auto;
-		width: 0.82rem;
-		height: 0.82rem;
-		margin: 0;
-	}
-
-	.choice-row:not(.options) input[type='radio'] {
-		appearance: none;
-		display: grid;
-		place-items: center;
-		border: 1px solid var(--color-border-strong);
-		border-radius: 0;
-		background: var(--color-bg);
-	}
-
-	.choice-row:not(.options) input[type='radio']::before {
-		content: '';
-		width: 0.34rem;
-		height: 0.34rem;
-		background: transparent;
-	}
-
-	.choice-row:not(.options) input[type='radio']:checked {
-		border-color: var(--color-primary);
-		background: var(--color-primary);
-	}
-
-	.choice-row:not(.options) input[type='radio']:checked::before {
-		background: var(--color-bg);
-	}
-
-	.options {
-		margin-top: var(--space-4);
-	}
-
-	.setup-note,
-	.advanced-options {
-		margin-top: var(--space-4);
-		padding: var(--space-4);
-		border: 1px solid var(--color-border);
-		background: var(--color-surface-alt);
-		color: var(--color-ink-muted);
-		font-size: 0.84rem;
-		line-height: 1.55;
-	}
-
-	.setup-note {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2) var(--space-4);
-		align-items: center;
-	}
-
-	.setup-note strong {
-		color: var(--color-ink);
-	}
-
-	.advanced-options summary {
-		color: var(--color-ink);
-		font-weight: 750;
-		cursor: pointer;
-	}
-
-	.advanced-options .single {
-		margin-top: var(--space-4);
-	}
-
-	.manual-notes {
-		margin-top: var(--space-4);
-	}
-
-	.generate-section {
-		padding-bottom: var(--space-8);
-	}
-
-	.validation-panel {
-		margin-bottom: var(--space-5);
-		padding: var(--space-4);
-		border: 1px solid var(--color-warning);
-		background: var(--color-secondary-soft);
-	}
-
-	.validation-panel ul {
-		margin: var(--space-2) 0 0;
-		padding-left: var(--space-5);
-	}
-
-	.output-options {
-		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: var(--space-4);
-	}
-
-	.option {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
 		gap: var(--space-3);
-		padding: var(--space-5);
-		border: 1px solid var(--color-border-strong);
-		background: var(--color-surface-alt);
+		margin-top: var(--space-5);
 	}
 
-	.option.recommended {
-		border-color: var(--color-primary);
-		box-shadow: inset 0 3px 0 var(--color-primary);
-	}
-
-	:global(.option-icon) {
-		color: var(--color-primary);
-	}
-
-	button {
+	.primary-link,
+	.secondary-link {
 		display: inline-flex;
 		align-items: center;
-		justify-content: center;
 		gap: var(--space-2);
+		min-height: 2.75rem;
+		padding: 0 var(--space-4);
 		border: 1px solid var(--color-ink);
-		border-radius: 0;
-		padding: 0.78rem 1rem;
-		font: inherit;
-		font-size: 0.83rem;
-		font-weight: 750;
-		cursor: pointer;
-		transition:
-			background 150ms ease,
-			color 150ms ease,
-			border-color 150ms ease;
-	}
-
-	.inline-action {
-		border: 0;
-		background: transparent;
-		color: var(--color-primary);
-		padding: 0;
-		font-size: 0.78rem;
+		text-decoration: none;
 		font-weight: 700;
 	}
 
-	.inline-action:hover {
-		color: var(--color-primary-deep);
-	}
-
-	button:focus {
-		outline: 2px solid var(--color-primary);
-		outline-offset: 2px;
-	}
-
-	.primary-button {
+	.primary-link {
 		background: var(--color-ink);
 		color: var(--color-bg);
 	}
 
-	.primary-button:hover {
-		background: var(--color-primary-deep);
-		border-color: var(--color-primary-deep);
-	}
-
-	.secondary-button {
-		margin-top: var(--space-4);
-		background: var(--color-surface-alt);
+	.secondary-link {
+		background: var(--color-bg);
 		color: var(--color-ink);
 	}
 
-	.secondary-button:hover {
-		border-color: var(--color-primary);
-		color: var(--color-primary-deep);
+	code {
+		font-family: var(--font-mono);
+		font-size: 0.9em;
 	}
 
-	.preview {
-		padding-top: var(--space-6);
-		border-top: 1px solid var(--color-border);
+	.rules {
+		display: grid;
+		gap: var(--space-3);
+		margin: 0;
+		padding: 0;
+		list-style: none;
 	}
 
-	@media (max-width: 900px) {
-		.cost-panel,
-		.two,
-		.three,
-		.auth-grid,
-		.output-options {
-			grid-template-columns: 1fr;
-		}
-
-		.header h1 {
-			max-width: 100%;
-			font-size: 2.65rem;
-		}
-
-		.cost-list {
-			grid-template-columns: 1fr;
-		}
+	.rules li {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+		color: var(--color-ink-muted);
+		line-height: 1.55;
 	}
 
-	@media (max-width: 560px) {
+	@media (max-width: 780px) {
 		.content {
 			padding: var(--space-6) var(--space-4) var(--space-12);
 		}
 
-		.cost-panel,
-		.option {
-			padding: var(--space-4);
+		.header h1 {
+			font-size: 2.35rem;
+		}
+
+		.trust-panel {
+			grid-template-columns: 1fr;
+		}
+
+		.primary-link,
+		.secondary-link {
+			width: 100%;
+			justify-content: center;
 		}
 	}
 </style>

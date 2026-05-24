@@ -172,10 +172,16 @@ export async function apiFetch<T = unknown>(
   }
 
   if (!res.ok) {
-    const errMsg = parsed && typeof parsed === "object" && parsed !== null &&
+    const errPayload =
+      parsed && typeof parsed === "object" && parsed !== null &&
         "error" in parsed
-      ? (parsed as { error: unknown }).error
-      : parsed;
+        ? (parsed as { error: unknown }).error
+        : parsed;
+    const errMsg = typeof errPayload === "string"
+      ? errPayload
+      : errPayload === undefined || errPayload === null
+      ? "(empty body)"
+      : JSON.stringify(errPayload);
     throw new Error(`API error ${res.status}: ${errMsg}`);
   }
 

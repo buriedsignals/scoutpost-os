@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /auth/
+Disallow: /admin
+
+Sitemap: https://scoutpost.ai/sitemap.xml

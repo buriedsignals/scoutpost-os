@@ -129,6 +129,7 @@ describe('setup generator', () => {
 		expect(script).toContain('automation/setup-from-manifest.sh');
 		expect(prompt).toContain('Do not ask me to paste secrets into chat.');
 		expect(prompt).toContain('Prefer the Docker installer when Docker is available');
+		expect(prompt).toContain('Do not fall back to ad hoc host-machine setup');
 		expect(prompt).toContain('ghcr.io/buriedsignals/scoutpost-installer:latest');
 		expect(prompt).toContain('Install the upstream sync workflow by default');
 		expect(prompt).toContain('For future downstream updates');

@@ -24,15 +24,15 @@ Both flows expose a source mode toggle so users can switch between niche and rel
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                  BEAT SCOUT (v2 + Exa canary port)               │
+│                  BEAT SCOUT (v2 + Exa retrieval)                 │
 │                                                                  │
 │  Trigger: pg_cron → execute-scout EF → scout-beat-execute       │
 │           OR: UI preview → POST /functions/v1/beat-search       │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  Step 0: Retrieval port selection                                │
-│  ├─ Default: Firecrawl-compatible legacy pipeline                │
-│  ├─ Canary: scout.metadata.retrieval = "exa"                     │
+│  ├─ Default: Exa retrieval                                       │
+│  ├─ Per-scout override: scout.metadata.retrieval                 │
 │  ├─ Kill-switch/force: BEAT_RETRIEVAL                            │
 │  └─ A/B discovery shadow: BEAT_AB_SHADOW=1                       │
 │           │                                                      │
@@ -48,10 +48,10 @@ Both flows expose a source mode toggle so users can switch between niche and rel
 │           │                                                      │
 │           ▼                                                      │
 │  Step 2: Retrieval                                               │
-│  ├─ Firecrawl default: explicit sources ["web"] only             │
-│  ├─ Exa canary: /search with category, userLocation, dates       │
+│  ├─ Exa default: /search with category, userLocation, dates      │
+│  ├─ Firecrawl kill switch: explicit sources ["web"] only         │
 │  ├─ Persist beat_ab_runs metrics + Exa cost when available       │
-│  └─ Low-coverage Exa canaries fall back to Firecrawl             │
+│  └─ Low-coverage Exa runs fall back to Firecrawl                 │
 │           │                                                      │
 │           ▼                                                      │
 │  Step 3: Legacy filter/ranking path                              │
@@ -85,7 +85,6 @@ Both flows expose a source mode toggle so users can switch between niche and rel
 |------|----------|---------|
 | `scout-beat-execute/index.ts` | `supabase/functions/` | Beat scout entrypoint. Branches on `priority_sources`: explicit → direct scrape; empty → retrieval pipeline. Resolves Firecrawl vs Exa, logs `beat_ab_runs`, handles low-coverage Exa fallback, extracts units, and sends deterministic extractive digest email. |
 | `_shared/beat_pipeline.ts` | `supabase/functions/` | Public facade for Beat discovery helpers. Kept intentionally small so downstream imports stay stable during Exa migration. |
-| `_shared/beat_pipeline_legacy.ts` | `supabase/functions/` | Current Firecrawl-compatible 8-stage implementation: query gen, search fan-out, date/undated caps, tourism filter, embedding dedup, cluster filter, AI relevance filter. This is the Phase 5 deletion target after Exa live proof. |
 | `_shared/exa.ts` | `supabase/functions/` | Exa `/search` client and retrieval-port helpers. Preserves `SearchHit` shape plus Exa metadata/cost for canary logging. |
 | `_shared/beat_ab_logger.ts` | `supabase/functions/` | Writes `beat_ab_runs`, computes raw/dated/final/locality/freshness metrics, and promotes repeated low-coverage Exa canaries back to Firecrawl. |
 | `_shared/extractive_summary.ts` | `supabase/functions/` | Deterministic Beat email digest renderer and grounding checks. No LLM calls. |
@@ -119,7 +118,7 @@ The v2 port preserves all 8 pipeline stages with these clarifications:
 ### Layer 1: URL Deduplication + Quality Filters
 - Firecrawl Search is the external-search boundary. `_shared/firecrawl.ts` normalizes both legacy flat results and current `web`/`news` result groups into one `SearchHit` shape with `url`, `title`, `description`, `date`, and `source`.
 - The beat pipeline sends `ignoreInvalidURLs: true` and `excludeDomains` to Firecrawl so obvious bad URLs and blocked domains are removed before local filtering.
-- Production Beat Scout search uses explicit Firecrawl `sources: ["web"]` for both primary and discovery queries. Do not rely on Firecrawl defaults.
+- Firecrawl kill-switch search uses explicit `sources: ["web"]` for both primary and discovery queries. Do not rely on Firecrawl defaults.
 - Do not add `news`, `recent-web`, or `web+news` back to the default path without rerunning the quality audit and updating this document. The 2026-05-02 audit found `news` and `recent-web` were the main sources of locality drift and one-concept topic drift, especially for non-English and civic-style beats.
 - `scrapeOptions` is not enabled during search fan-out because Firecrawl charges search plus scrape credits when search results are scraped inline; extraction remains a later, narrowed stage.
 - Simple URL-based dedup during search aggregation
@@ -170,7 +169,7 @@ When multiple articles cover the same story, the system picks the best one using
 
 ## Source Modes
 
-Source mode changes ranking, filtering, target count, and Exa category mapping. It does **not** change the default Firecrawl source set; both modes use explicit web search while Firecrawl remains the default retrieval port.
+Source mode changes ranking, filtering, target count, and Exa category mapping. Firecrawl remains available only as the kill-switch path while Exa is the default retrieval port.
 
 | Mode | Firecrawl source | Exa category | Discovery | Date Window | AI Target | Domain Cap |
 |---|---|---|---|---|---|---|
@@ -179,21 +178,22 @@ Source mode changes ranking, filtering, target count, and Exa category mapping. 
 
 ## Retrieval Port
 
-Firecrawl remains the default for existing Beat scouts. Exa `/search` is wired
-as a canary retrieval port:
+Exa `/search` is the default retrieval port for Beat discovery. Firecrawl is
+kept as the global kill-switch path:
 
 | Control | Effect |
 |---|---|
-| `scouts.metadata.retrieval = "exa"` | Run this scout through Exa retrieval unless the global env overrides it. |
-| `scouts.metadata.retrieval = "firecrawl"` | Force this scout to the Firecrawl-compatible legacy path. |
+| unset `BEAT_RETRIEVAL` | Use Exa by default. |
+| `scouts.metadata.retrieval = "exa"` | Keep this scout on Exa retrieval unless the global env overrides it. |
+| `scouts.metadata.retrieval = "firecrawl"` | Force this scout to the Firecrawl-compatible path. |
 | `BEAT_RETRIEVAL=exa` | Force all Beat scouts to Exa. Disables low-coverage fallback for the run. |
 | `BEAT_RETRIEVAL=firecrawl` | Global kill switch back to Firecrawl. |
 | `BEAT_AB_SHADOW=1` or `scouts.metadata.beat_ab_shadow=true` | Run the alternate port through discovery/filtering only and write a `beat_ab_runs` shadow row. |
 | `scouts.metadata.exa_fallback=false` | Disable per-scout low-coverage fallback during a canary. |
 
-Low-coverage Exa canaries (`final candidates < 2`) log the Exa row, execute
-the current run through Firecrawl, and after three consecutive low-coverage Exa
-rows update `scouts.metadata.retrieval` to `"firecrawl"`.
+Low-coverage Exa runs (`final candidates < 2`) log the Exa row, execute the
+current run through Firecrawl, and after three consecutive low-coverage Exa rows
+update `scouts.metadata.retrieval` to `"firecrawl"`.
 
 ## Search Relevance Guardrails
 

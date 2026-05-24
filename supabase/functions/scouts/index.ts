@@ -512,11 +512,46 @@ async function ensureScheduledBaseline(
     return;
   }
   if (scout.type === "beat") {
-    await establishBeatBaseline(scout.id);
+    // Beat baseline runs the full 8-stage discovery pipeline and routinely
+    // exceeds the synchronous-fetch budget between Edge Functions, surfacing
+    // to clients as a 502 even though the scout row was already committed.
+    // Kick it off in the background — scheduleBaselineAsync uses
+    // EdgeRuntime.waitUntil so the create response returns immediately. If the
+    // background baseline fails, repairMissingBeatBaseline on the next
+    // scheduled run recovers from the first successful scrape.
+    scheduleBeatBaselineInBackground(scout.id);
     return;
   }
   await establishCivicBaseline(scout);
   await stampBaseline(svc, scout.id);
+}
+
+// EdgeRuntime is a Supabase Edge Functions global. Typed locally so callers
+// don't see `any` and so tests can mock it. Falls back to synchronous fetch
+// when the runtime global isn't present (deno test, self-host without the
+// supabase wrapper).
+declare const EdgeRuntime:
+  | {
+    waitUntil(promise: Promise<unknown>): void;
+  }
+  | undefined;
+
+function scheduleBeatBaselineInBackground(scoutId: string): void {
+  const work = establishBeatBaseline(scoutId).catch((err) => {
+    logEvent({
+      level: "warn",
+      fn: "scouts",
+      event: "beat_baseline_background_failed",
+      scout_id: scoutId,
+      msg: err instanceof Error ? err.message : String(err),
+    });
+  });
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+    EdgeRuntime.waitUntil(work);
+  }
+  // Outside Supabase (tests, self-host without EdgeRuntime): we fire the
+  // promise but don't await — same fire-and-forget semantics, callers don't
+  // block. The catch above prevents an unhandled rejection.
 }
 
 async function establishBeatBaseline(scoutId: string): Promise<void> {

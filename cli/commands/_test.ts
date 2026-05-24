@@ -446,6 +446,44 @@ Deno.test("apiFetch — surfaces non-2xx as a thrown Error", async () => {
   });
 });
 
+Deno.test("apiFetch — non-string error bodies serialize, not '[object Object]'", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://x.supabase.co",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ error: { code: "boom", detail: "rpc failed" } }),
+          {
+            status: 502,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )) as typeof fetch;
+
+    try {
+      const err = await assertRejects(
+        () => apiFetch("/functions/v1/scouts"),
+        Error,
+        "502",
+      );
+      assertStringIncludes(err.message, "boom");
+      assertStringIncludes(err.message, "rpc failed");
+      assert(
+        !err.message.includes("[object Object]"),
+        `expected error to be serialized, got: ${err.message}`,
+      );
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});
+
 Deno.test("scouts add — forwards civic, schedule, and source-discovery fields", async () => {
   await withTempHome(async () => {
     writeConfigFile({

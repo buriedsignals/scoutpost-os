@@ -1,0 +1,4 @@
+Contact: mailto:security@scoutpost.ai
+Canonical: https://scoutpost.ai/.well-known/security.txt
+Preferred-Languages: en
+Expires: 2027-05-23T00:00:00.000Z

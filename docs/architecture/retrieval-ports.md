@@ -5,47 +5,47 @@ not rewrite scheduling, credits, canonical-unit dedup, or notification behavior.
 
 ## Beat Scout
 
-Beat Scout currently has two retrieval ports:
+Beat Scout has two retrieval ports:
 
 | Port | Status | Purpose |
 |---|---|---|
-| `firecrawl` | Default | Existing Firecrawl-compatible Beat discovery path. |
-| `exa` | Canary | Exa `/search` replacement for Beat retrieval only. |
+| `exa` | **Default** | Exa `/search` Beat retrieval. |
+| `firecrawl` | Kill-switch / per-scout opt-out | Original Firecrawl-compatible discovery path. Still fully wired; selected via env or scout metadata. |
 
-The stable code import is `_shared/beat_pipeline.ts`. It is intentionally a
-small facade while `_shared/beat_pipeline_legacy.ts` holds the deprecated
-Firecrawl-compatible 8-stage implementation. The legacy file remains until live
-Exa benchmarks prove the replacement and the default is flipped.
+The pipeline lives in `_shared/beat_pipeline.ts`. The previous `beat_pipeline.ts`
+facade re-exporting `beat_pipeline_legacy.ts` was deleted on 2026-05-24 once Exa
+became the default — there is no longer a "legacy" file.
 
 ## Controls
 
 | Control | Scope | Behavior |
 |---|---|---|
-| `scouts.metadata.retrieval = "exa"` | Per scout | Run this scout through Exa retrieval unless an env override wins. |
-| `scouts.metadata.retrieval = "firecrawl"` | Per scout | Keep this scout on Firecrawl. |
-| `BEAT_RETRIEVAL=exa` | Global | Force Exa for all Beat runs. |
-| `BEAT_RETRIEVAL=firecrawl` | Global | Kill switch back to Firecrawl for all Beat runs. |
-| `BEAT_AB_SHADOW=1` | Global | Run the alternate port through discovery/filtering and write a shadow `beat_ab_runs` row. |
-| `scouts.metadata.beat_ab_shadow=true` | Per scout | Enable discovery-only A/B shadow for one scout. |
-| `scouts.metadata.exa_fallback=false` | Per scout | Disable low-coverage Exa fallback for one scout. |
+| `BEAT_RETRIEVAL=firecrawl` | Global | **Kill-switch.** Forces every Beat run back to Firecrawl. Set as a Supabase Edge Function secret to flip without a code deploy. |
+| `BEAT_RETRIEVAL=exa` | Global | Pins to Exa (same as default; useful for asserting intent). |
+| `scouts.metadata.retrieval = "firecrawl"` | Per scout | Opt one scout out of Exa (e.g. a scout that consistently underperforms on Exa for known structural reasons). |
+| `scouts.metadata.retrieval = "exa"` | Per scout | Pin one scout to Exa (defensive — same as default). |
+| `scouts.metadata.exa_fallback = false` | Per scout | Disable the runtime low-coverage fallback for this scout. |
+| `BEAT_AB_SHADOW=1` | Global | Discovery-only shadow logging of the alternate port. Surviving canary-phase telemetry; candidate for deletion in a follow-up cleanup. |
 
-## Fallback
+## Runtime fallback
 
-If a scout-requested Exa run finds fewer than two final candidates and
-`BEAT_RETRIEVAL=exa` is not forcing Exa globally:
+Exa occasionally returns very few hits for sparse locations. If an Exa run
+yields fewer than 2 candidates and the run wasn't forced via global env:
 
-1. The executor writes an Exa `beat_ab_runs` row with
-   `metadata.fallback_reason = "exa_low_coverage"`.
-2. The current execution falls back to Firecrawl.
-3. After three consecutive low-coverage Exa rows, the scout metadata is updated
-   to `retrieval = "firecrawl"`.
+1. A row is written to `beat_ab_runs` with `metadata.fallback_reason = "exa_low_coverage"`.
+2. The current execution re-runs through Firecrawl so the scout still gets fresh
+   units this cycle.
+3. After three consecutive low-coverage Exa rows, the scout's metadata is set to
+   `retrieval = "firecrawl"` — a per-scout latch that survives until cleared.
 
-This protects existing Beat scouts from silent low-coverage canary regressions
-without re-baselining or changing canonical-unit dedup.
+Item (3) was originally canary protection. With Exa as default, the latch is
+debatable — it can mask Exa improvements over time. Tracking removal as a
+follow-up cleanup, gated on seeing how many scouts actually latch in
+production.
 
 ## Metrics
 
-`beat_ab_runs` is the comparison table for canary review:
+`beat_ab_runs` is the canary/audit table:
 
 | Field | Meaning |
 |---|---|
@@ -57,9 +57,17 @@ without re-baselining or changing canonical-unit dedup.
 | `freshness_score` | Fraction of raw hits with dates |
 | `total_cost_dollars` | Exa response cost when returned by the API |
 | `metadata.shadow` | Discovery-only A/B shadow row |
+| `metadata.fallback_reason` | Why the run ended up here (e.g. `exa_low_coverage`) |
 
-The migration gate has already been satisfied: Exa beat Firecrawl on all 13
-global audit scenarios with no critical regression on the hardest cases. The
-one-off Exa-vs-Firecrawl comparison script was removed after that migration
-decision; ongoing safety coverage now lives in the Beat benchmark, QA matrix,
-and `beat_ab_runs` canary telemetry.
+## Rollback playbook
+
+If Exa goes wrong in production:
+
+1. `supabase secrets set BEAT_RETRIEVAL=firecrawl --project-ref <project-ref>`
+2. Wait one Beat run cycle and confirm `beat_ab_runs.retrieval='firecrawl'` for
+   recent rows.
+3. Investigate, fix, then `supabase secrets unset BEAT_RETRIEVAL` to restore the
+   Exa default.
+
+No code deploy needed for the rollback — the kill switch is read on every
+beat run.

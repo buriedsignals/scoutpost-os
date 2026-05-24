@@ -283,7 +283,7 @@ export function buildAgentManifestPrompt(
     "If scoutpost-docker-install.sh is present beside the manifest, run bash scoutpost-docker-install.sh install for initial setup, bash scoutpost-docker-install.sh doctor for validation, and bash scoutpost-docker-install.sh update for downstream maintenance PRs.",
     `Prefer the Docker installer when Docker is available: run ${DOCKER_INSTALLER_IMAGE}, mount the deployment directory or repository at /workspace, mount the manifest read-only at /config/scoutpost-setup.json, and run install.`,
     "If the prebuilt installer image is unavailable, build deploy/installer/Dockerfile from the Scoutpost repository root and use the local scoutpost-installer image instead.",
-    "If Docker is unavailable, run automation/setup-from-manifest.sh with the manifest path from the Scoutpost repository root.",
+    "Use the Docker installer path for install, validation, and update PRs. Do not fall back to ad hoc host-machine setup unless the operator explicitly audits and approves that local environment.",
     "For Supabase Cloud, use the manifest supabase.access_token for non-interactive Supabase CLI authentication. Do not run browser login inside Docker.",
     "Do not print, summarize, cat, or paste secret values from the manifest. It is acceptable to report missing field names and redacted previews only.",
     "Install the upstream sync workflow by default so this fork can receive Scoutpost OSS maintenance updates.",
