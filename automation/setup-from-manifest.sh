@@ -45,6 +45,7 @@ SIGNUP_DOMAINS="$(jq -r '.auth.signup_allowed_domains // [] | map(select(. != ""
 
 GEMINI_API_KEY="$(jqv '.services.gemini_api_key')"
 FIRECRAWL_API_KEY="$(jqv '.services.firecrawl_api_key')"
+EXA_API_KEY="$(jqv '.services.exa_api_key')"
 APIFY_API_TOKEN="$(jqv '.services.apify_api_token')"
 RESEND_API_KEY="$(jqv '.services.resend_api_key')"
 RESEND_FROM_EMAIL="$(jqv '.services.resend_from_email')"
@@ -341,6 +342,11 @@ set_supabase_secrets() {
     "RESEND_API_KEY=${RESEND_API_KEY}" \
     "RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL}" \
     "PUBLIC_MAPTILER_API_KEY=${PUBLIC_MAPTILER_API_KEY}"
+  if [ -n "$EXA_API_KEY" ]; then
+    $SUPABASE_CLI secrets set "EXA_API_KEY=${EXA_API_KEY}"
+  else
+    warn "EXA_API_KEY not supplied. Beat Scout will fall back to Firecrawl-only retrieval until you set EXA_API_KEY (Exa is the default retrieval port — see docs/architecture/retrieval-ports.md)."
+  fi
   if [ -n "$CUSTOM_MCP_URL" ]; then
     $SUPABASE_CLI secrets set "MCP_SERVER_BASE_URL=${CUSTOM_MCP_URL}"
   fi
@@ -378,6 +384,7 @@ SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-}
 GEMINI_API_KEY=${GEMINI_API_KEY}
 LLM_MODEL=gemini-2.5-flash-lite
 FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+EXA_API_KEY=${EXA_API_KEY}
 RESEND_API_KEY=${RESEND_API_KEY}
 RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL}
 APIFY_API_TOKEN=${APIFY_API_TOKEN}

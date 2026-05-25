@@ -82,6 +82,13 @@ services:
       SUPABASE_DB_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       VERIFY_JWT: "false"
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY}
+      # Beat Scout's default retrieval port. Falls back to Firecrawl if unset.
+      EXA_API_KEY: ${EXA_API_KEY:-}
+      APIFY_API_TOKEN: ${APIFY_API_TOKEN}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-scouts@newsroom.org}
     command: start --main-service /home/deno/functions/main
     volumes:
       - ../../supabase/functions:/home/deno/functions
@@ -134,6 +141,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash-lite}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY}
+      EXA_API_KEY: ${EXA_API_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-scouts@newsroom.org}
       APIFY_API_TOKEN: ${APIFY_API_TOKEN}

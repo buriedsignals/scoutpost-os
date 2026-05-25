@@ -23,6 +23,13 @@ export interface SetupManifest {
   services: {
     gemini_api_key: string;
     firecrawl_api_key: string;
+    /**
+     * Default Beat Scout retrieval port. Optional: when missing, Beat Scout
+     * falls back to Firecrawl-only discovery via the `BEAT_RETRIEVAL=firecrawl`
+     * kill switch (see `docs/architecture/retrieval-ports.md`). Strongly
+     * recommended — Exa is the default retrieval port in production.
+     */
+    exa_api_key?: string;
     apify_api_token: string;
     resend_api_key: string;
     resend_from_email: string;
@@ -82,6 +89,7 @@ export interface SetupValidationResult {
 const SECRET_KEYS = new Set([
   "gemini_api_key",
   "firecrawl_api_key",
+  "exa_api_key",
   "apify_api_token",
   "resend_api_key",
   "public_maptiler_api_key",

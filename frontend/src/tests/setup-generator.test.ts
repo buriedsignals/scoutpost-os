@@ -21,6 +21,7 @@ function manifest(overrides: Partial<SetupManifest> = {}): SetupManifest {
 		services: {
 			gemini_api_key: 'gemini-secret',
 			firecrawl_api_key: 'firecrawl-secret',
+			exa_api_key: 'exa-secret',
 			apify_api_token: 'apify-secret',
 			resend_api_key: 'resend-secret',
 			resend_from_email: 'scouts@example.com',
@@ -110,8 +111,20 @@ describe('setup generator', () => {
 		const redacted = redactSetupManifest(manifest());
 
 		expect(redacted.services.gemini_api_key).toBe('gemi…redacted');
+		expect(redacted.services.exa_api_key).toBe('exa-…redacted');
 		expect(redacted.supabase.access_token).toBe('sbp-…redacted');
 		expect(JSON.stringify(redacted)).not.toContain('gemini-secret');
+		expect(JSON.stringify(redacted)).not.toContain('exa-secret');
+	});
+
+	it('treats exa_api_key as optional — missing Exa key is not a validation error', () => {
+		const data = manifest();
+		delete data.services.exa_api_key;
+
+		const result = validateSetupManifest(data);
+
+		expect(result.valid).toBe(true);
+		expect(result.errors).not.toContain('Exa API key is required.');
 	});
 
 	it('shell-escapes single quotes', () => {
