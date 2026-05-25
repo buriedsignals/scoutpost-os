@@ -29,7 +29,7 @@
     "@vitest/coverage-v8": "^4.0.18",
     "baseline-browser-mapping": "^2.9.19",
     "eslint": "^10.2.0",
-    "jsdom": "29.0.2",
+    "jsdom": "29.1.1",
     "postcss": "^8.5.10",
     "svelte": "^5.55.4",
     "svelte-check": "^4.1.3",
