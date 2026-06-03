@@ -2,7 +2,7 @@
 fastapi>=0.115.12
 uvicorn[standard]==0.45.0
 python-multipart>=0.0.22
-pydantic>=2.11.2
+pydantic>=2.13.3
 pydantic-settings==2.14.0
 
 # Session signing (PyJWT used for session cookies)
@@ -16,7 +16,7 @@ httpx>=0.27.0
 resend>=2.0.0
 
 # Timezone data (python:3.13-slim strips backward-compatible tz symlinks)
-tzdata>=2026.1
+tzdata>=2026.2
 
 # Environment variables
 python-dotenv==1.2.2
@@ -33,12 +33,9 @@ slowapi>=0.1.9
 langdetect==1.0.9
 
 # Supabase / PostgreSQL (asyncpg connection pool for Supabase adapters)
-asyncpg>=0.30.0
+asyncpg>=0.31.0
 # Supabase Python client (async admin API for auth.users email lookup)
 supabase>=2.0.0
 
-# Stripe (license key management)
-stripe>=8.0.0
-
 # YAML parsing (AgentSPEX agent definitions)
-PyYAML>=6.0
+PyYAML>=6.0.3

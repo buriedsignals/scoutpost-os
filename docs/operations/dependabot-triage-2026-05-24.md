@@ -33,7 +33,7 @@ Merge order doesn't matter. Rebase, watch CI, merge.
 
 | PR | Package | Bump | Why defer | Plan |
 |---|---|---|---|---|
-| #124 | `stripe` | `>=8.0.0` → `>=15.1.0` | Skipping 7 majors. `license.py` uses `stripe.checkout.Session`, `stripe.Customer`, `stripe.Subscription`, webhooks. 9→15 has multiple API version + breaking parameter renames. | Hold. Schedule a focused stripe migration sprint: pin a single intermediate (e.g. 11.x), test license + webhook flow, then bump to 15. Do not let dependabot drive this. |
+| #124 | `stripe` | `>=8.0.0` → `>=15.1.0` | Superseded. Scoutpost no longer has an active Stripe webhook integration. | Remove the dependency instead of migrating the SDK. |
 | #125 | `lucide-svelte` | `0.468.0` → `1.0.1` | 0.x → 1.0 — verify Svelte 5 runes compatibility, prop names, tree-shaking. Used across most UI components. | Hold until Svelte 5 stack is otherwise quiet. Manual smoke: render every page that imports a Lucide icon. Roll out behind a one-shot PR with screenshots. |
 | #131 | `marked` | `17.0.5` → `18.0.2` | Major. Used in `UnitDrawer.svelte` and `BeatScoutView.svelte`. 17→18 changed renderer API. We have a custom `Renderer` in `BeatScoutView.svelte`. | Hold until someone has time to migrate the custom renderer. Test rendering of unit summaries with code/tables/links. |
 

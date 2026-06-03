@@ -50,7 +50,7 @@ docs/
 │   ├── adapter-pattern.md                 # Port/adapter design, DI wiring, async patterns
 │   ├── supabase-schema.md                 # Legacy: superseded by docs/supabase/*
 │   ├── edge-functions.md                  # Legacy: superseded by docs/supabase/edge-functions.md
-│   ├── license-key.md                     # Stripe integration, key format, validation
+│   ├── license-key.md                     # License key format, validation
 │   ├── deployment-and-mirror.md           # Docker, Render, GitHub mirror CI
 │   └── automation.md                      # setup.sh, sync-upstream, agent instructions
 ├── muckrock/                              # MuckRock integration (auth + billing)
@@ -85,7 +85,7 @@ docs/
 - **Adapter Pattern**: `oss/adapter-pattern.md` - Port/adapter design, DI wiring, how to add adapters
 - **Supabase Schema**: `oss/supabase-schema.md` - PostgreSQL tables, indexes, RLS policies
 - **Edge Functions**: `oss/edge-functions.md` - Supabase Edge Function reference
-- **License Key**: `oss/license-key.md` - Stripe integration, key format, validation, webhooks
+- **License Key**: `oss/license-key.md` - legacy/private validation design; public setup does not require license keys
 - **Deployment & Mirror**: `oss/deployment-and-mirror.md` - Docker, Render, GitHub mirror CI
 - **Automation**: `oss/automation.md` - setup.sh, sync-upstream, agent instructions
 

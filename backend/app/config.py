@@ -40,11 +40,6 @@ class Settings(BaseSettings):
     local_muckrock_auth_broker: bool = os.getenv("LOCAL_MUCKROCK_AUTH_BROKER", "false").lower() == "true"
     session_max_age: int = int(os.getenv("SESSION_MAX_AGE", str(86400 * 7)))  # 7 days
 
-    # Stripe (license key management)
-    stripe_secret_key: str = os.getenv("STRIPE_SECRET_KEY", "")
-    stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-    stripe_annual_price_id: str = os.getenv("STRIPE_ANNUAL_PRICE_ID", "")
-
     # Email allowlist — comma-separated emails and/or @domain patterns.
     # Entries starting with @ match any email from that domain (e.g. @muckrock.com).
     # Empty string = no restriction (all MuckRock users allowed).

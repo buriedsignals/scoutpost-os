@@ -178,7 +178,7 @@ jobs:
           cat "${{ matrix.asset }}.sha256"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
           path: |
@@ -198,7 +198,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -207,7 +207,7 @@ jobs:
         run: ls -la dist/
 
       - name: Create GitHub release on public mirror
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           repository: buriedsignals/scoutpost-os
           token: ${{ secrets.OSS_RELEASE_PAT }}

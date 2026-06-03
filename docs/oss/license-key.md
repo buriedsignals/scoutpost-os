@@ -15,15 +15,15 @@ It must not gate Page, Beat, Social, Civic, CLI, MCP, or editorial features.
 
 Do not implement new license state in DynamoDB. The Scoutpost runtime is Supabase-first after the 2026-04-22 cutover. If license-key storage is implemented or refreshed, use a small Supabase-backed table or a separate operational service, and store only hashed keys.
 
-Recommended minimal shape:
+Recommended minimal shape for any future implementation:
 
 | Field | Purpose |
 | --- | --- |
 | `id` | UUID primary key. |
 | `key_hash` | SHA-256 or stronger hash of the full license key. |
 | `key_prefix` | Non-secret display prefix for support. |
-| `stripe_customer_id` | Optional Stripe customer link. |
-| `stripe_subscription_id` | Optional subscription link. |
+| `customer_id` | Optional external customer link. |
+| `subscription_id` | Optional external subscription link if a future license service needs one. Scoutpost SaaS subscriptions are resolved from MuckRock entitlements, not license records. |
 | `status` | `active`, `past_due`, `cancelled`, `expired`. |
 | `expires_at` | License validity limit. |
 | `created_at`, `updated_at` | Audit timestamps. |
@@ -31,7 +31,7 @@ Recommended minimal shape:
 ## Key Lifecycle
 
 ```
-Stripe Checkout or manual ops action
+Manual ops action or external billing system
   -> license service creates random key
   -> store only hashed key + metadata
   -> deliver full key once to customer/operator
