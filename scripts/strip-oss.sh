@@ -103,7 +103,7 @@ sed_if_exists -i '/^# newsletter-subscribe is called pre-auth/,+1d' supabase/con
 rm -f .github/workflows/mirror-*.yml
 rm -f .github/workflows/claude*.yml
 rm -f .github/workflows/qa-matrix.yml
-rm -f .github/workflows/weekly-oss-benchmarks.yml
+rm -f .github/workflows/weekly-scout-benchmarks.yml
 # CLI release workflow depends on Apple signing secrets that only exist on
 # the private monorepo. OSS forks can restore this and add their own secrets.
 rm -f .github/workflows/cli-release.yml
@@ -152,8 +152,9 @@ rm -f scripts/benchmark-social.ts
 rm -f scripts/benchmark-civic.ts
 rm -f scripts/benchmark-beat.ts
 rm -f scripts/benchmark-dedup.ts
+rm -f scripts/benchmark-internal-workers.ts
 rm -f scripts/benchmark-qa-matrix.ts
-rm -f scripts/benchmark-oss-suite.ts
+rm -f scripts/benchmark-scout-suite.ts
 rm -f scripts/notifications-benchmark.ts
 strip_edge_function notifications-benchmark
 

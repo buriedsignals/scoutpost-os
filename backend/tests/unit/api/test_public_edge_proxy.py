@@ -213,6 +213,42 @@ def test_mcp_proxy_serves_protected_resource_metadata_at_path_suffixed_well_know
     assert fake.calls == []
 
 
+@pytest.mark.parametrize(
+    ("path", "field"),
+    [
+        ("/mcp/.well-known/oauth-authorization-server", "issuer"),
+        ("/mcp/.well-known/oauth-protected-resource", "resource"),
+        ("/.well-known/oauth-authorization-server/mcp", "issuer"),
+        ("/.well-known/oauth-protected-resource/mcp", "resource"),
+    ],
+)
+def test_mcp_metadata_uses_canonical_base_when_forwarded_host_is_spoofed(
+    monkeypatch,
+    path,
+    field,
+):
+    monkeypatch.setattr(public_edge_proxy.settings, "supabase_url", "https://proj.supabase.co")
+    monkeypatch.setattr(public_edge_proxy.settings, "public_mcp_base_url", "https://scoutpost.ai/mcp")
+    fake = _FakeClient(_FakeResp(500, b"should-not-be-called"))
+
+    with patch("app.routers.public_edge_proxy.httpx.AsyncClient", return_value=fake):
+        client = _mount()
+        res = client.get(
+            path,
+            headers={
+                "host": "scoutpost.ai",
+                "x-forwarded-host": "evil.example",
+                "x-forwarded-proto": "https",
+            },
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body[field] == "https://scoutpost.ai/mcp"
+    assert "evil.example" not in str(body)
+    assert fake.calls == []
+
+
 def test_mcp_proxy_path_suffixed_well_known_404s_for_non_mcp_resource(monkeypatch):
     """Belt-and-braces: only honour requests whose tail matches our /mcp
     surface so we don't accidentally advertise OAuth metadata for any

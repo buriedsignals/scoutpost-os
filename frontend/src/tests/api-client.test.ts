@@ -166,21 +166,6 @@ describe('runScoutNow', () => {
 });
 
 // ===========================================================================
-// validateCredits
-// ===========================================================================
-
-describe('validateCredits', () => {
-	it('always returns valid=true (post-cutover stub; gating moved server-side)', async () => {
-		// Post-cutover, the legacy /scrapers/monitoring/validate endpoint
-		// has no EF equivalent. The method is a no-op stub — credit gating
-		// is enforced atomically inside the EF /scouts POST handler.
-		const result = await apiClient.validateCredits(2, 'monitoring');
-		expect(result.valid).toBe(true);
-		expect(result.required_credits).toBe(2);
-	});
-});
-
-// ===========================================================================
 // searchPulse
 // ===========================================================================
 

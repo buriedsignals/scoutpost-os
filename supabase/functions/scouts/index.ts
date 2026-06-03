@@ -153,6 +153,13 @@ const CreateSchema = z
     initial_promises: z.array(InitialPromiseSchema).max(100).optional(),
   })
   .superRefine((v, ctx) => {
+    if (v.type === "web" && !v.url?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["url"],
+        message: "required for web scouts",
+      });
+    }
     if (v.type === "social") {
       if (!v.platform) {
         ctx.addIssue({
@@ -350,12 +357,25 @@ async function listScouts(req: Request, user: AuthedUser): Promise<Response> {
     100,
     Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10)),
   );
+  const typeParam = url.searchParams.get("type");
+  let typeFilter: z.infer<typeof ScoutType> | null = null;
+  if (typeParam !== null && typeParam !== "") {
+    const parsedType = ScoutType.safeParse(typeParam);
+    if (!parsedType.success) {
+      throw new ValidationError("invalid scout type filter");
+    }
+    typeFilter = parsedType.data;
+  }
 
   const { db } = getCallerClient(user);
-  const { data, count, error } = await db
+  let query = db
     .from("scouts")
     .select("*", { count: "exact" })
-    .eq("user_id", user.id)
+    .eq("user_id", user.id);
+  if (typeFilter) {
+    query = query.eq("type", typeFilter);
+  }
+  const { data, count, error } = await query
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -365,6 +385,93 @@ async function listScouts(req: Request, user: AuthedUser): Promise<Response> {
     (data ?? []).map((row) => shapeScoutResponse(db, row)),
   );
   return jsonPaginated(shaped, count ?? 0, offset, limit);
+}
+
+async function scheduleScoutOrThrow(
+  svc: ReturnType<typeof getServiceClient>,
+  scoutId: string,
+  cronExpr: string,
+  userId: string,
+): Promise<void> {
+  const { error } = await svc.rpc("schedule_scout", {
+    p_scout_id: scoutId,
+    p_cron_expr: cronExpr,
+  });
+  if (!error) return;
+  logEvent({
+    level: "error",
+    fn: "scouts",
+    event: "schedule_failed",
+    user_id: userId,
+    scout_id: scoutId,
+    msg: error.message,
+  });
+  throw new Error(`failed to schedule scout: ${error.message}`);
+}
+
+async function unscheduleScoutOrThrow(
+  svc: ReturnType<typeof getServiceClient>,
+  scoutId: string,
+  userId: string,
+): Promise<void> {
+  const { error } = await svc.rpc("unschedule_scout", {
+    p_scout_id: scoutId,
+  });
+  if (!error) return;
+  logEvent({
+    level: "error",
+    fn: "scouts",
+    event: "unschedule_failed",
+    user_id: userId,
+    scout_id: scoutId,
+    msg: error.message,
+  });
+  throw new Error(`failed to unschedule scout: ${error.message}`);
+}
+
+async function rollbackScoutUpdate(
+  svc: ReturnType<typeof getServiceClient>,
+  scoutId: string,
+  userId: string,
+  current: Record<string, unknown>,
+  attempted: Record<string, unknown>,
+): Promise<void> {
+  const patch: Record<string, unknown> = {};
+  for (const key of Object.keys(attempted)) {
+    patch[key] = current[key] ?? null;
+  }
+  if (Object.keys(patch).length === 0) return;
+
+  const { error } = await svc.from("scouts").update(patch).eq("id", scoutId);
+  if (error) {
+    logEvent({
+      level: "error",
+      fn: "scouts",
+      event: "rollback_failed",
+      user_id: userId,
+      scout_id: scoutId,
+      msg: error.message,
+    });
+  }
+}
+
+async function rollbackCreatedScout(
+  svc: ReturnType<typeof getServiceClient>,
+  scoutId: string,
+  userId: string,
+): Promise<void> {
+  const { error } = await svc.from("scouts").delete().eq("id", scoutId);
+  if (error) {
+    logEvent({
+      level: "error",
+      fn: "scouts",
+      event: "rollback_failed",
+      user_id: userId,
+      scout_id: scoutId,
+      msg: error.message,
+      rollback_action: "delete_created_scout",
+    });
+  }
 }
 
 /** Pre-parse normalisation: accept legacy field aliases the v1 UI still
@@ -751,30 +858,22 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
         await seedInitialPromises(svc, data.id, user.id, initial_promises);
       }
     } catch (e) {
-      await svc.from("scouts").delete().eq("id", data.id);
+      await rollbackCreatedScout(svc, data.id, user.id);
       throw e;
     }
     if (needsScheduledBaseline(baselineScout)) {
       try {
         await ensureScheduledBaseline(svc, baselineScout);
       } catch (e) {
-        await svc.from("scouts").delete().eq("id", data.id);
+        await rollbackCreatedScout(svc, data.id, user.id);
         throw e;
       }
     }
-    const { error: rpcErr } = await svc.rpc("schedule_scout", {
-      p_scout_id: data.id,
-      p_cron_expr: schedule_cron,
-    });
-    if (rpcErr) {
-      logEvent({
-        level: "warn",
-        fn: "scouts",
-        event: "schedule_failed",
-        user_id: user.id,
-        scout_id: data.id,
-        msg: rpcErr.message,
-      });
+    try {
+      await scheduleScoutOrThrow(svc, data.id, schedule_cron, user.id);
+    } catch (e) {
+      await rollbackCreatedScout(svc, data.id, user.id);
+      throw e;
     }
   } else {
     const svc = getServiceClient();
@@ -801,7 +900,7 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
         await seedInitialPromises(svc, data.id, user.id, initial_promises);
       }
     } catch (e) {
-      await svc.from("scouts").delete().eq("id", data.id);
+      await rollbackCreatedScout(svc, data.id, user.id);
       throw e;
     }
   }
@@ -888,6 +987,16 @@ async function updateScout(
       "scouts require either location or 1-3 short topic tags",
     );
   }
+  const nextHasWebUrl = typeof nextScout.url === "string" &&
+    nextScout.url.trim().length > 0;
+  const nextIsScheduled = nextScout.is_active === true ||
+    (typeof nextScout.schedule_cron === "string" &&
+      nextScout.schedule_cron.length > 0);
+  if (nextScout.type === "web" && !nextHasWebUrl && nextIsScheduled) {
+    throw new ValidationError(
+      "web scouts require url before they can be active or scheduled",
+    );
+  }
   const scheduleError = schedulePolicyError(
     nextScout.type,
     nextScout.regularity ?? undefined,
@@ -926,51 +1035,24 @@ async function updateScout(
     parsed.data.is_active !== current.is_active;
 
   // Turning is_active off => unschedule, regardless of cron changes.
-  if (activeChanged && parsed.data.is_active === false) {
-    const { error: rpcErr } = await svc.rpc("unschedule_scout", {
-      p_scout_id: id,
-    });
-    if (rpcErr) {
-      logEvent({
-        level: "warn",
-        fn: "scouts",
-        event: "unschedule_failed",
-        user_id: user.id,
-        scout_id: id,
-        msg: rpcErr.message,
-      });
-    }
-  } else if (cronChanged) {
-    if (parsed.data.schedule_cron) {
-      const { error: rpcErr } = await svc.rpc("schedule_scout", {
-        p_scout_id: id,
-        p_cron_expr: parsed.data.schedule_cron,
-      });
-      if (rpcErr) {
-        logEvent({
-          level: "warn",
-          fn: "scouts",
-          event: "schedule_failed",
-          user_id: user.id,
-          scout_id: id,
-          msg: rpcErr.message,
-        });
-      }
-    } else {
-      const { error: rpcErr } = await svc.rpc("unschedule_scout", {
-        p_scout_id: id,
-      });
-      if (rpcErr) {
-        logEvent({
-          level: "warn",
-          fn: "scouts",
-          event: "unschedule_failed",
-          user_id: user.id,
-          scout_id: id,
-          msg: rpcErr.message,
-        });
+  try {
+    if (activeChanged && parsed.data.is_active === false) {
+      await unscheduleScoutOrThrow(svc, id, user.id);
+    } else if (cronChanged) {
+      if (parsed.data.schedule_cron) {
+        await scheduleScoutOrThrow(
+          svc,
+          id,
+          parsed.data.schedule_cron,
+          user.id,
+        );
+      } else {
+        await unscheduleScoutOrThrow(svc, id, user.id);
       }
     }
+  } catch (e) {
+    await rollbackScoutUpdate(svc, id, user.id, current, parsed.data);
+    throw e;
   }
 
   return jsonOk(await shapeScoutResponse(db, data));
@@ -1030,6 +1112,15 @@ async function runScout(user: AuthedUser, id: string): Promise<Response> {
 
 async function pauseScout(user: AuthedUser, id: string): Promise<Response> {
   const { db } = getCallerClient(user);
+  const { data: current, error: readErr } = await db
+    .from("scouts")
+    .select("*")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+  if (!current) throw new NotFoundError("scout");
+
   const { data, error } = await db
     .from("scouts")
     .update({ is_active: false })
@@ -1041,18 +1132,17 @@ async function pauseScout(user: AuthedUser, id: string): Promise<Response> {
   if (!data) throw new NotFoundError("scout");
 
   const svc = getServiceClient();
-  const { error: rpcErr } = await svc.rpc("unschedule_scout", {
-    p_scout_id: id,
-  });
-  if (rpcErr) {
-    logEvent({
-      level: "warn",
-      fn: "scouts",
-      event: "unschedule_failed",
-      user_id: user.id,
-      scout_id: id,
-      msg: rpcErr.message,
-    });
+  try {
+    await unscheduleScoutOrThrow(svc, id, user.id);
+  } catch (e) {
+    await rollbackScoutUpdate(
+      svc,
+      id,
+      user.id,
+      current,
+      { is_active: false },
+    );
+    throw e;
   }
 
   return jsonOk(await shapeScoutResponse(db, data));
@@ -1088,19 +1178,17 @@ async function resumeScout(user: AuthedUser, id: string): Promise<Response> {
   if (error) throw new Error(error.message);
   if (!data) throw new NotFoundError("scout");
 
-  const { error: rpcErr } = await svc.rpc("schedule_scout", {
-    p_scout_id: id,
-    p_cron_expr: current.schedule_cron,
-  });
-  if (rpcErr) {
-    logEvent({
-      level: "warn",
-      fn: "scouts",
-      event: "schedule_failed",
-      user_id: user.id,
-      scout_id: id,
-      msg: rpcErr.message,
-    });
+  try {
+    await scheduleScoutOrThrow(svc, id, current.schedule_cron, user.id);
+  } catch (e) {
+    await rollbackScoutUpdate(
+      svc,
+      id,
+      user.id,
+      current,
+      { is_active: true },
+    );
+    throw e;
   }
 
   return jsonOk(await shapeScoutResponse(db, data));

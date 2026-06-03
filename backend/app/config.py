@@ -97,6 +97,7 @@ class Settings(BaseSettings):
     supabase_service_key: str = os.getenv("SUPABASE_SERVICE_KEY", os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""))
     supabase_anon_key: str = os.getenv("SUPABASE_ANON_KEY", "")
     supabase_jwt_secret: str = os.getenv("SUPABASE_JWT_SECRET", "")
+    public_mcp_base_url: str = os.getenv("PUBLIC_MCP_BASE_URL", "https://scoutpost.ai/mcp")
 
     # Auth broker — post-login redirect target (frontend route that reads hash tokens).
     # Renamed from SUPABASE_POST_LOGIN_REDIRECT — Supabase reserves SUPABASE_*

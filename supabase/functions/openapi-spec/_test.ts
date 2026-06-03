@@ -58,7 +58,13 @@ const REQUIRED_PATHS: Array<[string, string[]]> = [
   ["/scouts/{id}/resume", ["post"]],
   ["/scouts/from-template", ["post"]],
   ["/units", ["get"]],
-  ["/units/search", ["post"]],
+  ["/units/locations", ["get"]],
+  ["/units/topics", ["get"]],
+  ["/units/all", ["get"]],
+  ["/units/unused", ["get"]],
+  ["/units/by-topic", ["get"]],
+  ["/units/search", ["get", "post"]],
+  ["/units/mark-used", ["patch"]],
   ["/units/{id}", ["get", "patch", "delete"]],
   ["/projects", ["get", "post"]],
   ["/projects/{id}", ["get", "patch", "delete"]],
@@ -79,7 +85,7 @@ const REQUIRED_PATHS: Array<[string, string[]]> = [
 Deno.test("spec.json — OpenAPI 3.1.0 header + version present", () => {
   assertEquals(doc.openapi, "3.1.0");
   assertExists(doc.info?.version);
-  assertEquals(doc.info.title, "coJournalist API");
+  assertEquals(doc.info.title, "Scoutpost API");
 });
 
 Deno.test("spec.json — every advertised path + method is declared", () => {
@@ -186,6 +192,26 @@ Deno.test("spec.json — POST /units/search documents mode + scope/state filters
   assertExists(props.used_in_article);
   assertExists(props.include_deleted);
   assertExists(props.limit);
+});
+
+Deno.test("spec.json — live legacy units compatibility routes are documented as deprecated", () => {
+  const legacyRoutes = [
+    ["/units/locations", "get"],
+    ["/units/topics", "get"],
+    ["/units/all", "get"],
+    ["/units/unused", "get"],
+    ["/units/by-topic", "get"],
+    ["/units/search", "get"],
+    ["/units/mark-used", "patch"],
+  ] as const;
+
+  for (const [path, method] of legacyRoutes) {
+    const operation = doc.paths[path]?.[method] as
+      | { deprecated?: boolean }
+      | undefined;
+    if (!operation) throw new Error(`missing legacy route: ${method} ${path}`);
+    assertEquals(operation.deprecated, true);
+  }
 });
 
 Deno.test("spec.json — Scout schema documents structured last_run", () => {

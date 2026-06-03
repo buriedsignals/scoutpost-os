@@ -142,18 +142,15 @@ def _response_headers(upstream: httpx.Response) -> dict[str, str]:
     return headers
 
 
-def _public_mcp_base(request: Request) -> str:
-    proto = (
-        request.headers.get("x-forwarded-proto")
-        or request.url.scheme
-        or "https"
-    ).split(",")[0].strip()
-    host = (
-        request.headers.get("x-forwarded-host")
-        or request.headers.get("host")
-        or request.url.netloc
-    ).split(",")[0].strip()
-    return f"{proto}://{host}/mcp".rstrip("/")
+def _public_mcp_base(_request: Request) -> str:
+    base = (settings.public_mcp_base_url or "https://scoutpost.ai/mcp").rstrip("/")
+    parsed = urlparse(base)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(
+            status_code=503,
+            detail="PUBLIC_MCP_BASE_URL must be an absolute URL",
+        )
+    return base
 
 
 def _mcp_authorization_metadata(request: Request) -> JSONResponse:

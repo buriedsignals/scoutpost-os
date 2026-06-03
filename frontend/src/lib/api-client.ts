@@ -690,29 +690,6 @@ export const apiClient = {
 	 */
 	async revokeApiKey(keyId: string): Promise<void> {
 		return apiRequest('DELETE', `/api-keys/${keyId}`);
-	},
-
-	/**
-	 * Validate credits for an operation.
-	 * Returns 402 status if insufficient credits.
-	 */
-	async validateCredits(
-		required_credits: number,
-		// eslint-disable-next-line @typescript-eslint/no-unused-vars
-		_operation_type?: string
-	): Promise<{ valid: boolean; current_credits: number; required_credits: number }> {
-		// Stub: the legacy /scrapers/monitoring/validate endpoint has no
-		// Edge Function equivalent today. Credit gating will move into the
-		// /scouts POST handler itself (server-side, atomic with creation)
-		// during POST-CUTOVER-TODO #2. Until then, return valid=true so the
-		// scheduling UI doesn't gate on a phantom check. If the user
-		// genuinely lacks credits, the EF /scouts POST will reject server-
-		// side and the UI surfaces that error normally.
-		return {
-			valid: true,
-			current_credits: 9999,
-			required_credits
-		};
 	}
 };
 

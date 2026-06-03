@@ -8,6 +8,7 @@ import {
 } from "jsr:@std/assert";
 import {
   apiFetch,
+  configDir,
   configPath,
   hostedSupabaseTargetWarning,
   KNOWN_HOSTED_SUPABASE_PROJECT_REF,
@@ -70,6 +71,24 @@ Deno.test("config set + get round-trip", async () => {
     const cfg2 = readConfigFile();
     assertEquals(cfg2.api_url, "https://example.test/api");
     assertEquals(cfg2.auth_token, "newtoken");
+  });
+});
+
+Deno.test("config write uses private POSIX permissions when modes are available", async () => {
+  await withTempHome(() => {
+    writeConfigFile({
+      api_url: "https://example.test/api",
+      api_key: "cj_secret",
+    });
+
+    const dirMode = Deno.statSync(configDir()).mode;
+    const fileMode = Deno.statSync(configPath()).mode;
+    if (dirMode !== null) {
+      assertEquals(dirMode & 0o777, 0o700);
+    }
+    if (fileMode !== null) {
+      assertEquals(fileMode & 0o777, 0o600);
+    }
   });
 });
 

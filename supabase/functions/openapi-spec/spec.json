@@ -158,7 +158,77 @@
         } } } } }
       }
     },
+    "/units/locations": {
+      "get": {
+        "tags": ["units"],
+        "summary": "Legacy compatibility: list location keys represented in the caller's units.",
+        "deprecated": true,
+        "description": "Compatibility route used by older feed/workspace clients. Prefer GET /units with location filters for new integrations.",
+        "responses": { "200": { "description": "location keys" } }
+      }
+    },
+    "/units/topics": {
+      "get": {
+        "tags": ["units"],
+        "summary": "Legacy compatibility: list topics represented in the caller's units.",
+        "deprecated": true,
+        "description": "Compatibility route used by older feed/workspace clients. Prefer GET /units with topic/scout/project filters for new integrations.",
+        "responses": { "200": { "description": "topics" } }
+      }
+    },
+    "/units/all": {
+      "get": {
+        "tags": ["units"],
+        "summary": "Legacy compatibility: list unused units.",
+        "deprecated": true,
+        "parameters": [{ "$ref": "#/components/parameters/Limit" }],
+        "responses": { "200": { "description": "legacy units envelope" } }
+      }
+    },
+    "/units/unused": {
+      "get": {
+        "tags": ["units"],
+        "summary": "Legacy compatibility: list unused units for a required country/location scope.",
+        "deprecated": true,
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "name": "country", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "schema": { "type": "string" } },
+          { "name": "city", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "legacy units envelope" } }
+      }
+    },
+    "/units/by-topic": {
+      "get": {
+        "tags": ["units"],
+        "summary": "Legacy compatibility: list unused units by topic.",
+        "deprecated": true,
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "name": "topic", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "country", "in": "query", "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "schema": { "type": "string" } },
+          { "name": "city", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "legacy units envelope" } }
+      }
+    },
     "/units/search": {
+      "get": {
+        "tags": ["units"],
+        "summary": "Legacy compatibility: search units with query-string parameters.",
+        "deprecated": true,
+        "parameters": [
+          { "name": "query", "in": "query", "required": true, "schema": { "type": "string", "minLength": 2 } },
+          { "$ref": "#/components/parameters/Limit" },
+          { "name": "topic", "in": "query", "schema": { "type": "string" } },
+          { "name": "country", "in": "query", "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "schema": { "type": "string" } },
+          { "name": "city", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "legacy units envelope" } }
+      },
       "post": {
         "tags": ["units"],
         "summary": "Search over the caller's units using semantic, keyword, or hybrid mode.",
@@ -180,6 +250,33 @@
           "type": "object",
           "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Unit" } } }
         } } } } }
+      }
+    },
+    "/units/mark-used": {
+      "patch": {
+        "tags": ["units"],
+        "summary": "Legacy compatibility: mark units used from Dynamo-style unit keys.",
+        "deprecated": true,
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object",
+          "required": ["unit_keys"],
+          "properties": {
+            "unit_keys": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "required": ["pk", "sk"],
+                "properties": {
+                  "pk": { "type": "string" },
+                  "sk": { "type": "string" }
+                }
+              }
+            }
+          }
+        } } } },
+        "responses": { "200": { "description": "marked count" } }
       }
     },
     "/units/{id}": {

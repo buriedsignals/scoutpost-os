@@ -1,10 +1,12 @@
 #!/usr/bin/env -S deno run --allow-env --allow-net --allow-write=scripts/reports
 import {
-  buildSocialActorInput,
-  normalizeSocialDatasetPosts,
-  SOCIAL_APIFY_ACTORS,
-} from "../supabase/functions/_shared/social_baseline.ts";
-import { envAny } from "./_bench_shared.ts";
+  BenchCtx,
+  envAny,
+  getBenchCtx,
+  jsonOrThrow,
+  userFetch,
+} from "./_bench_shared.ts";
+import { SOCIAL_APIFY_ACTORS } from "../supabase/functions/_shared/social_baseline.ts";
 
 type Platform = "instagram" | "x" | "facebook" | "tiktok";
 
@@ -13,20 +15,28 @@ interface ActorCase {
   handle: string;
 }
 
+interface SocialTestResponse {
+  valid?: boolean;
+  profile_url?: string;
+  error?: string;
+  post_ids?: string[];
+  preview_posts?: unknown[];
+  posts_data?: unknown[];
+}
+
 interface ActorResult {
   platform: Platform;
   handle: string;
   actorId: string;
   ok: boolean;
-  rawCount: number;
-  normalizedCount: number;
-  firstKeys: string[];
+  profileUrl: string | null;
+  postIds: number;
+  previewPosts: number;
+  postsData: number;
   error: string | null;
   elapsedMs: number;
 }
 
-const APIFY_TIMEOUT_SECS = Number(Deno.env.get("APIFY_TIMEOUT_SECS") ?? "180");
-const token = mustEnv("APIFY_API_TOKEN");
 const cases: ActorCase[] = [
   {
     platform: "instagram",
@@ -52,9 +62,10 @@ const cases: ActorCase[] = [
   },
 ];
 
+const ctx = await getBenchCtx({ userToken: true });
 const results: ActorResult[] = [];
 for (const c of cases) {
-  results.push(await runActorCase(c));
+  results.push(await runActorCase(ctx, c));
 }
 
 await writeReports(results);
@@ -63,61 +74,54 @@ const failed = results.filter((r) => !r.ok);
 for (const r of results) {
   const mark = r.ok ? "OK" : "FAIL";
   console.log(
-    `${mark} ${r.platform} actor=${r.actorId} raw=${r.rawCount} normalized=${r.normalizedCount}` +
+    `${mark} ${r.platform} actor=${r.actorId} posts=${r.postIds} preview=${r.previewPosts}` +
       (r.error ? ` error=${r.error}` : ""),
   );
 }
 
 if (failed.length > 0) {
   throw new Error(
-    `Apify actor benchmark failed for: ${
+    `Supabase social-test actor benchmark failed for: ${
       failed.map((r) => r.platform).join(", ")
     }`,
   );
 }
 
-async function runActorCase(c: ActorCase): Promise<ActorResult> {
+async function runActorCase(
+  ctx: BenchCtx,
+  c: ActorCase,
+): Promise<ActorResult> {
   const started = performance.now();
   const actor = SOCIAL_APIFY_ACTORS[c.platform];
   try {
-    const endpoint =
-      `https://api.apify.com/v2/acts/${actor.id}/run-sync-get-dataset-items` +
-      `?token=${encodeURIComponent(token)}&timeout=${APIFY_TIMEOUT_SECS}`;
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildSocialActorInput(c.platform, c.handle)),
-      signal: AbortSignal.timeout((APIFY_TIMEOUT_SECS + 20) * 1000),
+    const res = await userFetch(ctx, "/social-test", {
+      body: { platform: c.platform, handle: c.handle },
     });
-    if (!res.ok) {
-      throw new Error(`${res.status}: ${(await res.text()).slice(0, 300)}`);
-    }
-    const raw = await res.json().catch(() => []);
-    const rawRows = Array.isArray(raw) ? raw : raw ? [raw] : [];
-    const normalized = normalizeSocialDatasetPosts(c.platform, raw);
-    const firstKeys = rawRows[0] && typeof rawRows[0] === "object"
-      ? Object.keys(rawRows[0] as Record<string, unknown>).slice(0, 30)
-      : [];
-    const placeholderOnly = rawRows.length > 0 && normalized.length === 0 &&
-      rawRows.every((row) =>
-        row && typeof row === "object" &&
-        (row as Record<string, unknown>).noResults === true
-      );
-    const missingUsableShape = normalized.length === 0 ||
-      normalized.every((post) => !post.text && !post.imageUrl);
-    const error = placeholderOnly
-      ? "actor returned only noResults placeholders"
-      : missingUsableShape
-      ? "no normalized posts with text or media"
+    const body = await jsonOrThrow<SocialTestResponse>(
+      res,
+      `social-test ${c.platform}`,
+    );
+    const postIds = Array.isArray(body.post_ids) ? body.post_ids.length : 0;
+    const previewPosts = Array.isArray(body.preview_posts)
+      ? body.preview_posts.length
+      : 0;
+    const postsData = Array.isArray(body.posts_data)
+      ? body.posts_data.length
+      : 0;
+    const error = body.valid !== true
+      ? body.error ?? "profile validation failed"
+      : postIds === 0 || previewPosts === 0 || postsData === 0
+      ? body.error ?? "social-test returned no normalized preview posts"
       : null;
     return {
       platform: c.platform,
       handle: c.handle,
       actorId: actor.id,
       ok: !error,
-      rawCount: rawRows.length,
-      normalizedCount: normalized.length,
-      firstKeys,
+      profileUrl: body.profile_url ?? null,
+      postIds,
+      previewPosts,
+      postsData,
       error,
       elapsedMs: Math.round(performance.now() - started),
     };
@@ -127,9 +131,10 @@ async function runActorCase(c: ActorCase): Promise<ActorResult> {
       handle: c.handle,
       actorId: actor.id,
       ok: false,
-      rawCount: 0,
-      normalizedCount: 0,
-      firstKeys: [],
+      profileUrl: null,
+      postIds: 0,
+      previewPosts: 0,
+      postsData: 0,
       error: e instanceof Error ? e.message : String(e),
       elapsedMs: Math.round(performance.now() - started),
     };
@@ -145,23 +150,17 @@ async function writeReports(results: ActorResult[]) {
   await Deno.writeTextFile(
     mdPath,
     [
-      "# Apify Actor Benchmark",
+      "# Supabase Social Actor Benchmark",
       "",
-      "| Platform | Actor | Handle | OK | Raw | Normalized | Error |",
-      "|---|---|---:|---:|---:|---:|---|",
+      "| Platform | Actor | Handle | OK | Posts | Preview | Data | Profile | Error |",
+      "|---|---|---:|---:|---:|---:|---:|---|---|",
       ...results.map((r) =>
-        `| ${r.platform} | \`${r.actorId}\` | ${r.handle} | ${r.ok} | ${r.rawCount} | ${r.normalizedCount} | ${
-          r.error ?? ""
-        } |`
+        `| ${r.platform} | \`${r.actorId}\` | ${r.handle} | ${r.ok} | ${r.postIds} | ${r.previewPosts} | ${r.postsData} | ${
+          r.profileUrl ?? ""
+        } | ${r.error ?? ""} |`
       ),
       "",
     ].join("\n"),
   );
   console.log(`Reports: ${jsonPath}, ${mdPath}`);
-}
-
-function mustEnv(name: string): string {
-  const value = Deno.env.get(name);
-  if (!value) throw new Error(`${name} is required`);
-  return value;
 }

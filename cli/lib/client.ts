@@ -34,8 +34,23 @@ export function readConfigFile(): Config {
 }
 
 export function writeConfigFile(cfg: Config): void {
-  Deno.mkdirSync(configDir(), { recursive: true });
-  Deno.writeTextFileSync(configPath(), JSON.stringify(cfg, null, 2) + "\n");
+  const dir = configDir();
+  const path = configPath();
+  Deno.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    Deno.chmodSync(dir, 0o700);
+  } catch {
+    // Non-POSIX platforms may not support chmod; the mode option above is
+    // still applied where the runtime supports it.
+  }
+  Deno.writeTextFileSync(path, JSON.stringify(cfg, null, 2) + "\n", {
+    mode: 0o600,
+  });
+  try {
+    Deno.chmodSync(path, 0o600);
+  } catch {
+    // See directory chmod note.
+  }
 }
 
 function isDirectory(path: string): boolean {

@@ -120,6 +120,53 @@ Deno.test("scouts: create + get + list + patch + delete round-trip", async () =>
   }
 });
 
+Deno.test("scouts: list accepts type filter", async () => {
+  const user = await createTestUser();
+  const createdIds: string[] = [];
+  try {
+    for (
+      const payload of [
+        {
+          name: "Filtered Web Scout",
+          type: "web",
+          url: "https://example.com",
+          topic: "council",
+        },
+        {
+          name: "Filtered Beat Scout",
+          type: "beat",
+          topic: "housing",
+        },
+      ]
+    ) {
+      const res = await fetch(functionUrl("scouts"), {
+        method: "POST",
+        headers: headers(user.token),
+        body: JSON.stringify(payload),
+      });
+      assertEquals(res.status, 201);
+      createdIds.push((await res.json()).id);
+    }
+
+    const listRes = await fetch(functionUrl("scouts", "?type=web"), {
+      headers: headers(user.token),
+    });
+    assertEquals(listRes.status, 200);
+    const listed = await listRes.json();
+    assertEquals(listed.pagination.total, 1);
+    assertEquals(listed.items.length, 1);
+    assertEquals(listed.items[0].type, "web");
+  } finally {
+    for (const id of createdIds) {
+      await fetch(functionUrl("scouts", `/${id}`), {
+        method: "DELETE",
+        headers: headers(user.token),
+      }).then((r) => r.body?.cancel());
+    }
+    await user.cleanup();
+  }
+});
+
 Deno.test("scouts: POST /:id/run returns 202 with run_id UUID", async () => {
   const user = await createTestUser();
   try {
@@ -480,6 +527,73 @@ Deno.test("scouts: 400 on invalid scout type", async () => {
   }
 });
 
+Deno.test("scouts: create rejects web scouts without URL", async () => {
+  const user = await createTestUser();
+  try {
+    const res = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Missing URL Scout",
+        type: "web",
+        topic: "council",
+      }),
+    });
+    assertEquals(res.status, 400);
+    const body = await res.json();
+    assertMatch(body.error, /url/i);
+  } finally {
+    await user.cleanup();
+  }
+});
+
+Deno.test("scouts: patch rejects scheduled web scouts without URL", async () => {
+  const user = await createTestUser();
+  let createdId: string | null = null;
+  try {
+    const createRes = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Scheduled Web URL Guard",
+        type: "web",
+        url: "https://example.com",
+        topic: "council",
+      }),
+    });
+    assertEquals(createRes.status, 201);
+    const created = await createRes.json();
+    createdId = created.id;
+
+    const { error: activateErr } = await svc()
+      .from("scouts")
+      .update({
+        is_active: true,
+        schedule_cron: "0 6 * * 1",
+        baseline_established_at: new Date().toISOString(),
+      })
+      .eq("id", created.id);
+    if (activateErr) throw new Error(activateErr.message);
+
+    const patchRes = await fetch(functionUrl("scouts", `/${created.id}`), {
+      method: "PATCH",
+      headers: headers(user.token),
+      body: JSON.stringify({ url: null }),
+    });
+    assertEquals(patchRes.status, 400);
+    const body = await patchRes.json();
+    assertMatch(body.error, /url/i);
+  } finally {
+    if (createdId) {
+      await fetch(functionUrl("scouts", `/${createdId}`), {
+        method: "DELETE",
+        headers: headers(user.token),
+      }).then((r) => r.body?.cancel());
+    }
+    await user.cleanup();
+  }
+});
+
 Deno.test("scouts: create requires topic tags or location", async () => {
   const user = await createTestUser();
   try {
@@ -495,6 +609,35 @@ Deno.test("scouts: create requires topic tags or location", async () => {
     assertEquals(res.status, 400);
     const body = await res.json();
     assertMatch(body.error, /topic/i);
+  } finally {
+    await user.cleanup();
+  }
+});
+
+Deno.test("scouts: scheduled create fails closed when schedule RPC fails", async () => {
+  const user = await createTestUser();
+  try {
+    const res = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Bad Cron Scout",
+        type: "beat",
+        topic: "housing",
+        schedule_cron: "not a cron expression",
+      }),
+    });
+    assertEquals(res.status, 500);
+    const body = await res.json();
+    assertMatch(body.error, /schedule/i);
+
+    const { count, error } = await svc()
+      .from("scouts")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("name", "Bad Cron Scout");
+    if (error) throw new Error(error.message);
+    assertEquals(count, 0);
   } finally {
     await user.cleanup();
   }
