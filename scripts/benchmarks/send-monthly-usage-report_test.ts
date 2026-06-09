@@ -4,16 +4,16 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { reportQuery } from "./send-monthly-usage-report.ts";
 
-Deno.test("reportQuery defaults to current monthly recipients", () => {
+Deno.test("reportQuery defaults to previous monthly recipients", () => {
   const query = reportQuery([]);
   assertEquals(query.get("recipients"), "monthly");
-  assertEquals(query.get("period"), "current");
+  assertEquals(query.get("period"), "previous");
 });
 
-Deno.test("reportQuery supports previous period", () => {
-  const query = reportQuery(["--previous"]);
+Deno.test("reportQuery supports current period", () => {
+  const query = reportQuery(["--current"]);
   assertEquals(query.get("recipients"), "monthly");
-  assertEquals(query.get("period"), "previous");
+  assertEquals(query.get("period"), "current");
 });
 
 Deno.test("reportQuery supports explicit year and month", () => {
