@@ -143,6 +143,11 @@ export function requireServiceKey(req: Request): void {
     )
   ) return;
 
+  const apiKeyHeader = req.headers.get("apikey") ??
+    req.headers.get("ApiKey") ??
+    req.headers.get("X-Supabase-Api-Key");
+  if (timingSafeEqual(apiKeyHeader, expectedServiceRole)) return;
+
   if (!expectedInternal && !expectedServiceRole) {
     throw new AuthError(
       "server misconfigured: neither INTERNAL_SERVICE_KEY nor service-role env set",

@@ -714,6 +714,16 @@ async function processSucceededRun(
       const result = await geminiExtract<{ units: ExtractedUnit[] }>(
         prompt,
         EXTRACTION_SCHEMA,
+        {
+          usage: {
+            db: svc,
+            userId: scout.user_id ?? queueRow.user_id,
+            scoutId: scout.id,
+            runId: queueRow.scout_run_id,
+            functionName: "apify-callback",
+            operation: "social_extract_post",
+          },
+        },
       );
       extracted = Array.isArray(result?.units) ? result.units : [];
     } catch (e) {
@@ -802,6 +812,14 @@ async function insertUnit(
       title: typeof post.id === "string"
         ? `${platform} post ${post.id}`
         : `${platform} post`,
+      usage: {
+        db: svc,
+        userId,
+        scoutId: scout.id,
+        runId: queueRow.scout_run_id,
+        functionName: "apify-callback",
+        operation: "social_embed_unit",
+      },
     });
   } catch (e) {
     logEvent({

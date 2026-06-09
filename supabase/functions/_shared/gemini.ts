@@ -5,6 +5,8 @@
  */
 
 import { ApiError } from "./errors.ts";
+import { logEvent } from "./log.ts";
+import type { SupabaseClient } from "./supabase.ts";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const EMBED_MODEL = "models/gemini-embedding-2-preview";
@@ -23,6 +25,25 @@ export type GeminiTaskType =
   | "RETRIEVAL_QUERY"
   | "CLASSIFICATION"
   | "CLUSTERING";
+
+export interface GeminiUsageContext {
+  db?: SupabaseClient;
+  userId?: string | null;
+  orgId?: string | null;
+  scoutId?: string | null;
+  runId?: string | null;
+  functionName?: string;
+  operation?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface GeminiExtractOptions {
+  model?: string;
+  systemInstruction?: string;
+  timeoutMs?: number;
+  abortAfterMs?: number;
+  usage?: GeminiUsageContext;
+}
 
 const GEMINI_EMBED_TIMEOUT_MS = 30_000;
 const GEMINI_EXTRACT_TIMEOUT_MS = 90_000;
@@ -50,7 +71,12 @@ export function formatGeminiEmbedText(
 export async function geminiEmbed(
   text: string,
   taskType: GeminiTaskType = "SEMANTIC_SIMILARITY",
-  opts: { title?: string | null; timeoutMs?: number; abortAfterMs?: number } = {},
+  opts: {
+    title?: string | null;
+    timeoutMs?: number;
+    abortAfterMs?: number;
+    usage?: GeminiUsageContext;
+  } = {},
 ): Promise<number[]> {
   const timeoutMs = opts.timeoutMs ?? GEMINI_EMBED_TIMEOUT_MS;
   const abortAfterMs = opts.abortAfterMs ?? timeoutMs + 5_000;
@@ -64,7 +90,11 @@ export async function geminiEmbed(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          content: { parts: [{ text: formatGeminiEmbedText(text, taskType, opts.title ?? null) }] },
+          content: {
+            parts: [{
+              text: formatGeminiEmbedText(text, taskType, opts.title ?? null),
+            }],
+          },
           outputDimensionality: EMBED_DIM,
         }),
         signal: ac.signal,
@@ -85,6 +115,12 @@ export async function geminiEmbed(
     );
   }
   const body = await res.json();
+  await recordGeminiUsage(
+    opts.usage,
+    "embedding",
+    EMBED_MODEL,
+    body?.usageMetadata,
+  );
   const values = body?.embedding?.values;
   if (!Array.isArray(values) || values.length !== EMBED_DIM) {
     throw new ApiError(
@@ -106,12 +142,7 @@ export async function geminiExtract<T>(
   prompt: string,
   schema: Record<string, unknown>,
   opts?:
-    | {
-      model?: string;
-      systemInstruction?: string;
-      timeoutMs?: number;
-      abortAfterMs?: number;
-    }
+    | GeminiExtractOptions
     | string,
 ): Promise<T> {
   // Accept legacy `(prompt, schema, model)` call shape for backwards compat.
@@ -160,6 +191,12 @@ export async function geminiExtract<T>(
     );
   }
   const body = await res.json();
+  await recordGeminiUsage(
+    o.usage,
+    "generate_content",
+    modelId,
+    body?.usageMetadata,
+  );
   const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (typeof text !== "string") {
     throw new ApiError("gemini response missing text part", 502);
@@ -169,4 +206,78 @@ export async function geminiExtract<T>(
   } catch {
     throw new ApiError(`gemini returned non-JSON: ${text.slice(0, 200)}`, 502);
   }
+}
+
+async function recordGeminiUsage(
+  context: GeminiUsageContext | undefined,
+  defaultOperation: string,
+  model: string,
+  usageMetadata: unknown,
+): Promise<void> {
+  if (!context?.db || !usageMetadata || typeof usageMetadata !== "object") {
+    return;
+  }
+  const usage = usageMetadata as Record<string, unknown>;
+  const promptTokens = intValue(usage.promptTokenCount) ?? 0;
+  const completionTokens = intValue(usage.candidatesTokenCount) ?? 0;
+  const totalTokens = intValue(usage.totalTokenCount) ??
+    (promptTokens + completionTokens);
+  if (promptTokens === 0 && completionTokens === 0 && totalTokens === 0) {
+    return;
+  }
+
+  try {
+    const orgId = context.orgId === undefined
+      ? await fetchActiveOrgId(context.db, context.userId ?? null)
+      : context.orgId;
+    const { error } = await context.db.from("ai_usage_records").insert({
+      user_id: context.userId ?? null,
+      org_id: orgId ?? null,
+      scout_id: context.scoutId ?? null,
+      scout_run_id: context.runId ?? null,
+      provider: "gemini",
+      model,
+      operation: context.operation ?? defaultOperation,
+      function_name: context.functionName ?? null,
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: totalTokens,
+      metadata: {
+        ...(context.metadata ?? {}),
+        usage_metadata: usage,
+      },
+    });
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    logEvent({
+      level: "warn",
+      fn: "gemini",
+      event: "usage_record_failed",
+      user_id: context.userId ?? undefined,
+      scout_id: context.scoutId ?? undefined,
+      msg: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
+async function fetchActiveOrgId(
+  db: SupabaseClient,
+  userId: string | null,
+): Promise<string | null> {
+  if (!userId) return null;
+  const { data, error } = await db
+    .from("user_preferences")
+    .select("active_org_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return null;
+  return (data as { active_org_id?: string | null } | null)?.active_org_id ??
+    null;
+}
+
+function intValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.trunc(value));
+  }
+  return null;
 }

@@ -278,6 +278,13 @@ interface RetrievalDiscoveryOpts {
   preferredLanguage: string;
   excludedDomains: string[];
   includeGovernment: boolean;
+  usage?: {
+    db: SupabaseClient;
+    userId: string;
+    scoutId: string;
+    runId: string;
+    functionName: string;
+  };
 }
 
 interface RetrievalDiscoveryResult {
@@ -303,6 +310,7 @@ async function discoverForRetrievalPort(
     preferredLanguage: opts.preferredLanguage,
     excludedDomains: opts.excludedDomains,
     retrievalPort: opts.port,
+    usage: opts.usage,
   });
   let gov: BeatHit[] = [];
   let govRaw: BeatHit[] = [];
@@ -321,6 +329,7 @@ async function discoverForRetrievalPort(
       preferredLanguage: opts.preferredLanguage,
       excludedDomains: opts.excludedDomains,
       retrievalPort: opts.port,
+      usage: opts.usage,
     });
     gov = govDiscovery.hits;
     govRaw = govDiscovery.rawHits;
@@ -580,6 +589,13 @@ async function execute(
         preferredLanguage,
         excludedDomains,
         includeGovernment: hasLocation && hasCriteria,
+        usage: {
+          db,
+          userId: scout.user_id as string,
+          scoutId,
+          runId,
+          functionName: "scout-beat-execute",
+        },
       };
       let primaryDiscovery = await discoverForRetrievalPort({
         ...baseDiscoveryOpts,
@@ -882,6 +898,14 @@ async function execute(
           criteria: searchCriteria,
           maxUnits: extractionConfig.maxUnits,
           contentLimit: extractionConfig.contentLimit,
+          usage: {
+            db,
+            userId: scout.user_id as string,
+            scoutId,
+            runId,
+            functionName: "scout-beat-execute",
+            operation: "beat_extract_article",
+          },
         });
       } catch (e) {
         extractionFailureCount += 1;
@@ -901,6 +925,14 @@ async function execute(
         try {
           embedding = await geminiEmbed(u.statement, "RETRIEVAL_DOCUMENT", {
             title: src.title ?? null,
+            usage: {
+              db,
+              userId: scout.user_id as string,
+              scoutId,
+              runId,
+              functionName: "scout-beat-execute",
+              operation: "beat_embed_unit",
+            },
           });
         } catch (e) {
           embedFailureCount += 1;

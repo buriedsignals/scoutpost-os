@@ -613,6 +613,14 @@ async function runPipeline(
       maxUnits: 8,
       contentLimit: PROMPT_CONTENT_MAX,
       timeoutMs: PRIMARY_EXTRACTION_TIMEOUT_MS,
+      usage: {
+        db: svc,
+        userId: scout.user_id,
+        scoutId: scout.id,
+        runId,
+        functionName: "scout-web-execute",
+        operation: "web_extract_primary",
+      },
     });
   const indexIsListingPage = deterministicListingPage ||
     extracted.isListingPage;
@@ -1108,6 +1116,14 @@ async function runPhaseB(
         maxUnits: 8,
         contentLimit: PROMPT_CONTENT_MAX,
         timeoutMs: SUBPAGE_EXTRACTION_TIMEOUT_MS,
+        usage: {
+          db: svc,
+          userId: scout.user_id,
+          scoutId: scout.id,
+          runId,
+          functionName: "scout-web-execute",
+          operation: "web_extract_subpage",
+        },
       });
 
       if (subExtracted.isListingPage) {
@@ -1330,6 +1346,14 @@ async function insertExtractedUnits(
     try {
       embedding = await geminiEmbed(u.statement, "RETRIEVAL_DOCUMENT", {
         title: sourceTitle,
+        usage: {
+          db: svc,
+          userId: scout.user_id,
+          scoutId: scout.id,
+          runId,
+          functionName: "scout-web-execute",
+          operation: "web_embed_unit",
+        },
       });
     } catch (e) {
       logEvent({

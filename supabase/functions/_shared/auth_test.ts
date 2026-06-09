@@ -50,6 +50,15 @@ Deno.test("requireServiceKey accepts service-role bearer fallback", () => {
   });
 });
 
+Deno.test("requireServiceKey accepts service-role apikey fallback", () => {
+  withEnv({ SUPABASE_SERVICE_ROLE_KEY: "service-role-secret" }, () => {
+    const req = new Request("https://example.test", {
+      headers: { apikey: "service-role-secret" },
+    });
+    requireServiceKey(req);
+  });
+});
+
 Deno.test("requireServiceKey rejects bad service key", () => {
   withEnv({
     INTERNAL_SERVICE_KEY: "internal-secret",

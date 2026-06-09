@@ -21,7 +21,7 @@ import {
   getCallerClient,
   requireUserOrApiKey,
 } from "../_shared/auth.ts";
-import { SupabaseClient } from "../_shared/supabase.ts";
+import { getServiceClient, SupabaseClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
@@ -244,6 +244,7 @@ async function runPipeline(
   ingestId: string,
   input: IngestInput,
 ): Promise<PipelineResult> {
+  const usageDb = getServiceClient();
   // 2. Fetch content.
   let content: string;
   let sourceUrl: string | null = null;
@@ -312,6 +313,15 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
   const extraction = await geminiExtract<{ units: ExtractedUnit[] }>(
     prompt,
     EXTRACTION_SCHEMA,
+    {
+      usage: {
+        db: usageDb,
+        userId: user.id,
+        functionName: "ingest",
+        operation: "ingest_extract_units",
+        metadata: { ingest_id: ingestId },
+      },
+    },
   );
   const extracted = Array.isArray(extraction?.units) ? extraction.units : [];
 
@@ -324,6 +334,13 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
 
     const embedding = await geminiEmbed(u.statement, "RETRIEVAL_DOCUMENT", {
       title: sourceTitle,
+      usage: {
+        db: usageDb,
+        userId: user.id,
+        functionName: "ingest",
+        operation: "ingest_embed_unit",
+        metadata: { ingest_id: ingestId },
+      },
     });
     const unitType = u.type as CanonicalUnitType;
     const result = await upsertCanonicalUnit(db, {

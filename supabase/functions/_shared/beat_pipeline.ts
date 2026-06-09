@@ -17,7 +17,11 @@
  * invoke the pipeline twice with different `category` values.
  */
 
-import { geminiEmbed, geminiExtract } from "./gemini.ts";
+import {
+  geminiEmbed,
+  geminiExtract,
+  type GeminiUsageContext,
+} from "./gemini.ts";
 import { firecrawlSearch, SearchHit } from "./firecrawl.ts";
 import { exaSearchWithMetadata } from "./exa.ts";
 import { logEvent } from "./log.ts";
@@ -184,6 +188,7 @@ export interface GenerateOpts {
   criteria?: string | null;
   category: BeatCategory;
   numQueries?: number;
+  usage?: GeminiUsageContext;
 }
 
 export interface GenerateQueriesPrompt {
@@ -314,6 +319,12 @@ export async function generateQueries(
   try {
     const res = await geminiExtract<BeatQueryPlan>(prompt, QUERY_SCHEMA, {
       systemInstruction,
+      usage: opts.usage
+        ? {
+          ...opts.usage,
+          operation: opts.usage.operation ?? "beat_generate_queries",
+        }
+        : undefined,
     });
     return enforceLocationScopeOnQueryPlan(
       normalizeQueryPlanForCompoundTopic(
@@ -660,6 +671,7 @@ export interface BeatDiscoveryOpts {
   preferredLanguage: string;
   excludedDomains?: string[];
   retrievalPort?: "firecrawl" | "exa";
+  usage?: GeminiUsageContext;
 }
 
 export interface BeatDiscoveryResult {
@@ -791,6 +803,9 @@ export async function discoverBeatHits(
     displayName: opts.displayName ?? null,
     criteria: opts.criteria,
     category: opts.category,
+    usage: opts.usage
+      ? { ...opts.usage, operation: "beat_generate_queries" }
+      : undefined,
   });
   const queriesUsed = [...plan.queries, ...plan.discovery_queries];
   if (queriesUsed.length === 0) {
@@ -860,6 +875,9 @@ export async function discoverBeatHits(
     threshold,
     primaryLanguage: plan.primary_language,
     localTlds: tld ? [tld] : undefined,
+    usage: opts.usage
+      ? { ...opts.usage, operation: "beat_dedupe_embedding" }
+      : undefined,
   });
 
   if (opts.category === "news" && opts.sourceMode === "niche") {
@@ -883,6 +901,9 @@ export async function discoverBeatHits(
     localizedQuery: plan.localized_query,
     excludedDomains: opts.excludedDomains,
     maxResults,
+    usage: opts.usage
+      ? { ...opts.usage, operation: "beat_filter_results" }
+      : undefined,
   });
 
   return { hits, plan, rawHits, queriesUsed, totalCostDollars };
@@ -1074,6 +1095,7 @@ export interface DedupeOpts {
   threshold: number;
   primaryLanguage?: string | null;
   localTlds?: string[];
+  usage?: GeminiUsageContext;
 }
 
 /**
@@ -1140,7 +1162,11 @@ export async function dedupeByEmbedding(
   let embeddings: number[][];
   try {
     embeddings = await Promise.all(
-      texts.map((t) => geminiEmbed(t || " ", "SEMANTIC_SIMILARITY")),
+      texts.map((t) =>
+        geminiEmbed(t || " ", "SEMANTIC_SIMILARITY", {
+          usage: opts.usage,
+        })
+      ),
     );
   } catch (e) {
     logEvent({
@@ -1218,6 +1244,7 @@ export interface AiFilterOpts {
   localizedQuery?: string | null;
   excludedDomains?: string[];
   maxResults: number;
+  usage?: GeminiUsageContext;
 }
 
 const AI_FILTER_SCHEMA = {
@@ -1565,6 +1592,7 @@ export async function aiFilterResults(
       AI_FILTER_SCHEMA,
       {
         systemInstruction,
+        usage: opts.usage,
       },
     );
     const keep = Array.isArray(res.keep) ? res.keep : [];

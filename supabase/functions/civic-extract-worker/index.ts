@@ -358,7 +358,17 @@ Set criteria_match=false for any promise that fails or only partially satisfies 
   const extraction = await geminiExtract<{ promises: ExtractedPromise[] }>(
     userPrompt,
     EXTRACTION_SCHEMA,
-    { systemInstruction },
+    {
+      systemInstruction,
+      usage: {
+        db: svc,
+        userId,
+        scoutId: row.scout_id,
+        runId: row.scout_run_id,
+        functionName: "civic-extract-worker",
+        operation: "civic_extract_promises",
+      },
+    },
   );
   const candidatePromises = Array.isArray(extraction?.promises)
     ? extraction.promises
@@ -391,6 +401,14 @@ Set criteria_match=false for any promise that fails or only partially satisfies 
     try {
       embedding = await geminiEmbed(p.promise_text, "RETRIEVAL_DOCUMENT", {
         title: scraped.title ?? null,
+        usage: {
+          db: svc,
+          userId,
+          scoutId: row.scout_id,
+          runId: row.scout_run_id,
+          functionName: "civic-extract-worker",
+          operation: "civic_embed_promise",
+        },
       });
     } catch (e) {
       logEvent({

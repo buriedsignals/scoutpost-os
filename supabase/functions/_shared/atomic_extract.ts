@@ -17,7 +17,7 @@
  *   - accurate source_url / source_title / source_domain per unit
  */
 
-import { geminiExtract } from "./gemini.ts";
+import { geminiExtract, type GeminiUsageContext } from "./gemini.ts";
 import type { ScrapeResult } from "./firecrawl.ts";
 import { logEvent } from "./log.ts";
 import { compressContext, logCompressionStats } from "./taco_compress.ts";
@@ -166,6 +166,8 @@ export interface ExtractSourceInput {
   contentLimit?: number;
   /** Optional Gemini request timeout override for this extraction call. */
   timeoutMs?: number;
+  /** Optional context for actual provider-token usage accounting. */
+  usage?: GeminiUsageContext;
 }
 
 /**
@@ -188,6 +190,7 @@ export async function extractAtomicUnits(
     maxUnits = 3,
     contentLimit = 3000,
     timeoutMs,
+    usage,
   } = input;
 
   if (!content.trim()) return { units: [], isListingPage: false };
@@ -227,7 +230,7 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
     const result = await geminiExtract<ExtractionResult>(
       userPrompt,
       EXTRACTION_SCHEMA,
-      { systemInstruction: systemPrompt(langName), timeoutMs },
+      { systemInstruction: systemPrompt(langName), timeoutMs, usage },
     );
     const units = Array.isArray(result?.units) ? result.units : [];
     const isListingPage = Boolean(result?.isListingPage);

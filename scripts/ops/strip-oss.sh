@@ -181,6 +181,7 @@ rm -rf scripts/migrate/
 rm -f scripts/ops/send-user-update-email.ts
 rm -f USER_UPDATE_EMAIL.md
 rm -f docs/operations/user-update-email.md
+rm -f supabase/migrations/00067_monthly_usage_report_cron.sql
 
 # Private live benchmark harness. These scripts assume hosted Supabase Auth
 # Admin access, internal service auth, and production operator credentials.
@@ -195,6 +196,7 @@ rm -f scripts/benchmarks/benchmark-dedup.ts
 rm -f scripts/benchmarks/benchmark-internal-workers.ts
 rm -f scripts/benchmarks/benchmark-qa-matrix.ts
 rm -f scripts/benchmarks/benchmark-scout-suite.ts
+rm -f scripts/benchmarks/send-monthly-usage-report.ts
 rm -f scripts/ops/notifications-benchmark.ts
 strip_edge_function notifications-benchmark
 
