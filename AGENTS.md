@@ -49,6 +49,31 @@ Greptile review is required on every PR as an additional independent review pass
 
 ---
 
+## Benchmark Env Model - IMPORTANT
+
+Scout health benchmarks are triggered locally but run against deployed Supabase
+Edge Functions. Use the linked-project launcher so the local process receives
+the linked Supabase project's auth keys while provider keys stay in
+Supabase function secrets:
+
+```bash
+scripts/benchmarks/with-linked-supabase-env.sh \
+  deno run --allow-env --allow-net --allow-read=. scripts/benchmarks/benchmark-beat.ts
+```
+
+The launcher discovers the linked Supabase project via `supabase projects list`
+and exports `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`, `SCOUT_BENCHMARK_TARGET=scout-health`,
+`SCOUT_BENCHMARK_PROJECT=1`, `SCOUT_LIVE_BENCHMARK=1`, and
+`SCOUT_ALLOW_PROD_FIRECRAWL=1` for the child command. `benchmark-beat.ts`
+asserts Beat execution requested Exa via
+`scout_runs.metadata.requested_retrieval` / `retrieval`. Use
+`supabase status -o env` only for local Edge Runtime diagnostics; local
+functions need their own env file if you intentionally serve them with
+`scripts/ops/serve-functions-local.sh`.
+
+---
+
 ## Frontend ENV VAR TRAP — read this before changing any `PUBLIC_*` or `VITE_*` config
 
 The Vite/SvelteKit/Render env-var pipeline bit us **5+ times** during the v2 cutover (2026-04-21). The pattern keeps recurring because three layers each have different rules and they don't compose intuitively. **Stop and read this section before touching `Dockerfile`, `frontend/.env.production`, or Render env vars.**

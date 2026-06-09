@@ -270,8 +270,10 @@ interface RetrievalDiscoveryOpts {
   scope: BeatScope;
   sourceMode: BeatSourceMode;
   cityName: string | null;
+  stateName: string | null;
   countryName: string | null;
   countryCode: string | null;
+  displayName: string | null;
   searchCriteria: string | null;
   preferredLanguage: string;
   excludedDomains: string[];
@@ -293,8 +295,10 @@ async function discoverForRetrievalPort(
     sourceMode: opts.sourceMode,
     category: "news",
     city: opts.cityName,
+    state: opts.stateName,
     country: opts.countryName,
     countryCode: opts.countryCode,
+    displayName: opts.displayName,
     criteria: opts.searchCriteria,
     preferredLanguage: opts.preferredLanguage,
     excludedDomains: opts.excludedDomains,
@@ -309,8 +313,10 @@ async function discoverForRetrievalPort(
       sourceMode: opts.sourceMode,
       category: "government",
       city: opts.cityName,
+      state: opts.stateName,
       country: opts.countryName,
       countryCode: opts.countryCode,
+      displayName: opts.displayName,
       criteria: opts.searchCriteria,
       preferredLanguage: opts.preferredLanguage,
       excludedDomains: opts.excludedDomains,
@@ -496,8 +502,10 @@ async function execute(
     // --- Stage 0: prepare pipeline inputs ---
     const locationObj = parseBeatLocation(scout.location);
     const cityName = locationObj.city ?? null;
+    const stateName = locationObj.state ?? null;
     const countryName = locationObj.country ?? null;
     const countryCode = locationObj.countryCode ?? null;
+    const displayName = locationObj.displayName ?? null;
     const topic = (scout.topic as string | null)?.trim() ?? null;
     const criteria = typeof scout.criteria === "string"
       ? scout.criteria.trim()
@@ -564,8 +572,10 @@ async function execute(
         scope,
         sourceMode,
         cityName,
+        stateName,
         countryName,
         countryCode,
+        displayName,
         searchCriteria,
         preferredLanguage,
         excludedDomains,

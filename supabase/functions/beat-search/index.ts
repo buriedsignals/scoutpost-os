@@ -32,7 +32,7 @@
 
 import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
-import { requireUser, AuthedUser } from "../_shared/auth.ts";
+import { AuthedUser, requireUser } from "../_shared/auth.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
@@ -44,12 +44,12 @@ import {
 } from "../_shared/firecrawl.ts";
 import { geminiExtract } from "../_shared/gemini.ts";
 import {
-  countryPrimaryLanguage,
-  discoverBeatHits,
   type BeatCategory,
   type BeatHit,
   type BeatScope,
   type BeatSourceMode,
+  countryPrimaryLanguage,
+  discoverBeatHits,
 } from "../_shared/beat_pipeline.ts";
 import {
   buildBeatLocationMatcher,
@@ -205,7 +205,10 @@ function compactSearchPart(value: string, limit: number): string {
   return value.replace(/\s+/g, " ").trim().slice(0, limit);
 }
 
-function urlMatchesDomain(rawUrl: string | null | undefined, domain: string): boolean {
+function urlMatchesDomain(
+  rawUrl: string | null | undefined,
+  domain: string,
+): boolean {
   const host = safeDomain(rawUrl)?.replace(/^www\./i, "").toLowerCase();
   return Boolean(host && (host === domain || host.endsWith(`.${domain}`)));
 }
@@ -360,8 +363,10 @@ async function runSearch(
       sourceMode,
       category,
       city: location.city,
+      state: location.state,
       country: location.country,
       countryCode: location.countryCode,
+      displayName: location.displayName,
       criteria: input.criteria?.trim() || null,
       preferredLanguage: location.countryCode
         ? countryPrimaryLanguage(location.countryCode)
@@ -436,11 +441,11 @@ async function runSearch(
   const locationMatcher = buildBeatLocationMatcher(parsedLocation);
   const aggregated = scrapedOk
     .map(({ hit, scrape }) =>
-      `=== SOURCE: ${hit.url}\nTITLE: ${scrape.title ?? hit.title ?? ""}\nSEARCH_DATE: ${hit.date ?? "unknown"}\nSOURCE_DATE: ${
+      `=== SOURCE: ${hit.url}\nTITLE: ${
+        scrape.title ?? hit.title ?? ""
+      }\nSEARCH_DATE: ${hit.date ?? "unknown"}\nSOURCE_DATE: ${
         sourcePublishedDate({ scrape, searchDate: hit.date }) ?? "unknown"
-      }\n\n${
-        (scrape.markdown ?? "").slice(0, MARKDOWN_PER_HIT)
-      }\n`
+      }\n\n${(scrape.markdown ?? "").slice(0, MARKDOWN_PER_HIT)}\n`
     )
     .join("\n\n");
 
@@ -501,7 +506,10 @@ async function runSearch(
     ? extraction.articles
     : [];
   const rawSourceTextByUrl = new Map<string, string>();
-  const scrapedByUrl = new Map<string, { hit: BeatHit; scrape: ScrapeResult }>();
+  const scrapedByUrl = new Map<
+    string,
+    { hit: BeatHit; scrape: ScrapeResult }
+  >();
   for (const { hit, scrape } of scrapedOk) {
     scrapedByUrl.set(hit.url, { hit, scrape });
     scrapedByUrl.set(scrape.source_url, { hit, scrape });
@@ -514,7 +522,9 @@ async function runSearch(
         safeDomain(hit.url),
         hit.url,
         (scrape.markdown ?? "").slice(0, MARKDOWN_PER_HIT),
-      ].filter((value): value is string => typeof value === "string" && value.trim().length > 0).join(" "),
+      ].filter((value): value is string =>
+        typeof value === "string" && value.trim().length > 0
+      ).join(" "),
     );
   }
   const seenUrls = new Set<string>();
@@ -633,7 +643,8 @@ function buildLocationFilterInstructions(
   const parsed = parseBeatLocation(location);
   const locationLabel = parsed.city && parsed.country
     ? `${parsed.city}, ${parsed.country}`
-    : parsed.city || parsed.country || location.displayName || "the requested location";
+    : parsed.city || parsed.country || location.displayName ||
+      "the requested location";
   return `Only include articles primarily about ${locationLabel}. ` +
     `If an article is mainly about another city, region, or country, set matches_location=false even if the topic matches. ` +
     `For country targets, do not substitute same-language coverage from another country.`;

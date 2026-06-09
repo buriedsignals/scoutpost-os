@@ -24,6 +24,7 @@ import { logEvent } from "./log.ts";
 import { cosineSimilarity } from "./dedup.ts";
 import { buildBeatCriteriaRule } from "./beat_criteria.ts";
 import { compressContext, logCompressionStats } from "./taco_compress.ts";
+import { buildBeatLocationSearchLabel } from "./beat_location.ts";
 
 export type BeatCategory = "news" | "government" | "analysis";
 export type BeatSourceMode = "reliable" | "niche";
@@ -176,8 +177,10 @@ export function countryTld(
 
 export interface GenerateOpts {
   city?: string | null;
+  state?: string | null;
   country?: string | null;
   countryCode?: string | null;
+  displayName?: string | null;
   criteria?: string | null;
   category: BeatCategory;
   numQueries?: number;
@@ -218,9 +221,18 @@ export function buildGenerateQueriesPrompt(
   opts: GenerateOpts,
 ): GenerateQueriesPrompt {
   const locationLabel = buildLocationLabel(opts.city, opts.country);
+  const locationSearchLabel = buildBeatLocationSearchLabel({
+    city: opts.city ?? null,
+    state: opts.state ?? null,
+    country: opts.country ?? null,
+    countryCode: opts.countryCode ?? null,
+    displayName: opts.displayName ?? null,
+  });
   const numQueries = Math.max(1, Math.min(opts.numQueries ?? 7, 10));
   const hasLocation = Boolean(opts.city || opts.country);
-  const locHint = opts.city
+  const locHint = locationSearchLabel
+    ? `Include the full location label "${locationSearchLabel}" in each query`
+    : opts.city
     ? `Include the location name "${opts.city}" in each query`
     : opts.country
     ? `Include the country name or code "${opts.country}" in each query`
@@ -291,43 +303,53 @@ export async function generateQueries(
 ): Promise<BeatQueryPlan> {
   const numQueries = Math.max(1, Math.min(opts.numQueries ?? 7, 10));
   const { prompt, systemInstruction } = buildGenerateQueriesPrompt(opts);
+  const locationSearchLabel = buildBeatLocationSearchLabel({
+    city: opts.city ?? null,
+    state: opts.state ?? null,
+    country: opts.country ?? null,
+    countryCode: opts.countryCode ?? null,
+    displayName: opts.displayName ?? null,
+  });
 
   try {
     const res = await geminiExtract<BeatQueryPlan>(prompt, QUERY_SCHEMA, {
       systemInstruction,
     });
-    return normalizeQueryPlanForCompoundTopic(
-      {
-        primary_language: (res.primary_language ?? "en").slice(0, 2)
-          .toLowerCase(),
-        queries: Array.isArray(res.queries)
-          ? res.queries.slice(0, numQueries)
-          : [],
-        discovery_queries: Array.isArray(res.discovery_queries)
-          ? res.discovery_queries.slice(0, 5)
-          : [],
-        local_domains: Array.isArray(res.local_domains)
-          ? res.local_domains.slice(0, 10)
-          : [],
-        canonical_query: typeof res.canonical_query === "string"
-          ? res.canonical_query.slice(0, 240)
-          : undefined,
-        localized_query: typeof res.localized_query === "string"
-          ? res.localized_query.slice(0, 240)
-          : undefined,
-        required_concepts: Array.isArray(res.required_concepts)
-          ? res.required_concepts.filter((c): c is string =>
-            typeof c === "string" && c.trim().length > 0
-          ).slice(0, 8)
-          : [],
-        weak_terms: Array.isArray(res.weak_terms)
-          ? res.weak_terms.filter((c): c is string =>
-            typeof c === "string" && c.trim().length > 0
-          ).slice(0, 8)
-          : [],
-      },
-      opts,
-      numQueries,
+    return enforceLocationScopeOnQueryPlan(
+      normalizeQueryPlanForCompoundTopic(
+        {
+          primary_language: (res.primary_language ?? "en").slice(0, 2)
+            .toLowerCase(),
+          queries: Array.isArray(res.queries)
+            ? res.queries.slice(0, numQueries)
+            : [],
+          discovery_queries: Array.isArray(res.discovery_queries)
+            ? res.discovery_queries.slice(0, 5)
+            : [],
+          local_domains: Array.isArray(res.local_domains)
+            ? res.local_domains.slice(0, 10)
+            : [],
+          canonical_query: typeof res.canonical_query === "string"
+            ? res.canonical_query.slice(0, 240)
+            : undefined,
+          localized_query: typeof res.localized_query === "string"
+            ? res.localized_query.slice(0, 240)
+            : undefined,
+          required_concepts: Array.isArray(res.required_concepts)
+            ? res.required_concepts.filter((c): c is string =>
+              typeof c === "string" && c.trim().length > 0
+            ).slice(0, 8)
+            : [],
+          weak_terms: Array.isArray(res.weak_terms)
+            ? res.weak_terms.filter((c): c is string =>
+              typeof c === "string" && c.trim().length > 0
+            ).slice(0, 8)
+            : [],
+        },
+        opts,
+        numQueries,
+      ),
+      locationSearchLabel,
     );
   } catch (e) {
     logEvent({
@@ -345,24 +367,66 @@ export async function generateQueries(
     } else if (opts.criteria) queries.push(opts.criteria);
     else if (opts.city) queries.push(`${opts.city} news`);
     else if (opts.country) queries.push(`${opts.country} news`);
-    return normalizeQueryPlanForCompoundTopic(
-      {
-        primary_language: countryPrimaryLanguage(opts.countryCode ?? null),
-        queries,
-        discovery_queries: [],
-        local_domains: [],
-        canonical_query: opts.criteria ?? queries[0],
-        localized_query: queries[0],
-        required_concepts: criteriaTokens(opts.criteria ?? queries[0]).slice(
-          0,
-          8,
-        ),
-        weak_terms: [],
-      },
-      opts,
-      numQueries,
+    return enforceLocationScopeOnQueryPlan(
+      normalizeQueryPlanForCompoundTopic(
+        {
+          primary_language: countryPrimaryLanguage(opts.countryCode ?? null),
+          queries,
+          discovery_queries: [],
+          local_domains: [],
+          canonical_query: opts.criteria ?? queries[0],
+          localized_query: queries[0],
+          required_concepts: criteriaTokens(opts.criteria ?? queries[0]).slice(
+            0,
+            8,
+          ),
+          weak_terms: [],
+        },
+        opts,
+        numQueries,
+      ),
+      locationSearchLabel,
     );
   }
+}
+
+export function ensureBeatLocationSearchLabel(
+  query: string,
+  locationSearchLabel: string | null,
+): string {
+  const trimmed = query.trim();
+  const label = locationSearchLabel?.trim();
+  if (!label) return trimmed;
+  if (queryContainsLocationLabel(trimmed, label)) return trimmed;
+  const quoted = `"${label.replace(/"/g, "")}"`;
+  return trimmed ? `${trimmed} ${quoted}` : quoted;
+}
+
+function enforceLocationScopeOnQueryPlan(
+  plan: BeatQueryPlan,
+  locationSearchLabel: string | null,
+): BeatQueryPlan {
+  if (!locationSearchLabel) return plan;
+  return {
+    ...plan,
+    queries: plan.queries.map((q) =>
+      ensureBeatLocationSearchLabel(q, locationSearchLabel)
+    ),
+    discovery_queries: plan.discovery_queries.map((q) =>
+      ensureBeatLocationSearchLabel(q, locationSearchLabel)
+    ),
+  };
+}
+
+function queryContainsLocationLabel(query: string, label: string): boolean {
+  const haystackTokens = new Set(tokenizeSearchText(query));
+  const labelTokens = tokenizeSearchText(label);
+  return labelTokens.length > 0 &&
+    labelTokens.every((token) => haystackTokens.has(token));
+}
+
+function tokenizeSearchText(value: string): string[] {
+  return value.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 }
 
 const AI_JOURNALISM_FALLBACK_QUERIES = [
@@ -588,8 +652,10 @@ export interface BeatDiscoveryOpts {
   sourceMode: BeatSourceMode;
   category: BeatCategory;
   city: string | null;
+  state?: string | null;
   country: string | null;
   countryCode: string | null;
+  displayName?: string | null;
   criteria: string | null;
   preferredLanguage: string;
   excludedDomains?: string[];
@@ -719,8 +785,10 @@ export async function discoverBeatHits(
 ): Promise<BeatDiscoveryResult> {
   const plan = await generateQueries({
     city: opts.city,
+    state: opts.state ?? null,
     country: opts.country,
     countryCode: opts.countryCode,
+    displayName: opts.displayName ?? null,
     criteria: opts.criteria,
     category: opts.category,
   });

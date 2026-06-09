@@ -7,6 +7,7 @@ import { assertFalse } from "https://deno.land/std@0.208.0/assert/assert_false.t
 import { buildGenerateQueriesPrompt } from "./beat_pipeline.ts";
 import { runSearches } from "./beat_pipeline.ts";
 import { aiFilterResults } from "./beat_pipeline.ts";
+import { ensureBeatLocationSearchLabel } from "./beat_pipeline.ts";
 
 Deno.test("buildGenerateQueriesPrompt treats no-location topic scouts as global topic scouts", () => {
   const { prompt } = buildGenerateQueriesPrompt({
@@ -42,7 +43,35 @@ Deno.test("buildGenerateQueriesPrompt keeps location-scoped topic scouts local",
   assertStringIncludes(prompt, "For Montreal, Canada");
   assertStringIncludes(prompt, "PRIMARY local language");
   assertStringIncludes(prompt, "translate the key criteria terms");
-  assertStringIncludes(prompt, 'Include the location name "Montreal"');
+  assertStringIncludes(
+    prompt,
+    'Include the full location label "Montreal Canada"',
+  );
+});
+
+Deno.test("ensureBeatLocationSearchLabel appends ambiguous city disambiguator", () => {
+  assertEquals(
+    ensureBeatLocationSearchLabel("housing policy London", "London Ontario"),
+    'housing policy London "London Ontario"',
+  );
+  assertEquals(
+    ensureBeatLocationSearchLabel(
+      "housing policy London, Ontario",
+      "London Ontario",
+    ),
+    "housing policy London, Ontario",
+  );
+  assertEquals(
+    ensureBeatLocationSearchLabel(
+      "Ontario housing policy in London",
+      "London Ontario",
+    ),
+    "Ontario housing policy in London",
+  );
+  assertEquals(
+    ensureBeatLocationSearchLabel("housing policy", null),
+    "housing policy",
+  );
 });
 
 Deno.test("runSearches uses explicit web-only Firecrawl search by default", async () => {
