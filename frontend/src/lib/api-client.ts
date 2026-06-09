@@ -151,6 +151,7 @@ export async function submitFeedback(payload: FeedbackPayload): Promise<Feedback
 	return fastApiRequest<FeedbackResponse>('POST', '/feedback', payload);
 }
 
+
 /**
  * Like apiRequest, but uses safe JSON parsing for error responses
  * (handles cases where the error body is not valid JSON).

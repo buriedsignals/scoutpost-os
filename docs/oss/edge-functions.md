@@ -22,8 +22,8 @@ Source files: `supabase/functions/`
 | `civic-execute` | Civic run kickoff and document queueing. |
 | `civic-extract-worker` | Civic queue worker that extracts promises and writes units. |
 | `units`, `projects`, `entities`, `reflections`, `ingest`, `runs`, `user`, `api-keys` | Product API resources used by UI, CLI, and MCP. |
-| `mcp-server`, `mcp-auth` | Remote MCP JSON-RPC and OAuth broker. |
-| `billing-webhook`, `admin-report`, `newsletter-subscribe`, `notifications-benchmark`, `scout-health-monitor` | SaaS/admin/ops support functions. |
+| `mcp-server` | Remote MCP JSON-RPC endpoint for self-hosted deployments. |
+| `scout-health-monitor` | Scheduled scout failure notifications. |
 
 ## Docker Self-Hosted
 
@@ -54,7 +54,7 @@ This replaces EventBridge/Lambda scheduling. Do not add new EventBridge or Lambd
 
 - User-facing requests use Supabase Auth JWTs or Scoutpost API keys (`cj_...`) depending on surface.
 - Internal scheduled/worker requests use the shared internal service-key boundary and Supabase service-role access where needed.
-- MCP OAuth uses `mcp-server` and `mcp-auth`.
+- MCP requests use `mcp-server` with the self-hosted auth/API-key boundary.
 
 ## Current References
 

@@ -33,6 +33,21 @@ strip_edge_function() {
   sed_if_exists -i "/${fn}/d" docs/architecture/api-surface.md
 }
 
+remove_hosted_shared_file() {
+  local file="$1"
+  rm -f "supabase/functions/_shared/${file}"
+}
+
+HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER="bee""hiiv"
+HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER_TITLE="$(
+  printf '%s' "$HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER" |
+    awk '{ print toupper(substr($0, 1, 1)) substr($0, 2) }'
+)"
+HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX="$(
+  printf '%s' "$HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER" |
+    tr '[:lower:]' '[:upper:]'
+)"
+
 echo "=== Stripping SaaS-only code ==="
 
 HOSTED_SUPABASE_REF="gfmdziplticfoak"
@@ -42,11 +57,13 @@ HOSTED_SUPABASE_REF="${HOSTED_SUPABASE_REF}hrfpt"
 # a working copy instead of a clean CI checkout. Remove them before the hosted
 # reference scan so ignored secrets/caches do not poison the OSS mirror check.
 rm -rf .claude/
+rm -rf .jj/
 rm -f .env .env.local .env.production .env.test .env.test.local
 rm -f supabase/.env supabase/.env.local supabase/.env.test supabase/.env.test.local
 rm -rf supabase/.temp/
 rm -rf mcp/dist/
 find . -type d -name __pycache__ -prune -exec rm -rf {} +
+find . -type d -name .pytest_cache -prune -exec rm -rf {} +
 
 # AWS infrastructure was removed in the v2 migration — nothing to strip here.
 # (aws/ and backend/app/adapters/aws/ no longer exist in the SaaS source tree.)
@@ -58,6 +75,8 @@ rm -f backend/app/routers/muckrock_proxy.py
 rm -f backend/app/services/muckrock_client.py
 rm -f backend/app/services/muckrock_client.py
 rm -f backend/tests/unit/auth/test_auth_router.py
+rm -f backend/tests/unit/api/test_local_auth.py
+rm -f backend/tests/unit/api/test_muckrock_proxy.py
 
 # main.py unconditionally mounts auth.router in the SaaS source; strip the
 # import + mount for OSS since the broker depends on MuckRock credentials.
@@ -91,11 +110,33 @@ rm -rf backend/app/routers/threat_modeling/
 strip_edge_function admin-report
 strip_edge_function auth-muckrock
 strip_edge_function billing-webhook
+strip_edge_function indicator-claim
 strip_edge_function mcp-auth
 strip_edge_function newsletter-subscribe
 sed_if_exists -i '/^# auth-muckrock is browser-facing/,+1d' supabase/config.toml
 sed_if_exists -i '/^# mcp-auth is the MCP-only sibling/,+4d' supabase/config.toml
 sed_if_exists -i '/^# newsletter-subscribe is called pre-auth/,+1d' supabase/config.toml
+
+# Shared helpers used only by the hosted MuckRock/Billing auth surface above.
+# Keep them out of the public mirror so self-hosted deployments do not inherit
+# SaaS entitlement providers, credentials, or unused tests.
+remove_hosted_shared_file "${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER}.ts"
+remove_hosted_shared_file "${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER}.test.ts"
+remove_hosted_shared_file entitlements.ts
+remove_hosted_shared_file entitlements.test.ts
+remove_hosted_shared_file muckrock.ts
+
+# Remove hosted-only newsletter entitlement settings from files that remain in
+# the public mirror.
+sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" AGENTS.md
+sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" CLAUDE.md
+sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" docs/architecture/developer-guide.md
+sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" AGENTS.md
+sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" CLAUDE.md
+sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" docs/architecture/developer-guide.md
+sed_if_exists -i "/hosted AI Lab subscribers/,+4d" backend/app/config.py
+sed_if_exists -i "s|, apply hosted entitlements including ${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER_TITLE} AI Lab Pro||" docs/architecture/fastapi-endpoints.md
+rm -f supabase/migrations/00065_indicator_claims.sql
 
 # -------------------------------------------------------------------
 # CI/CD: remove workflows that reference the dev repo
@@ -115,6 +156,7 @@ rm -rf docs/superpowers/
 rm -rf docs/muckrock/
 rm -rf docs/billing/
 rm -rf docs/supabase/
+rm -rf docs/plans/
 rm -f docs/architecture/license-key-infrastructure.md
 rm -f docs/architecture/aws-architecture.md
 rm -f docs/architecture/records-and-deduplication.md
@@ -194,8 +236,10 @@ rm -f frontend/src/lib/stores/auth-muckrock.ts
 # -------------------------------------------------------------------
 rm -rf frontend/src/routes/admin/
 rm -rf frontend/src/routes/pricing/
+rm -rf frontend/src/routes/subscription/claim/
 
 sed -i "s|'/login', '/pricing', '/setup', '/terms'|'/login', '/setup', '/terms'|" frontend/src/routes/+layout.svelte
+sed -i "s|, '/subscription/claim/verify'||" frontend/src/routes/+layout.svelte
 sed -i 's|href="/pricing"|href="/"|' frontend/src/routes/setup/+page.svelte
 sed_if_exists -i "s|'/login', '/pricing', '/faq', '/skills', '/terms'|'/login', '/faq', '/skills', '/terms'|" frontend/src/lib/components/ui/MobileBlocker.svelte
 sed -i "s|goto('/pricing');|return; // unlimited in self-hosted|" frontend/src/lib/components/workspace/NewScoutDropdown.svelte
@@ -207,6 +251,122 @@ sed_if_exists -i 's|https://accounts.muckrock.com/[^"]*|#|g' frontend/src/routes
 sed_if_exists -i 's|MuckRock and Supabase|Supabase|g' frontend/src/routes/terms/+page.svelte
 # Remove UpgradeModal and all credit-gating logic (no credits in OSS)
 rm -f frontend/src/lib/components/modals/UpgradeModal.svelte
+
+# Strip hosted Indicator/Beehiiv claim UI, API helpers, profile metadata,
+# and privacy rows from files that remain in OSS.
+python3 - <<'PY'
+from pathlib import Path
+import json
+import re
+
+
+def rewrite(path: str, replacements: list[tuple[str, str, int]]) -> None:
+    p = Path(path)
+    if not p.exists():
+        return
+    src = p.read_text()
+    for pattern, repl, flags in replacements:
+        src = re.sub(pattern, repl, src, flags=flags)
+    p.write_text(src)
+
+
+rewrite(
+    "frontend/src/lib/api-client.ts",
+    [
+        (
+            r"\nexport interface IndicatorClaimRequestResponse \{.*?\nexport async function verifyIndicatorClaim\(token: string\): Promise<IndicatorClaimVerifyResponse> \{\n\treturn apiRequest<IndicatorClaimVerifyResponse>\('POST', '/indicator-claim/verify', \{ token \}\);\n\}\n",
+            "\n",
+            re.DOTALL,
+        ),
+    ],
+)
+
+rewrite(
+    "frontend/src/lib/types.ts",
+    [
+        (r"\n\tentitlement_source\?: string \| null;", "", 0),
+        (r"\n\tindicator_claim_active\?: boolean;", "", 0),
+    ],
+)
+
+rewrite(
+    "frontend/src/lib/stores/auth-supabase.ts",
+    [
+        (
+            r"\n\t\tentitlement_source:\n\t\t\ttypeof metadata\.entitlement_source === 'string' \|\| metadata\.entitlement_source === null\n\t\t\t\t\? metadata\.entitlement_source\n\t\t\t\t: null,",
+            "",
+            0,
+        ),
+        (
+            r"\n\t\tindicator_claim_active:\n\t\t\ttypeof metadata\.indicator_claim_active === 'boolean' \? metadata\.indicator_claim_active : false,",
+            "",
+            0,
+        ),
+    ],
+)
+
+rewrite(
+    "frontend/src/lib/components/modals/PreferencesModal.svelte",
+    [
+        (r"import \{ Settings, CheckCircle, ExternalLink, MailCheck \} from 'lucide-svelte';", "import { Settings, CheckCircle, ExternalLink } from 'lucide-svelte';", 0),
+        (r"\n\timport \{ requestIndicatorClaim \} from '\$lib/api-client';", "", 0),
+        (r"\n\tlet claimEmail = '';\n\tlet claimLoading = false;\n\tlet claimMessage: string \| null = null;\n\tlet claimError: string \| null = null;", "", 0),
+        (
+            r"\n\t\$: showIndicatorClaim =\n\t\timport\.meta\.env\.PUBLIC_MUCKROCK_ENABLED === 'true' &&\n\t\t\$authStore\.user\?\.tier !== 'team' &&\n\t\t\(\$authStore\.user\?\.tier !== 'pro' \|\| !\$authStore\.user\?\.indicator_claim_active\);\n",
+            "\n",
+            0,
+        ),
+        (
+            r"\n\tasync function handleClaimSubscription\(\) \{.*?\n\t\}\n\n\tfunction handleBackdropClick",
+            "\n\tfunction handleBackdropClick",
+            re.DOTALL,
+        ),
+        (
+            r"\n\n\t\t\t\t\t\t\{#if \$authStore\.user\?\.indicator_claim_active\}.*?\n\t\t\t\t\t\t\{/if\}\n\n\t\t\t\t\t\t\{#if showIndicatorClaim\}.*?\n\t\t\t\t\t\t\{/if\}",
+            "",
+            re.DOTALL,
+        ),
+        (
+            r"\n\t\.claim-status \{.*?\n\t\}\n\n\t\.claim-box \{.*?\n\t\}\n\n\t\.claim-row \{.*?\n\t\}\n\n\t\.claim-row \.form-input \{.*?\n\t\}\n\n\t\.claim-button \{.*?\n\t\}\n\n\t\.claim-message,\n\t\.claim-error \{.*?\n\t\}\n\n\t\.claim-message \{.*?\}\n\t\.claim-error \{.*?\}\n\n\t@media \(max-width: 560px\) \{.*?\n\t\}\n",
+            "\n",
+            re.DOTALL,
+        ),
+    ],
+)
+
+rewrite(
+    "supabase/functions/user/index.ts",
+    [
+        (r"\n  entitlement_source: string \| null;", "", 0),
+        (r"\n  indicator_claim_active: boolean;", "", 0),
+        (r"balance, monthly_cap, tier, entitlement_source", "balance, monthly_cap, tier", 0),
+        (
+            r"\n  const entitlementSource = \(creditRow\?\.entitlement_source \?\? null\) as\n    \| string\n    \| null;\n\n  const \{ data: indicatorMemberships \} = await svc\n    \.from\(\"indicator_memberships\"\)\n    \.select\(\"status, grace_expires_at\"\)\n    \.eq\(\"user_id\", user\.id\)\n    \.eq\(\"status\", \"active\"\);\n  const now = Date\.now\(\);\n  const indicatorClaimActive = \(indicatorMemberships \?\? \[\]\)\.some\(\(row\) => \{\n    const grace = typeof row\.grace_expires_at === \"string\"\n      \? Date\.parse\(row\.grace_expires_at\)\n      : Number\.NaN;\n    return !Number\.isFinite\(grace\) \|\| grace > now;\n  \}\);\n",
+            "\n",
+            0,
+        ),
+        (r"\n    entitlement_source: entitlementSource,", "", 0),
+        (r"\n    indicator_claim_active: indicatorClaimActive,", "", 0),
+    ],
+)
+
+rewrite(
+    "frontend/src/routes/terms/+page.svelte",
+    [
+        (r"\n\t\t\t\t<li><strong>Subscription claim metadata</strong>.*?</li>", "", 0),
+        (r"\n\t\t\t\t<li>Indicator subscription emails.*?</li>", "", 0),
+        (r"\n\t\t\t\t\t<tr><td>Beehiiv</td>.*?</tr>", "", 0),
+    ],
+)
+
+for messages_path in Path("frontend/messages").glob("*.json"):
+    data = json.loads(messages_path.read_text())
+    for key in list(data):
+        if key.startswith("claimVerify_") or key.startswith("preferences_claim"):
+            data.pop(key, None)
+    messages_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+PY
+rm -rf frontend/src/lib/paraglide/
 
 # Strip UpgradeModal and pricing-only UI from the current workspace shell.
 python3 - <<'PY'
@@ -518,9 +678,17 @@ HOSTED_ONLY_EDGE_FUNCTIONS=(
   admin-report
   auth-muckrock
   billing-webhook
+  indicator-claim
   mcp-auth
   newsletter-subscribe
   notifications-benchmark
+)
+HOSTED_ONLY_SHARED_FILES=(
+  "${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER}.ts"
+  "${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER}.test.ts"
+  entitlements.ts
+  entitlements.test.ts
+  muckrock.ts
 )
 
 for fn in "${HOSTED_ONLY_EDGE_FUNCTIONS[@]}"; do
@@ -533,6 +701,26 @@ for fn in "${HOSTED_ONLY_EDGE_FUNCTIONS[@]}"; do
     FAIL=1
   fi
 done
+
+for file in "${HOSTED_ONLY_SHARED_FILES[@]}"; do
+  if [ -f "supabase/functions/_shared/${file}" ]; then
+    echo "ERROR: hosted-only shared Edge Function helper still present in OSS build: ${file}"
+    FAIL=1
+  fi
+done
+
+if grep -ri "$HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER" \
+  --exclude="strip-oss.sh" \
+  --exclude-dir=".git" \
+  --exclude-dir=".jj" \
+  --exclude-dir="node_modules" \
+  --exclude-dir=".svelte-kit" \
+  --exclude-dir="build" \
+  --exclude-dir="tests" \
+  . 2>/dev/null; then
+  echo "ERROR: hosted newsletter entitlement provider references found in OSS build"
+  FAIL=1
+fi
 
 if grep -ri "muckrock" --exclude="auth-supabase.ts" --exclude="types.ts" --exclude="PreferencesModal.svelte" --exclude-dir="faq" --exclude-dir="paraglide" --exclude-dir="tests" frontend/src/ 2>/dev/null; then
   echo "ERROR: MuckRock references found in OSS build"
@@ -554,6 +742,19 @@ if grep -r "auth-muckrock" --exclude="auth-supabase.ts" --exclude-dir="tests" fr
   FAIL=1
 fi
 
+if grep -riE "indicator-claim|indicator_claim|subscription/claim|Claim Indicator|Indicator subscription" \
+  --exclude="strip-oss.sh" \
+  --exclude-dir=".git" \
+  --exclude-dir=".jj" \
+  --exclude-dir="node_modules" \
+  --exclude-dir=".svelte-kit" \
+  --exclude-dir="build" \
+  --exclude-dir="tests" \
+  . 2>/dev/null; then
+  echo "ERROR: hosted Indicator claim references found in OSS build"
+  FAIL=1
+fi
+
 if [ -d "backend/app/routers/threat_modeling" ]; then
   echo "ERROR: threat_modeling directory found in OSS build"
   FAIL=1
@@ -561,6 +762,7 @@ fi
 
 if grep -r "$HOSTED_SUPABASE_REF" \
   --exclude-dir=".git" \
+  --exclude-dir=".jj" \
   --exclude-dir="node_modules" \
   --exclude-dir=".svelte-kit" \
   --exclude-dir="build" \

@@ -288,6 +288,7 @@
 	}
 	.muckrock-link:hover { border-bottom-color: var(--color-primary); }
 
+
 	.error-text {
 		margin-top: 1rem;
 		padding: 0.5rem 0.75rem;

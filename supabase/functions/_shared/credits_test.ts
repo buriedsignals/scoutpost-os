@@ -1,6 +1,11 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals.ts";
 import { decrementOrThrow } from "./credits.ts";
 
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) Deno.env.delete(name);
+  else Deno.env.set(name, value);
+}
+
 Deno.test("decrementOrThrow no-ops unless credits are explicitly enabled", async () => {
   const prior = Deno.env.get("COJO_CREDITS_ENABLED");
   Deno.env.delete("COJO_CREDITS_ENABLED");
@@ -23,6 +28,44 @@ Deno.test("decrementOrThrow no-ops unless credits are explicitly enabled", async
   assertEquals(called, false);
   assertEquals(result.owner, "user");
   assertEquals(result.balance, Number.MAX_SAFE_INTEGER);
-  if (prior === undefined) Deno.env.delete("COJO_CREDITS_ENABLED");
-  else Deno.env.set("COJO_CREDITS_ENABLED", prior);
+  restoreEnv("COJO_CREDITS_ENABLED", prior);
+});
+
+Deno.test("decrementOrThrow uses the decrement_credits RPC when credits are enabled", async () => {
+  const prior = Deno.env.get("COJO_CREDITS_ENABLED");
+  Deno.env.set("COJO_CREDITS_ENABLED", "true");
+  const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
+  const client = {
+    rpc(fn: string, args: Record<string, unknown>) {
+      calls.push({ fn, args });
+      return Promise.resolve({
+        data: [{ balance: 993, owner: "org" }],
+        error: null,
+      });
+    },
+  };
+
+  try {
+    const result = await decrementOrThrow(client as never, {
+      userId: "user-1",
+      cost: 7,
+      scoutId: "scout-1",
+      scoutType: "beat",
+      operation: "beat",
+    });
+
+    assertEquals(result, { balance: 993, owner: "org" });
+    assertEquals(calls, [{
+      fn: "decrement_credits",
+      args: {
+        p_user_id: "user-1",
+        p_cost: 7,
+        p_scout_id: "scout-1",
+        p_scout_type: "beat",
+        p_operation: "beat",
+      },
+    }]);
+  } finally {
+    restoreEnv("COJO_CREDITS_ENABLED", prior);
+  }
 });

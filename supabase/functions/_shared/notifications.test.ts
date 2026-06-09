@@ -18,6 +18,7 @@ import {
   groupFactsBySource,
   markdownToHtml,
   renderArticleCards,
+  resolveUserContext,
   sendBeatAlert,
 } from "./notifications.ts";
 import {
@@ -476,6 +477,59 @@ Deno.test("Beat Scout notification rejects summary links outside article cards",
   assertEquals(result.ok, false);
   assertEquals(result.reason, "summary_ungrounded");
   assertStringIncludes(result.error ?? "", "https://outside.example/story");
+});
+
+Deno.test("resolveUserContext keeps scheduled alert email lookup on auth.users", async () => {
+  const calls: string[] = [];
+  const svc = {
+    auth: {
+      admin: {
+        getUserById(userId: string) {
+          calls.push(`auth:${userId}`);
+          return Promise.resolve({
+            data: { user: { email: "reporter@example.com" } },
+            error: null,
+          });
+        },
+      },
+    },
+    from(table: string) {
+      calls.push(`from:${table}`);
+      return {
+        select(columns: string) {
+          calls.push(`select:${columns}`);
+          return this;
+        },
+        eq(column: string, value: string) {
+          calls.push(`eq:${column}:${value}`);
+          return this;
+        },
+        maybeSingle() {
+          return Promise.resolve({
+            data: {
+              preferred_language: "fr",
+              health_notifications_enabled: false,
+            },
+            error: null,
+          });
+        },
+      };
+    },
+  };
+
+  const ctx = await resolveUserContext(svc as never, "user-1");
+
+  assertEquals(ctx, {
+    email: "reporter@example.com",
+    language: "fr",
+    healthNotificationsEnabled: false,
+  });
+  assertEquals(calls, [
+    "auth:user-1",
+    "from:user_preferences",
+    "select:preferred_language, health_notifications_enabled",
+    "eq:user_id:user-1",
+  ]);
 });
 
 Deno.test("Civic Scout renders markdown promises with the civic cue", () => {

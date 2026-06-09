@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     # Empty string = no overrides.
     admin_emails: str = os.getenv("ADMIN_EMAILS", "")
 
+
     # User Defaults
     default_credits: int = int(os.getenv("DEFAULT_USER_CREDITS", "100"))
     default_timezone: str = os.getenv("DEFAULT_USER_TIMEZONE", "UTC")
