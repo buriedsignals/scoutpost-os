@@ -95,8 +95,6 @@ sed -i '/app\.include_router(auth\.router/d' backend/app/main.py
 # Backend: remove SaaS-only billing and credit management
 rm -f backend/app/utils/credits.py
 rm -f backend/app/services/cron.py
-rm -f backend/app/services/seed_data_service.py
-rm -f backend/app/services/api_key_service.py
 
 # Backend: remove feedback router (Linear integration — SaaS-only)
 rm -f backend/app/routers/feedback.py
@@ -455,20 +453,18 @@ PY
 sed -i '/^    feedback,$/d' backend/app/main.py
 sed -i '/feedback\.router/d' backend/app/main.py
 
-# Backend: the OSS frontend is Supabase-native. Keep FastAPI only as the
-# optional /api/v1 add-on and strip the legacy user/feed/export surface.
+# Backend: the OSS frontend is Supabase-native. Strip the legacy
+# user/feed/export surface from the FastAPI app.
 sed -i '/^    onboarding,$/d' backend/app/main.py
 sed -i '/^    user,$/d' backend/app/main.py
 sed -i '/^    units,$/d' backend/app/main.py
 sed -i '/^    export,$/d' backend/app/main.py
-sed -i '/^    license,$/d' backend/app/main.py
 sed -i '/^from app\.routers import muckrock_proxy$/d' backend/app/main.py
 sed -i '/^from app\.routers import local_auth$/d' backend/app/main.py
 sed -i '/onboarding\.router/d' backend/app/main.py
 sed -i '/user\.router/d' backend/app/main.py
 sed -i '/units\.router/d' backend/app/main.py
 sed -i '/export\.router/d' backend/app/main.py
-sed -i '/license\.router/d' backend/app/main.py
 sed -i '/muckrock_proxy\.router/d' backend/app/main.py
 
 python3 - <<'PY'
@@ -483,7 +479,6 @@ targets = (
     "user.router",
     "units.router",
     "export.router",
-    "license.router",
     "feedback.router",
     'prefix="/api/auth"',
     'tags=["Auth (MuckRock proxy)"]',

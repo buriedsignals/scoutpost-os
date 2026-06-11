@@ -428,8 +428,6 @@ if settings.deployment_target != "supabase":
     from app.routers import threat_modeling
     app.include_router(threat_modeling.router, prefix="/api/threat-modeling", tags=["Threat Modeling"], include_in_schema=False)
 
-# License key management — hidden from public API docs
-
 # Feedback — hidden from public API docs
 
 # Public v1 API — visible in docs

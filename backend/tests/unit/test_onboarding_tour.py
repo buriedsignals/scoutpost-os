@@ -60,10 +60,9 @@ class TestInitialize:
     """Tests for the POST /initialize endpoint."""
 
     @pytest.mark.asyncio
-    @patch(f"{_MOD}.seed_demo_data")
     @patch(f"{_MOD}.build_user_response", new_callable=AsyncMock)
     @patch(f"{_MOD}.UserService")
-    async def test_initialize_calls_update_preferences(self, mock_user_service_cls, mock_build_response, mock_seed):
+    async def test_initialize_calls_update_preferences(self, mock_user_service_cls, mock_build_response):
         """initialize should call update_preferences with timezone, language, onboarding_completed."""
         mock_service = AsyncMock()
         mock_user_service_cls.return_value = mock_service
@@ -95,13 +94,11 @@ class TestInitialize:
             preferred_language="de",
             onboarding_completed=True,
         )
-        mock_seed.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch(f"{_MOD}.seed_demo_data")
     @patch(f"{_MOD}.build_user_response", new_callable=AsyncMock)
     @patch(f"{_MOD}.UserService")
-    async def test_initialize_with_location(self, mock_user_service_cls, mock_build_response, mock_seed):
+    async def test_initialize_with_location(self, mock_user_service_cls, mock_build_response):
         """initialize should pass default_location when location is provided."""
         mock_service = AsyncMock()
         mock_user_service_cls.return_value = mock_service
@@ -147,7 +144,6 @@ class TestInitialize:
         call_kwargs = mock_service.update_preferences.call_args
         assert call_kwargs[1]["default_location"]["displayName"] == "New York, USA"
         assert call_kwargs[1]["onboarding_completed"] is True
-        mock_seed.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_initialize_rejects_invalid_timezone(self):
@@ -178,10 +174,9 @@ class TestInitialize:
         assert exc_info.value.status_code == 500
 
     @pytest.mark.asyncio
-    @patch(f"{_MOD}.seed_demo_data")
     @patch(f"{_MOD}.build_user_response", new_callable=AsyncMock)
     @patch(f"{_MOD}.UserService")
-    async def test_initialize_normalizes_deprecated_timezone(self, mock_user_service_cls, mock_build_response, mock_seed):
+    async def test_initialize_normalizes_deprecated_timezone(self, mock_user_service_cls, mock_build_response):
         """initialize should normalize deprecated timezone names before storing."""
         mock_service = AsyncMock()
         mock_user_service_cls.return_value = mock_service
@@ -198,10 +193,9 @@ class TestInitialize:
         assert call_kwargs["timezone"] == "America/Argentina/Buenos_Aires"
 
     @pytest.mark.asyncio
-    @patch(f"{_MOD}.seed_demo_data")
     @patch(f"{_MOD}.build_user_response", new_callable=AsyncMock)
     @patch(f"{_MOD}.UserService")
-    async def test_initialize_defaults_language_to_en(self, mock_user_service_cls, mock_build_response, mock_seed):
+    async def test_initialize_defaults_language_to_en(self, mock_user_service_cls, mock_build_response):
         """initialize should default preferred_language to 'en'."""
         mock_service = AsyncMock()
         mock_user_service_cls.return_value = mock_service

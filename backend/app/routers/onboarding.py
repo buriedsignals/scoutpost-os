@@ -15,10 +15,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.dependencies import get_current_user, build_user_response
-try:
-    from app.services.seed_data_service import seed_demo_data
-except ImportError:
-    async def seed_demo_data(*args, **kwargs): pass
 from app.services.user_service import UserService
 
 logger = logging.getLogger(__name__)
@@ -93,10 +89,6 @@ async def initialize_user(
 
         user_service = UserService()
         await user_service.update_preferences(user_id, **prefs)
-
-        # Seed demo data for the Feed panel
-        location_dict = payload.location.model_dump() if payload.location else None
-        seed_demo_data(user_id, location_dict)
 
         logger.info(f"Initialized user {user_id} preferences")
 
