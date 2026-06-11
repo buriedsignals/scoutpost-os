@@ -175,9 +175,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
             detail.slice(0, 2000)
           }`,
         );
-        if (!isInsufficientCredits) {
-          await svc.rpc("increment_scout_failures", { p_scout_id: scout_id });
-        }
+        // Do NOT increment consecutive_failures here. The worker ran and owns
+        // its own failure accounting: it calls increment_scout_failures via its
+        // transient-error classification (shouldIncrementScoutFailure) before
+        // returning non-2xx. Incrementing again double-counts one failed run and
+        // wrongly counts non-transient errors the worker deliberately skips. The
+        // dispatcher only counts dispatch_error, where the worker never ran.
         if (isInsufficientCredits) {
           return new Response(detail, {
             status: 402,

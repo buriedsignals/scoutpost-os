@@ -40,7 +40,10 @@ import {
 import { logEvent } from "../_shared/log.ts";
 import { shapeScoutResponse } from "../_shared/db.ts";
 import { normalizeSocialHandle } from "../_shared/social_profiles.ts";
-import { schedulePolicyError } from "../_shared/schedule_policy.ts";
+import {
+  resolveScheduleAction,
+  schedulePolicyError,
+} from "../_shared/schedule_policy.ts";
 import {
   doubleProbe,
   firecrawlChangeTrackingScrape,
@@ -1034,21 +1037,24 @@ async function updateScout(
     Object.prototype.hasOwnProperty.call(parsed.data, "is_active") &&
     parsed.data.is_active !== current.is_active;
 
-  // Turning is_active off => unschedule, regardless of cron changes.
+  // Reconcile the pg_cron job with the scout's next state. Covers pause,
+  // reactivation, and cron changes (see resolveScheduleAction).
+  const scheduleAction = resolveScheduleAction({
+    activeChanged,
+    cronChanged,
+    willBeActive,
+    hasSchedule: willHaveSchedule,
+  });
   try {
-    if (activeChanged && parsed.data.is_active === false) {
+    if (scheduleAction === "schedule") {
+      await scheduleScoutOrThrow(
+        svc,
+        id,
+        nextScout.schedule_cron as string,
+        user.id,
+      );
+    } else if (scheduleAction === "unschedule") {
       await unscheduleScoutOrThrow(svc, id, user.id);
-    } else if (cronChanged) {
-      if (parsed.data.schedule_cron) {
-        await scheduleScoutOrThrow(
-          svc,
-          id,
-          parsed.data.schedule_cron,
-          user.id,
-        );
-      } else {
-        await unscheduleScoutOrThrow(svc, id, user.id);
-      }
     }
   } catch (e) {
     await rollbackScoutUpdate(svc, id, user.id, current, parsed.data);

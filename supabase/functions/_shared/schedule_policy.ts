@@ -36,6 +36,37 @@ export function cronIsNoMoreFrequentThanWeekly(cron: string): boolean {
   return false;
 }
 
+export type ScheduleAction = "schedule" | "unschedule" | "none";
+
+/**
+ * Decide what to do with a scout's pg_cron job after an update, given which
+ * fields changed and the scout's next state. Pure so it can be unit-tested
+ * without a database.
+ *
+ * - Deactivated (is_active -> false): always remove the job.
+ * - Reactivated (is_active -> true), or cron changed while staying active:
+ *   reconcile the job to the next state — schedule when the scout will be
+ *   active and has a cron, otherwise remove it.
+ * - Nothing relevant changed: leave the job as-is.
+ *
+ * Reactivation previously had no branch, so un-pausing a scout via PATCH left
+ * it unscheduled. Gating on `willBeActive` also avoids creating a job for a
+ * still-paused scout whose only change is its cron expression.
+ */
+export function resolveScheduleAction(args: {
+  activeChanged: boolean;
+  cronChanged: boolean;
+  willBeActive: boolean;
+  hasSchedule: boolean;
+}): ScheduleAction {
+  const { activeChanged, cronChanged, willBeActive, hasSchedule } = args;
+  if (activeChanged && !willBeActive) return "unschedule";
+  if ((activeChanged && willBeActive) || cronChanged) {
+    return willBeActive && hasSchedule ? "schedule" : "unschedule";
+  }
+  return "none";
+}
+
 export function schedulePolicyError(
   type: ScheduledScoutType | undefined | null,
   regularity?: ScheduleRegularity | null,
