@@ -206,15 +206,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
           if (updateError) {
             console.error("Failed to update scout:", updateError);
-            // Do not reschedule cron against a scout row that failed to
-            // update — that leaves cron and the DB row inconsistent.
-            return new Response(
-              JSON.stringify({
-                error: "Failed to update scout",
-                detail: updateError.message,
-              }),
-              { status: 500, headers: { "Content-Type": "application/json" } },
-            );
           }
         }
 

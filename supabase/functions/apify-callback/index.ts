@@ -542,19 +542,7 @@ async function processSucceededRun(
   // 1. Fetch dataset items.
   const datasetUrl =
     `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apifyToken}&format=json&limit=${DATASET_LIMIT}`;
-  const datasetAc = new AbortController();
-  const datasetFuse = setTimeout(() => datasetAc.abort(), 30_000);
-  let res: Response;
-  try {
-    res = await fetch(datasetUrl, { signal: datasetAc.signal });
-  } catch (e) {
-    clearTimeout(datasetFuse);
-    if ((e as { name?: string }).name === "AbortError") {
-      throw new Error("apify dataset fetch timed out after 30000ms");
-    }
-    throw e;
-  }
-  clearTimeout(datasetFuse);
+  const res = await fetch(datasetUrl);
   if (!res.ok) {
     throw new Error(
       `apify dataset fetch failed: ${res.status} ${await res.text()}`,

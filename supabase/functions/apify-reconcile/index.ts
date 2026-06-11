@@ -135,31 +135,6 @@ interface QueueRow {
   status: string;
 }
 
-/**
- * fetch with a client-side AbortController fuse. reconcile is itself the
- * failsafe for stuck Apify runs, so its own HTTP calls must not hang
- * indefinitely or a stuck run never gets cleaned up or refunded.
- */
-async function fetchWithTimeout(
-  input: string,
-  init: RequestInit,
-  timeoutMs: number,
-  label: string,
-): Promise<Response> {
-  const ac = new AbortController();
-  const fuse = setTimeout(() => ac.abort(), timeoutMs);
-  try {
-    return await fetch(input, { ...init, signal: ac.signal });
-  } catch (e) {
-    if ((e as { name?: string }).name === "AbortError") {
-      throw new Error(`${label} timed out after ${timeoutMs}ms`);
-    }
-    throw e;
-  } finally {
-    clearTimeout(fuse);
-  }
-}
-
 async function reconcileRow(
   svc: ReturnType<typeof getServiceClient>,
   row: QueueRow,
@@ -168,11 +143,8 @@ async function reconcileRow(
   serviceHeaders: Record<string, string>,
 ): Promise<boolean> {
   const apifyRunId = row.apify_run_id as string;
-  const res = await fetchWithTimeout(
+  const res = await fetch(
     `https://api.apify.com/v2/actor-runs/${apifyRunId}?token=${apifyToken}`,
-    {},
-    15_000,
-    "apify poll",
   );
   if (!res.ok) {
     throw new Error(`apify poll failed: ${res.status} ${await res.text()}`);
@@ -201,19 +173,14 @@ async function reconcileRow(
         finishedAt: runData.finishedAt ?? null,
       },
     };
-    const cbRes = await fetchWithTimeout(
-      cbUrl,
-      {
-        method: "POST",
-        headers: {
-          ...serviceHeaders,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
+    const cbRes = await fetch(cbUrl, {
+      method: "POST",
+      headers: {
+        ...serviceHeaders,
+        "Content-Type": "application/json",
       },
-      30_000,
-      "synth callback",
-    );
+      body: JSON.stringify(payload),
+    });
     await cbRes.body?.cancel();
     if (!cbRes.ok) {
       throw new Error(`synth callback failed: ${cbRes.status}`);
