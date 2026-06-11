@@ -200,19 +200,36 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonOk({ status: "already_processed" });
   }
 
-  // Failed-event path: record failure + return + refund the pre-charge.
+  // Failed-event path: atomically claim the row, then record + refund once.
+  // The conditional UPDATE (WHERE status IN pending/running) is the claim:
+  // only one of two concurrent or duplicate deliveries (an Apify webhook retry
+  // racing the reconcile-synthesized callback) transitions the row, so the
+  // pre-charge refund below cannot fire twice.
   if (eventType !== "ACTOR.RUN.SUCCEEDED") {
     const errorClass: RunErrorClass = eventType === "ACTOR.RUN.TIMED_OUT"
       ? "timeout"
       : "provider";
-    await svc
+    const { data: claimedFail, error: claimErr } = await svc
       .from("apify_run_queue")
       .update({
         status: "failed",
         last_error: eventType ?? "unknown_event",
         completed_at: new Date().toISOString(),
       })
-      .eq("id", queueRow.id);
+      .eq("id", queueRow.id)
+      .in("status", ["pending", "running"])
+      .select("id");
+    if (claimErr) return jsonFromError(new Error(claimErr.message));
+    if (!claimedFail || claimedFail.length === 0) {
+      logEvent({
+        level: "info",
+        fn: "apify-callback",
+        event: "already_processed",
+        apify_run_id: apifyRunId,
+        queue_status: "failed",
+      });
+      return jsonOk({ status: "already_processed" });
+    }
 
     if (queueRow.scout_run_id) {
       await markRunError(svc, queueRow.scout_run_id, {
@@ -542,7 +559,19 @@ async function processSucceededRun(
   // 1. Fetch dataset items.
   const datasetUrl =
     `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apifyToken}&format=json&limit=${DATASET_LIMIT}`;
-  const res = await fetch(datasetUrl);
+  const datasetAc = new AbortController();
+  const datasetFuse = setTimeout(() => datasetAc.abort(), 30_000);
+  let res: Response;
+  try {
+    res = await fetch(datasetUrl, { signal: datasetAc.signal });
+  } catch (e) {
+    clearTimeout(datasetFuse);
+    if ((e as { name?: string }).name === "AbortError") {
+      throw new Error("apify dataset fetch timed out after 30000ms");
+    }
+    throw e;
+  }
+  clearTimeout(datasetFuse);
   if (!res.ok) {
     throw new Error(
       `apify dataset fetch failed: ${res.status} ${await res.text()}`,
@@ -632,19 +661,38 @@ async function processSucceededRun(
 
   // 5. Upsert snapshot. Persist the cleaned post list so the next run diffs
   //    against real baselines instead of placeholder ghosts.
-  const snapshotPayload = {
-    scout_id: scout.id,
-    user_id: scout.user_id ?? queueRow.user_id,
-    platform: scout.platform ?? queueRow.platform,
-    handle: queueRow.handle ?? scout.profile_handle,
-    post_count: realCurrentPosts.length,
-    posts: realCurrentPosts,
-    updated_at: new Date().toISOString(),
-  };
-  const { error: upsertErr } = await svc
-    .from("post_snapshots")
-    .upsert(snapshotPayload, { onConflict: "scout_id" });
-  if (upsertErr) throw new Error(upsertErr.message);
+  //
+  //    Skip the write when the run looks like a transient actor failure
+  //    (current well below the previous baseline, including zero posts). The
+  //    old code overwrote the baseline with [] on a flaky run, so the next
+  //    real run re-detected every post as new and re-alerted the user. The
+  //    actorLikelyOk signal already guards removal detection above; reuse it
+  //    here. previousPosts.length === 0 (first run / no baseline) is allowed
+  //    through so the initial baseline still gets written.
+  if (actorLikelyOk) {
+    const snapshotPayload = {
+      scout_id: scout.id,
+      user_id: scout.user_id ?? queueRow.user_id,
+      platform: scout.platform ?? queueRow.platform,
+      handle: queueRow.handle ?? scout.profile_handle,
+      post_count: realCurrentPosts.length,
+      posts: realCurrentPosts,
+      updated_at: new Date().toISOString(),
+    };
+    const { error: upsertErr } = await svc
+      .from("post_snapshots")
+      .upsert(snapshotPayload, { onConflict: "scout_id" });
+    if (upsertErr) throw new Error(upsertErr.message);
+  } else {
+    logEvent({
+      level: "warn",
+      fn: "apify-callback",
+      event: "snapshot_preserved_actor_failure",
+      scout_id: scout.id,
+      previous_count: previousPosts.length,
+      current_count: realCurrentPosts.length,
+    });
+  }
 
   // 6. Extract units for each new post (cap MAX_NEW_POSTS).
   const capped = newPosts.slice(0, MAX_NEW_POSTS);

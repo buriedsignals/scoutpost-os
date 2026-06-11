@@ -139,6 +139,8 @@ export interface FirecrawlSearchOptions {
   ignoreInvalidURLs?: boolean;
   includeDomains?: string[];
   excludeDomains?: string[];
+  /** Client-side AbortController fuse in ms. Defaults to 45_000. */
+  abortAfterMs?: number;
 }
 
 /**
@@ -167,14 +169,31 @@ export async function firecrawlSearch(
     body.scrapeOptions = { formats: ["markdown"], onlyMainContent: true };
   }
 
-  const res = await fetch(`${FIRECRAWL_BASE}/search`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${firecrawlApiKey()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const abortAfterMs = opts.abortAfterMs ?? 45_000;
+  const ac = new AbortController();
+  const fuse = setTimeout(() => ac.abort(), abortAfterMs);
+  let res: Response;
+  try {
+    res = await fetch(`${FIRECRAWL_BASE}/search`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${firecrawlApiKey()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: ac.signal,
+    });
+  } catch (e) {
+    clearTimeout(fuse);
+    if ((e as { name?: string }).name === "AbortError") {
+      throw new ApiError(
+        `firecrawl search aborted after ${abortAfterMs}ms`,
+        504,
+      );
+    }
+    throw e;
+  }
+  clearTimeout(fuse);
   if (!res.ok) {
     throw new ApiError(
       `firecrawl search failed: ${res.status} ${await res.text()}`,
@@ -229,6 +248,8 @@ export async function firecrawlMap(
     ignoreQueryParameters?: boolean;
     ignoreCache?: boolean;
     timeoutMs?: number;
+    /** Client-side AbortController fuse in ms. Defaults to (timeoutMs ?? 60_000) + 5000. */
+    abortAfterMs?: number;
     country?: string;
     languages?: string[];
   } = {},
@@ -254,14 +275,28 @@ export async function firecrawlMap(
     };
   }
 
-  const res = await fetch(`${FIRECRAWL_BASE}/map`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${firecrawlApiKey()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(requestBody),
-  });
+  const abortAfterMs = opts.abortAfterMs ?? (opts.timeoutMs ?? 60_000) + 5_000;
+  const ac = new AbortController();
+  const fuse = setTimeout(() => ac.abort(), abortAfterMs);
+  let res: Response;
+  try {
+    res = await fetch(`${FIRECRAWL_BASE}/map`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${firecrawlApiKey()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+      signal: ac.signal,
+    });
+  } catch (e) {
+    clearTimeout(fuse);
+    if ((e as { name?: string }).name === "AbortError") {
+      throw new ApiError(`firecrawl map aborted after ${abortAfterMs}ms`, 504);
+    }
+    throw e;
+  }
+  clearTimeout(fuse);
   if (!res.ok) {
     throw new ApiError(
       `firecrawl map failed: ${res.status} ${await res.text()}`,
