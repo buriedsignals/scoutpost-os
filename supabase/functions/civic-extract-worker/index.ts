@@ -46,7 +46,6 @@ import {
   markNotificationResult,
   markRunError,
   markRunStage,
-  markRunSuccess,
   shouldIncrementScoutFailure,
 } from "../_shared/run_lifecycle.ts";
 import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
@@ -491,17 +490,45 @@ Set criteria_match=false for any promise that fails or only partially satisfies 
     });
   }
 
-  // 6. Notify (fire-and-forget semantics — a mail failure does not abort the
-  //    queue row; we still mark it done so it's not retried infinitely).
-  if (row.scout_run_id) {
-    await markRunSuccess(svc, row.scout_run_id, {
-      unitsCreated: inserted,
-      unitsMerged: mergedExisting,
-      criteriaStatus: inserted > 0,
-      notificationStatus: inserted > 0 ? "pending" : "skipped",
+  // 6. Finalize this document atomically. The RPC flips the queue row
+  //    processing -> done and bumps the run's counts ADDITIVELY in one
+  //    statement, gated on winning that transition. This makes per-document
+  //    counts accumulate across a multi-document run and stay exactly-once
+  //    under the 30-minute stale-processing re-claim — markRunSuccess used to
+  //    absolute-SET the counts (last document overwrote the rest) and ran
+  //    before the queue row was marked done.
+  const { data: didFinalize, error: finalizeErr } = await svc.rpc(
+    "finalize_civic_run_doc",
+    {
+      p_queue_id: row.id,
+      p_run_id: row.scout_run_id,
+      p_created: inserted,
+      p_merged: mergedExisting,
+      p_raw_capture_id: rawCaptureId,
+    },
+  );
+  if (finalizeErr) throw new Error(finalizeErr.message);
+  if (didFinalize !== true) {
+    // A concurrent or prior invocation already finalized this document
+    // (stale-processing re-claim). Skip notification + URL bookkeeping so they
+    // stay exactly-once too.
+    logEvent({
+      level: "info",
+      fn: "civic-extract-worker",
+      event: "already_finalized",
+      queue_id: row.id,
+      scout_id: row.scout_id,
+      run_id: row.scout_run_id,
     });
+    return {
+      raw_capture_id: rawCaptureId,
+      promises_extracted: inserted,
+      merged_existing_count: mergedExisting,
+    };
   }
 
+  // 7. Notify (fire-and-forget — a mail failure does not abort the queue row,
+  //    which is already marked done by the finalize RPC above).
   if (inserted > 0 && row.scout_run_id) {
     try {
       await markNotificationAttempted(svc, row.scout_run_id).catch((e) =>
@@ -582,17 +609,6 @@ Set criteria_match=false for any promise that fails or only partially satisfies 
       });
     }
   }
-
-  // 7. Mark queue row done.
-  const { error: doneErr } = await svc
-    .from("civic_extraction_queue")
-    .update({
-      status: "done",
-      raw_capture_id: rawCaptureId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", row.id);
-  if (doneErr) throw new Error(doneErr.message);
 
   // 8. Mark the source URL as processed on the scout ONLY after the full
   //    extraction pipeline has succeeded. Previously this was done in
