@@ -29,6 +29,12 @@ STRICT_HS256_JWT = pyjwt.PyJWT(options={"enforce_minimum_key_length": True})
 class SupabaseAuth(AuthPort):
     """Supabase JWT-based authentication."""
 
+    # Minimum length for the symmetric HS256 secret. An empty or trivially
+    # short secret is treated as "no HS256 support" so a misconfigured
+    # SUPABASE_JWT_SECRET cannot be used to forge tokens (PyJWT accepts an
+    # empty HMAC key, which would otherwise fail open).
+    _MIN_HS256_SECRET_LEN = 32
+
     def __init__(self, user_storage=None):
         settings = get_settings()
         self.jwt_secret = settings.supabase_jwt_secret
@@ -38,6 +44,13 @@ class SupabaseAuth(AuthPort):
         self._supabase_service_key = settings.supabase_service_key
         self._supabase_client: AsyncClient | None = None
         self._jwks_client: PyJWKClient | None = None
+        self._hs256_enabled = bool(self.jwt_secret) and len(self.jwt_secret) >= self._MIN_HS256_SECRET_LEN
+        if not self._hs256_enabled:
+            logger.warning(
+                "SUPABASE_JWT_SECRET is unset or shorter than %d chars; legacy "
+                "HS256 token verification is disabled (ES256/JWKS still works).",
+                self._MIN_HS256_SECRET_LEN,
+            )
 
     def _get_jwks_client(self) -> PyJWKClient:
         """Lazy-init JWKS client for ES256 verification.
@@ -89,14 +102,19 @@ class SupabaseAuth(AuthPort):
                     token,
                     signing_key,
                     algorithms=["ES256"],
-                    options={"verify_aud": False},
+                    options={"verify_aud": False, "require": ["exp", "sub"]},
                 )
             elif alg == "HS256":
+                if not self._hs256_enabled:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid token: HS256 verification unavailable",
+                    )
                 payload = STRICT_HS256_JWT.decode(
                     token,
                     self.jwt_secret,
                     algorithms=["HS256"],
-                    options={"verify_aud": False},
+                    options={"verify_aud": False, "require": ["exp", "sub"]},
                 )
             else:
                 raise HTTPException(

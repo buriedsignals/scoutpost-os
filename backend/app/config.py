@@ -8,11 +8,15 @@ used throughout the application.
 DEPENDS ON: (pydantic_settings only — no app imports)
 USED BY: Nearly all services and routers (imported as `settings` or `get_settings()`)
 """
+import logging
 import os
 from pathlib import Path
 from typing import Optional
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 
@@ -118,6 +122,45 @@ class Settings(BaseSettings):
         "https://cojournalist.ai",  # Legacy migration origin
         "https://www.cojournalist.ai",  # Legacy migration origin (www)
     ]
+
+    @model_validator(mode="after")
+    def _fail_closed_on_unset_auth_secrets(self) -> "Settings":
+        """Guard against fail-open auth in production.
+
+        An empty SUPABASE_JWT_SECRET lets an attacker forge HS256 tokens
+        (PyJWT accepts an empty HMAC key) and impersonate any user, so we
+        refuse to boot in production when it is unset. SESSION_SECRET and
+        INTERNAL_SERVICE_KEY are dashboard-only (not declared in render.yaml),
+        so we log loudly rather than hard-fail to avoid an outage if one was
+        never set; tighten to a raise once both are confirmed present.
+        """
+        if self.environment.lower() != "production":
+            return self
+
+        if not self.supabase_jwt_secret:
+            raise ValueError(
+                "SUPABASE_JWT_SECRET is unset in production. It verifies user "
+                "session JWTs; an empty value fails open to token forgery. "
+                "Set it in the deploy environment before starting."
+            )
+
+        for name, value in (
+            ("SESSION_SECRET", self.session_secret),
+            ("INTERNAL_SERVICE_KEY", self.internal_service_key),
+        ):
+            if not value:
+                logger.error(
+                    "%s is unset in production. It signs/authenticates a "
+                    "security boundary (OAuth state HMAC, CMS token encryption, "
+                    "internal service calls); an empty value is fail-open. "
+                    "Set it in the deploy environment.",
+                    name,
+                )
+            elif len(value) < 32:
+                logger.warning("%s is shorter than 32 chars (weak).", name)
+
+        return self
+
 
 # Global settings instance
 settings = Settings()
