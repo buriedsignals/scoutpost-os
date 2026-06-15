@@ -4,55 +4,46 @@
 
 Read the nearest parent `CLAUDE.md` / `AGENTS.md` before editing; its session preflight points to the canonical coding-rules skill. This file only adds directory-specific context.
 
-## ⚠️ Release cost controls — read before you tag
+## ⚠️ Release pipeline — read before you tag
 
-GitHub Actions macOS runners bill at **10×** the Linux rate. A stuck
-macOS job eats 10 minutes of quota for every 1 wall-clock minute. One
-runaway `notarytool submit --wait` hang on 2026-04-22 consumed ~1,650
-billable minutes before we caught it.
+**The full playbook lives in the `native-cli-npm-release` skill**
+(`kit/native-cli-npm-release/SKILL.md`, loaded globally as a Claude Code
+skill). It captures the hard-won lessons from the `scoutpost-cli`
+0.1.0→0.1.7 saga — macOS JIT entitlements, notarization-that-doesn't-hang,
+Intel-runner avoidance, cross-repo release tokens, npm granular-token/2FA
+auth, the deno+npm coexistence trap, and the meta-rule **green CI ≠ working
+binary**. Read it before touching `.github/workflows/cli-release.yml`.
 
-Guardrails in `.github/workflows/cli-release.yml` that must stay in place:
+Scoutpost-specific non-negotiables (do NOT regress — the skill explains *why*):
 
-1. **Notarize step has `timeout-minutes: 25`** (outer backstop) **and an
-   inner 20-minute poll loop**. The tool will exit cleanly at 20 min with
-   `notarization did not finish in 20 minutes (last status: X)` rather
-   than long-polling Apple indefinitely. Don't remove these.
-2. **macOS matrix legs are `continue-on-error: true` + `required: false`**
-   in the matrix `include:` blocks. A stuck macOS job does not block the
-   Linux release. Don't flip these to required without a plan for Apple
-   notary outages.
-3. **Release job uses `if: always() && …`** so the Linux binaries publish
-   even when macOS legs fail or time out. macOS binaries re-attach on a
-   workflow rerun once Apple's queue is healthy.
-4. **Do NOT switch notarization back to `xcrun notarytool submit --wait`
-   (single call).** That's the long-poll pattern that hangs; we split it
-   into submit → explicit UUID polling. See electron/notarize#179 for
-   the canonical write-up.
-5. **Codesign MUST pass `--entitlements cli/scout.entitlements`.** `scout` is
-   a `deno compile` binary (embeds V8); V8 needs JIT/executable memory. The
-   hardened runtime blocks that unless `com.apple.security.cs.allow-jit` +
-   `com.apple.security.cs.allow-unsigned-executable-memory` are granted.
-   Without the entitlements the macOS binaries **crash on launch** with
-   `Failed to reserve virtual memory for CodeRange` on strict macOS versions
-   (e.g. macOS 26) — even though they pass notarization and run on older
-   macOS CI runners. The codesign step greps the signature for `allow-jit`
-   and fails the build if it's missing. Don't remove either.
+- **Codesign MUST pass `--entitlements cli/scout.entitlements`** (`allow-jit` +
+  `allow-unsigned-executable-memory`). Without it the macOS binaries crash on
+  launch with `Failed to reserve virtual memory for CodeRange` on strict macOS
+  (e.g. macOS 26) — yet still pass notarization AND the CI smoke (older runner).
+  The build greps the signature for `allow-jit` and fails if it's absent.
+- **Both macOS legs run on `macos-latest`** (arm64 cross-compiles + signs the
+  x86_64 target). No `macos-13` leg in build OR smoke — the Intel pool is
+  deprecated and queues indefinitely.
+- **Release uses `secrets.MIRROR_PAT`** (the proven scoutpost-os write token),
+  `generate_release_notes: false`, and `target_commitish: master` (the mirror's
+  default branch). `OSS_RELEASE_PAT` is broken/unused (lacks `Contents: write`).
+- **Public release tag is `scout-v<version>`** (private git tag is
+  `cli-v<version>`); the npm postinstall URL in `cli/scripts/release.js` must
+  match the `scout-v` prefix.
+- **npm publish needs a Granular Access Token with 2FA-bypass** in
+  `secrets.NPM_TOKEN` (classic/"Automation" token types are gone from npm).
+- **Notarize**: split submit → UUID-poll + `timeout-minutes`; macOS legs
+  `continue-on-error`. macOS runners bill at **10×** — cancel stuck runs
+  (`gh run cancel <run-id>`) and check Apple notary status
+  (`https://developer.apple.com/system-status/`) before tagging during an outage.
+- **After publish: install `scoutpost-cli@<version>` and run it on the newest
+  macOS you can reach** before declaring done — the CI smoke runs on older macOS
+  and will not catch a JIT-entitlement regression.
 
-   **Both macOS legs run on `macos-latest` (arm64).** `deno compile`
-   cross-compiles the x86_64 target and Apple's codesign/notarytool sign it
-   from arm64 — so there is no Intel `macos-13` leg in build OR smoke (that
-   runner pool is deprecated and queues indefinitely).
-
-**Budget check before tagging:** if you're about to burn runner minutes
-on a release and Apple's notary service looks stuck
-(`https://developer.apple.com/system-status/` → "Developer ID Notary
-Service"), wait. A failed macOS arm64 leg + x86 leg together burn
-~400 billable minutes at the 20-min cap.
-
-**Cancelling stuck runs saves money:**
-```bash
-gh run cancel <run-id>
-```
+To **deprecate a broken published version**, dispatch the `npm-deprecate`
+workflow (`gh workflow run npm-deprecate.yml -f spec=scoutpost-cli@X.Y.Z -f
+message="…"`). `npm deprecate` from a plain shell 404s — it needs owner auth;
+the workflow uses `NPM_TOKEN`.
 
 ## Release procedure
 

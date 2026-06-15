@@ -143,9 +143,11 @@ rm -f .github/workflows/mirror-*.yml
 rm -f .github/workflows/claude*.yml
 rm -f .github/workflows/qa-matrix.yml
 rm -f .github/workflows/weekly-scout-benchmarks.yml
-# CLI release workflow depends on Apple signing secrets that only exist on
-# the private monorepo. OSS forks can restore this and add their own secrets.
+# CLI release + npm-deprecate workflows depend on Apple signing / npm secrets
+# that only exist on the private monorepo. OSS forks can restore these and add
+# their own secrets.
 rm -f .github/workflows/cli-release.yml
+rm -f .github/workflows/npm-deprecate.yml
 
 # -------------------------------------------------------------------
 # Docs: remove internal/SaaS-specific documentation
