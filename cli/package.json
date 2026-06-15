@@ -1,6 +1,6 @@
 {
   "name": "scoutpost-cli",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Scout — the CLI for Scoutpost (scoutpost.ai), AI-powered local news monitoring. Ships the native deno-compiled `scout` binary via npm.",
   "type": "module",
   "bin": {
