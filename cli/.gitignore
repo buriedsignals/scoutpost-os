@@ -1,0 +1,5 @@
+# Native binaries downloaded by scripts/postinstall.js at npm-install time.
+# These are fetched per-platform from the scout-v<version> GitHub release and
+# must never be committed or packed into the npm tarball.
+bin/scout-*
+bin/*.download

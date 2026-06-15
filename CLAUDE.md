@@ -315,15 +315,20 @@ Usage and credit records now live in Supabase tables and are queried through the
 ## CLI: `scout`
 
 Shipping product — a Deno-based CLI that talks to the REST API with a JWT
-bearer token or `cj_...` API key. Until public release assets exist, install
-directly from the public mirror with Deno.
+bearer token or `cj_...` API key.
 
 - Source: `cli/` (see `cli/CLAUDE.md` for full detail)
 - Release tag pattern: `cli-v<MAJOR>.<MINOR>.<PATCH>` — push the tag, CI
   builds + signs + notarizes + publishes the release automatically
 - Pre-release suffixes (marked as prerelease on GitHub): `-rc1`, `-beta1`,
   `-alpha1`
-- Current install (anyone, no auth):
+- **Primary install (npm, no auth):** `npm i -g scoutpost-cli` — the
+  `scoutpost-cli` package's `bin` puts `scout` on PATH and its postinstall
+  downloads the native binary for your platform from the `scout-v<version>`
+  release. This is how the Buried Signals engine installs `scout` (one
+  `NpmStep`, no PATH wiring). The package name is **`scoutpost-cli`**
+  (`scout-cli` was already taken on npm); the command stays `scout`.
+- Fallback install (Deno source, no auth):
   `deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts`
 - Planned binaries: `scout-darwin-arm64`, `scout-darwin-x86_64`,
   `scout-linux-arm64`, `scout-linux-x86_64` — each with a sibling `.sha256`

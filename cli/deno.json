@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "test": "deno test commands/ --allow-net --allow-env --allow-read --allow-write",
+    "test": "deno test commands/ scripts/ --allow-net --allow-env --allow-read --allow-write",
     "run": "deno run --allow-net --allow-env --allow-read --allow-write scout.ts",
     "compile-mac-arm": "deno compile --target aarch64-apple-darwin --output dist/scout-darwin-arm64 --allow-net --allow-env --allow-read --allow-write scout.ts",
     "compile-mac-x86": "deno compile --target x86_64-apple-darwin --output dist/scout-darwin-x86_64 --allow-net --allow-env --allow-read --allow-write scout.ts",

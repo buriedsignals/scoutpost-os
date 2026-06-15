@@ -1,0 +1,42 @@
+{
+  "name": "scoutpost-cli",
+  "version": "0.1.0",
+  "description": "Scout — the CLI for Scoutpost (scoutpost.ai), AI-powered local news monitoring. Ships the native deno-compiled `scout` binary via npm.",
+  "type": "module",
+  "bin": {
+    "scout": "bin/scout.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "files": [
+    "bin/scout.js",
+    "scripts/platform.js",
+    "scripts/postinstall.js",
+    "scripts/release.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "scout",
+    "scoutpost",
+    "cli",
+    "news-monitoring",
+    "osint",
+    "journalism"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Buried Signals",
+  "homepage": "https://www.scoutpost.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buriedsignals/scoutpost-os.git",
+    "directory": "cli"
+  },
+  "bugs": {
+    "url": "https://github.com/buriedsignals/scoutpost-os/issues"
+  }
+}

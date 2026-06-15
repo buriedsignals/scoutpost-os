@@ -53,12 +53,27 @@ gh run cancel <run-id>
    git push origin cli-v0.1.0
    ```
 4. `.github/workflows/cli-release.yml` fires (on the private monorepo,
-   where the Apple secrets live):
+   where the Apple + npm secrets live):
    - 4 matrix builds (mac arm/x86, linux arm/x86)
    - macOS binaries are code-signed + notarized via Apple
-   - Release published on the PUBLIC mirror
-     (`buriedsignals/scoutpost-os`) with 4 binaries + 4 sha256 files,
-     via `OSS_RELEASE_PAT`. Anyone can `curl` the assets without auth.
+   - `release` job publishes on the PUBLIC mirror
+     (`buriedsignals/scoutpost-os`) under the tag **`scout-v<version>`**
+     (the private git tag is `cli-v<version>`; the public release uses
+     `scout-v` to match the binary asset names and the npm postinstall
+     download URL) with 4 binaries + 4 sha256 files, via `OSS_RELEASE_PAT`.
+     Anyone can `curl` the assets without auth.
+   - `npm-publish` job publishes the **`scoutpost-cli`** npm package
+     (`npm i -g scoutpost-cli` → `scout` on PATH). It sets the package
+     version from the tag, HEAD-verifies all four `scout-v<version>`
+     binaries are attached (so it never ships a package whose macOS
+     postinstall would 404 when notary legs stalled), then `npm publish`.
+     Needs the `NPM_TOKEN` secret (see Secrets below). The postinstall
+     download coordinates live in `cli/scripts/release.js` — the
+     `scout-v` prefix and `buriedsignals/scoutpost-os` slug there MUST
+     stay in sync with the `release` job's `tag_name`.
+   - `smoke` job installs `scoutpost-cli@<version>` from npm on all four
+     platforms and asserts `scout --help` works and `scout` resolves in
+     the npm global bin dir.
 5. Smoke test after public assets exist: `curl -fsSL https://github.com/buriedsignals/scoutpost-os/releases/latest/download/scout-darwin-arm64 -o /tmp/scout && chmod +x /tmp/scout && /tmp/scout --version`.
    Until then, smoke test the source install: `deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts && scout --version`.
 
@@ -131,6 +146,7 @@ All on the private `buriedsignals/scoutpost` repo:
 | `APPLE_API_KEY_ID` | Key ID |
 | `APPLE_API_ISSUER_ID` | Issuer ID |
 | `OSS_RELEASE_PAT` | Fine-grained PAT with `contents: write` on `buriedsignals/scoutpost-os` — publishes release assets on the public mirror |
+| `NPM_TOKEN` | npm **automation** token for an account with publish rights to the unscoped `scoutpost-cli` package. Used by the `npm-publish` job as `NODE_AUTH_TOKEN`. **One-time prerequisite:** create the token, `npm publish` the name once to reserve it (or let the first tagged release do it), and add the secret to `buriedsignals/scoutpost`. Without it, `npm-publish` fails and no package ships. |
 
 Cert valid 5 years (renew 2031). Renewal reminder: `2027-04-15` decide
 whether to keep paying Apple Developer Program ($109/yr).
