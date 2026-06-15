@@ -145,7 +145,8 @@ All on the private `buriedsignals/scoutpost` repo:
 | `APPLE_API_KEY_P8` | App Store Connect API key file contents |
 | `APPLE_API_KEY_ID` | Key ID |
 | `APPLE_API_ISSUER_ID` | Issuer ID |
-| `OSS_RELEASE_PAT` | Fine-grained PAT with `contents: write` on `buriedsignals/scoutpost-os` — publishes release assets on the public mirror |
+| `MIRROR_PAT` | PAT with `contents: write` on `buriedsignals/scoutpost-os`. Used by `mirror-oss.yml` (push commits) AND `cli-release.yml`'s `release` job (create the `scout-v*` release + upload binaries). Single proven write token for the mirror. |
+| `OSS_RELEASE_PAT` | **Unused / broken.** Was intended as the release token but lacks `contents: write` on `scoutpost-os` (403s on create-a-release). Safe to delete, or fix its Contents permission to `Read and write` if you want a separate release token again. |
 | `NPM_TOKEN` | npm **automation** token for an account with publish rights to the unscoped `scoutpost-cli` package. Used by the `npm-publish` job as `NODE_AUTH_TOKEN`. **One-time prerequisite:** create the token, `npm publish` the name once to reserve it (or let the first tagged release do it), and add the secret to `buriedsignals/scoutpost`. Without it, `npm-publish` fails and no package ships. |
 
 Cert valid 5 years (renew 2031). Renewal reminder: `2027-04-15` decide
