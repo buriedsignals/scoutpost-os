@@ -28,6 +28,20 @@ Guardrails in `.github/workflows/cli-release.yml` that must stay in place:
    (single call).** That's the long-poll pattern that hangs; we split it
    into submit → explicit UUID polling. See electron/notarize#179 for
    the canonical write-up.
+5. **Codesign MUST pass `--entitlements cli/scout.entitlements`.** `scout` is
+   a `deno compile` binary (embeds V8); V8 needs JIT/executable memory. The
+   hardened runtime blocks that unless `com.apple.security.cs.allow-jit` +
+   `com.apple.security.cs.allow-unsigned-executable-memory` are granted.
+   Without the entitlements the macOS binaries **crash on launch** with
+   `Failed to reserve virtual memory for CodeRange` on strict macOS versions
+   (e.g. macOS 26) — even though they pass notarization and run on older
+   macOS CI runners. The codesign step greps the signature for `allow-jit`
+   and fails the build if it's missing. Don't remove either.
+
+   **Both macOS legs run on `macos-latest` (arm64).** `deno compile`
+   cross-compiles the x86_64 target and Apple's codesign/notarytool sign it
+   from arm64 — so there is no Intel `macos-13` leg in build OR smoke (that
+   runner pool is deprecated and queues indefinitely).
 
 **Budget check before tagging:** if you're about to burn runner minutes
 on a release and Apple's notary service looks stuck
