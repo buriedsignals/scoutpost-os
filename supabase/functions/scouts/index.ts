@@ -1009,6 +1009,16 @@ async function updateScout(
   const willBeActive = nextScout.is_active === true;
   const willHaveSchedule = typeof nextScout.schedule_cron === "string" &&
     nextScout.schedule_cron.length > 0;
+  // An active scout must have a schedule (DB constraint chk_active_has_schedule).
+  // Reject the under-specified case with a clear 400 instead of letting the
+  // write fail with a raw 500 — e.g. `regularity` without a `time` can't
+  // synthesise a cron, so `--active true` alone would violate the constraint.
+  if (willBeActive && !willHaveSchedule) {
+    throw new ValidationError(
+      "cannot activate a scout without a schedule; set schedule_cron, " +
+        "or regularity together with a time",
+    );
+  }
   if (willBeActive && willHaveSchedule) {
     await ensureScheduledBaseline(getServiceClient(), nextScout);
   }

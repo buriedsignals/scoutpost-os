@@ -22,7 +22,9 @@
  *   4. Concatenate: [external imports] + [shared bodies in topo order] +
  *      [main body].
  */
-const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
+// This script lives at scripts/ops/bundle-ef.ts, so the repo root is two
+// levels up.
+const ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
 const FUNCTIONS_DIR = `${ROOT}/supabase/functions`;
 const SHARED_DIR = `${FUNCTIONS_DIR}/_shared`;
 

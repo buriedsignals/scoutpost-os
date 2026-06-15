@@ -594,6 +594,58 @@ Deno.test("scouts: patch rejects scheduled web scouts without URL", async () => 
   }
 });
 
+Deno.test("scouts: patch rejects activating a scout without a schedule", async () => {
+  const user = await createTestUser();
+  let createdId: string | null = null;
+  try {
+    // Beat scout with no schedule -> created inactive.
+    const createRes = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Activate Without Schedule Guard",
+        type: "beat",
+        topic: "council",
+      }),
+    });
+    assertEquals(createRes.status, 201);
+    const created = await createRes.json();
+    createdId = created.id;
+    assertEquals(created.is_active, false);
+
+    // Activating without a schedule must 400 cleanly — not 500 on the DB
+    // constraint chk_active_has_schedule. (regularity without a time can't
+    // synthesise a cron, so is_active:true alone would violate it.)
+    const badRes = await fetch(functionUrl("scouts", `/${created.id}`), {
+      method: "PATCH",
+      headers: headers(user.token),
+      body: JSON.stringify({ is_active: true, regularity: "weekly" }),
+    });
+    assertEquals(badRes.status, 400);
+    const badBody = await badRes.json();
+    assertMatch(badBody.error, /schedule/i);
+
+    // Activating WITH a schedule succeeds.
+    const okRes = await fetch(functionUrl("scouts", `/${created.id}`), {
+      method: "PATCH",
+      headers: headers(user.token),
+      body: JSON.stringify({ is_active: true, schedule_cron: "0 9 * * 1" }),
+    });
+    assertEquals(okRes.status, 200);
+    const okBody = await okRes.json();
+    assertEquals(okBody.is_active, true);
+    assertEquals(okBody.schedule_cron, "0 9 * * 1");
+  } finally {
+    if (createdId) {
+      await fetch(functionUrl("scouts", `/${createdId}`), {
+        method: "DELETE",
+        headers: headers(user.token),
+      }).then((r) => r.body?.cancel());
+    }
+    await user.cleanup();
+  }
+});
+
 Deno.test("scouts: create requires topic tags or location", async () => {
   const user = await createTestUser();
   try {
