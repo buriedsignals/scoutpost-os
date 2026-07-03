@@ -46,6 +46,7 @@ const WORKERS: Record<string, string> = {
   beat: "scout-beat-execute",
   civic: "civic-execute",
   social: "social-kickoff",
+  transport: "scout-transport-execute",
 };
 
 const WORKER_TIMEOUT_MS = 5_000;

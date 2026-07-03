@@ -41,9 +41,15 @@ import { logEvent } from "../_shared/log.ts";
 import { shapeScoutResponse } from "../_shared/db.ts";
 import { normalizeSocialHandle } from "../_shared/social_profiles.ts";
 import {
+  deriveScheduleAnchor,
   resolveScheduleAction,
   schedulePolicyError,
+  subDailyCronFromParts,
 } from "../_shared/schedule_policy.ts";
+import {
+  type TransportConfig,
+  validateTransportConfig,
+} from "../_shared/transport_config.ts";
 import {
   doubleProbe,
   firecrawlChangeTrackingScrape,
@@ -90,8 +96,10 @@ const FromTemplateSchema = z.object({
   project_id: z.string().uuid().nullable().optional(),
 });
 
-const ScoutType = z.enum(["web", "beat", "social", "civic"]);
-const Regularity = z.enum(["daily", "weekly", "monthly"]);
+const ScoutType = z.enum(["web", "beat", "social", "civic", "transport"]);
+// Sub-daily values are accepted by the enum but rejected for every type
+// except transport via schedulePolicyError.
+const Regularity = z.enum(["daily", "weekly", "monthly", "3h", "6h", "12h"]);
 const TimeStr = z.string().regex(/^\d{1,2}:\d{2}$/);
 const SocialPlatform = z.enum(["instagram", "x", "facebook", "tiktok"]);
 const SocialMonitorMode = z.enum(["summarize", "criteria"]);
@@ -154,6 +162,9 @@ const CreateSchema = z
     root_domain: z.string().min(1).max(300).optional(),
     tracked_urls: z.array(z.string().url().max(2000)).min(1).max(20).optional(),
     initial_promises: z.array(InitialPromiseSchema).max(100).optional(),
+    // Type-specific overflow config (scouts.config JSONB). Currently used by
+    // transport scouts; validated per-type in superRefine.
+    config: z.record(z.unknown()).optional(),
   })
   .superRefine((v, ctx) => {
     if (v.type === "web" && !v.url?.trim()) {
@@ -186,12 +197,31 @@ const CreateSchema = z
         });
       }
     }
-    if (!v.topic?.trim() && !v.location) {
+    // Transport scouts are scoped by config.geofence / config.watch_ids,
+    // not by topic/location.
+    if (v.type !== "transport" && !v.topic?.trim() && !v.location) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["topic"],
         message:
           "required when location is not provided; use 1-3 short comma-separated tags",
+      });
+    }
+    if (v.type === "transport") {
+      const validated = validateTransportConfig(v.config ?? {});
+      if (validated.error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["config"],
+          message: validated.error,
+        });
+      }
+    } else if (v.config && Object.keys(v.config).length > 0) {
+      // Keep config write-gated: only transport defines a validated shape.
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["config"],
+        message: "config is only supported for transport scouts",
       });
     }
     if (v.type === "civic") {
@@ -210,7 +240,12 @@ const CreateSchema = z
         });
       }
     }
-    const scheduleError = schedulePolicyError(v.type, v.regularity);
+    const scheduleError = schedulePolicyError(
+      v.type,
+      v.regularity,
+      undefined,
+      typeof v.config?.mode === "string" ? v.config.mode : undefined,
+    );
     if (scheduleError) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -248,6 +283,7 @@ const UpdateSchema = z
     root_domain: z.string().max(300).nullable().optional(),
     tracked_urls: z.array(z.string().url().max(2000)).max(20).nullable()
       .optional(),
+    config: z.record(z.unknown()).optional(),
   })
   .superRefine((v, ctx) => {
     const scheduleError = schedulePolicyError(v.type, v.regularity);
@@ -284,7 +320,8 @@ function cronFromParts(
     case "monthly":
       return `${mm} ${hh} ${day ?? 1} * *`;
     default:
-      return null;
+      // Transport sub-daily regularities (3h/6h/12h) anchor to the chosen time.
+      return subDailyCronFromParts(regularity, time);
   }
 }
 
@@ -523,6 +560,41 @@ function normalizeScoutBody(raw: unknown): unknown {
     out.description = out.description.trim();
   }
   return out;
+}
+
+// Two 463 km (250 nm) ADS-B query tiles — the creation-time bound that keeps
+// aircraft-mode geofences coverable by a handful of adsb.lol point queries.
+const AIRCRAFT_MAX_PRESET_DIMENSION_KM = 926;
+
+/** Resolve a transport geofence preset: it must exist, and for aircraft mode
+ * its bbox must fit the ADS-B tiling budget. No-op for circle geofences. */
+async function ensureTransportPresetValid(
+  svc: ReturnType<typeof getServiceClient>,
+  config: TransportConfig,
+): Promise<void> {
+  const presetId = config.geofence?.preset_id?.trim();
+  if (!presetId) return;
+  const { data, error } = await svc
+    .from("transport_geofence_presets")
+    .select("id, min_lat, min_lon, max_lat, max_lon")
+    .eq("id", presetId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) {
+    throw new ValidationError(`unknown geofence preset: ${presetId}`);
+  }
+  if (config.mode === "aircraft") {
+    const heightKm = (data.max_lat - data.min_lat) * 111;
+    const midLat = (data.max_lat + data.min_lat) / 2;
+    const widthKm = Math.abs(
+      (data.max_lon - data.min_lon) * 111 * Math.cos(midLat * Math.PI / 180),
+    );
+    if (Math.max(heightKm, widthKm) > AIRCRAFT_MAX_PRESET_DIMENSION_KM) {
+      throw new ValidationError(
+        `preset ${presetId} is too large for aircraft mode (ADS-B query tiling cap)`,
+      );
+    }
+  }
 }
 
 function validateTopicAndScope(payload: Record<string, unknown>): void {
@@ -812,8 +884,21 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
     rest.type,
     rest.regularity,
     schedule_cron,
+    typeof rest.config?.mode === "string" ? rest.config.mode : undefined,
   );
   if (scheduleError) throw new ValidationError(scheduleError);
+
+  // Persist the NORMALIZED transport config (lowercased watch ids, trimmed
+  // criteria, unknown keys stripped), not the raw request record, and verify
+  // any named preset actually exists before committing the scout.
+  if (rest.type === "transport") {
+    const validated = validateTransportConfig(rest.config ?? {});
+    if (validated.config === null) {
+      throw new ValidationError(validated.error);
+    }
+    rest.config = validated.config as Record<string, unknown>;
+    await ensureTransportPresetValid(getServiceClient(), validated.config);
+  }
 
   const { db } = getCallerClient(user);
   const { data, error } = await db
@@ -984,11 +1069,51 @@ async function updateScout(
     is_active?: boolean | null;
     topic?: string | null;
     location?: Record<string, unknown> | null;
+    config?: Record<string, unknown> | null;
   };
-  if (!nextScout.topic?.trim() && !nextScout.location) {
+  if (
+    nextScout.type !== "transport" && !nextScout.topic?.trim() &&
+    !nextScout.location
+  ) {
     throw new ValidationError(
       "scouts require either location or 1-3 short topic tags",
     );
+  }
+  let nextTransportMode: string | undefined;
+  if (nextScout.type === "transport") {
+    const validated = validateTransportConfig(nextScout.config ?? {});
+    if (validated.config === null) throw new ValidationError(validated.error);
+    nextTransportMode = validated.config.mode;
+    if (parsed.data.config !== undefined) {
+      // Write back the normalized form, mirroring createScout.
+      (parsed.data as { config?: Record<string, unknown> }).config = validated
+        .config as Record<string, unknown>;
+    }
+    await ensureTransportPresetValid(getServiceClient(), validated.config);
+  } else if (
+    parsed.data.config && Object.keys(parsed.data.config).length > 0
+  ) {
+    throw new ValidationError("config is only supported for transport scouts");
+  }
+  // A regularity-only PATCH must resynthesize the cron — otherwise the old
+  // cadence keeps firing while the scout reports the new one.
+  if (
+    typeof parsed.data.regularity === "string" &&
+    parsed.data.schedule_cron === undefined &&
+    typeof current.schedule_cron === "string" && current.schedule_cron &&
+    parsed.data.regularity !== current.regularity
+  ) {
+    const anchor = deriveScheduleAnchor(current.schedule_cron);
+    const synth = anchor
+      ? cronFromParts(parsed.data.regularity, anchor.day, anchor.time)
+      : null;
+    if (!synth) {
+      throw new ValidationError(
+        "changing regularity requires time (and day for weekly/monthly) so the schedule can be resynthesized",
+      );
+    }
+    parsed.data.schedule_cron = synth;
+    nextScout.schedule_cron = synth;
   }
   const nextHasWebUrl = typeof nextScout.url === "string" &&
     nextScout.url.trim().length > 0;
@@ -1004,6 +1129,7 @@ async function updateScout(
     nextScout.type,
     nextScout.regularity ?? undefined,
     nextScout.schedule_cron ?? undefined,
+    nextTransportMode,
   );
   if (scheduleError) throw new ValidationError(scheduleError);
   const willBeActive = nextScout.is_active === true;
@@ -1322,7 +1448,9 @@ const CIVIC_BASELINE_MAX_TRACKED = 20;
 interface BaselineableScout {
   id: string;
   user_id: string;
-  type: "web" | "beat" | "social" | "civic";
+  // transport scouts never take a creation-time baseline (first scheduled
+  // run establishes a silent positional baseline instead).
+  type: "web" | "beat" | "social" | "civic" | "transport";
   url?: string | null;
   provider?: string | null;
   platform?: z.infer<typeof SocialPlatform> | null;

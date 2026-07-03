@@ -128,6 +128,16 @@
 			tile: 'secondary',
 			icon: Landmark,
 			notifyRule: m.scoutTypeInfo_civic_notifyRule()
+		},
+		// Placeholder until the Transport panel ships its own modal copy —
+		// no UI creation path reaches this modal with type 'transport' yet.
+		transport: {
+			title: m.scoutTypeInfo_web_title(),
+			scheduleTitle: m.scheduleSearch_title(),
+			description: m.scoutTypeInfo_web_description(),
+			tile: 'primary',
+			icon: Bell,
+			notifyRule: m.scoutTypeInfo_web_notifyRule()
 		}
 	};
 

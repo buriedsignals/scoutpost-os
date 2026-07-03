@@ -11,7 +11,7 @@
  */
 
 import type { ComponentType } from 'svelte';
-import { Globe, Radar, Users, Landmark } from 'lucide-svelte';
+import { Globe, Radar, Users, Landmark, Navigation } from 'lucide-svelte';
 import type { ScoutType } from '$lib/types';
 
 export type ScoutTypeLike = ScoutType | 'beat' | 'page' | 'location' | string;
@@ -33,7 +33,12 @@ export const SCOUT_TYPE_CONFIG: Record<ScoutType, ScoutTypeDisplay> = {
 	web:    { icon: Globe,    className: 'web',    label: 'Page Monitor' },
 	pulse:  { icon: Radar,    className: 'pulse',  label: 'Beat Monitor' },
 	social: { icon: Users,    className: 'social', label: 'Social Monitor' },
-	civic:  { icon: Landmark, className: 'civic',  label: 'Civic Monitor' }
+	civic:  { icon: Landmark, className: 'civic',  label: 'Civic Monitor' },
+	// Registered ahead of the full Transport panel so API-created transport
+	// scouts render with the right identity instead of falling back to the
+	// Page Monitor display + editor. Borrows the 'web' stripe styling until
+	// the dedicated panel ships.
+	transport: { icon: Navigation, className: 'web', label: 'Transport Monitor' }
 };
 
 const DEFAULT_SCOUT_DISPLAY: ScoutTypeDisplay = {
@@ -53,6 +58,7 @@ export function normalizeScoutType(type: ScoutTypeLike | null | undefined): Scou
 		case 'pulse':
 		case 'social':
 		case 'civic':
+		case 'transport':
 			return type;
 		default:
 			return 'web';
@@ -74,7 +80,8 @@ export const SCOUT_COSTS: Record<ScoutType, number> = {
 	civic: 10,
 	pulse: 7,
 	social: 2, // Base cost (Instagram/X/TikTok). Facebook is 15.
-	web: 1
+	web: 1,
+	transport: 1 // +1 with free-text criteria (charged server-side)
 };
 
 /** Platform-specific costs for social scouts */
@@ -95,11 +102,22 @@ export function getScoutCost(type: ScoutTypeLike, platform?: string): number {
 	return SCOUT_COSTS[canonicalType] ?? 1;
 }
 
-/** Regularity → number of runs per month (matches backend/app/utils/pricing.py:82-84). */
-export function getRegularityMultiplier(regularity: 'daily' | 'weekly' | 'monthly'): number {
-	if (regularity === 'daily') return 30;
-	if (regularity === 'weekly') return 4;
-	return 1;
+/** Regularity → number of runs per month. Mirrors calculateMonitoringCost in
+ * supabase/functions/_shared/credits.ts — every regularity the backend
+ * permits must be priced here or the credit pre-check under-estimates. */
+const REGULARITY_MULTIPLIERS: Record<string, number> = {
+	'3h': 240,
+	'6h': 120,
+	'12h': 60,
+	daily: 30,
+	weekly: 4,
+	monthly: 1
+};
+
+export function getRegularityMultiplier(
+	regularity: 'daily' | 'weekly' | 'monthly' | '3h' | '6h' | '12h' | string
+): number {
+	return REGULARITY_MULTIPLIERS[regularity] ?? 1;
 }
 
 /**

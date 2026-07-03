@@ -35,8 +35,18 @@ describe('SCOUT_COSTS', () => {
 		expect(SCOUT_COSTS.social).toBe(2);
 	});
 
+	it('transport scouts cost 1 credit per run', () => {
+		expect(SCOUT_COSTS.transport).toBe(1);
+	});
+
 	it('all scout types have costs', () => {
-		expect(Object.keys(SCOUT_COSTS).sort()).toEqual(['civic', 'pulse', 'social', 'web']);
+		expect(Object.keys(SCOUT_COSTS).sort()).toEqual([
+			'civic',
+			'pulse',
+			'social',
+			'transport',
+			'web'
+		]);
 	});
 });
 

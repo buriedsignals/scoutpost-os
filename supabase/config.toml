@@ -389,6 +389,9 @@ verify_jwt = false
 [functions.scout-web-execute]
 verify_jwt = false
 
+[functions.scout-transport-execute]
+verify_jwt = false
+
 [functions.manage-schedule]
 verify_jwt = false
 

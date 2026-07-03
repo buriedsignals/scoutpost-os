@@ -69,3 +69,15 @@ Deno.test("decrementOrThrow uses the decrement_credits RPC when credits are enab
     restoreEnv("COJO_CREDITS_ENABLED", prior);
   }
 });
+
+Deno.test("calculateMonitoringCost covers the transport sub-daily window", async () => {
+  const { calculateMonitoringCost, getTransportCost } = await import("./credits.ts");
+  assertEquals(calculateMonitoringCost(1, "3h"), 240);
+  assertEquals(calculateMonitoringCost(1, "6h"), 120);
+  assertEquals(calculateMonitoringCost(1, "12h"), 60);
+  assertEquals(calculateMonitoringCost(1, "daily"), 30);
+  assertEquals(calculateMonitoringCost(2, "3h"), 480);
+  // Per-run transport cost: 1 base, +1 with free-text criteria.
+  assertEquals(getTransportCost(false), 1);
+  assertEquals(getTransportCost(true), 2);
+});

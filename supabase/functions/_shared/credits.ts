@@ -39,6 +39,12 @@ export const CREDIT_COSTS = {
   // hostile on daily schedules (now rejected at create time).
   civic: 10,
   civic_discover: 10,
+
+  // Transport scout (vessel/aircraft/satellite) run. Base covers the
+  // positional fetch + state diff; the addon is charged only when the scout
+  // has free-text criteria (one batched LLM pass over entrants).
+  transport: 1,
+  transport_criteria_addon: 1,
 } as const;
 
 export type CreditOperation = keyof typeof CREDIT_COSTS;
@@ -84,14 +90,24 @@ export function getExtractionCost(channel: string): number {
  */
 export function calculateMonitoringCost(
   perRunCost: number,
-  regularity: "daily" | "weekly" | "monthly" | string,
+  regularity: "daily" | "weekly" | "monthly" | "3h" | "6h" | "12h" | string,
 ): number {
   const multipliers: Record<string, number> = {
+    // Transport sub-daily window (runs/month at 8, 4, and 2 runs/day).
+    "3h": 240,
+    "6h": 120,
+    "12h": 60,
     daily: 30,
     weekly: 4,
     monthly: 1,
   };
   return perRunCost * (multipliers[regularity.toLowerCase()] ?? 1);
+}
+
+/** Per-run transport cost: base + criteria addon when free-text criteria set. */
+export function getTransportCost(hasCriteria: boolean): number {
+  return CREDIT_COSTS.transport +
+    (hasCriteria ? CREDIT_COSTS.transport_criteria_addon : 0);
 }
 
 // -----------------------------------------------------------------------------

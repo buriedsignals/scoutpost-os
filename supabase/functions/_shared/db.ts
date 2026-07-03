@@ -294,6 +294,7 @@ export interface ScoutResponse {
   schedule_cron: string | null;
   is_active: boolean;
   consecutive_failures: number;
+  config: Record<string, unknown>;
   last_run: {
     started_at: string | null;
     status: string | null;
@@ -337,6 +338,7 @@ interface RawScoutRow {
   is_active?: boolean | null;
   consecutive_failures?: number | null;
   created_at?: string | null;
+  config?: Record<string, unknown> | null;
 }
 
 export async function shapeScoutResponse(
@@ -376,6 +378,7 @@ export async function shapeScoutResponse(
     schedule_cron: row.schedule_cron ?? null,
     is_active: row.is_active ?? true,
     consecutive_failures: row.consecutive_failures ?? 0,
+    config: row.config ?? {},
     last_run: lastRun
       ? {
         started_at: (lastRun as { started_at: string | null }).started_at,

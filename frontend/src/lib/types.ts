@@ -67,7 +67,7 @@ export interface ActiveJobLastRun {
 }
 
 // Scout types for multi-type system
-export type ScoutType = 'web' | 'pulse' | 'social' | 'civic';
+export type ScoutType = 'web' | 'pulse' | 'social' | 'civic' | 'transport';
 
 export interface ActiveJob {
 	scraper_name: string;
