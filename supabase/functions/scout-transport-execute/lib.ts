@@ -4,6 +4,7 @@
  */
 
 import {
+  type TransportConfig,
   type TransportMode,
   validateTransportConfig,
 } from "../_shared/transport_config.ts";
@@ -27,9 +28,11 @@ export function overlapCutoffIso(now: Date = new Date()): string {
     .toISOString();
 }
 
-/** Modes gain real executors in U2 (aircraft), U3 (vessel), U4 (satellite).
- * Until then the worker completes runs as unbilled `skipped`. */
-export const IMPLEMENTED_MODES: ReadonlySet<TransportMode> = new Set();
+/** Modes with real executors: aircraft (U2), vessel (U3), satellite (U4).
+ * Unimplemented modes complete runs as unbilled `skipped`. */
+export const IMPLEMENTED_MODES: ReadonlySet<TransportMode> = new Set(
+  ["aircraft", "vessel", "satellite"] as const,
+);
 
 export interface RunningRowRef {
   id: string;
@@ -59,6 +62,7 @@ export interface TransportPrecheck {
   ok: boolean;
   mode?: TransportMode;
   hasCriteria?: boolean;
+  config?: TransportConfig;
   error?: string;
 }
 
@@ -71,5 +75,6 @@ export function precheckTransportScout(rawConfig: unknown): TransportPrecheck {
     ok: true,
     mode: validated.config.mode,
     hasCriteria: Boolean(validated.config.criteria),
+    config: validated.config,
   };
 }

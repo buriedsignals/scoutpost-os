@@ -178,7 +178,7 @@ const TOOLS: ToolDef[] = [
       properties: {
         limit: { type: "integer", minimum: 1, maximum: 200 },
         offset: { type: "integer", minimum: 0 },
-        type: { type: "string", enum: ["web", "beat", "social", "civic"] },
+        type: { type: "string", enum: ["web", "beat", "social", "civic", "transport"] },
       },
     },
     handler: (_u, token, args) =>
@@ -189,13 +189,13 @@ const TOOLS: ToolDef[] = [
   {
     name: "create_scout",
     description:
-      "Create a new scout. Required: name, type (web|beat|social|civic), and either location or topic. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle. Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes the baseline immediately for every scout type; Run Now compares against that baseline and never creates the first baseline.",
+      "Create a new scout. Required: name and type (web|beat|social|civic|transport). web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle. Transport scouts require a `config` object: { mode: aircraft|vessel|satellite, geofence?, watch_ids?, categories?, criteria? } — vessel needs a geofence; satellite needs a geofence and watch_ids (NORAD ids); aircraft needs a geofence or watch_ids (ICAO hex). geofence is { preset_id } or { center: {lat,lon}, radius_km }. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes the baseline immediately for every scout type; Run Now compares against that baseline and never creates the first baseline.",
     inputSchema: {
       type: "object",
       required: ["name", "type"],
       properties: {
         name: { type: "string", minLength: 1, maxLength: 200 },
-        type: { type: "string", enum: ["web", "beat", "social", "civic"] },
+        type: { type: "string", enum: ["web", "beat", "social", "civic", "transport"] },
         description: {
           type: "string",
           maxLength: 2000,
@@ -216,7 +216,13 @@ const TOOLS: ToolDef[] = [
           description:
             "GeocodedLocation: { displayName, latitude, longitude, ... }",
         },
-        regularity: { type: "string", enum: ["daily", "weekly", "monthly"] },
+        regularity: { type: "string", enum: ["daily", "weekly", "monthly", "3h", "6h", "12h"] },
+        config: {
+          type: "object",
+          additionalProperties: true,
+          description:
+            "Transport scouts only: { mode: aircraft|vessel|satellite, geofence?: {preset_id}|{center:{lat,lon},radius_km}, watch_ids?: string[], categories?: string[], criteria?: string }.",
+        },
         schedule_cron: { type: "string", maxLength: 200 },
         day_number: { type: "integer", minimum: 0, maximum: 31 },
         time: { type: "string", pattern: "^\\d{1,2}:\\d{2}$" },
@@ -318,7 +324,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "update_scout",
     description:
-      "Patch an existing scout. All fields optional; only sent keys change. Keep topic as 1-3 short comma-separated tags; put longer context in description and filtering/notification rules in criteria. A scout must retain either location or topic.",
+      "Patch an existing scout. All fields optional; only sent keys change. Keep topic as 1-3 short comma-separated tags; put longer context in description and filtering/notification rules in criteria. A scout must retain either location or topic (transport scouts are scoped by config instead). For transport scouts, pass a full replacement `config` object to change mode/geofence/watch_ids/categories/criteria.",
     inputSchema: {
       type: "object",
       required: ["id"],
@@ -332,7 +338,13 @@ const TOOLS: ToolDef[] = [
           description: "1-3 short comma-separated tags, not long criteria.",
         },
         url: { type: "string", format: "uri" },
-        regularity: { type: "string", enum: ["daily", "weekly", "monthly"] },
+        config: {
+          type: "object",
+          additionalProperties: true,
+          description:
+            "Transport scouts only: full replacement { mode: aircraft|vessel|satellite, geofence?: {preset_id}|{center:{lat,lon},radius_km}, watch_ids?: string[], categories?: string[], criteria?: string }.",
+        },
+        regularity: { type: "string", enum: ["daily", "weekly", "monthly", "3h", "6h", "12h"] },
         schedule_cron: { type: "string" },
         day_number: { type: "integer", minimum: 0, maximum: 31 },
         time: { type: "string", pattern: "^\\d{1,2}:\\d{2}$" },

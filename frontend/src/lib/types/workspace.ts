@@ -54,7 +54,7 @@ export type ScoutUiTemplate = "location" | "beat" | "page" | "social" | "civic";
 /**
  * Backend scout type (persisted to the database).
  */
-export type ScoutType = "web" | "pulse" | "social" | "civic";
+export type ScoutType = "web" | "pulse" | "social" | "civic" | "transport";
 
 /**
  * Scout — periodic job that produces units.
@@ -112,7 +112,10 @@ export interface CreateScoutInput {
   topic?: string;
   url?: string;
   location?: Record<string, unknown>;
-  regularity?: "daily" | "weekly" | "monthly";
+  // Sub-daily values (3h/6h/12h) are transport-only; the backend rejects
+  // them for other types.
+  regularity?: "daily" | "weekly" | "monthly" | "3h" | "6h" | "12h";
+  time?: string;
   schedule_cron?: string;
   project_id?: string;
   source_mode?: "reliable" | "niche";
@@ -124,6 +127,8 @@ export interface CreateScoutInput {
   track_removals?: boolean;
   root_domain?: string;
   tracked_urls?: string[];
+  // Type-specific config (transport scouts: mode/geofence/watch_ids/…).
+  config?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

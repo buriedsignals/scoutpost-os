@@ -139,6 +139,33 @@ export function validateTransportConfig(
       error: "config: transport scouts require a geofence, watch_ids, or both",
     };
   }
+  // Vessel mode reads the shared AIS sampler, which only covers active
+  // geofences — a watch-list-only vessel scout would have no data source.
+  if (config.mode === "vessel" && !geofence) {
+    return {
+      config: null,
+      error:
+        "config: vessel scouts require a geofence (the shared AIS feed is sampled per area; watch a fixed area and optionally add watch_ids/categories within it)",
+    };
+  }
+  // Satellite mode predicts overflights: it needs BOTH which satellites
+  // (watch_ids = NORAD ids) and the area to predict passes over (geofence).
+  if (config.mode === "satellite") {
+    if (!geofence) {
+      return {
+        config: null,
+        error:
+          "config: satellite scouts require a geofence (the area to predict overflights of)",
+      };
+    }
+    if (watchIds.length === 0) {
+      return {
+        config: null,
+        error:
+          "config: satellite scouts require watch_ids (the NORAD catalog ids to track)",
+      };
+    }
+  }
   for (const id of watchIds) {
     const err = watchIdError(config.mode, id);
     if (err) return { config: null, error: `config.watch_ids: ${err}` };

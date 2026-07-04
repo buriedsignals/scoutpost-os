@@ -634,6 +634,237 @@ Deno.test("scouts add — forwards topic for scheduled web scouts", async () => 
   });
 });
 
+Deno.test("scouts add — transport aircraft: preset geofence, criteria folded into config, sub-daily schedule", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+
+    let observedBody: Record<string, unknown> | null = null;
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    globalThis.fetch =
+      ((_input: string | URL | Request, init?: RequestInit) => {
+        observedBody = JSON.parse(String(init?.body ?? "{}"));
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: "scout_1" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }) as typeof fetch;
+    console.log = () => {};
+
+    try {
+      await runScouts([
+        "add",
+        "--name",
+        "Hormuz aircraft",
+        "--type",
+        "transport",
+        "--mode",
+        "aircraft",
+        "--geofence-preset",
+        "strait_of_hormuz",
+        "--categories",
+        "military,government",
+        "--criteria",
+        "military transport jets",
+        "--regularity",
+        "3h",
+        "--time",
+        "09:00",
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+
+    assert(observedBody !== null, "fetch was not called");
+    const body = observedBody as Record<string, unknown>;
+    assertEquals(body.type, "transport");
+    assertEquals(body.regularity, "3h");
+    // Transport criteria travels inside config, never as a top-level field.
+    assertEquals("criteria" in body, false);
+    const config = body.config as Record<string, unknown>;
+    assertEquals(config.mode, "aircraft");
+    assertEquals(config.geofence, { preset_id: "strait_of_hormuz" });
+    assertEquals(config.categories, ["military", "government"]);
+    assertEquals(config.criteria, "military transport jets");
+  });
+});
+
+Deno.test("scouts add — transport aircraft: watch-ids only (no geofence) is a valid global watch", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+
+    let observedBody: Record<string, unknown> | null = null;
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    globalThis.fetch =
+      ((_input: string | URL | Request, init?: RequestInit) => {
+        observedBody = JSON.parse(String(init?.body ?? "{}"));
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: "scout_4" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }) as typeof fetch;
+    console.log = () => {};
+
+    try {
+      await runScouts([
+        "add",
+        "--name",
+        "Tail number watch",
+        "--type",
+        "transport",
+        "--mode",
+        "aircraft",
+        "--watch-ids",
+        "abc123,def456",
+        "--regularity",
+        "12h",
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+
+    assert(observedBody !== null, "fetch was not called");
+    const body = observedBody as Record<string, unknown>;
+    const config = body.config as Record<string, unknown>;
+    assertEquals(config.mode, "aircraft");
+    assertEquals(config.watch_ids, ["abc123", "def456"]);
+    // No area supplied and none required for a watch-list aircraft scout.
+    assertEquals("geofence" in config, false);
+    assertEquals(body.time, "09:00");
+  });
+});
+
+Deno.test("scouts add — transport vessel: decimal center/radius survive (no parseInt truncation)", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+
+    let observedBody: Record<string, unknown> | null = null;
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    globalThis.fetch =
+      ((_input: string | URL | Request, init?: RequestInit) => {
+        observedBody = JSON.parse(String(init?.body ?? "{}"));
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: "scout_2" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }) as typeof fetch;
+    console.log = () => {};
+
+    try {
+      await runScouts([
+        "add",
+        "--name",
+        "Hormuz vessels",
+        "--type",
+        "transport",
+        "--mode",
+        "vessel",
+        "--center-lat",
+        "26.55",
+        "--center-lon",
+        "56.25",
+        "--radius-km",
+        "40.5",
+        "--regularity",
+        "6h",
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+
+    assert(observedBody !== null, "fetch was not called");
+    const body = observedBody as Record<string, unknown>;
+    assertEquals(body.regularity, "6h");
+    // No --time given: CLI defaults to 09:00 so the backend can synthesize a
+    // cron; without it the scout would be created inactive and never run.
+    assertEquals(body.time, "09:00");
+    const config = body.config as Record<string, unknown>;
+    assertEquals(config.mode, "vessel");
+    assertEquals(config.geofence, {
+      center: { lat: 26.55, lon: 56.25 },
+      radius_km: 40.5,
+    });
+  });
+});
+
+Deno.test("scouts add — transport satellite: watch_ids + preset, daily schedule", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+
+    let observedBody: Record<string, unknown> | null = null;
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    globalThis.fetch =
+      ((_input: string | URL | Request, init?: RequestInit) => {
+        observedBody = JSON.parse(String(init?.body ?? "{}"));
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: "scout_3" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }) as typeof fetch;
+    console.log = () => {};
+
+    try {
+      await runScouts([
+        "add",
+        "--name",
+        "ISS overpass",
+        "--type",
+        "transport",
+        "--mode",
+        "satellite",
+        "--geofence-preset",
+        "strait_of_hormuz",
+        "--watch-ids",
+        "25544,48274",
+        "--regularity",
+        "daily",
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+
+    assert(observedBody !== null, "fetch was not called");
+    const body = observedBody as Record<string, unknown>;
+    assertEquals(body.regularity, "daily");
+    assertEquals(body.time, "09:00");
+    const config = body.config as Record<string, unknown>;
+    assertEquals(config.mode, "satellite");
+    assertEquals(config.watch_ids, ["25544", "48274"]);
+    assertEquals(config.geofence, { preset_id: "strait_of_hormuz" });
+  });
+});
+
 Deno.test("ingest text — sends API-compatible text field", async () => {
   await withTempHome(async () => {
     writeConfigFile({

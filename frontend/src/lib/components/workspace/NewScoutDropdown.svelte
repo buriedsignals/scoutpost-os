@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { Crosshair, Radar, Users, Landmark } from 'lucide-svelte';
+	import { Crosshair, Radar, Users, Landmark, Navigation } from 'lucide-svelte';
 	import { authStore } from '$lib/stores/auth';
 	import * as m from '$lib/paraglide/messages';
 
 	export let open = false;
 	export let sidebarCollapsed = false;
-	export let onSelect: (type: 'web' | 'pulse' | 'social' | 'civic') => void = () => {};
+	export let onSelect: (type: 'web' | 'pulse' | 'social' | 'civic' | 'transport') => void = () => {};
 	export let onClose: () => void = () => {};
 
 	$: isPro = import.meta.env.PUBLIC_DEPLOYMENT_TARGET === 'supabase' || ($authStore.user?.tier ?? 'free') !== 'free';
@@ -33,6 +33,16 @@
 			return;
 		}
 		onSelect('civic');
+		onClose();
+	}
+
+	function handleTransportScout() {
+		if (!isPro) {
+			onClose();
+			return; // unlimited in self-hosted
+			return;
+		}
+		onSelect('transport');
 		onClose();
 	}
 
@@ -97,6 +107,23 @@
 						{/if}
 					</span>
 					<span class="option-description">{m.civic_monitorDescription()}</span>
+				</div>
+			</button>
+
+			<div class="option-divider"></div>
+
+			<button class="scout-option scout-option--civic" class:scout-option--locked={!isPro} on:click={handleTransportScout}>
+				<div class="option-icon option-icon--civic" class:option-icon--locked={!isPro}>
+					<Navigation size={20} />
+				</div>
+				<div class="option-content">
+					<span class="option-title">
+						{m.transport_trackTitle()}
+						{#if !isPro}
+							<span class="pro-badge">PRO</span>
+						{/if}
+					</span>
+					<span class="option-description">{m.transport_trackDescription()}</span>
 				</div>
 			</button>
 		</div>

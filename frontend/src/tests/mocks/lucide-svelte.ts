@@ -39,6 +39,7 @@ export const Mail = Icon;
 export const Map = Icon;
 export const MapPin = Icon;
 export const Monitor = Icon;
+export const Navigation = Icon;
 export const Package = Icon;
 export const Play = Icon;
 export const Plug = Icon;

@@ -52,8 +52,10 @@ Deno.test("precheck surfaces mode and criteria flag for cost computation", () =>
   assertEquals(without.hasCriteria, false);
 });
 
-Deno.test("U1 ships no enabled mode executors — runs skip unbilled", () => {
-  assertEquals(IMPLEMENTED_MODES.size, 0);
+Deno.test("mode gate: all three modes live (U2 aircraft, U3 vessel, U4 satellite)", () => {
+  assertEquals(IMPLEMENTED_MODES.has("aircraft"), true);
+  assertEquals(IMPLEMENTED_MODES.has("vessel"), true);
+  assertEquals(IMPLEMENTED_MODES.has("satellite"), true);
 });
 
 Deno.test("overlap election: exactly one of two concurrent runs proceeds", () => {
@@ -77,4 +79,295 @@ Deno.test("overlap election: a lone run never yields to itself", () => {
   const a = { id: "aaaa", started_at: "2026-07-03T12:00:00.000Z" };
   assertEquals(shouldYieldToPeer(a, [a]), false);
   assertEquals(shouldYieldToPeer(a, []), false);
+});
+
+// ── U2: geofence math + tiling ──────────────────────────────────────────────
+import { haversineKm, pointInGeofence, tileGeofence } from "./geofence.ts";
+import {
+  filterAircraft,
+  isMilitaryOnly,
+  normalizeAircraft,
+  parseAdsbResponse,
+} from "./aircraft.ts";
+import { evictionHorizonHours } from "./state.ts";
+import { composeAircraftStatement } from "./events.ts";
+
+const DOVER = {
+  kind: "bbox" as const,
+  name: "Dover Strait",
+  minLat: 50.5,
+  minLon: 0.5,
+  maxLat: 51.5,
+  maxLon: 2.5,
+};
+
+Deno.test("haversine: London→Paris ≈ 344 km", () => {
+  const d = haversineKm(51.5074, -0.1278, 48.8566, 2.3522);
+  if (Math.abs(d - 344) > 10) throw new Error(`got ${d}`);
+});
+
+Deno.test("pointInGeofence: bbox and circle containment", () => {
+  assertEquals(pointInGeofence(DOVER, 51.0, 1.5), true);
+  assertEquals(pointInGeofence(DOVER, 49.0, 1.5), false);
+  const circle = {
+    kind: "circle" as const,
+    name: "50km",
+    lat: 51.0,
+    lon: 1.5,
+    radiusKm: 50,
+  };
+  assertEquals(pointInGeofence(circle, 51.2, 1.5), true); // ~22 km
+  assertEquals(pointInGeofence(circle, 52.0, 1.5), false); // ~111 km
+});
+
+Deno.test("tiling: small shapes get one tile, elongated boxes get more", () => {
+  assertEquals(tileGeofence(DOVER).length, 1); // ~111×140 km
+  const bigBox = { ...DOVER, name: "big", minLon: -4.0, maxLon: 8.0 }; // ~840 km wide
+  const tiles = tileGeofence(bigBox);
+  if (tiles.length < 2) {
+    throw new Error(`expected ≥2 tiles, got ${tiles.length}`);
+  }
+  for (const t of tiles) assertEquals(t.radiusNm <= 250, true);
+});
+
+// ── U2: adsb.lol parsing (recorded fixture) ────────────────────────────────
+const fixture = JSON.parse(
+  Deno.readTextFileSync(
+    new URL("./fixtures/adsb_dover.json", import.meta.url),
+  ),
+);
+
+Deno.test("recorded Dover fixture parses to normalized aircraft", () => {
+  const parsed = parseAdsbResponse(fixture);
+  if (parsed.length === 0) throw new Error("fixture yielded no aircraft");
+  for (const a of parsed) {
+    assertEquals(/^[0-9a-f]{6}$/.test(a.id), true);
+    assertEquals(typeof a.lat, "number");
+  }
+});
+
+Deno.test("normalizeAircraft drops TIS-B and positionless records", () => {
+  assertEquals(normalizeAircraft({ hex: "~ae01ce", lat: 51, lon: 1 }), null);
+  assertEquals(normalizeAircraft({ hex: "4ca123" }), null);
+  const ok = normalizeAircraft({ hex: "4CA123", lat: 51, lon: 1, dbFlags: 1 });
+  assertEquals(ok?.id, "4ca123");
+  assertEquals(ok?.military, true);
+});
+
+Deno.test("filterAircraft: watch ids match hex or registration", () => {
+  const parsed = parseAdsbResponse(fixture);
+  const first = parsed[0];
+  const byHex = filterAircraft(
+    { mode: "aircraft", watch_ids: [first.id] },
+    parsed,
+  );
+  assertEquals(byHex.length, 1);
+  assertEquals(byHex[0].id, first.id);
+  const military = filterAircraft(
+    { mode: "aircraft", categories: ["military"], watch_ids: [] },
+    parsed,
+  );
+  // military category keeps dbFlags-military OR watchlist hits (none passed).
+  for (const a of military) assertEquals(a.military, true);
+});
+
+Deno.test("filterAircraft: watchlist categories keep hexes in the watchlist set", () => {
+  const cands = [
+    {
+      id: "43c6e2",
+      lat: 51,
+      lon: 1.5,
+      callsign: "GOV1",
+      registration: "Z-WPF",
+      aircraftType: "B762",
+      altitudeFt: 30000,
+      speedKts: 400,
+      trackDeg: 90,
+      military: false,
+    },
+    {
+      id: "abcd12",
+      lat: 51,
+      lon: 1.5,
+      callsign: "CIVIL1",
+      registration: "N1",
+      aircraftType: "C172",
+      altitudeFt: 3000,
+      speedKts: 100,
+      trackDeg: 90,
+      military: false,
+    },
+  ];
+  // Government scout with 43c6e2 on the watchlist → only that one kept.
+  const gov = filterAircraft(
+    { mode: "aircraft", categories: ["government"] },
+    cands,
+    new Set(["43c6e2"]),
+  );
+  assertEquals(gov.map((a) => a.id), ["43c6e2"]);
+  // Military scout keeps dbFlags-military even if not on the watchlist.
+  const mil = filterAircraft(
+    { mode: "aircraft", categories: ["military"] },
+    [{ ...cands[1], military: true }],
+    new Set(),
+  );
+  assertEquals(mil.length, 1);
+});
+
+Deno.test("isMilitaryOnly routes military-only category sets to /v2/mil", () => {
+  assertEquals(
+    isMilitaryOnly({ mode: "aircraft", categories: ["military"] }),
+    true,
+  );
+  assertEquals(isMilitaryOnly({ mode: "aircraft", categories: [] }), false);
+  assertEquals(isMilitaryOnly({ mode: "aircraft" }), false);
+});
+
+// ── U2: state horizon + statement composition ──────────────────────────────
+Deno.test("eviction horizon is 2× cadence with a 6h floor", () => {
+  assertEquals(evictionHorizonHours("3h"), 6);
+  assertEquals(evictionHorizonHours("12h"), 24);
+  assertEquals(evictionHorizonHours("daily"), 48);
+  assertEquals(evictionHorizonHours(null), 48);
+});
+
+const STATEMENT_AIRCRAFT = {
+  id: "43c6e2",
+  lat: 51,
+  lon: 1.5,
+  callsign: "ZK339",
+  registration: "ZZ338",
+  aircraftType: "A332",
+  altitudeFt: 31000,
+  speedKts: 420,
+  trackDeg: 95,
+  military: true,
+};
+
+Deno.test("aircraft entry statements read like alerts, not telemetry", () => {
+  const s = composeAircraftStatement(
+    STATEMENT_AIRCRAFT,
+    { name: "Dover Strait", isWatchlist: false },
+    new Date("2026-07-03T14:32:00Z"),
+  );
+  assertEquals(
+    s,
+    "Military aircraft ZK339 (ZZ338, A332) entered Dover Strait at 14:32 UTC, heading 095° at 31,000 ft.",
+  );
+});
+
+Deno.test("watch-list statements never say 'entered watched identifiers'", () => {
+  const s = composeAircraftStatement(
+    STATEMENT_AIRCRAFT,
+    { name: "watch list", isWatchlist: true },
+    new Date("2026-07-03T14:32:00Z"),
+  );
+  assertEquals(
+    s,
+    "Watched military aircraft ZK339 (ZZ338, A332) appeared at 51.00, 1.50 (14:32 UTC), heading 095° at 31,000 ft.",
+  );
+});
+
+// ── U3: vessel staleness + filtering + statement ────────────────────────────
+import {
+  filterVessels,
+  SAMPLER_PERIOD_MINUTES,
+  stalenessCutoffMinutes,
+  type VesselObject,
+} from "./vessel.ts";
+import { composeVesselStatement } from "./events.ts";
+
+Deno.test("staleness cutoff is max(2x cadence, sampler period + headroom)", () => {
+  // 3h cadence → 2*180 = 360 min dominates the 35-min sampler floor.
+  assertEquals(stalenessCutoffMinutes("3h"), 360);
+  assertEquals(stalenessCutoffMinutes("12h"), 1440);
+  // Floor applies when cadence is somehow tiny/unknown.
+  assertEquals(stalenessCutoffMinutes(null), 360);
+  assertEquals(SAMPLER_PERIOD_MINUTES, 30);
+});
+
+const VESSELS: VesselObject[] = [
+  {
+    id: "636019825",
+    lat: 26,
+    lon: 56,
+    name: "DELTA",
+    flag: "Liberia",
+    classification: "tanker",
+    military: false,
+    shipType: 80,
+    speedKnots: 12.4,
+    courseDeg: 270,
+  },
+  {
+    id: "563148100",
+    lat: 26.1,
+    lon: 56.1,
+    name: "MAERSK",
+    flag: "Singapore",
+    classification: "cargo",
+    military: false,
+    shipType: 70,
+    speedKnots: 15,
+    courseDeg: 90,
+  },
+  {
+    id: "412000042",
+    lat: 26.2,
+    lon: 56.2,
+    name: "PLA WARSHIP",
+    flag: "China",
+    classification: "tug_special",
+    military: true,
+    shipType: 35,
+    speedKnots: 20,
+    courseDeg: 10,
+  },
+];
+
+Deno.test("vessel category filter selects by class and military flag", () => {
+  const tankers = filterVessels(
+    { mode: "vessel", categories: ["tanker"] },
+    VESSELS,
+  );
+  assertEquals(tankers.map((v) => v.id), ["636019825"]);
+  const military = filterVessels(
+    { mode: "vessel", categories: ["military"] },
+    VESSELS,
+  );
+  assertEquals(military.map((v) => v.id), ["412000042"]);
+});
+
+Deno.test("vessel watch_ids filter by MMSI", () => {
+  const watched = filterVessels(
+    { mode: "vessel", watch_ids: ["563148100"] },
+    VESSELS,
+  );
+  assertEquals(watched.map((v) => v.id), ["563148100"]);
+});
+
+Deno.test("vessel entry statement reads like an alert with name, flag, class", () => {
+  const s = composeVesselStatement(
+    VESSELS[0],
+    { name: "Strait of Hormuz", isWatchlist: false },
+    new Date("2026-07-03T12:05:00Z"),
+  );
+  assertEquals(
+    s,
+    "Tanker DELTA (MMSI 636019825, Liberia) entered Strait of Hormuz at 12:05 UTC, course 270° at 12.4 kn.",
+  );
+});
+
+Deno.test("military vessel copy names it a military vessel", () => {
+  const s = composeVesselStatement(
+    VESSELS[2],
+    { name: "Taiwan Strait", isWatchlist: false },
+    new Date("2026-07-03T12:05:00Z"),
+  );
+  assertEquals(
+    s.startsWith(
+      "Military vessel PLA WARSHIP (MMSI 412000042, China) entered Taiwan Strait",
+    ),
+    true,
+  );
 });

@@ -72,8 +72,11 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Deno unit tests (stack-free set)
-        run: cd supabase/functions && deno test --allow-env _shared/ scout-transport-execute/
+      # --allow-import lets remote/npm imports (satellite.js) resolve, while
+      # the absence of --allow-net denies runtime fetch() — so a test that
+      # forgets to stub fetch fails loudly instead of making a live call.
+      - name: Deno unit tests (stack-free set, network-isolated)
+        run: cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ scout-transport-execute/ transport-sampler/
 
   selfhost-maintenance:
     name: Self-host maintenance tooling

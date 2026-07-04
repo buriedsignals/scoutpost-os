@@ -142,6 +142,7 @@ type NotificationVariant =
   | "beat"
   | "civic"
   | "social"
+  | "transport"
   | "digest"
   | "health";
 
@@ -201,6 +202,10 @@ const VARIANT_THEME: Record<
   civic: {
     accent: COLORS.secondary,
     accentSoft: COLORS.secondarySoft,
+  },
+  transport: {
+    accent: COLORS.primary,
+    accentSoft: COLORS.primarySoft,
   },
   social: {
     accent: COLORS.error,
@@ -264,6 +269,88 @@ export async function sendPageScoutAlert(
 
     return {
       subject: `\uD83D\uDD0E Page Scout: ${params.scoutName}`,
+      html,
+    };
+  });
+}
+
+export interface TransportAlertParams extends BaseAlertParams {
+  /** Human name of the watched area, or "watch list" for geofence-less
+   * watch-id scouts. */
+  areaName: string;
+  /** True for watch-id scouts with no geofence — switches the copy from
+   * "entered <area>" to watch-list appearance phrasing. */
+  isWatchlist?: boolean;
+  /** One composed statement per entrant, already human-readable. */
+  entrantStatements: string[];
+  mode: string;
+  /** Data-source attribution shown on each entrant card (e.g. "aisstream.io
+   * (AIS)" for vessels, "adsb.lol (ODbL)" for aircraft). */
+  sourceLabel: string;
+}
+
+/** Enter-only transport alert: one email per run listing every object that
+ * newly entered the watched area (or newly appeared, for watch-list scouts).
+ * The state machine guarantees each object appears at most once per entry,
+ * so there is no digesting/dedup here. */
+export async function sendTransportScoutAlert(
+  svc: SupabaseClient,
+  params: TransportAlertParams,
+): Promise<NotificationSendResult> {
+  return guarded(svc, "transport", params.userId, params.runId, async (ctx) => {
+    const language = params.language ?? ctx.language;
+    const headerTitle = getString("scout_alert", language);
+    const count = params.entrantStatements.length;
+    const watchlist = params.isWatchlist === true;
+    const noun = params.mode === "vessel"
+      ? "vessels"
+      : params.mode === "aircraft"
+      ? "aircraft"
+      : params.mode === "satellite"
+      ? "satellites"
+      : "objects";
+    const summary = count === 1
+      ? params.entrantStatements[0]
+      : watchlist
+      ? `${count} watched ${noun} spotted.`
+      : `${count} new arrivals in ${params.areaName}.`;
+
+    const articles: Article[] = params.entrantStatements.map((statement) => ({
+      title: statement,
+      url: "",
+      summary: "",
+      source: params.sourceLabel,
+    }));
+
+    const html = buildBaseHtml({
+      variant: "transport",
+      eyebrowLabel: "Transport Scout",
+      contextLabel: headerTitle,
+      headerTitle,
+      headerSubtitle: params.scoutName,
+      summary,
+      articles,
+      articlesSectionTitle: count === 0
+        ? ""
+        : watchlist
+        ? "Watch list appearances"
+        : `Entered ${params.areaName}`,
+      metadataPanels: [
+        {
+          label: watchlist ? "Scope" : "Watched area",
+          value: params.areaName,
+          valueColor: VARIANT_THEME.transport.accent,
+        },
+        { label: "Mode", value: params.mode },
+      ],
+      cueText: "",
+      language,
+    });
+
+    return {
+      subject: `\u{1F6F0} Transport Scout: ${params.scoutName} — ${count} ${
+        watchlist ? "watched aircraft spotted" : `new in ${params.areaName}`
+      }`,
       html,
     };
   });
@@ -669,7 +756,7 @@ export async function sendScoutDeactivated(
 
 async function guarded(
   svc: SupabaseClient,
-  scoutType: "page" | "beat" | "civic" | "social",
+  scoutType: "page" | "beat" | "civic" | "social" | "transport",
   userId: string,
   runId: string,
   render: (ctx: UserContext) => Promise<{ subject: string; html: string }>,

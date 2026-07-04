@@ -15,6 +15,7 @@
 	import PageScoutView from '$lib/components/news/PageScoutView.svelte';
 	import SocialScoutView from '$lib/components/news/SocialScoutView.svelte';
 	import CivicScoutView from '$lib/components/news/CivicScoutView.svelte';
+	import TransportScoutView from '$lib/components/news/TransportScoutView.svelte';
 	import { scoutsStore } from '$lib/stores/workspace/scouts';
 	import { unitsStore } from '$lib/stores/workspace/units';
 	import { selectionStore } from '$lib/stores/workspace/selection';
@@ -45,7 +46,7 @@
 	let agentsOpen = false;
 	let agentsApiOnly = false;
 
-	type ActivePanel = 'workspace' | 'pulse' | 'web' | 'social' | 'civic';
+	type ActivePanel = 'workspace' | 'pulse' | 'web' | 'social' | 'civic' | 'transport';
 	let activePanel: ActivePanel = 'workspace';
 
 	// After scheduling succeeds, views dispatch `scheduled` and we want to
@@ -114,7 +115,7 @@
 		retiringDemoWorkspace = false;
 	}
 
-	async function handleScheduled(detail: { scoutType: 'pulse' | 'web' | 'social' | 'civic' }) {
+	async function handleScheduled(detail: { scoutType: 'pulse' | 'web' | 'social' | 'civic' | 'transport' }) {
 		pendingNewScoutType = detail.scoutType;
 		activePanel = 'workspace';
 		if (pendingWatchdog) clearTimeout(pendingWatchdog);
@@ -635,6 +636,8 @@
 					<SocialScoutView onScheduled={handleScheduled} />
 				{:else if activePanel === 'civic'}
 					<CivicScoutView onScheduled={handleScheduled} />
+				{:else if activePanel === 'transport'}
+					<TransportScoutView onScheduled={handleScheduled} />
 				{/if}
 			</div>
 		{:else if !bootstrapped}

@@ -27,13 +27,37 @@ Deno.test("transport config accepts center + radius", () => {
   assertEquals(result.error, null);
 });
 
-Deno.test("transport config accepts watch_ids without a geofence", () => {
+Deno.test("aircraft config accepts watch_ids without a geofence", () => {
   const result = validateTransportConfig({
+    mode: "aircraft",
+    watch_ids: ["4ca123"],
+  });
+  assertEquals(result.error, null);
+  assertEquals(result.config?.watch_ids, ["4ca123"]);
+});
+
+Deno.test("satellite config requires BOTH watch_ids and a geofence", () => {
+  // Both present → ok.
+  const ok = validateTransportConfig({
+    mode: "satellite",
+    watch_ids: ["39084"],
+    geofence: { preset_id: "strait-of-hormuz" },
+  });
+  assertEquals(ok.error, null);
+  // watch_ids only → rejected (needs an area).
+  const noGeo = validateTransportConfig({
     mode: "satellite",
     watch_ids: ["39084"],
   });
-  assertEquals(result.error, null);
-  assertEquals(result.config?.watch_ids, ["39084"]);
+  assertExists(noGeo.error);
+  assertStringIncludes(noGeo.error!, "geofence");
+  // geofence only → rejected (needs which satellites).
+  const noIds = validateTransportConfig({
+    mode: "satellite",
+    geofence: { preset_id: "strait-of-hormuz" },
+  });
+  assertExists(noIds.error);
+  assertStringIncludes(noIds.error!, "watch_ids");
 });
 
 Deno.test("transport config rejects a missing mode", () => {

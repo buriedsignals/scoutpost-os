@@ -219,6 +219,7 @@ export type StatusVariant = 'success' | 'error' | 'neutral' | 'warning' | 'waiti
 export type StatusKey =
 	| 'awaitingFirstRun'
 	| 'running'
+	| 'skipped'
 	| 'runFailed'
 	| 'newFindings'
 	| 'alreadyKnown'
@@ -249,6 +250,7 @@ export interface ScoutStatusResult {
 export const SCOUT_STATUS_LABELS: Record<StatusKey, string> = {
 	awaitingFirstRun: 'Awaiting first run',
 	running: 'Running',
+	skipped: 'Skipped',
 	runFailed: 'Run failed',
 	newFindings: 'New findings',
 	alreadyKnown: 'Already known',
@@ -284,6 +286,16 @@ const STATUS_CASCADE: Array<{
 		key: 'running',
 		variant: 'waiting',
 		match: (s) => s.last_run?.status === 'running' || s.last_run?.status === 'queued',
+	},
+	// Priority 2a2: Run skipped (e.g. transport sampler/GP stale, or a
+	// duplicate concurrent run). Not a failure — the scout is healthy and
+	// resumes automatically. Matched BEFORE runFailed because a skipped run
+	// carries scraper_status=false, which the failure rule would otherwise
+	// catch.
+	{
+		key: 'skipped',
+		variant: 'neutral',
+		match: (s) => s.last_run?.status === 'skipped',
 	},
 	// Priority 2b: Execution failed
 	{

@@ -10,6 +10,7 @@ supabase/functions/deno.lock
 
 # Operator notes with secrets (for Tom only, never committed)
 TOM.md
+CLAUDE.local.md
 cojournalist-pat.txt
 supabase-keys.txt
 exa.txt
@@ -130,3 +131,4 @@ docs/superpowers/
 
 # Generated EF bundles (regenerate via scripts/bundle-ef.ts)
 supabase/functions/*/_bundled.ts
+TRANSPORT-SCOUT-PRD.md
