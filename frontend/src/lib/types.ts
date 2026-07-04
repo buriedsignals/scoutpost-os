@@ -16,6 +16,10 @@
 
 // Scraper/Scout types
 export type RegularityType = 'daily' | 'weekly' | 'monthly';
+// Sub-daily cadences are transport-only; the backend rejects them for other
+// scout types. Kept separate so shared scheduling stays daily/weekly/monthly.
+export type TransportRegularity = '3h' | '6h' | '12h';
+export type ScheduleRegularity = RegularityType | TransportRegularity;
 export type MonitoringType = 'EMAIL' | 'SMS' | 'WEBHOOK';
 export type ScrapeChannel = 'website' | 'social' | 'instagram' | 'facebook' | 'tiktok' | 'instagram_comments';
 export interface MonitoringSetupRequest {
@@ -100,12 +104,13 @@ export interface ActiveJobsResponse {
 export interface ScoutSetupRequest {
 	name: string;
 	scout_type: ScoutType;
-	regularity: RegularityType;
+	regularity: ScheduleRegularity;
 	day_number: number;
 	time: string;
 	monitoring: MonitoringType;
 	// Type-specific fields
 	url?: string;  // web
+	config?: Record<string, unknown>;  // transport (mode/geofence/watch_ids/…)
 	criteria?: string;  // web, pulse
 	location?: GeocodedLocation;  // pulse
 	topic?: string;  // pulse (free-text topic)

@@ -48,12 +48,26 @@ export function transportWatchIdValid(mode: TransportMode, id: string): boolean 
 	return NORAD_RE.test(id);
 }
 
-/** Category filter options per mode. Satellites have no category filters in v1. */
+/** Category filter options per mode — these only NARROW the watch list, they
+ * cannot replace it. Satellites have no category filters in v1. Values must
+ * be real classifier outputs (_shared/vessel_classify.ts / plane_alert.ts) —
+ * 'yacht' was never emitted; the AIS pleasure-craft class is 'pleasure'. */
 export function transportModeCategories(mode: TransportMode): string[] {
 	if (mode === 'aircraft') return ['military', 'government', 'police', 'civil'];
-	if (mode === 'vessel') return ['military', 'tanker', 'cargo', 'passenger', 'fishing', 'yacht'];
+	if (mode === 'vessel') return ['military', 'tanker', 'cargo', 'passenger', 'fishing', 'pleasure'];
 	return [];
 }
+
+/** Where users can look up trackable IDs, per mode — linked below the
+ * watch-IDs field. */
+export const TRANSPORT_ID_SOURCES: Record<
+	TransportMode,
+	{ label: string; url: string }
+> = {
+	vessel: { label: 'MarineTraffic', url: 'https://www.marinetraffic.com/' },
+	aircraft: { label: 'ADS-B Exchange', url: 'https://globe.adsbexchange.com/' },
+	satellite: { label: 'CelesTrak SATCAT', url: 'https://celestrak.org/satcat/search.php' }
+};
 
 export interface RegularityOption {
 	value: '3h' | '6h' | '12h' | 'daily';

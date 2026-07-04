@@ -132,9 +132,14 @@ export function getRegularityMultiplier(
  */
 export function validateScheduleCredits(params: {
 	scoutType: ScoutType;
-	regularity: 'daily' | 'weekly' | 'monthly';
+	// Transport allows sub-daily (3h/6h/12h); getRegularityMultiplier prices all.
+	regularity: 'daily' | 'weekly' | 'monthly' | '3h' | '6h' | '12h';
 	platform?: string;
 	currentCredits: number;
+	/** Extra credits per run on top of the base cost (e.g. transport's +1
+	 * free-text-criteria addon). Must match what the UI displays, or the gate
+	 * under-budgets and the scout runs out of credits mid-month. */
+	perRunAddon?: number;
 }): {
 	valid: boolean;
 	perRunCost: number;
@@ -142,7 +147,8 @@ export function validateScheduleCredits(params: {
 	currentCredits: number;
 	remainingAfter: number;
 } {
-	const perRunCost = getScoutCost(params.scoutType, params.platform);
+	const perRunCost = getScoutCost(params.scoutType, params.platform) +
+		(params.perRunAddon ?? 0);
 	const monthlyCost = perRunCost * getRegularityMultiplier(params.regularity);
 	return {
 		valid: params.currentCredits >= monthlyCost,

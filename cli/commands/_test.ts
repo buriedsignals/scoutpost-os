@@ -667,7 +667,9 @@ Deno.test("scouts add — transport aircraft: preset geofence, criteria folded i
         "--mode",
         "aircraft",
         "--geofence-preset",
-        "strait_of_hormuz",
+        "strait-of-hormuz",
+        "--watch-ids",
+        "4ca123,ae01ce",
         "--categories",
         "military,government",
         "--criteria",
@@ -690,7 +692,8 @@ Deno.test("scouts add — transport aircraft: preset geofence, criteria folded i
     assertEquals("criteria" in body, false);
     const config = body.config as Record<string, unknown>;
     assertEquals(config.mode, "aircraft");
-    assertEquals(config.geofence, { preset_id: "strait_of_hormuz" });
+    assertEquals(config.geofence, { preset_id: "strait-of-hormuz" });
+    assertEquals(config.watch_ids, ["4ca123", "ae01ce"]);
     assertEquals(config.categories, ["military", "government"]);
     assertEquals(config.criteria, "military transport jets");
   });
@@ -787,6 +790,8 @@ Deno.test("scouts add — transport vessel: decimal center/radius survive (no pa
         "56.25",
         "--radius-km",
         "40.5",
+        "--watch-ids",
+        "636019825",
         "--regularity",
         "6h",
       ]);
@@ -843,7 +848,7 @@ Deno.test("scouts add — transport satellite: watch_ids + preset, daily schedul
         "--mode",
         "satellite",
         "--geofence-preset",
-        "strait_of_hormuz",
+        "strait-of-hormuz",
         "--watch-ids",
         "25544,48274",
         "--regularity",
@@ -861,7 +866,7 @@ Deno.test("scouts add — transport satellite: watch_ids + preset, daily schedul
     const config = body.config as Record<string, unknown>;
     assertEquals(config.mode, "satellite");
     assertEquals(config.watch_ids, ["25544", "48274"]);
-    assertEquals(config.geofence, { preset_id: "strait_of_hormuz" });
+    assertEquals(config.geofence, { preset_id: "strait-of-hormuz" });
   });
 });
 

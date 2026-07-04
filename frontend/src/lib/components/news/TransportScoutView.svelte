@@ -1,14 +1,17 @@
 <script lang="ts">
-	import { workspaceApi } from '$lib/api-client';
-	import { authStore } from '$lib/stores/auth';
-	import * as m from '$lib/paraglide/messages';
+	import { slide } from 'svelte/transition';
+	import FormPanel from '$lib/components/ui/FormPanel.svelte';
+	import TogglePicker from '$lib/components/ui/TogglePicker.svelte';
+	import CriteriaInput from '$lib/components/ui/CriteriaInput.svelte';
+	import ScoutScheduleModal from '$lib/components/modals/ScoutScheduleModal.svelte';
 	import {
+		TRANSPORT_ID_SOURCES,
 		TRANSPORT_PRESETS,
 		transportModeCategories,
 		transportParseNum,
-		transportRegularities,
 		transportWatchIdValid
 	} from '$lib/utils/transport';
+	import * as m from '$lib/paraglide/messages';
 
 	export let onScheduled: (detail: { scoutType: 'transport' }) => void = () => {};
 
@@ -30,20 +33,23 @@
 	let watchIdsRaw = '';
 	let selectedCategories: string[] = [];
 	let criteria = '';
-	let regularity: '3h' | '6h' | '12h' | 'daily' = '3h';
-	let time = '09:00';
-	let submitting = false;
 	let error = '';
+	let showScheduleModal = false;
 
-	// Satellite is daily-only; reset regularity when switching to it.
-	$: if (mode === 'satellite' && regularity !== 'daily') regularity = 'daily';
 	// Vessel/satellite require an area — force a geofence kind when switching.
 	$: if (mode !== 'aircraft' && geofenceKind === 'none') geofenceKind = 'preset';
 	$: availableCategories = transportModeCategories(mode);
-	$: availableRegularities = transportRegularities(mode);
 	$: geofenceRequired = mode !== 'aircraft';
-	$: watchIdsRequired = mode === 'satellite';
 	$: radiusCapKm = mode === 'aircraft' ? AIRCRAFT_MAX_RADIUS_KM : MAX_RADIUS_KM;
+	$: idSource = TRANSPORT_ID_SOURCES[mode];
+	$: watchIdsHint =
+		mode === 'vessel'
+			? m.transport_watchIdsHintVessel()
+			: mode === 'aircraft'
+				? m.transport_watchIdsHintAircraft()
+				: m.transport_watchIdsHintSatellite();
+
+	const parseNum = transportParseNum;
 
 	function toggleCategory(cat: string) {
 		selectedCategories = selectedCategories.includes(cat)
@@ -58,15 +64,11 @@
 			.filter(Boolean);
 	}
 
-	const parseNum = transportParseNum;
-
-	function monthlyCredits(): number {
-		const perRun = 1 + (criteria.trim() ? 1 : 0);
-		const mult: Record<string, number> = { '3h': 240, '6h': 120, '12h': 60, daily: 30 };
-		return perRun * (mult[regularity] ?? 30);
-	}
-
-	function buildConfig(): Record<string, unknown> {
+	// Derived reactively: a Svelte template/`$:` expression only re-runs when a
+	// variable it *textually references* changes, so these must read the form
+	// state directly (not hide it behind a plain function call) — otherwise the
+	// modal would receive the initial defaults and never the user's edits.
+	$: builtConfig = ((): Record<string, unknown> => {
 		const config: Record<string, unknown> = { mode };
 		if (geofenceKind === 'preset') {
 			config.geofence = { preset_id: presetId };
@@ -76,27 +78,36 @@
 				radius_km: parseNum(radiusKm)
 			};
 		}
-		const watchIds = parsedWatchIds();
+		const watchIds = watchIdsRaw
+			.split(/[\s,]+/)
+			.map((s) => s.trim().toLowerCase())
+			.filter(Boolean);
 		if (watchIds.length > 0) config.watch_ids = watchIds;
 		if (selectedCategories.length > 0) config.categories = selectedCategories;
 		if (criteria.trim()) config.criteria = criteria.trim();
 		return config;
-	}
+	})();
+
+	/** Human-readable area for the schedule modal's context block. */
+	$: areaLbl =
+		geofenceKind === 'preset'
+			? (TRANSPORT_PRESETS.find((p) => p.id === presetId)?.name ?? presetId)
+			: geofenceKind === 'radius'
+				? `${centerLat || '?'}, ${centerLon || '?'} · ${radiusKm || '?'} km`
+				: m.transport_areaNone();
 
 	/** Full client-side validation mirroring the backend, so users get inline
-	 * errors instead of confusing server 400s. Returns an error string or ''. */
+	 * errors before the schedule modal opens. Returns an error string or ''. */
 	function validate(): string {
 		if (!name.trim()) return m.transport_errorName();
 
 		const watchIds = parsedWatchIds();
 		const hasGeofence = geofenceKind !== 'none';
 
+		// Watch IDs are mandatory for every mode — area/category-only scouts
+		// would alert on all matching traffic (product decision 2026-07-04).
+		if (watchIds.length === 0) return m.transport_errorWatchIdsRequired();
 		if (geofenceRequired && !hasGeofence) return m.transport_errorGeofence();
-		if (watchIdsRequired && watchIds.length === 0) return m.transport_errorWatchIds();
-		// Aircraft needs at least one of area / watch IDs.
-		if (mode === 'aircraft' && !hasGeofence && watchIds.length === 0) {
-			return m.transport_errorAircraftScope();
-		}
 
 		if (geofenceKind === 'radius') {
 			const lat = parseNum(centerLat);
@@ -115,213 +126,205 @@
 		return '';
 	}
 
-	async function handleSubmit() {
+	function openSchedule() {
 		error = validate();
 		if (error) return;
+		showScheduleModal = true;
+	}
 
-		// Credit pre-check (UX parity with other scout types): don't post a run
-		// the user can't afford. The tier/upgrade routing lives in the Pro-gated
-		// menu entry; here we just surface the shortfall.
-		const currentCredits = $authStore.user?.credits ?? 0;
-		if (currentCredits < monthlyCredits()) {
-			error = m.transport_errorCredits({ credits: monthlyCredits() });
-			return;
-		}
-
-		submitting = true;
-		try {
-			await workspaceApi.createScout({
-				name: name.trim(),
-				type: 'transport',
-				regularity,
-				time,
-				config: buildConfig()
-			});
-			onScheduled({ scoutType: 'transport' });
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
-		} finally {
-			submitting = false;
-		}
+	function resetForm() {
+		name = '';
+		geofenceKind = 'preset';
+		presetId = TRANSPORT_PRESETS[0].id;
+		centerLat = '';
+		centerLon = '';
+		radiusKm = '100';
+		watchIdsRaw = '';
+		selectedCategories = [];
+		criteria = '';
+		error = '';
 	}
 </script>
 
-<div class="transport-view">
-	<h2 class="transport-title">{m.transport_panelTitle()}</h2>
+<div class="panel-view">
+	<div class="query-column">
+		<FormPanel
+			badge={m.modal_transportScoutBadge()}
+			badgeVariant="purple"
+			title={m.transport_panelTitle()}
+			subtitle={m.transport_trackDescription()}
+		>
+			<!-- Scout Name -->
+			<div class="field-group">
+				<label for="transport-name" class="field-label">{m.transport_nameLabel()}</label>
+				<input
+					id="transport-name"
+					type="text"
+					bind:value={name}
+					maxlength="30"
+					placeholder={m.transport_namePlaceholder()}
+					class="form-input"
+				/>
+			</div>
 
-	<label class="field">
-		<span class="field-label">{m.transport_nameLabel()}</span>
-		<input class="field-input" bind:value={name} placeholder={m.transport_namePlaceholder()} />
-	</label>
+			<!-- Mode -->
+			<div class="field-group">
+				<div class="field-label">{m.transport_modeLabel()}</div>
+				<TogglePicker
+					bind:value={mode}
+					options={[
+						{ value: 'aircraft', label: m.transport_modeAircraft(), description: 'ADS-B' },
+						{ value: 'vessel', label: m.transport_modeVessel(), description: 'AIS' },
+						{ value: 'satellite', label: m.transport_modeSatellite(), description: 'Orbital' }
+					]}
+				/>
+			</div>
 
-	<div class="field">
-		<span class="field-label">{m.transport_modeLabel()}</span>
-		<div class="mode-tabs">
-			<button class="mode-tab" class:active={mode === 'aircraft'} on:click={() => (mode = 'aircraft')}>
-				{m.transport_modeAircraft()}
-			</button>
-			<button class="mode-tab" class:active={mode === 'vessel'} on:click={() => (mode = 'vessel')}>
-				{m.transport_modeVessel()}
-			</button>
-			<button class="mode-tab" class:active={mode === 'satellite'} on:click={() => (mode = 'satellite')}>
-				{m.transport_modeSatellite()}
-			</button>
-		</div>
-	</div>
+			<!-- Area -->
+			<div class="field-group">
+				<div class="field-label">
+					{m.transport_areaLabel()}
+					{#if geofenceRequired}<span class="req">*</span>{/if}
+				</div>
+				<div class="area-kind">
+					<label><input type="radio" bind:group={geofenceKind} value="preset" /> {m.transport_areaPreset()}</label>
+					<label><input type="radio" bind:group={geofenceKind} value="radius" /> {m.transport_areaRadius()}</label>
+					{#if !geofenceRequired}
+						<label><input type="radio" bind:group={geofenceKind} value="none" /> {m.transport_areaNone()}</label>
+					{/if}
+				</div>
+				{#if geofenceKind === 'preset'}
+					<select class="form-select" bind:value={presetId}>
+						{#each TRANSPORT_PRESETS as p}
+							<option value={p.id}>{p.name}</option>
+						{/each}
+					</select>
+				{:else if geofenceKind === 'radius'}
+					<div class="radius-row">
+						<input class="form-input" bind:value={centerLat} placeholder={m.transport_lat()} inputmode="decimal" />
+						<input class="form-input" bind:value={centerLon} placeholder={m.transport_lon()} inputmode="decimal" />
+						<input class="form-input" bind:value={radiusKm} placeholder={m.transport_radiusKm()} inputmode="numeric" />
+					</div>
+				{/if}
+			</div>
 
-	<div class="field">
-		<span class="field-label">
-			{m.transport_areaLabel()}
-			{#if geofenceRequired}<span class="req">*</span>{/if}
-		</span>
-		<div class="geofence-kind">
-			<label><input type="radio" bind:group={geofenceKind} value="preset" /> {m.transport_areaPreset()}</label>
-			<label><input type="radio" bind:group={geofenceKind} value="radius" /> {m.transport_areaRadius()}</label>
-			{#if !geofenceRequired}
-				<label><input type="radio" bind:group={geofenceKind} value="none" /> {m.transport_areaNone()}</label>
+			<!-- Watch IDs (mandatory for every mode) -->
+			<div class="field-group">
+				<label for="transport-watch-ids" class="field-label">
+					{m.transport_watchIdsLabel()}
+					<span class="req">*</span>
+				</label>
+				<input
+					id="transport-watch-ids"
+					type="text"
+					bind:value={watchIdsRaw}
+					placeholder={m.transport_watchIdsPlaceholder()}
+					required
+					class="form-input"
+				/>
+				<p class="field-hint">
+					{watchIdsHint}
+					<a href={idSource.url} target="_blank" rel="noopener noreferrer">{idSource.label}</a>.
+				</p>
+			</div>
+
+			<!-- Categories -->
+			{#if availableCategories.length > 0}
+				<div class="field-group">
+					<div class="field-label">{m.transport_categoriesLabel()}</div>
+					<div class="chips">
+						{#each availableCategories as cat}
+							<button
+								type="button"
+								class="chip"
+								class:selected={selectedCategories.includes(cat)}
+								on:click={() => toggleCategory(cat)}
+							>
+								{cat}
+							</button>
+						{/each}
+					</div>
+				</div>
 			{/if}
-		</div>
-		{#if geofenceKind === 'preset'}
-			<select class="field-input" bind:value={presetId}>
-				{#each TRANSPORT_PRESETS as p}
-					<option value={p.id}>{p.name}</option>
-				{/each}
-			</select>
-		{:else}
-			<div class="radius-row">
-				<input class="field-input" bind:value={centerLat} placeholder={m.transport_lat()} inputmode="decimal" />
-				<input class="field-input" bind:value={centerLon} placeholder={m.transport_lon()} inputmode="decimal" />
-				<input class="field-input" bind:value={radiusKm} placeholder={m.transport_radiusKm()} inputmode="numeric" />
+
+			<!-- Criteria -->
+			<div class="field-group">
+				<label for="transport-criteria" class="field-label">{m.transport_criteriaLabel()}</label>
+				<CriteriaInput
+					bind:value={criteria}
+					placeholder={m.transport_criteriaPlaceholder()}
+					rows={2}
+				/>
+				<p class="field-hint">{m.transport_criteriaHint()}</p>
 			</div>
-		{/if}
+
+			{#if error}
+				<p class="error-text" transition:slide={{ duration: 150 }}>{error}</p>
+			{/if}
+
+			<button type="button" class="btn-primary schedule-btn" on:click={openSchedule}>
+				{m.scout_scheduleScout()}
+			</button>
+		</FormPanel>
 	</div>
-
-	<label class="field">
-		<span class="field-label">
-			{m.transport_watchIdsLabel()}
-			{#if watchIdsRequired}<span class="req">*</span>{/if}
-		</span>
-		<input class="field-input" bind:value={watchIdsRaw} placeholder={m.transport_watchIdsPlaceholder()} />
-		<span class="field-hint">{m.transport_watchIdsHint()}</span>
-	</label>
-
-	{#if availableCategories.length > 0}
-		<div class="field">
-			<span class="field-label">{m.transport_categoriesLabel()}</span>
-			<div class="chips">
-				{#each availableCategories as cat}
-					<button
-						class="chip"
-						class:selected={selectedCategories.includes(cat)}
-						on:click={() => toggleCategory(cat)}
-					>
-						{cat}
-					</button>
-				{/each}
-			</div>
-		</div>
-	{/if}
-
-	<label class="field">
-		<span class="field-label">{m.transport_criteriaLabel()}</span>
-		<input class="field-input" bind:value={criteria} placeholder={m.transport_criteriaPlaceholder()} />
-		<span class="field-hint">{m.transport_criteriaHint()}</span>
-	</label>
-
-	<div class="field">
-		<span class="field-label">{m.transport_scheduleLabel()}</span>
-		<div class="schedule-row">
-			<select class="field-input" bind:value={regularity} disabled={mode === 'satellite'}>
-				{#each availableRegularities as r}
-					<option value={r.value}>{r.label}</option>
-				{/each}
-			</select>
-			<input class="field-input" type="time" bind:value={time} />
-		</div>
-		<span class="field-hint">{m.transport_creditsEstimate({ credits: monthlyCredits() })}</span>
-	</div>
-
-	{#if error}
-		<p class="error">{error}</p>
-	{/if}
-
-	<button class="submit" on:click={handleSubmit} disabled={submitting}>
-		{submitting ? m.transport_creating() : m.transport_create()}
-	</button>
 </div>
 
+<ScoutScheduleModal
+	bind:open={showScheduleModal}
+	scoutType="transport"
+	scoutName={name.trim()}
+	transportMode={mode}
+	transportConfig={builtConfig}
+	transportAreaLabel={areaLbl}
+	onClose={() => (showScheduleModal = false)}
+	onSuccess={() => {
+		showScheduleModal = false;
+		resetForm();
+		onScheduled({ scoutType: 'transport' });
+	}}
+/>
+
 <style>
-	.transport-view {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		max-width: 560px;
-		padding: 1.5rem;
-		font-family: var(--font-body);
-	}
-	.transport-title {
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: var(--color-ink);
-		margin: 0;
-	}
-	.field {
-		display: flex;
-		flex-direction: column;
-		gap: 0.375rem;
+	.field-group {
+		margin-bottom: 1rem;
 	}
 	.field-label {
+		display: block;
 		font-size: 0.8125rem;
-		font-weight: 600;
-		color: var(--color-ink-muted);
-	}
-	.req {
-		color: var(--color-secondary);
-	}
-	.field-input {
-		padding: 0.5rem 0.625rem;
-		border: 1px solid var(--color-border);
-		background: var(--color-surface);
-		font-size: 0.875rem;
+		font-weight: 500;
 		color: var(--color-ink);
+		margin-bottom: 0.5rem;
 	}
 	.field-hint {
 		font-size: 0.75rem;
 		color: var(--color-ink-subtle);
+		margin: 0.375rem 0 0;
+		line-height: 1.4;
 	}
-	.mode-tabs,
-	.geofence-kind {
+	.field-hint a {
+		color: var(--color-primary);
+		text-decoration: underline;
+	}
+	.req {
+		color: var(--color-error);
+	}
+	.area-kind {
 		display: flex;
-		gap: 0.5rem;
+		gap: 1rem;
+		margin-bottom: 0.5rem;
 	}
-	.geofence-kind label {
-		font-size: 0.8125rem;
+	.area-kind label {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.25rem;
-	}
-	.mode-tab {
-		flex: 1;
-		padding: 0.5rem;
-		border: 1px solid var(--color-border);
-		background: var(--color-surface);
+		gap: 0.375rem;
 		font-size: 0.8125rem;
-		cursor: pointer;
 		color: var(--color-ink-muted);
 	}
-	.mode-tab.active {
-		border-color: var(--color-primary);
-		background: var(--color-primary-soft);
-		color: var(--color-primary);
-		font-weight: 600;
-	}
-	.radius-row,
-	.schedule-row {
+	.radius-row {
 		display: flex;
 		gap: 0.5rem;
 	}
-	.radius-row .field-input,
-	.schedule-row .field-input {
+	.radius-row .form-input {
 		flex: 1;
 		min-width: 0;
 	}
@@ -337,28 +340,22 @@
 		font-size: 0.75rem;
 		cursor: pointer;
 		color: var(--color-ink-muted);
+		font-family: var(--font-body);
 	}
 	.chip.selected {
 		border-color: var(--color-primary);
 		background: var(--color-primary-soft);
-		color: var(--color-primary);
+		color: var(--color-primary-deep);
 	}
-	.error {
-		color: var(--color-error, #b33e2e);
+	.error-text {
+		margin: 0 0 1rem 0;
+		padding: 0.5rem 0.75rem;
+		background: rgba(179, 62, 46, 0.08);
+		border-left: 3px solid var(--color-error);
+		color: var(--color-error);
 		font-size: 0.8125rem;
-		margin: 0;
 	}
-	.submit {
-		padding: 0.625rem;
-		border: none;
-		background: var(--color-primary);
-		color: var(--color-bg);
-		font-size: 0.875rem;
-		font-weight: 600;
-		cursor: pointer;
-	}
-	.submit:disabled {
-		opacity: 0.6;
-		cursor: default;
+	.schedule-btn {
+		width: 100%;
 	}
 </style>

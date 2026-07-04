@@ -28,6 +28,12 @@ describe('transportModeCategories', () => {
 	it('gives vessels AIS-type categories', () => {
 		expect(transportModeCategories('vessel')).toContain('tanker');
 	});
+	it('offers only real classifier outputs — pleasure, never yacht', () => {
+		// 'yacht' was never emitted by _shared/vessel_classify.ts; a scout
+		// filtered on it would silently match nothing.
+		expect(transportModeCategories('vessel')).toContain('pleasure');
+		expect(transportModeCategories('vessel')).not.toContain('yacht');
+	});
 	it('gives satellites no category filters in v1', () => {
 		expect(transportModeCategories('satellite')).toEqual([]);
 	});

@@ -31,13 +31,14 @@ Deno.test("precheck rejects invalid config before any billing", () => {
   const result = precheckTransportScout({ mode: "vessel" });
   assertEquals(result.ok, false);
   assertExists(result.error);
-  assertStringIncludes(result.error!, "geofence, watch_ids, or both");
+  assertStringIncludes(result.error!, "require watch_ids");
 });
 
 Deno.test("precheck surfaces mode and criteria flag for cost computation", () => {
   const withCriteria = precheckTransportScout({
     mode: "vessel",
     geofence: { preset_id: "strait-of-hormuz" },
+    watch_ids: ["636019825"],
     criteria: "only tankers heading west",
   });
   assertEquals(withCriteria.ok, true);
@@ -84,6 +85,7 @@ Deno.test("overlap election: a lone run never yields to itself", () => {
 // ── U2: geofence math + tiling ──────────────────────────────────────────────
 import { haversineKm, pointInGeofence, tileGeofence } from "./geofence.ts";
 import {
+  fetchAircraftCandidates,
   filterAircraft,
   isMilitaryOnly,
   normalizeAircraft,
@@ -104,6 +106,60 @@ const DOVER = {
 Deno.test("haversine: London→Paris ≈ 344 km", () => {
   const d = haversineKm(51.5074, -0.1278, 48.8566, 2.3522);
   if (Math.abs(d - 344) > 10) throw new Error(`got ${d}`);
+});
+
+Deno.test("per-hex watch queries retry once on 429 and space requests ≥1s apart", async () => {
+  // Live QA (2026-07-04): a 5-hex watch list tripped adsb.lol's ~1 req/s
+  // limit on the 4th back-to-back /hex query. Guard the pacing + retry.
+  const calls: { path: string; at: number }[] = [];
+  let rateLimited = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL | Request) => {
+    const url = input instanceof Request ? input.url : String(input);
+    calls.push({ path: url.slice(url.indexOf("/hex/")), at: Date.now() });
+    // First request 429s once; the retry (and everything after) succeeds.
+    if (!rateLimited) {
+      rateLimited = true;
+      return Promise.resolve(
+        new Response("rate limited", {
+          status: 429,
+          headers: { "retry-after": "1" },
+        }),
+      );
+    }
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          ac: [{ hex: "ae0001", lat: 26.5, lon: 56.2, dbFlags: 1 }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+  }) as typeof fetch;
+
+  try {
+    const out = await fetchAircraftCandidates(
+      { mode: "aircraft", watch_ids: ["ae0001", "ae0003"] },
+      null,
+    );
+    // Retry recovered the first hex; both hexes returned the same aircraft.
+    assertEquals(out.length, 2);
+    assertEquals(out[0].id, "ae0001");
+    // 3 requests total: ae0001 (429), ae0001 (retry), ae0003.
+    assertEquals(calls.length, 3);
+    assertEquals(calls[0].path.startsWith("/hex/ae0001"), true);
+    assertEquals(calls[1].path.startsWith("/hex/ae0001"), true);
+    assertEquals(calls[2].path.startsWith("/hex/ae0003"), true);
+    // Retry honored Retry-After (1s) and hexes are spaced ≥1s apart.
+    if (calls[1].at - calls[0].at < 900) {
+      throw new Error(`retry too fast: ${calls[1].at - calls[0].at}ms`);
+    }
+    if (calls[2].at - calls[1].at < 900) {
+      throw new Error(`hex spacing too fast: ${calls[2].at - calls[1].at}ms`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 Deno.test("pointInGeofence: bbox and circle containment", () => {

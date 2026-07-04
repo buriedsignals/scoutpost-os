@@ -81,20 +81,42 @@ export function parseAdsbResponse(payload: unknown): AircraftObject[] {
   return out;
 }
 
+/** Wait before retrying a 429 when the server gives no (sane) Retry-After. */
+const RATE_LIMIT_RETRY_MS = 2000;
+/** Spacing between consecutive per-hex queries — adsb.lol allows roughly one
+ * request per second per IP, and watch lists (now mandatory, up to 50 ids)
+ * made back-to-back /hex queries trip 429s in live QA (2026-07-04). */
+const HEX_QUERY_SPACING_MS = 1100;
+
 async function fetchAdsb(path: string): Promise<AircraftObject[]> {
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(`${ADSB_BASE}${path}`, {
-      headers: { "Accept": "application/json" },
-      signal: ac.signal,
-    });
-    if (!res.ok) {
-      throw new Error(`adsb.lol ${path} responded ${res.status}`);
+  for (let attempt = 0; ; attempt++) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${ADSB_BASE}${path}`, {
+        headers: { "Accept": "application/json" },
+        signal: ac.signal,
+      });
+      // One polite retry on rate limiting; a second 429 falls through to the
+      // generic error and the run's non-billable failure path.
+      if (res.status === 429 && attempt === 0) {
+        await res.body?.cancel();
+        const retryAfter = Number(res.headers.get("retry-after"));
+        const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 &&
+            retryAfter <= 30
+          ? retryAfter * 1000
+          : RATE_LIMIT_RETRY_MS;
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      if (!res.ok) {
+        await res.body?.cancel();
+        throw new Error(`adsb.lol ${path} responded ${res.status}`);
+      }
+      return parseAdsbResponse(await res.json());
+    } finally {
+      clearTimeout(timer);
     }
-    return parseAdsbResponse(await res.json());
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -117,9 +139,13 @@ export async function fetchAircraftCandidates(
   if (geofence === null) {
     // Watch-ids anywhere: one /v2/hex query PER watched hex — the route's
     // multi-hex behavior is undocumented, so no comma-list assumptions.
-    // Sequential to stay polite; watch lists cap at 50 ids.
+    // Sequential AND spaced: adsb.lol rate-limits ~1 req/s, and watch lists
+    // cap at 50 ids, so the worst case stays under a minute per run.
     const out: AircraftObject[] = [];
+    let first = true;
     for (const hex of config.watch_ids ?? []) {
+      if (!first) await new Promise((r) => setTimeout(r, HEX_QUERY_SPACING_MS));
+      first = false;
       const batch = await fetchAdsb(`/hex/${hex}`);
       out.push(...batch);
     }

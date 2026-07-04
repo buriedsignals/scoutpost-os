@@ -10,19 +10,21 @@ import {
   watchIdError,
 } from "./transport_config.ts";
 
-Deno.test("transport config accepts a preset geofence", () => {
+Deno.test("transport config accepts a preset geofence (with watch_ids)", () => {
   const result = validateTransportConfig({
     mode: "vessel",
     geofence: { preset_id: "strait-of-hormuz" },
+    watch_ids: ["636019825"],
   });
   assertEquals(result.error, null);
   assertEquals(result.config?.mode, "vessel");
 });
 
-Deno.test("transport config accepts center + radius", () => {
+Deno.test("transport config accepts center + radius (with watch_ids)", () => {
   const result = validateTransportConfig({
     mode: "aircraft",
     geofence: { center: { lat: 51.0, lon: 1.5 }, radius_km: 200 },
+    watch_ids: ["4ca123"],
   });
   assertEquals(result.error, null);
 });
@@ -34,6 +36,87 @@ Deno.test("aircraft config accepts watch_ids without a geofence", () => {
   });
   assertEquals(result.error, null);
   assertEquals(result.config?.watch_ids, ["4ca123"]);
+});
+
+Deno.test("watch_ids are mandatory — area-only and categories-only scouts are rejected", () => {
+  // Vessel with geofence but no watch_ids → firehose, rejected.
+  const vessel = validateTransportConfig({
+    mode: "vessel",
+    geofence: { preset_id: "strait-of-malacca" },
+  });
+  assertExists(vessel.error);
+  assertStringIncludes(vessel.error!, "require watch_ids");
+  assertStringIncludes(vessel.error!, "MMSIs");
+  // Aircraft with geofence only → same.
+  const aircraft = validateTransportConfig({
+    mode: "aircraft",
+    geofence: { center: { lat: 26, lon: 56 }, radius_km: 100 },
+  });
+  assertExists(aircraft.error);
+  assertStringIncludes(aircraft.error!, "require watch_ids");
+  // Categories cannot substitute for watch_ids ("all military ships" is
+  // overkill, not monitoring).
+  const catsOnly = validateTransportConfig({
+    mode: "vessel",
+    geofence: { preset_id: "strait-of-hormuz" },
+    categories: ["military"],
+  });
+  assertExists(catsOnly.error);
+  assertStringIncludes(catsOnly.error!, "cannot replace");
+});
+
+Deno.test("multiple watch_ids in one scout are supported", () => {
+  const result = validateTransportConfig({
+    mode: "vessel",
+    geofence: { preset_id: "strait-of-hormuz" },
+    watch_ids: ["636019825", "244660123", "563012345", "477123456", "273456789"],
+  });
+  assertEquals(result.error, null);
+  assertEquals(result.config?.watch_ids?.length, 5);
+});
+
+Deno.test("categories narrow a watch list; unknown categories are rejected per mode", () => {
+  // Valid: watch_ids + a real category.
+  const ok = validateTransportConfig({
+    mode: "vessel",
+    geofence: { preset_id: "strait-of-hormuz" },
+    watch_ids: ["636019825"],
+    categories: ["military"],
+  });
+  assertEquals(ok.error, null);
+  // Typo'd category would silently match nothing — rejected.
+  const typo = validateTransportConfig({
+    mode: "vessel",
+    geofence: { preset_id: "strait-of-hormuz" },
+    watch_ids: ["636019825"],
+    categories: ["militry"],
+  });
+  assertExists(typo.error);
+  assertStringIncludes(typo.error!, 'unknown vessel category "militry"');
+  // "yacht" is not a classifier output — the real class is "pleasure".
+  const yacht = validateTransportConfig({
+    mode: "vessel",
+    geofence: { preset_id: "strait-of-hormuz" },
+    watch_ids: ["636019825"],
+    categories: ["yacht"],
+  });
+  assertExists(yacht.error);
+  const pleasure = validateTransportConfig({
+    mode: "vessel",
+    geofence: { preset_id: "strait-of-hormuz" },
+    watch_ids: ["636019825"],
+    categories: ["pleasure"],
+  });
+  assertEquals(pleasure.error, null);
+  // Satellites have no categories at all.
+  const sat = validateTransportConfig({
+    mode: "satellite",
+    geofence: { preset_id: "strait-of-hormuz" },
+    watch_ids: ["25544"],
+    categories: ["military"],
+  });
+  assertExists(sat.error);
+  assertStringIncludes(sat.error!, "do not support categories");
 });
 
 Deno.test("satellite config requires BOTH watch_ids and a geofence", () => {
@@ -66,10 +149,10 @@ Deno.test("transport config rejects a missing mode", () => {
   assertStringIncludes(result.error!, "mode");
 });
 
-Deno.test("transport config requires geofence or watch_ids", () => {
+Deno.test("a bare mode with no scope at all is rejected", () => {
   const result = validateTransportConfig({ mode: "vessel" });
   assertExists(result.error);
-  assertStringIncludes(result.error!, "geofence, watch_ids, or both");
+  assertStringIncludes(result.error!, "require watch_ids");
 });
 
 Deno.test("transport config rejects preset + circle together", () => {
@@ -108,6 +191,7 @@ Deno.test("transport config caps aircraft geofence radius at the ADS-B query lim
       center: { lat: 26, lon: 56 },
       radius_km: AIRCRAFT_MAX_RADIUS_KM + 1,
     },
+    watch_ids: ["636019825"],
   });
   assertEquals(vessel.error, null);
 });
@@ -156,6 +240,7 @@ Deno.test("blank criteria is normalized away", () => {
   const result = validateTransportConfig({
     mode: "vessel",
     geofence: { preset_id: "strait-of-hormuz" },
+    watch_ids: ["636019825"],
     criteria: "   ",
   });
   assertEquals(result.error, null);

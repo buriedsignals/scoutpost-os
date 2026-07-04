@@ -30,11 +30,12 @@ function usage(): void {
       "  Topic tags are short comma-separated labels, not long criteria. Use 1-3.",
       "  Beat and civic scouts support weekly or monthly schedules only.",
       "  Transport scouts (aircraft/vessel/satellite) support 3h/6h/12h/daily",
-      "  (satellite daily only). Vessel needs a geofence; satellite needs a",
-      "  geofence and --watch-ids; aircraft needs a geofence or --watch-ids.",
-      "  Give a geofence as --geofence-preset OR all of",
-      "  --center-lat/--center-lon/--radius-km (not both). --time defaults to",
-      "  09:00 when omitted.",
+      "  (satellite daily only). --watch-ids is REQUIRED for every mode — the",
+      "  specific MMSIs / ICAO hexes / NORAD ids to track (--categories only",
+      "  narrows the list). Vessel and satellite scouts also need a geofence;",
+      "  aircraft geofence is optional. Give a geofence as --geofence-preset OR",
+      "  all of --center-lat/--center-lon/--radius-km (not both). --time",
+      "  defaults to 09:00 when omitted.",
       "",
       "  update <id> [--name <name>] [--topic <tag,tag>] [--description <text>]",
       "              [--criteria <text>] [--url <url>] [--cron <expr>]",
@@ -354,20 +355,17 @@ export async function run(argv: string[]): Promise<void> {
         }
         const config = buildTransportConfig(flags);
         const hasGeofence = Boolean(config.geofence);
-        const hasWatchIds = Boolean(config.watch_ids);
-        if (transportMode === "vessel" && !hasGeofence) {
-          console.error("vessel transport scouts require a geofence");
-          Deno.exit(1);
-        }
-        if (transportMode === "satellite" && (!hasGeofence || !hasWatchIds)) {
+        // Watch IDs are mandatory for every mode — area/category-only scouts
+        // would alert on all matching traffic (product decision 2026-07-04).
+        if (!config.watch_ids) {
           console.error(
-            "satellite transport scouts require a geofence and --watch-ids",
+            "transport scouts require --watch-ids — the specific MMSIs / ICAO hexes / NORAD ids to track (--categories only narrows the list)",
           );
           Deno.exit(1);
         }
-        if (transportMode === "aircraft" && !hasGeofence && !hasWatchIds) {
+        if (transportMode !== "aircraft" && !hasGeofence) {
           console.error(
-            "aircraft transport scouts require a geofence or --watch-ids",
+            `${transportMode} transport scouts require a geofence`,
           );
           Deno.exit(1);
         }

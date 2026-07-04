@@ -189,7 +189,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "create_scout",
     description:
-      "Create a new scout. Required: name and type (web|beat|social|civic|transport). web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle. Transport scouts require a `config` object: { mode: aircraft|vessel|satellite, geofence?, watch_ids?, categories?, criteria? } — vessel needs a geofence; satellite needs a geofence and watch_ids (NORAD ids); aircraft needs a geofence or watch_ids (ICAO hex). geofence is { preset_id } or { center: {lat,lon}, radius_km }. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes the baseline immediately for every scout type; Run Now compares against that baseline and never creates the first baseline.",
+      "Create a new scout. Required: name and type (web|beat|social|civic|transport). web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle. Transport scouts require a `config` object: { mode: aircraft|vessel|satellite, watch_ids, geofence?, categories?, criteria? } — watch_ids is REQUIRED for every mode: the specific vessel MMSIs / aircraft ICAO hexes / satellite NORAD ids to track (up to 50; categories only narrow the list, they cannot replace it). Vessel and satellite scouts also need a geofence; aircraft geofence is optional. geofence is { preset_id } or { center: {lat,lon}, radius_km }. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes the baseline immediately for every scout type; Run Now compares against that baseline and never creates the first baseline.",
     inputSchema: {
       type: "object",
       required: ["name", "type"],
@@ -221,7 +221,7 @@ const TOOLS: ToolDef[] = [
           type: "object",
           additionalProperties: true,
           description:
-            "Transport scouts only: { mode: aircraft|vessel|satellite, geofence?: {preset_id}|{center:{lat,lon},radius_km}, watch_ids?: string[], categories?: string[], criteria?: string }.",
+            "Transport scouts only: { mode: aircraft|vessel|satellite, watch_ids: string[] (REQUIRED — MMSIs/ICAO hexes/NORAD ids to track), geofence?: {preset_id}|{center:{lat,lon},radius_km}, categories?: string[] (narrows the watch list), criteria?: string }.",
         },
         schedule_cron: { type: "string", maxLength: 200 },
         day_number: { type: "integer", minimum: 0, maximum: 31 },
@@ -342,7 +342,7 @@ const TOOLS: ToolDef[] = [
           type: "object",
           additionalProperties: true,
           description:
-            "Transport scouts only: full replacement { mode: aircraft|vessel|satellite, geofence?: {preset_id}|{center:{lat,lon},radius_km}, watch_ids?: string[], categories?: string[], criteria?: string }.",
+            "Transport scouts only: full replacement { mode: aircraft|vessel|satellite, watch_ids: string[] (REQUIRED — MMSIs/ICAO hexes/NORAD ids to track), geofence?: {preset_id}|{center:{lat,lon},radius_km}, categories?: string[] (narrows the watch list), criteria?: string }.",
         },
         regularity: { type: "string", enum: ["daily", "weekly", "monthly", "3h", "6h", "12h"] },
         schedule_cron: { type: "string" },

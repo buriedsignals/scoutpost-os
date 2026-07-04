@@ -35,7 +35,7 @@ The journalist stays responsible for verification. Your job is to help monitor, 
 | **Beat Scout** | Monitor a beat by topic or geography |
 | **Social Scout** | Track social posts and deletions |
 | **Civic Scout** | Track council materials, including PDFs and promises |
-| **Transport Scout** | Alert when a vessel, aircraft, or satellite enters a watched area (or matches a watch list) |
+| **Transport Scout** | Alert when specific tracked vessels, aircraft, or satellites (an ID watch list, up to 50) enter a watched area |
 | **Information unit** | One atomic fact with source and timestamps |
 | **Verification** | Human editorial approval before a fact is treated as publishable |
 

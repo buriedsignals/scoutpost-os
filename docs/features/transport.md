@@ -2,17 +2,28 @@
 
 AI-adjacent physical-movement monitoring: **vessels** (AIS), **aircraft**
 (ADS-B), and **satellites** (orbital elements). A transport scout alerts
-**once** when an object **enters a watched area** (or newly matches criteria),
-using the same pg_cron → `execute-scout` → worker pipeline as every other
-scout type. Pro-gated on SaaS; ships in the OSS mirror.
+**once** when a **tracked object enters a watched area** (or newly matches
+criteria), using the same pg_cron → `execute-scout` → worker pipeline as every
+other scout type. Pro-gated on SaaS; ships in the OSS mirror.
+
+**Every scout must list the specific objects it tracks** — `watch_ids` (up to
+50 MMSIs / ICAO hexes / NORAD ids per scout) is mandatory for all modes.
+Area-only or category-only scouts ("all military ships crossing a point") are
+rejected at create/run time: that's a firehose, not monitoring (product
+decision 2026-07-04). `categories` only narrow a watch list further.
 
 ## Modes
 
 | Mode | Data source | Scope | Alert |
 |------|-------------|-------|-------|
-| `aircraft` | adsb.lol (`/v2/point`, `/v2/mil`, `/v2/hex`) | geofence and/or watch IDs (ICAO hex/registration) | aircraft enters the area / a watched tail appears |
-| `vessel` | aisstream.io (shared sampler → `transport_positions`) | geofence required (+ optional watch MMSIs/categories) | vessel enters the area |
-| `satellite` | CelesTrak GP (OMM/JSON) → SGP4 | geofence **and** watch NORAD ids required | predicted overflight of the area |
+| `aircraft` | adsb.lol (`/v2/point`, `/v2/mil`, `/v2/hex`) | watch IDs (ICAO hex) required; geofence optional | a watched aircraft appears / enters the area |
+| `vessel` | aisstream.io (shared sampler → `transport_positions`) | watch IDs (MMSIs) **and** geofence required | a watched vessel enters the area |
+| `satellite` | CelesTrak GP (OMM/JSON) → SGP4 | watch IDs (NORAD ids) **and** geofence required | predicted overflight of the area |
+
+Where users find IDs (linked below the watch-IDs field in the UI):
+vessels → [MarineTraffic](https://www.marinetraffic.com/), aircraft →
+[ADS-B Exchange](https://globe.adsbexchange.com/), satellites →
+[CelesTrak SATCAT](https://celestrak.org/satcat/search.php).
 
 ## Scheduling & credits
 

@@ -5,14 +5,38 @@
  * The config lives in scouts.config JSONB:
  *   { mode, geofence?, watch_ids?, categories?, criteria? }
  *
- * A transport scout needs a geofence, watch_ids, or both. Geofences are a
- * named preset (transport_geofence_presets row) or center + radius_km.
+ * Every transport scout must list the SPECIFIC objects it tracks —
+ * watch_ids (MMSIs / ICAO hexes / NORAD ids, up to 50 per scout). An
+ * area-only or category-only scout would alert on all matching traffic
+ * entering the area — a firehose, not monitoring (product decision
+ * 2026-07-04). Categories only narrow a watch list further. Geofences are
+ * a named preset (transport_geofence_presets row) or center + radius_km.
  */
 
 import { z } from "https://esm.sh/zod@3";
 
 export const TRANSPORT_MODES = ["vessel", "aircraft", "satellite"] as const;
 export type TransportMode = (typeof TRANSPORT_MODES)[number];
+
+/** Categories a scout may scope on, per mode. Must stay in sync with the
+ * run-time filters: vessel classifications from _shared/vessel_classify.ts
+ * (plus the dedicated `military` flag) and aircraft watchlist categories
+ * from _shared/plane_alert.ts. A typo'd category would otherwise satisfy
+ * the scoping requirement while matching nothing — silent dead scout. */
+export const TRANSPORT_CATEGORIES: Record<TransportMode, readonly string[]> = {
+  vessel: [
+    "military",
+    "tanker",
+    "cargo",
+    "passenger",
+    "fishing",
+    "hsc",
+    "tug_special",
+    "pleasure",
+  ],
+  aircraft: ["military", "government", "police", "civil"],
+  satellite: [], // satellites are scoped by NORAD watch_ids only
+};
 
 /** adsb.lol /v2/point caps radius at 250 nm (~463 km). Aircraft geofences are
  * creation-capped so one run needs at most a few tile queries. */
@@ -133,10 +157,37 @@ export function validateTransportConfig(
   }
 
   const watchIds = (config.watch_ids ?? []).map(normalizeTransportWatchId);
-  if (!geofence && watchIds.length === 0) {
+  const categories = config.categories ?? [];
+
+  // Categories must be real filter values for the mode — an unknown category
+  // would "scope" the scout while matching nothing.
+  const allowed = TRANSPORT_CATEGORIES[config.mode];
+  for (const cat of categories) {
+    if (!allowed.includes(cat)) {
+      return {
+        config: null,
+        error: allowed.length === 0
+          ? `config.categories: ${config.mode} scouts do not support categories (scope with watch_ids)`
+          : `config.categories: unknown ${config.mode} category "${cat}" (valid: ${
+            allowed.join(", ")
+          })`,
+      };
+    }
+  }
+
+  // Every scout must list the specific objects it tracks. Area-only and
+  // categories-only scouts would alert on all matching traffic entering the
+  // area — rejected (product decision 2026-07-04).
+  if (watchIds.length === 0) {
+    const idKind = config.mode === "vessel"
+      ? "MMSIs"
+      : config.mode === "aircraft"
+      ? "ICAO hex codes"
+      : "NORAD ids";
     return {
       config: null,
-      error: "config: transport scouts require a geofence, watch_ids, or both",
+      error:
+        `config: ${config.mode} scouts require watch_ids — the specific ${idKind} to track (categories only narrow a watch list, they cannot replace one)`,
     };
   }
   // Vessel mode reads the shared AIS sampler, which only covers active
@@ -145,26 +196,17 @@ export function validateTransportConfig(
     return {
       config: null,
       error:
-        "config: vessel scouts require a geofence (the shared AIS feed is sampled per area; watch a fixed area and optionally add watch_ids/categories within it)",
+        "config: vessel scouts require a geofence (the shared AIS feed is sampled per area; watch the tracked MMSIs within a fixed area)",
     };
   }
-  // Satellite mode predicts overflights: it needs BOTH which satellites
-  // (watch_ids = NORAD ids) and the area to predict passes over (geofence).
-  if (config.mode === "satellite") {
-    if (!geofence) {
-      return {
-        config: null,
-        error:
-          "config: satellite scouts require a geofence (the area to predict overflights of)",
-      };
-    }
-    if (watchIds.length === 0) {
-      return {
-        config: null,
-        error:
-          "config: satellite scouts require watch_ids (the NORAD catalog ids to track)",
-      };
-    }
+  // Satellite mode predicts overflights: besides the NORAD watch_ids
+  // (required above for every mode) it needs the area to predict passes over.
+  if (config.mode === "satellite" && !geofence) {
+    return {
+      config: null,
+      error:
+        "config: satellite scouts require a geofence (the area to predict overflights of)",
+    };
   }
   for (const id of watchIds) {
     const err = watchIdError(config.mode, id);

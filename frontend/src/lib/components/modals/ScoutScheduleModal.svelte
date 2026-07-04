@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { X, Globe, ScanSearch, Tag, MapPin, Bell, CheckCircle, Mail, Filter, Ban, Star, Users, Landmark } from 'lucide-svelte';
+	import { X, Globe, ScanSearch, Tag, MapPin, Bell, CheckCircle, Mail, Filter, Ban, Star, Users, Landmark, Navigation, Crosshair } from 'lucide-svelte';
 	import { fade } from 'svelte/transition';
-	import type { GeocodedLocation, RegularityType, ScoutType, ScrapeChannel, ActiveJobsResponse } from '$lib/types';
+	import type { GeocodedLocation, RegularityType, ScheduleRegularity, ScoutType, ScrapeChannel, ActiveJobsResponse } from '$lib/types';
 	import { apiClient } from '$lib/api-client';
 	import { authStore } from '$lib/stores/auth';
 	import TimePicker from '$lib/components/ui/TimePicker.svelte';
 	import LocationAutocomplete from '$lib/components/ui/LocationAutocomplete.svelte';
 	import TopicChips from '$lib/components/ui/TopicChips.svelte';
-	import { getScoutCost } from '$lib/utils/scouts';
+	import { getScoutCost, getRegularityMultiplier, validateScheduleCredits } from '$lib/utils/scouts';
 	import { collectTopicCounts } from '$lib/utils/topics';
 	import * as m from '$lib/paraglide/messages';
 
@@ -38,6 +38,11 @@
 	export let root_domain: string = '';
 	export let tracked_urls: string[] = [];
 	export let initialPromises: Array<{ promise_text: string; context: string; source_url: string; source_date: string; due_date?: string; date_confidence: string; criteria_match: boolean }> = [];
+	// Transport Scout context (transport) — the view owns mode/geofence/watch_ids;
+	// this modal only adds the schedule and creates via the config path.
+	export let transportMode: 'aircraft' | 'vessel' | 'satellite' = 'aircraft';
+	export let transportConfig: Record<string, unknown> = {};
+	export let transportAreaLabel: string = '';
 	export let onClose: () => void = () => {};
 	export let onSuccess: (detail: { name: string; scoutType: ScoutType }) => void = () => {};
 
@@ -45,10 +50,21 @@
 	// scout-beat-execute/index.ts:153, which ignores sourceMode/location. The
 	// prod UI used to override to 10 for pulse+niche+location, but that was
 	// cosmetic — actual decrement was always 7. We keep one source of truth.
-	$: perRunCost = getScoutCost(scoutType, scoutType === 'social' ? platform : undefined);
+	// Transport adds +1 per run when a free-text criteria filter is set (the
+	// server charges the addon only when the LLM actually runs, but the UI
+	// pre-check must budget for it). transportAddon feeds BOTH the displayed
+	// cost and validateScheduleCredits — they must never diverge.
+	$: transportAddon =
+		scoutType === 'transport' && typeof transportConfig.criteria === 'string' && transportConfig.criteria.trim()
+			? 1
+			: 0;
+	$: perRunCost = getScoutCost(scoutType, scoutType === 'social' ? platform : undefined) + transportAddon;
 
 	// Form state
-	let regularity: RegularityType = scoutType === 'civic' ? 'monthly' : 'weekly';
+	let regularity: ScheduleRegularity =
+		scoutType === 'civic' ? 'monthly'
+		: scoutType === 'transport' ? (transportMode === 'satellite' ? 'daily' : '3h')
+		: 'weekly';
 	let dayNumber = 1;
 	let hour = 8;
 	let minute = 0;
@@ -129,15 +145,13 @@
 			icon: Landmark,
 			notifyRule: m.scoutTypeInfo_civic_notifyRule()
 		},
-		// Placeholder until the Transport panel ships its own modal copy —
-		// no UI creation path reaches this modal with type 'transport' yet.
 		transport: {
-			title: m.scoutTypeInfo_web_title(),
-			scheduleTitle: m.scheduleSearch_title(),
-			description: m.scoutTypeInfo_web_description(),
+			title: m.transport_panelTitle(),
+			scheduleTitle: m.transport_create(),
+			description: m.transport_trackDescription(),
 			tile: 'primary',
-			icon: Bell,
-			notifyRule: m.scoutTypeInfo_web_notifyRule()
+			icon: Navigation,
+			notifyRule: m.transport_trackDescription()
 		}
 	};
 
@@ -152,9 +166,15 @@
 	];
 
 	$: info = scoutTypeInfo[scoutType];
+	$: transportModeLabel =
+		transportMode === 'aircraft' ? m.transport_modeAircraft()
+		: transportMode === 'vessel' ? m.transport_modeVessel()
+		: m.transport_modeSatellite();
 	$: if ((scoutType === 'pulse' || scoutType === 'social') && regularity === 'daily') regularity = 'weekly';
 	$: if (scoutType === 'civic' && regularity !== 'monthly') regularity = 'monthly';
-	$: monthlyCost = regularity === 'daily' ? perRunCost * 30 : regularity === 'weekly' ? perRunCost * 4 : perRunCost;
+	// Satellite passes are predicted once per day; sub-daily makes no sense.
+	$: if (scoutType === 'transport' && transportMode === 'satellite' && regularity !== 'daily') regularity = 'daily';
+	$: monthlyCost = perRunCost * getRegularityMultiplier(regularity);
 
 	$: preFormDisclaimers = scoutType === 'web'
 		? [
@@ -198,9 +218,11 @@
 			return;
 		}
 
+		// Transport scouts are scoped by config (geofence / watch_ids), not by a
+		// topic tag or location, so the shared topic-or-location gate doesn't apply.
 		const hasTopic = !!topicInput.trim();
 		const hasLocation = !!(selectedLocation || location);
-		if (!hasTopic && !hasLocation) {
+		if (scoutType !== 'transport' && !hasTopic && !hasLocation) {
 			errorMessage = 'Add at least one topic tag or location before scheduling.';
 			return;
 		}
@@ -232,6 +254,21 @@
 		isSubmitting = true;
 		errorMessage = '';
 
+		// Validate credits client-side. The authoritative charge happens inside
+		// each executor Edge Function via decrement_credits; this is UX only.
+		const creditCheck = validateScheduleCredits({
+			scoutType,
+			regularity,
+			platform: scoutType === 'social' ? platform : undefined,
+			currentCredits: $authStore.user?.credits ?? 0,
+			perRunAddon: transportAddon
+		});
+		if (!creditCheck.valid) {
+			isSubmitting = false;
+			upgradeRequiredCredits = creditCheck.monthlyCost;
+			showUpgradeModal = true;
+			return;
+		}
 
 		// Compute time
 		let computedHour = hour;
@@ -247,7 +284,8 @@
 				url,
 				criteria: webCriteria,
 				channel: 'website' as ScrapeChannel,
-				regularity,
+				// Web scheduling is daily/weekly/monthly only; sub-daily is transport.
+				regularity: regularity as RegularityType,
 				day_number: regularity === 'daily' ? 1 : dayNumber,
 				time: computedTime,
 				monitoring: 'EMAIL',
@@ -287,6 +325,18 @@
 				criteria: criteria || undefined,
 				initial_promises: initialPromises.length ? initialPromises : undefined
 			});
+		} else if (scoutType === 'transport') {
+			// Transport is scoped entirely by config (mode/geofence/watch_ids/
+			// categories/criteria); the modal only contributes the schedule.
+			schedulePromise = apiClient.scheduleLocalScout({
+				name: scoutName.trim(),
+				scout_type: 'transport',
+				regularity,
+				day_number: 1,
+				time: computedTime,
+				monitoring: 'EMAIL',
+				config: transportConfig
+			});
 		} else {
 			schedulePromise = apiClient.scheduleLocalScout({
 				name: scoutName.trim(),
@@ -317,7 +367,7 @@
 
 	function handleClose() {
 		onClose();
-		if (scoutType !== 'web') scoutName = '';
+		if (scoutType !== 'web' && scoutType !== 'transport') scoutName = '';
 		errorMessage = '';
 		scheduleSuccess = false;
 		selectedLocation = null;
@@ -387,7 +437,7 @@
 				</header>
 
 				<div class="modal-body">
-					{#if (scoutType === 'web' && url) || (scoutType === 'web' && webCriteria) || (scoutType === 'pulse' && (location || criteria)) || (scoutType === 'pulse' && (excludedDomains.length || prioritySources.length)) || (scoutType === 'social' && profile_handle) || (scoutType === 'civic' && (root_domain || tracked_urls.length))}
+					{#if (scoutType === 'web' && url) || (scoutType === 'web' && webCriteria) || (scoutType === 'pulse' && (location || criteria)) || (scoutType === 'pulse' && (excludedDomains.length || prioritySources.length)) || (scoutType === 'social' && profile_handle) || (scoutType === 'civic' && (root_domain || tracked_urls.length)) || scoutType === 'transport'}
 						<div class="context-block">
 							{#if scoutType === 'web' && url}
 								<div class="context-row">
@@ -452,6 +502,41 @@
 									<span class="context-value">{tracked_urls.length} URLs</span>
 								</div>
 							{/if}
+							{#if scoutType === 'transport'}
+								<div class="context-row">
+									<Navigation size={14} class="context-icon" />
+									<span class="context-key">{m.transport_modeLabel()}:</span>
+									<span class="context-value">{transportModeLabel}</span>
+								</div>
+								{#if transportAreaLabel}
+									<div class="context-row">
+										<MapPin size={14} class="context-icon" />
+										<span class="context-key">{m.transport_areaLabel()}:</span>
+										<span class="context-value">{transportAreaLabel}</span>
+									</div>
+								{/if}
+								{#if Array.isArray(transportConfig.watch_ids) && transportConfig.watch_ids.length > 0}
+									<div class="context-row">
+										<Crosshair size={14} class="context-icon" />
+										<span class="context-key">{m.transport_watchIdsLabel()}:</span>
+										<span class="context-value">{(transportConfig.watch_ids as string[]).join(', ')}</span>
+									</div>
+								{/if}
+								{#if Array.isArray(transportConfig.categories) && transportConfig.categories.length > 0}
+									<div class="context-row">
+										<Filter size={14} class="context-icon" />
+										<span class="context-key">{m.transport_categoriesLabel()}:</span>
+										<span class="context-value">{(transportConfig.categories as string[]).join(', ')}</span>
+									</div>
+								{/if}
+								{#if typeof transportConfig.criteria === 'string' && transportConfig.criteria.trim()}
+									<div class="context-row">
+										<Tag size={14} class="context-icon" />
+										<span class="context-key">{m.transport_criteriaLabel()}:</span>
+										<span class="context-value italic">{transportConfig.criteria}</span>
+									</div>
+								{/if}
+							{/if}
 						</div>
 					{/if}
 
@@ -473,17 +558,19 @@
 						</div>
 					{/if}
 
-					<div class="form-field">
-						<span class="form-label">{m.schedule_categoryLabel()}</span>
-						<TopicChips
-							bind:topic={topicInput}
-							{existingTopics}
-							placeholder={m.schedule_categoryPlaceholder()}
-						/>
-					</div>
+					{#if scoutType !== 'transport'}
+						<div class="form-field">
+							<span class="form-label">{m.schedule_categoryLabel()}</span>
+							<TopicChips
+								bind:topic={topicInput}
+								{existingTopics}
+								placeholder={m.schedule_categoryPlaceholder()}
+							/>
+						</div>
+					{/if}
 
-					<!-- Web scouts set scoutName upstream in PageScoutView; skip here. -->
-					{#if scoutType !== 'web'}
+					<!-- Web + transport set scoutName upstream in their view; skip here. -->
+					{#if scoutType !== 'web' && scoutType !== 'transport'}
 						<div class="form-field">
 							<label for="scout-name" class="form-label">
 								{m.scout_name()} <span class="required-star">*</span>
@@ -519,15 +606,24 @@
 							id="regularity"
 							bind:value={regularity}
 							class="form-select"
-							disabled={scoutType === 'civic'}
+							disabled={scoutType === 'civic' || (scoutType === 'transport' && transportMode === 'satellite')}
 						>
-							{#if scoutType === 'web'}
+							{#if scoutType === 'transport'}
+								{#if transportMode !== 'satellite'}
+									<option value="3h">{m.transport_every3h()}</option>
+									<option value="6h">{m.transport_every6h()}</option>
+									<option value="12h">{m.transport_every12h()}</option>
+								{/if}
 								<option value="daily">{m.schedule_daily()}</option>
+							{:else}
+								{#if scoutType === 'web'}
+									<option value="daily">{m.schedule_daily()}</option>
+								{/if}
+								{#if scoutType !== 'civic'}
+									<option value="weekly">{m.schedule_weekly()}</option>
+								{/if}
+								<option value="monthly">{m.schedule_monthly()}</option>
 							{/if}
-							{#if scoutType !== 'civic'}
-								<option value="weekly">{m.schedule_weekly()}</option>
-							{/if}
-							<option value="monthly">{m.schedule_monthly()}</option>
 						</select>
 					</div>
 
