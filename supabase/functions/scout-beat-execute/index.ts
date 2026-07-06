@@ -30,7 +30,8 @@ import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
-import { firecrawlScrape, firecrawlSearch } from "../_shared/scrape_firecrawl.ts";
+import { firecrawlSearch } from "../_shared/scrape_firecrawl.ts";
+import { scrape } from "../_shared/scrape.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
 import {
   normalizeRetrievalPort,
@@ -782,7 +783,7 @@ async function execute(
     const scraped = await mapLimit(
       finalUrls,
       CONCURRENCY,
-      (url) => firecrawlScrape(url),
+      (url) => scrape(url),
     );
 
     const succeeded: ScrapeResult[] = [];

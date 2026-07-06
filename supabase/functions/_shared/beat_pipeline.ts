@@ -286,15 +286,16 @@ Return JSON: { "primary_language": "<iso>", "canonical_query": "<English or sour
 4. IDENTIFY required_concepts and weak_terms for later relevance filtering.
 Return JSON: { "primary_language": "<iso>", "canonical_query": "<concise government query>", "localized_query": "<local-language query>", "required_concepts": [...], "weak_terms": [...], "queries": [...], "discovery_queries": [...], "local_domains": [...] }`;
   } else {
-    prompt = `You are a local information researcher. For ${locationLabel}:
+    prompt = `You are a local news researcher. For ${locationLabel}:
 
 1. DETERMINE the PRIMARY local language.
-2. GENERATE ${numQueries} queries in that language for LOCAL INFORMATION (events, community, culture, politics).
+2. GENERATE ${numQueries} queries in that language for substantive LOCAL NEWS — prioritize government and policy, development and planning, public safety, transport, business and jobs, education, and health, alongside significant community events.
    - ${locHint}.
-3. GENERATE 5 discovery queries for LOCAL COMMUNITY content (event calendars, neighborhood forums, civic groups, independent blogs).
+   - Do NOT generate sports fixtures/scores, celebrity, or lifestyle queries.
+3. GENERATE 5 discovery queries for credible LOCAL sources — local newspapers, public-service and civic outlets, community reporting, and independent local blogs.
    Do NOT generate tourism or travel queries.
 4. IDENTIFY required_concepts and weak_terms for later relevance filtering.
-Return JSON: { "primary_language": "<iso>", "canonical_query": "<concise local-information query>", "localized_query": "<local-language query>", "required_concepts": [...], "weak_terms": [...], "queries": [...], "discovery_queries": [...], "local_domains": [...] }`;
+Return JSON: { "primary_language": "<iso>", "canonical_query": "<concise local-news query>", "localized_query": "<local-language query>", "required_concepts": [...], "weak_terms": [...], "queries": [...], "discovery_queries": [...], "local_domains": [...] }`;
   }
 
   return {
@@ -1524,7 +1525,7 @@ export async function aiFilterResults(
     : opts.category === "analysis"
     ? "Focus on analysis and insights — prefer in-depth reporting."
     : location
-    ? "Focus on substantive local news, not press releases or evergreen content."
+    ? "Focus on substantive local news — government and policy, development and planning, public safety, transport, business and jobs, education, health, and significant community events. Drop sports fixtures/results, celebrity and lifestyle filler, press releases, and evergreen content."
     : "Focus on substantive reporting about the user's topic. Prefer concrete recent developments; drop generic evergreen resource pages, vendor marketing, academic-only pages, and press releases unless the criteria asks for them.";
   const langLine = opts.localLanguage && opts.localLanguage !== "en"
     ? `Prefer articles written in ${
@@ -1584,7 +1585,7 @@ export async function aiFilterResults(
     `Return JSON { "keep": [<indices>] } listing the indices (0-based) of articles to keep, ` +
     `in priority order, at most ${opts.maxResults}.\n\nCANDIDATES:\n${articlesBlock}`;
   const systemInstruction = location
-    ? "You are a ruthless local-news editor. Drop press releases, tourism, irrelevant content. Output only JSON."
+    ? "You are a ruthless local-news editor. Keep substantive local news; drop press releases, tourism, sports fixtures/results, celebrity and lifestyle filler, and anything not genuinely about local civic life. Output only JSON."
     : "You are a ruthless topic editor. Drop irrelevant content, vendor marketing, evergreen explainers, and press releases. Output only JSON.";
 
   try {
@@ -1637,6 +1638,37 @@ export async function aiFilterResults(
       event: "ai_filter_failed",
       msg: e instanceof Error ? e.message : String(e),
     });
-    return candidates.slice(0, opts.maxResults);
+    // Fail CLOSED. A relevance-filter outage must never ship LLM-unfiltered
+    // candidates to the digest — that is the 2026-07 regression where a single
+    // Gemini error dumped every raw Exa hit (e.g. a Russian semiconductor story
+    // into an English housing beat). Degrade to a deterministic relevance
+    // backstop instead of pass-through: location scouts keep only candidates
+    // that mention the place; topic scouts keep only topic-signal matches.
+    if (location) {
+      const needles = [opts.cityName, opts.countryName]
+        .filter((s): s is string => Boolean(s && s.trim()))
+        .map((s) => s.toLowerCase());
+      if (needles.length === 0) return [];
+      return candidates
+        .filter((h) => {
+          const hay = `${h.title ?? ""} ${h.description ?? ""} ${h.url}`
+            .toLowerCase();
+          return needles.some((n) => hay.includes(n));
+        })
+        .slice(0, opts.maxResults);
+    }
+    if (opts.criteria) {
+      return candidates
+        .filter((h) =>
+          topicBackfillMatch(
+            h,
+            topicSignals,
+            topicFloorMinOverlap,
+            topicProfile,
+          )
+        )
+        .slice(0, opts.maxResults);
+    }
+    return [];
   }
 }

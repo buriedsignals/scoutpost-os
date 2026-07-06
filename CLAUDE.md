@@ -25,9 +25,6 @@ Before coding in this project, read `/Users/tomvaillant/buried_signals/kit/codin
    gh pr create --title "..." --body "..."
    ```
 
-   After the PR exists, always tag Greptile for review with a PR comment:
-   `@greptileai review`.
-
 4. **Wait for CI to pass** — 4 required checks must be green:
    - `build-frontend` — SvelteKit build
    - `test-frontend` — Vitest suite
@@ -37,7 +34,6 @@ Before coding in this project, read `/Users/tomvaillant/buried_signals/kit/codin
 5. **Merge the PR** — Render auto-deploys backend from `main`.
 
 **Why:** Pushing to `main` triggers a Render deploy immediately with no safety net. The PR flow ensures CI passes and Claude reviews the code before anything reaches production.
-Greptile review is required on every PR as an additional independent review pass.
 
 ---
 
@@ -437,7 +433,7 @@ CI runs automatically on push to `develop` and on PRs to `main`. See **Deploymen
 ```
 feature branch → push → CI runs
                           ↓
-               PR to main → CI + Claude review + Greptile review
+               PR to main → CI + Claude review
                           ↓
                merge → Render auto-deploys backend
 ```

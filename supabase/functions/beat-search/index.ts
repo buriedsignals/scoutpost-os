@@ -37,7 +37,7 @@ import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
-import { firecrawlScrape } from "../_shared/scrape_firecrawl.ts";
+import { scrape } from "../_shared/scrape.ts";
 import { exaSearch } from "../_shared/exa.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
 import { geminiExtract } from "../_shared/gemini.ts";
@@ -406,7 +406,7 @@ async function runSearch(
     SCRAPE_CONCURRENCY,
     async (h) => {
       try {
-        return await firecrawlScrape(h.url);
+        return await scrape(h.url);
       } catch (e) {
         logEvent({
           level: "warn",

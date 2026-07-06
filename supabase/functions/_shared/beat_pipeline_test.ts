@@ -353,6 +353,49 @@ Deno.test("aiFilterResults rejects AI-only drift for AI journalism topic", async
   }
 });
 
+Deno.test("aiFilterResults fails closed for location scouts when the filter errors", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    // Gemini outage: non-OK response makes geminiExtract throw.
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response("upstream error", { status: 500 }),
+      )) as typeof fetch;
+    Deno.env.set("GEMINI_API_KEY", "test-key");
+
+    const hits = await aiFilterResults(
+      [
+        {
+          title: "London council approves new housing plan",
+          description: "Camden borough development",
+          url: "https://example.com/london-housing",
+        },
+        {
+          title: "Berlin transit strike continues",
+          description: "Germany rail disruption",
+          url: "https://example.com/berlin-transit",
+        },
+      ],
+      {
+        category: "news",
+        sourceMode: "reliable",
+        cityName: "London",
+        countryName: "United Kingdom",
+        maxResults: 8,
+      },
+    );
+
+    // Backstop keeps only the on-location candidate; it must NOT pass both
+    // through (the pre-fix behavior that shipped off-location drift).
+    assertEquals(hits.map((h) => h.url), [
+      "https://example.com/london-housing",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Deno.env.delete("GEMINI_API_KEY");
+  }
+});
+
 Deno.test("aiFilterResults returns no global topic results when only weak-side matches exist", async () => {
   const hits = await aiFilterResults(
     [
