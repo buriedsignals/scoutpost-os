@@ -1,4 +1,4 @@
-import { firecrawlScrape } from "./scrape_firecrawl.ts";
+import { scrape } from "./scrape.ts";
 import { geminiExtract } from "./gemini.ts";
 
 export const CIVIC_DENYLIST_EXTENSIONS = [
@@ -241,10 +241,16 @@ export async function discoverCivicDocumentsFromTrackedPages(
   for (const trackedUrl of trackedUrls) {
     if (!isCivicScrapableUrl(trackedUrl)) continue;
     try {
-      const scraped = await firecrawlScrape(trackedUrl, {
+      // Use the scrape() port, not firecrawlScrape directly: civic listing
+      // pages are frequently JS-rendered (Zurich's Gemeinderat calendar builds
+      // its per-meeting `index.php?gid=<N>` links client-side). A raw Firecrawl
+      // fetch returns the pre-JS shell with zero meeting links → preview
+      // resolves zero documents; crawl4ai's headless browser renders them.
+      // production civic-execute already routes through the port — preview was
+      // the last firecrawl-direct holdout (#233).
+      const scraped = await scrape(trackedUrl, {
         formats: ["rawHtml"],
         onlyMainContent: false,
-        pdfMode: null,
       });
       pages.push({
         pageUrl: trackedUrl,
