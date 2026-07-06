@@ -108,29 +108,30 @@ Deno.test("haversine: London→Paris ≈ 344 km", () => {
   if (Math.abs(d - 344) > 10) throw new Error(`got ${d}`);
 });
 
-Deno.test("per-hex watch queries retry once on 429 and space requests ≥1s apart", async () => {
-  // Live QA (2026-07-04): a 5-hex watch list tripped adsb.lol's ~1 req/s
-  // limit on the 4th back-to-back /hex query. Guard the pacing + retry.
+Deno.test("watch-list fetch batches ALL hexes into one /hex query and retries once on 429", async () => {
+  // Live QA (2026-07-04): per-hex loops — even paced ~1/s — kept tripping
+  // adsb.lol's burst limiter (~5 requests, no Retry-After) from Supabase's
+  // shared egress IPs. The route accepts a comma list (verified live
+  // 2026-07-06), so the whole watch list goes in ONE request.
   const calls: { path: string; at: number }[] = [];
   let rateLimited = false;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = ((input: string | URL | Request) => {
     const url = input instanceof Request ? input.url : String(input);
     calls.push({ path: url.slice(url.indexOf("/hex/")), at: Date.now() });
-    // First request 429s once; the retry (and everything after) succeeds.
+    // First request 429s once (no Retry-After, like the real API); the
+    // retry succeeds.
     if (!rateLimited) {
       rateLimited = true;
-      return Promise.resolve(
-        new Response("rate limited", {
-          status: 429,
-          headers: { "retry-after": "1" },
-        }),
-      );
+      return Promise.resolve(new Response("rate limited", { status: 429 }));
     }
     return Promise.resolve(
       new Response(
         JSON.stringify({
-          ac: [{ hex: "ae0001", lat: 26.5, lon: 56.2, dbFlags: 1 }],
+          ac: [
+            { hex: "ae0001", lat: 26.5, lon: 56.2, dbFlags: 1 },
+            { hex: "ae0003", lat: 31.1, lon: 47.9, dbFlags: 1 },
+          ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -139,23 +140,18 @@ Deno.test("per-hex watch queries retry once on 429 and space requests ≥1s apar
 
   try {
     const out = await fetchAircraftCandidates(
-      { mode: "aircraft", watch_ids: ["ae0001", "ae0003"] },
+      { mode: "aircraft", watch_ids: ["ae0001", "ae0003", "ae0004"] },
       null,
     );
-    // Retry recovered the first hex; both hexes returned the same aircraft.
     assertEquals(out.length, 2);
-    assertEquals(out[0].id, "ae0001");
-    // 3 requests total: ae0001 (429), ae0001 (retry), ae0003.
-    assertEquals(calls.length, 3);
-    assertEquals(calls[0].path.startsWith("/hex/ae0001"), true);
-    assertEquals(calls[1].path.startsWith("/hex/ae0001"), true);
-    assertEquals(calls[2].path.startsWith("/hex/ae0003"), true);
-    // Retry honored Retry-After (1s) and hexes are spaced ≥1s apart.
-    if (calls[1].at - calls[0].at < 900) {
+    // Exactly 2 requests: the batched query (429) + its retry — never one
+    // request per hex.
+    assertEquals(calls.length, 2);
+    assertEquals(calls[0].path, "/hex/ae0001,ae0003,ae0004");
+    assertEquals(calls[1].path, "/hex/ae0001,ae0003,ae0004");
+    // The no-Retry-After retry waits the 2s default.
+    if (calls[1].at - calls[0].at < 1800) {
       throw new Error(`retry too fast: ${calls[1].at - calls[0].at}ms`);
-    }
-    if (calls[2].at - calls[1].at < 900) {
-      throw new Error(`hex spacing too fast: ${calls[2].at - calls[1].at}ms`);
     }
   } finally {
     globalThis.fetch = originalFetch;

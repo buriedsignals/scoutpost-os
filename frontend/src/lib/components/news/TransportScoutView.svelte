@@ -39,6 +39,14 @@
 	// Vessel/satellite require an area — force a geofence kind when switching.
 	$: if (mode !== 'aircraft' && geofenceKind === 'none') geofenceKind = 'preset';
 	$: availableCategories = transportModeCategories(mode);
+	// Mode switch: drop selected categories the new mode doesn't offer — an
+	// invisible leftover (e.g. vessel 'tanker' after switching to aircraft)
+	// would be sent in config and rejected by the backend allowlist. Guarded
+	// assignment so the reactive block stabilizes instead of looping.
+	$: {
+		const pruned = selectedCategories.filter((c) => availableCategories.includes(c));
+		if (pruned.length !== selectedCategories.length) selectedCategories = pruned;
+	}
 	$: geofenceRequired = mode !== 'aircraft';
 	$: radiusCapKm = mode === 'aircraft' ? AIRCRAFT_MAX_RADIUS_KM : MAX_RADIUS_KM;
 	$: idSource = TRANSPORT_ID_SOURCES[mode];

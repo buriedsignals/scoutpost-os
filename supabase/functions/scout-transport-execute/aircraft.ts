@@ -81,12 +81,11 @@ export function parseAdsbResponse(payload: unknown): AircraftObject[] {
   return out;
 }
 
-/** Wait before retrying a 429 when the server gives no (sane) Retry-After. */
+/** Wait before retrying a 429 when the server gives no (sane) Retry-After —
+ * live probing (2026-07-06) shows adsb.lol sends 429 with NO Retry-After
+ * after a burst of ~5 requests, and Edge Functions share egress IPs with
+ * other tenants, so the budget may already be partly consumed. */
 const RATE_LIMIT_RETRY_MS = 2000;
-/** Spacing between consecutive per-hex queries — adsb.lol allows roughly one
- * request per second per IP, and watch lists (now mandatory, up to 50 ids)
- * made back-to-back /hex queries trip 429s in live QA (2026-07-04). */
-const HEX_QUERY_SPACING_MS = 1100;
 
 async function fetchAdsb(path: string): Promise<AircraftObject[]> {
   for (let attempt = 0; ; attempt++) {
@@ -137,19 +136,15 @@ export async function fetchAircraftCandidates(
   geofence: ResolvedGeofence | null,
 ): Promise<AircraftObject[]> {
   if (geofence === null) {
-    // Watch-ids anywhere: one /v2/hex query PER watched hex — the route's
-    // multi-hex behavior is undocumented, so no comma-list assumptions.
-    // Sequential AND spaced: adsb.lol rate-limits ~1 req/s, and watch lists
-    // cap at 50 ids, so the worst case stays under a minute per run.
-    const out: AircraftObject[] = [];
-    let first = true;
-    for (const hex of config.watch_ids ?? []) {
-      if (!first) await new Promise((r) => setTimeout(r, HEX_QUERY_SPACING_MS));
-      first = false;
-      const batch = await fetchAdsb(`/hex/${hex}`);
-      out.push(...batch);
-    }
-    return out;
+    // Watch-ids anywhere: ONE batched /v2/hex/{a},{b},… query for the whole
+    // watch list. Verified live 2026-07-06: the route accepts a comma list
+    // and returns all matching aircraft. Per-hex loops (even paced at ~1/s)
+    // kept tripping adsb.lol's burst limiter (~5 requests, no Retry-After)
+    // from Supabase's shared egress IPs — QA runs died on the 4th hex.
+    // Watch lists cap at 50 ids (~350 URL chars), well within limits.
+    const hexes = config.watch_ids ?? [];
+    if (hexes.length === 0) return [];
+    return await fetchAdsb(`/hex/${hexes.join(",")}`);
   }
 
   if (isMilitaryOnly(config)) {
