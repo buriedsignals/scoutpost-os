@@ -22,6 +22,9 @@ export const CREDIT_COSTS = {
   social_monitoring_x: 2,
   social_monitoring_facebook: 15,
   social_monitoring_tiktok: 2,
+  // harvestapi actor bills $0.002/post; a full 20-post window is $0.04005
+  // per run, so 7 credits ($0.07) ≈ 43% margin.
+  social_monitoring_linkedin: 7,
 
   social_extraction: 2,
   instagram_extraction: 2,
@@ -55,6 +58,7 @@ export const SOCIAL_MONITORING_KEYS: Record<string, CreditOperation> = {
   twitter: "social_monitoring_x",
   facebook: "social_monitoring_facebook",
   tiktok: "social_monitoring_tiktok",
+  linkedin: "social_monitoring_linkedin",
 };
 
 export const EXTRACTION_KEYS: Record<string, CreditOperation> = {

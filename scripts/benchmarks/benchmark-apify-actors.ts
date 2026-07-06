@@ -8,7 +8,7 @@ import {
 } from "./_bench_shared.ts";
 import { SOCIAL_APIFY_ACTORS } from "../../supabase/functions/_shared/social_baseline.ts";
 
-type Platform = "instagram" | "x" | "facebook" | "tiktok";
+type Platform = "instagram" | "x" | "facebook" | "tiktok" | "linkedin";
 
 interface ActorCase {
   platform: Platform;
@@ -59,6 +59,12 @@ const cases: ActorCase[] = [
     platform: "tiktok",
     handle: envAny("SCOUT_BENCH_TIKTOK_HANDLE", "COJO_BENCH_TIKTOK_HANDLE") ??
       "natgeo",
+  },
+  {
+    platform: "linkedin",
+    handle:
+      envAny("SCOUT_BENCH_LINKEDIN_HANDLE", "COJO_BENCH_LINKEDIN_HANDLE") ??
+        "satyanadella",
   },
 ];
 

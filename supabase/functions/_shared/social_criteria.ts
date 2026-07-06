@@ -1,10 +1,17 @@
-export type SocialPlatform = "tiktok" | "instagram" | "x" | "facebook";
+export type SocialPlatform =
+  | "tiktok"
+  | "instagram"
+  | "x"
+  | "facebook"
+  | "linkedin";
 
 const DEFAULT_THRESHOLDS: Record<SocialPlatform, number> = {
   tiktok: 0.7,
   instagram: 0.65,
   x: 0.55,
   facebook: 0.55,
+  // Text-dominant platform, same posture as x/facebook.
+  linkedin: 0.55,
 };
 
 export function socialCriteriaThreshold(

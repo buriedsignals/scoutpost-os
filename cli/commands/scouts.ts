@@ -21,7 +21,7 @@ function usage(): void {
       "                   [--location-json <json>] [--source-mode reliable|niche]",
       "                   [--priority-sources <domain,domain>]",
       "                   [--root-domain <domain>] [--tracked-urls <url,url>]",
-      "                   [--platform instagram|x|facebook|tiktok] [--handle <handle>]",
+      "                   [--platform instagram|x|facebook|tiktok|linkedin] [--handle <handle>]",
       "                   [--monitor-mode summarize|criteria] [--track-removals true|false]",
       "                   [--mode aircraft|vessel|satellite]",
       "                   [--geofence-preset <id> | --center-lat <n> --center-lon <n> --radius-km <n>]",

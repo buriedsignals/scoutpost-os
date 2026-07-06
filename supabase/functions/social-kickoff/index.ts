@@ -45,6 +45,7 @@ import {
 } from "../_shared/social_baseline.ts";
 import {
   resolveSocialProfile,
+  type SocialPlatform,
   type SocialProfileResolution,
   socialProfileResolutionMetadata,
 } from "../_shared/social_profiles.ts";
@@ -170,7 +171,7 @@ async function startApifyRun(
   await markRunStage(svc, runId, "dispatch");
 
   const profileResolution = await resolveSocialProfile(
-    platform as "instagram" | "x" | "facebook" | "tiktok",
+    platform as SocialPlatform,
     handle,
   );
   await persistSocialAdapterMetadata(svc, {
@@ -472,10 +473,7 @@ function buildActorInput(
   platform: string,
   handle: string,
 ): Record<string, unknown> {
-  return buildSocialActorInput(
-    platform as "instagram" | "x" | "facebook" | "tiktok",
-    handle,
-  );
+  return buildSocialActorInput(platform as SocialPlatform, handle);
 }
 
 async function markQueueFailed(

@@ -34,6 +34,13 @@ export const SOCIAL_APIFY_ACTORS: Record<SocialPlatform, ApifyActor> = {
   tiktok: {
     id: "novi~tiktok-user-api",
   },
+  // harvestapi "LinkedIn Profile Posts Scraper (No Cookies)", actor id
+  // A3cAPGpwBEG8RJwse. Pay-per-event: $0.002/post + $0.00005 actor start
+  // (BRONZE tier, verified live 2026-07-06). Personal profiles only in
+  // Scoutpost, though the actor itself also accepts company URLs.
+  linkedin: {
+    id: "harvestapi~linkedin-profile-posts",
+  },
 };
 
 export interface NormalizedSocialPost {
@@ -107,6 +114,13 @@ export function buildSocialActorInput(
       };
     case "tiktok":
       return { urls: [buildSocialProfileUrl("tiktok", h)], limit: MAX_ITEMS };
+    case "linkedin":
+      // Reactions/comments scraping stays off — each is a separately billed
+      // $0.002 event the diff pipeline never consumes.
+      return {
+        targetUrls: [buildSocialProfileUrl("linkedin", h)],
+        maxPosts: MAX_ITEMS,
+      };
   }
 }
 
@@ -200,6 +214,20 @@ function normalizePost(
     timestamp = normalizeTimestamp(r.timestamp ?? r.publishedTime ?? r.time);
     imageUrl = str(r.image) || str(r.imageUrl) || firstImage(r.images);
     url = str(r.url);
+  } else if (platform === "linkedin") {
+    // harvestapi/linkedin-profile-posts dataset item shape (verified live
+    // 2026-07-06): id, content, postedAt: {date}, postImages: [{url}],
+    // postVideo: {thumbnailUrl}, linkedinUrl.
+    id = str(r.id) || str(r.entityId) || str(r.linkedinUrl);
+    text = str(r.content) || str(r.text);
+    const postedAt = r.postedAt as Record<string, unknown> | undefined;
+    timestamp = normalizeTimestamp(
+      postedAt?.date ?? postedAt?.timestamp ?? r.timestamp,
+    );
+    const postVideo = r.postVideo as Record<string, unknown> | undefined;
+    imageUrl = firstImage(r.postImages) || str(postVideo?.thumbnailUrl) ||
+      null;
+    url = str(r.linkedinUrl) || str(r.shareLinkedinUrl);
   } else if (platform === "tiktok") {
     id = str(r.aweme_id) || str(r.id) || str(r.videoId) || str(r.url) ||
       str(r.share_url) || str(r.webVideoUrl);

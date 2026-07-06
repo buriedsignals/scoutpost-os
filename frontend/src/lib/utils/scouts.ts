@@ -79,7 +79,7 @@ export const SCOUT_COSTS: Record<ScoutType, number> = {
 	// Beat and civic scouts are capped at weekly/monthly schedules.
 	civic: 10,
 	pulse: 7,
-	social: 2, // Base cost (Instagram/X/TikTok). Facebook is 15.
+	social: 2, // Base cost (Instagram/X/TikTok). Facebook is 15, LinkedIn 7.
 	web: 1,
 	transport: 1 // +1 with free-text criteria (charged server-side)
 };
@@ -90,7 +90,8 @@ export const SOCIAL_SCOUT_COSTS: Record<string, number> = {
 	x: 2,
 	twitter: 2,
 	facebook: 15,
-	tiktok: 2
+	tiktok: 2,
+	linkedin: 7
 };
 
 /** Get credit cost for a scout, with platform awareness for social scouts. */

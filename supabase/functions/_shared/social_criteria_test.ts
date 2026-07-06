@@ -9,6 +9,7 @@ Deno.test("socialCriteriaThreshold uses platform defaults", () => {
   assertEquals(socialCriteriaThreshold("instagram"), 0.65);
   assertEquals(socialCriteriaThreshold("x"), 0.55);
   assertEquals(socialCriteriaThreshold("facebook"), 0.55);
+  assertEquals(socialCriteriaThreshold("linkedin"), 0.55);
   assertEquals(socialCriteriaThreshold("unknown"), 0.55);
 });
 

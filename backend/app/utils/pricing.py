@@ -24,6 +24,9 @@ CREDIT_COSTS = {
     # Social Scout monitoring — TikTok
     "social_monitoring_tiktok": 2,      # $0.01 cost, 50% margin
 
+    # Social Scout monitoring — LinkedIn (harvestapi, $0.002/post × 20)
+    "social_monitoring_linkedin": 7,    # $0.04005 cost, 43% margin
+
     # Data Extractor (Scrape panel) — channel-tiered
     "social_extraction": 2,             # X/Twitter scrape
     "instagram_extraction": 2,          # Instagram scrape
@@ -46,6 +49,7 @@ SOCIAL_MONITORING_KEYS = {
     "twitter": "social_monitoring_x",
     "facebook": "social_monitoring_facebook",
     "tiktok": "social_monitoring_tiktok",
+    "linkedin": "social_monitoring_linkedin",
 }
 
 # Channel → credit key mapping for data extraction

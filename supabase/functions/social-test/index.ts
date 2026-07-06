@@ -4,7 +4,7 @@
  *
  * Route:
  *   POST /social-test
- *     body: { platform: "instagram"|"x"|"facebook"|"tiktok", handle: string }
+ *     body: { platform: "instagram"|"x"|"facebook"|"tiktok"|"linkedin", handle: string }
  *     -> 200 {
  *       valid: boolean,
  *       profile_url: string,
@@ -36,9 +36,11 @@ import { logEvent } from "../_shared/log.ts";
 import {
   buildSocialProfileUrl,
   classifyProfileProbeStatus,
+  isLinkedInCompanyUrl,
   looksLikeMissingProfileError,
   normalizeSocialHandle,
   type ProfileProbeResult,
+  type SocialPlatform,
 } from "../_shared/social_profiles.ts";
 import {
   buildSocialActorInput,
@@ -48,7 +50,7 @@ import {
 } from "../_shared/social_baseline.ts";
 
 const InputSchema = z.object({
-  platform: z.enum(["instagram", "x", "facebook", "tiktok"]),
+  platform: z.enum(["instagram", "x", "facebook", "tiktok", "linkedin"]),
   handle: z.string().min(1).max(200),
 });
 
@@ -94,6 +96,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
       profile_url: "",
       error:
         "Facebook Pages are not supported. Please enter a personal profile handle (e.g. 'username').",
+      post_ids: [],
+      preview_posts: [],
+      posts_data: [],
+    });
+  }
+
+  // Guard: LinkedIn company pages (not personal profiles) are unsupported.
+  if (platform === "linkedin" && isLinkedInCompanyUrl(handle)) {
+    return jsonOk({
+      valid: false,
+      profile_url: "",
+      error:
+        "LinkedIn company pages are not supported. Please enter a personal profile URL or handle (linkedin.com/in/...).",
       post_ids: [],
       preview_posts: [],
       posts_data: [],
@@ -275,9 +290,7 @@ async function runApifySync(
   handle: string,
   token: string,
 ): Promise<NormalizedSocialPost[]> {
-  const actor = SOCIAL_APIFY_ACTORS[
-    platform as "instagram" | "x" | "facebook" | "tiktok"
-  ];
+  const actor = SOCIAL_APIFY_ACTORS[platform as SocialPlatform];
   if (!actor) throw new Error(`Unsupported platform: ${platform}`);
 
   // `run-sync-get-dataset-items` blocks until the actor finishes + returns items.
@@ -291,10 +304,7 @@ async function runApifySync(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(
-      buildSocialActorInput(
-        platform as "instagram" | "x" | "facebook" | "tiktok",
-        handle,
-      ),
+      buildSocialActorInput(platform as SocialPlatform, handle),
     ),
     signal: AbortSignal.timeout((APIFY_TIMEOUT_SECS + 15) * 1000),
   });

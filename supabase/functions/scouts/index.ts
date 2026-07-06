@@ -39,7 +39,10 @@ import {
 } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { shapeScoutResponse } from "../_shared/db.ts";
-import { normalizeSocialHandle } from "../_shared/social_profiles.ts";
+import {
+  isLinkedInCompanyUrl,
+  normalizeSocialHandle,
+} from "../_shared/social_profiles.ts";
 import {
   deriveScheduleAnchor,
   resolveScheduleAction,
@@ -99,7 +102,13 @@ const ScoutType = z.enum(["web", "beat", "social", "civic", "transport"]);
 // except transport via schedulePolicyError.
 const Regularity = z.enum(["daily", "weekly", "monthly", "3h", "6h", "12h"]);
 const TimeStr = z.string().regex(/^\d{1,2}:\d{2}$/);
-const SocialPlatform = z.enum(["instagram", "x", "facebook", "tiktok"]);
+const SocialPlatform = z.enum([
+  "instagram",
+  "x",
+  "facebook",
+  "tiktok",
+  "linkedin",
+]);
 const SocialMonitorMode = z.enum(["summarize", "criteria"]);
 const BaselinePostSchema = z.record(z.unknown());
 const TopicSchema = z.string().max(200).superRefine((value, ctx) => {
@@ -202,6 +211,17 @@ const CreateSchema = z
           code: z.ZodIssueCode.custom,
           path: ["criteria"],
           message: "required when monitor_mode is criteria",
+        });
+      }
+      if (
+        v.platform === "linkedin" && v.profile_handle &&
+        isLinkedInCompanyUrl(v.profile_handle)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["profile_handle"],
+          message:
+            "LinkedIn company pages are not supported — use a personal profile URL or handle (linkedin.com/in/...)",
         });
       }
     }
@@ -552,7 +572,7 @@ function normalizeScoutBody(raw: unknown): unknown {
     const platform = out.platform;
     if (
       platform === "instagram" || platform === "x" || platform === "facebook" ||
-      platform === "tiktok"
+      platform === "tiktok" || platform === "linkedin"
     ) {
       out.profile_handle = normalizeSocialHandle(platform, out.profile_handle);
     }

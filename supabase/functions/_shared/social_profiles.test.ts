@@ -3,6 +3,7 @@ import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import {
   buildSocialProfileUrl,
   classifyProfileProbeStatus,
+  isLinkedInCompanyUrl,
   looksLikeMissingProfileError,
   normalizeSocialHandle,
   resolveSocialProfile,
@@ -50,6 +51,62 @@ Deno.test("socialProfileCandidates tries official and .org variants", () => {
     socialProfileCandidates("instagram", "bellingcat"),
     ["bellingcat", "bellingcatofficial", "bellingcat.org"],
   );
+});
+
+Deno.test("normalizeSocialHandle extracts LinkedIn /in/ profile slugs", () => {
+  assertEquals(
+    normalizeSocialHandle(
+      "linkedin",
+      "https://www.linkedin.com/in/satyanadella/",
+    ),
+    "satyanadella",
+  );
+  assertEquals(normalizeSocialHandle("linkedin", "@satyanadella"), "satyanadella");
+  assertEquals(normalizeSocialHandle("linkedin", "satyanadella"), "satyanadella");
+});
+
+Deno.test("buildSocialProfileUrl builds LinkedIn personal profile URLs", () => {
+  assertEquals(
+    buildSocialProfileUrl("linkedin", "satyanadella"),
+    "https://www.linkedin.com/in/satyanadella/",
+  );
+});
+
+Deno.test("socialProfileCandidates probes only the bare handle for LinkedIn", () => {
+  assertEquals(
+    socialProfileCandidates("linkedin", "satyanadella"),
+    ["satyanadella"],
+  );
+});
+
+Deno.test("isLinkedInCompanyUrl flags company/school/showcase URLs only", () => {
+  assertEquals(
+    isLinkedInCompanyUrl("https://www.linkedin.com/company/microsoft/"),
+    true,
+  );
+  assertEquals(
+    isLinkedInCompanyUrl("linkedin.com/school/eth-zurich/"),
+    true,
+  );
+  assertEquals(
+    isLinkedInCompanyUrl("https://www.linkedin.com/in/satyanadella/"),
+    false,
+  );
+  assertEquals(isLinkedInCompanyUrl("satyanadella"), false);
+});
+
+Deno.test("resolveSocialProfile falls back to input handle on LinkedIn authwall", async () => {
+  // LinkedIn answers datacenter probes with HTTP 999 → "uncertain".
+  const resolution = await resolveSocialProfile("linkedin", "satyanadella", {
+    probe: () => Promise.resolve("uncertain"),
+  });
+  assertEquals(resolution.adapter_status, "probe_uncertain");
+  assertEquals(resolution.resolved_handle, "satyanadella");
+  assertEquals(
+    resolution.resolved_profile_url,
+    "https://www.linkedin.com/in/satyanadella/",
+  );
+  assertEquals(resolution.attempts.length, 1);
 });
 
 Deno.test("resolveSocialProfile picks first existing candidate", async () => {

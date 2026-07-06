@@ -11,7 +11,7 @@
 	export let onScheduled: (detail: { scoutType: 'social' }) => void = () => {};
 
 	// Form state
-	let platform: 'instagram' | 'x' | 'facebook' | 'tiktok' = 'instagram';
+	let platform: 'instagram' | 'x' | 'facebook' | 'tiktok' | 'linkedin' = 'instagram';
 	let handle = '';
 	let monitorMode: 'summarize' | 'criteria' = 'summarize';
 	let criteria = '';
@@ -167,6 +167,7 @@
 						<option value="x">X</option>
 						<option value="facebook">Facebook Profile</option>
 						<option value="tiktok">TikTok</option>
+						<option value="linkedin">LinkedIn Profile</option>
 					</select>
 				</div>
 

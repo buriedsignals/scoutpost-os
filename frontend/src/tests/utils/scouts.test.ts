@@ -67,6 +67,7 @@ describe('getScoutCost', () => {
 		expect(getScoutCost('social', 'x')).toBe(2);
 		expect(getScoutCost('social', 'facebook')).toBe(15);
 		expect(getScoutCost('social', 'tiktok')).toBe(2);
+		expect(getScoutCost('social', 'linkedin')).toBe(7);
 	});
 
 	it('falls back to base social cost for unknown platform', () => {

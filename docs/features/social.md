@@ -14,6 +14,13 @@ Do not model new social work around EventBridge, Lambda, DynamoDB `POSTS#` recor
 | X/Twitter | `61RPP7dywgiy0JPD0` | Text and media URLs |
 | Facebook | `cleansyntax~facebook-profile-posts-scraper` | Text, image URLs, video URLs |
 | TikTok | `novi~tiktok-user-api` | Text, cover image, video URL |
+| LinkedIn | `harvestapi~linkedin-profile-posts` | Text, image URLs, video thumbnail |
+
+LinkedIn supports **personal profiles (`linkedin.com/in/...`) only** — company,
+school, and showcase page inputs are rejected at validation. LinkedIn's
+authwall answers datacenter probes with HTTP 999, so profile probing degrades
+to `probe_uncertain` and the run proceeds with the input handle; a truly dead
+handle surfaces as a 0-post baseline rather than a hard failure.
 
 ## Modes
 
@@ -105,6 +112,7 @@ See `docs/supabase/social-apify.md` for table columns, cron jobs, and operationa
 | X/Twitter | 2 | 0 |
 | Facebook | 15 | 0 |
 | TikTok | 2 | 0 |
+| LinkedIn | 7 | 0 |
 
 Credits are deducted at kickoff. Apify platform billing is separate from Scoutpost credits.
 

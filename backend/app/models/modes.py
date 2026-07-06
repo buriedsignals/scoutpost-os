@@ -22,7 +22,7 @@ MonitoringType = Literal["EMAIL", "SMS", "WEBHOOK"]
 ScoutType = Literal["web", "beat", "social", "civic"]
 
 # Social media monitoring types
-SocialPlatform = Literal["instagram", "x", "facebook", "tiktok"]
+SocialPlatform = Literal["instagram", "x", "facebook", "tiktok", "linkedin"]
 SocialMonitorMode = Literal["summarize", "criteria"]
 
 

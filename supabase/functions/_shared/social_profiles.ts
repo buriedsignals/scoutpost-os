@@ -1,4 +1,9 @@
-export type SocialPlatform = "instagram" | "x" | "facebook" | "tiktok";
+export type SocialPlatform =
+  | "instagram"
+  | "x"
+  | "facebook"
+  | "tiktok"
+  | "linkedin";
 
 export type ProfileProbeResult = "exists" | "missing" | "uncertain";
 export type SocialAdapterStatus =
@@ -48,7 +53,20 @@ export function buildSocialProfileUrl(
       return `https://www.facebook.com/${handle}`;
     case "tiktok":
       return `https://www.tiktok.com/@${handle}`;
+    case "linkedin":
+      // Personal profiles only; company pages are rejected upstream via
+      // isLinkedInCompanyUrl. Trailing slash matches the harvestapi actor docs.
+      return `https://www.linkedin.com/in/${handle}/`;
   }
+}
+
+/**
+ * LinkedIn company pages are not supported — Social Scouts monitor personal
+ * profiles (`/in/<slug>`) only. Callers must reject these inputs before
+ * normalization, which would otherwise mangle them into a bare handle.
+ */
+export function isLinkedInCompanyUrl(input: string): boolean {
+  return /linkedin\.com\/(?:company|school|showcase)\//i.test(input);
 }
 
 export function socialProfileCandidates(
@@ -57,6 +75,10 @@ export function socialProfileCandidates(
 ): string[] {
   const normalized = normalizeSocialHandle(platform, input);
   if (!normalized) return [];
+  // LinkedIn slugs have no official/.org variant convention, and every probe
+  // hits the authwall (HTTP 999 from datacenter IPs) — extra candidates only
+  // burn requests. Probe the normalized handle alone.
+  if (platform === "linkedin") return [normalized];
   const suffixes = ["", "official", ".org"];
   const seen = new Set<string>();
   const candidates: string[] = [];
@@ -190,6 +212,7 @@ function extractHandleFromUrl(
     x: /^(?:https?:\/\/)?(?:www\.)?(?:x|twitter)\.com\/([^/?#]+)/i,
     facebook: /^(?:https?:\/\/)?(?:www\.|m\.)?facebook\.com\/([^/?#]+)/i,
     tiktok: /^(?:https?:\/\/)?(?:www\.|m\.)?tiktok\.com\/@([^/?#]+)/i,
+    linkedin: /^(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i,
   };
 
   return input.match(matchers[platform])?.[1] ?? null;

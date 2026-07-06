@@ -247,8 +247,9 @@ const TOOLS: ToolDef[] = [
         },
         platform: {
           type: "string",
-          enum: ["instagram", "x", "facebook", "tiktok"],
-          description: "Required for social scouts.",
+          enum: ["instagram", "x", "facebook", "tiktok", "linkedin"],
+          description:
+            "Required for social scouts. LinkedIn supports personal profiles only (no company pages).",
         },
         profile_handle: {
           type: "string",

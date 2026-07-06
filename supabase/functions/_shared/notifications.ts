@@ -1529,6 +1529,8 @@ export function buildProfileUrl(platform: string, handle: string): string {
       return `https://facebook.com/${h}`;
     case "tiktok":
       return `https://tiktok.com/@${h}`;
+    case "linkedin":
+      return `https://www.linkedin.com/in/${h}`;
     default:
       return `https://${platform}.com/${h}`;
   }
