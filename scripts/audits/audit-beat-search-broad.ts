@@ -17,9 +17,8 @@
 
 import {
   firecrawlSearch,
-  type FirecrawlSearchOptions,
-  type SearchHit,
-} from "../../supabase/functions/_shared/firecrawl.ts";
+} from "../../supabase/functions/_shared/scrape_firecrawl.ts";
+import type { FirecrawlSearchOptions, SearchHit } from "../../supabase/functions/_shared/scrape_types.ts";
 import { geminiExtract } from "../../supabase/functions/_shared/gemini.ts";
 
 type Source = "web" | "news";

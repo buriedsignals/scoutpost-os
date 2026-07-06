@@ -1,7 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 
 import {
-  allTrackedUrlsAre4xx,
+  allTrackedUrlsGone,
   firecrawlUpstreamStatus,
 } from "./civic_diagnostics.ts";
 
@@ -18,30 +18,48 @@ Deno.test("firecrawlUpstreamStatus extracts wrapped provider 4xx", () => {
   );
 });
 
-Deno.test("allTrackedUrlsAre4xx requires every tracked URL to fail with 4xx", () => {
+Deno.test("allTrackedUrlsGone requires every tracked URL to be gone (4xx)", () => {
   assertEquals(
-    allTrackedUrlsAre4xx([
+    allTrackedUrlsGone([
       {
         url: "https://city.example/a",
-        status: "scrape_failed",
+        status: "gone",
         upstream_status: 404,
       },
       {
         url: "https://city.example/b",
-        status: "scrape_failed",
+        status: "gone",
         upstream_status: 410,
       },
     ], 2),
     true,
   );
+  // One live/scraped URL → not all gone.
   assertEquals(
-    allTrackedUrlsAre4xx([
+    allTrackedUrlsGone([
       {
         url: "https://city.example/a",
-        status: "scrape_failed",
+        status: "gone",
         upstream_status: 404,
       },
       { url: "https://city.example/b", status: "scraped" },
+    ], 2),
+    false,
+  );
+  // A transient 5xx failure is "scrape_failed", NOT "gone" → not all gone
+  // (the run should retry, not skip as a dead scout).
+  assertEquals(
+    allTrackedUrlsGone([
+      {
+        url: "https://city.example/a",
+        status: "gone",
+        upstream_status: 404,
+      },
+      {
+        url: "https://city.example/b",
+        status: "scrape_failed",
+        upstream_status: 503,
+      },
     ], 2),
     false,
   );

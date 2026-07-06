@@ -18,7 +18,7 @@
  */
 
 import { geminiExtract, type GeminiUsageContext } from "./gemini.ts";
-import type { ScrapeResult } from "./firecrawl.ts";
+import type { ScrapeResult } from "./scrape_types.ts";
 import { logEvent } from "./log.ts";
 import { compressContext, logCompressionStats } from "./taco_compress.ts";
 import { normalizeDate } from "./date_utils.ts";

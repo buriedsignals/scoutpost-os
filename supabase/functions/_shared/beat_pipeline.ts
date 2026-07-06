@@ -22,7 +22,8 @@ import {
   geminiExtract,
   type GeminiUsageContext,
 } from "./gemini.ts";
-import { firecrawlSearch, SearchHit } from "./firecrawl.ts";
+import { firecrawlSearch } from "./scrape_firecrawl.ts";
+import type { SearchHit } from "./scrape_types.ts";
 import { exaSearchWithMetadata } from "./exa.ts";
 import { logEvent } from "./log.ts";
 import { cosineSimilarity } from "./dedup.ts";

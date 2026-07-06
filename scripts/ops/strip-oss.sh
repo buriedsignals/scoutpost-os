@@ -187,6 +187,11 @@ rm -f supabase/migrations/00067_monthly_usage_report_cron.sql
 # Admin access, internal service auth, and production operator credentials.
 rm -f scripts/benchmarks/_bench_shared.ts
 rm -f scripts/benchmarks/_bench_quality.ts
+rm -f scripts/benchmarks/_bench_liveness.ts
+rm -f scripts/benchmarks/_bench_liveness_test.ts
+rm -f scripts/benchmarks/record-scrape-baseline.ts
+rm -f scripts/benchmarks/civic-pdf-gate.ts
+rm -rf scripts/benchmarks/baselines
 rm -f scripts/benchmarks/benchmark-web.ts
 rm -f scripts/benchmarks/benchmark-subpage-follow.ts
 rm -f scripts/benchmarks/benchmark-social.ts

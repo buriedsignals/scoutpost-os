@@ -18,7 +18,7 @@
 import {
   firecrawlMap,
   firecrawlScrape,
-} from "../../supabase/functions/_shared/firecrawl.ts";
+} from "../../supabase/functions/_shared/scrape_firecrawl.ts";
 import {
   filterSubpageUrls,
   hasDeterministicListingSignal,

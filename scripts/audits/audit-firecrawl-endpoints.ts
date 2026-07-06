@@ -11,8 +11,8 @@
 import {
   firecrawlMap,
   firecrawlSearch,
-  type SearchHit,
-} from "../../supabase/functions/_shared/firecrawl.ts";
+} from "../../supabase/functions/_shared/scrape_firecrawl.ts";
+import type { SearchHit } from "../../supabase/functions/_shared/scrape_types.ts";
 import { beatCandidateRejectReason } from "../../supabase/functions/_shared/beat_pipeline.ts";
 import { isCivicDirectDocumentUrl } from "../../supabase/functions/_shared/civic_links.ts";
 

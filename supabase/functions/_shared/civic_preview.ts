@@ -1,5 +1,5 @@
 import { discoverCivicDocumentsFromTrackedPages } from "./civic_links.ts";
-import { firecrawlScrape } from "./firecrawl.ts";
+import { parseDocument } from "./docparse.ts";
 import { geminiExtract } from "./gemini.ts";
 import { compressContext } from "./taco_compress.ts";
 
@@ -70,10 +70,9 @@ export async function previewCivicTrackedUrls(
   for (const documentUrl of documentUrls) {
     let scraped;
     try {
-      scraped = await firecrawlScrape(documentUrl, {
-        formats: ["markdown"],
-        onlyMainContent: true,
-      });
+      // Doc-parse port: PDF → text, HTML → markdown. A scanned PDF throws
+      // NeedsOcrError, caught here and skipped like any other parse failure.
+      scraped = await parseDocument(documentUrl);
     } catch {
       continue;
     }

@@ -1,6 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 
-import { firecrawlSearch } from "./firecrawl.ts";
+import { firecrawlSearch } from "./scrape_firecrawl.ts";
 
 Deno.test("firecrawlSearch normalizes web and news response shapes", async () => {
   const originalFetch = globalThis.fetch;

@@ -41,3 +41,30 @@ services:
       # SaaS: MuckRock button on /login. OSS leaves this blank and the email/password form renders.
       - key: PUBLIC_MUCKROCK_ENABLED
         value: "true"
+
+  # Self-hosted scrape service (SCRAPING-MIGRATION-PRD U6): Crawl4AI browser
+  # rendering + poppler pdftotext, replacing Firecrawl. Reached by the Supabase
+  # edge functions over the public internet, bearer-authed.
+  # PROVISIONING (manual, one-time): after first deploy, set the two secrets in
+  # the Render dashboard, then mirror them into Supabase function secrets:
+  #   supabase secrets set SCRAPE_SERVICE_URL=https://scoutpost-scrape.onrender.com \
+  #                        SCRAPE_SERVICE_TOKEN=<same value as below>
+  - type: web
+    name: scoutpost-scrape
+    runtime: docker
+    plan: standard
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./scrape-service/Dockerfile
+    dockerContext: ./scrape-service
+    healthCheckPath: /health
+    envVars:
+      # Mandatory bearer token — the service renders arbitrary URLs and must
+      # never run as an open proxy. Generate once; mirror into Supabase secrets.
+      - key: SCRAPE_SERVICE_TOKEN
+        sync: false
+      # Optional: enables the Gemini native-PDF fallback for scanned/thin PDFs.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PORT
+        value: "8080"

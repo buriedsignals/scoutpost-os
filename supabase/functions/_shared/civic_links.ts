@@ -1,4 +1,4 @@
-import { firecrawlScrape } from "./firecrawl.ts";
+import { firecrawlScrape } from "./scrape_firecrawl.ts";
 import { geminiExtract } from "./gemini.ts";
 
 export const CIVIC_DENYLIST_EXTENSIONS = [

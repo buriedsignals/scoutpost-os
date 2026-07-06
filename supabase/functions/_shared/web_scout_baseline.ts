@@ -1,8 +1,9 @@
 import type { SupabaseClient } from "./supabase.ts";
 import { ValidationError } from "./errors.ts";
-import { doubleProbe, firecrawlScrape } from "./firecrawl.ts";
+import { doubleProbe, firecrawlScrape } from "./scrape_firecrawl.ts";
 import { logEvent } from "./log.ts";
 import { deriveSourceDomain, sha256Hex } from "./unit_dedup.ts";
+import { rawCaptureExpiresAt } from "./canonical_baseline.ts";
 import {
   WEB_CANONICALIZER_VERSION,
   WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
@@ -30,15 +31,6 @@ const DEFAULT_DEPS: WebBaselineDeps = {
   firecrawlScrape,
   now: () => new Date().toISOString(),
 };
-
-const RAW_CAPTURE_TTL_DAYS = 30;
-
-function rawCaptureExpiresAt(nowIso: string): string {
-  const start = Date.parse(nowIso);
-  const base = Number.isNaN(start) ? Date.now() : start;
-  return new Date(base + RAW_CAPTURE_TTL_DAYS * 24 * 60 * 60 * 1000)
-    .toISOString();
-}
 
 async function stampBaseline(
   svc: SupabaseClient,

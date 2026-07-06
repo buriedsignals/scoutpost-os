@@ -132,3 +132,11 @@ docs/superpowers/
 # Generated EF bundles (regenerate via scripts/bundle-ef.ts)
 supabase/functions/*/_bundled.ts
 TRANSPORT-SCOUT-PRD.md
+
+# scrape-service local dev
+.scrape-stack-token
+scrape-service/.venv/
+scrape-service/.coverage
+scrape-service/.pytest_cache/
+scripts/benchmarks/baselines/
+eng.traineddata

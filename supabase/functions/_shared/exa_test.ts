@@ -244,57 +244,21 @@ Deno.test("normalizeRetrievalPort — accepts only known ports with trimmed case
   assertEquals(normalizeRetrievalPort(null), null);
 });
 
-Deno.test("resolveBeatRetrievalPort — env kill-switch wins over scout metadata", () => {
+// U5: Exa is the sole Beat retrieval port. resolveBeatRetrievalPort always
+// returns "exa"; the Firecrawl kill-switch (env / scout metadata) is retired.
+Deno.test("resolveBeatRetrievalPort — always exa, ignoring the retired firecrawl kill-switch", () => {
   return withEnv({ BEAT_RETRIEVAL: "firecrawl" }, () => {
-    assertEquals(resolveBeatRetrievalPort({ retrieval: "exa" }), "firecrawl");
-  });
-});
-
-Deno.test("resolveBeatRetrievalPort — env override tolerates case and whitespace", () => {
-  return withEnv({ BEAT_RETRIEVAL: " Firecrawl " }, () => {
-    assertEquals(resolveBeatRetrievalPort({ retrieval: "exa" }), "firecrawl");
-  });
-});
-
-Deno.test("resolveBeatRetrievalPort — env=exa flips even when metadata absent", () => {
-  return withEnv({ BEAT_RETRIEVAL: "exa" }, () => {
-    assertEquals(resolveBeatRetrievalPort(null), "exa");
-    assertEquals(resolveBeatRetrievalPort({}), "exa");
-  });
-});
-
-Deno.test("resolveBeatRetrievalPort — per-scout override beats default", () => {
-  return withEnv({ BEAT_RETRIEVAL: null }, () => {
+    assertEquals(resolveBeatRetrievalPort({ retrieval: "firecrawl" }), "exa");
     assertEquals(resolveBeatRetrievalPort({ retrieval: "exa" }), "exa");
-    assertEquals(
-      resolveBeatRetrievalPort({ retrieval: "firecrawl" }),
-      "firecrawl",
-    );
-  });
-});
-
-Deno.test("resolveBeatRetrievalPort — per-scout override tolerates case and whitespace", () => {
-  return withEnv({ BEAT_RETRIEVAL: null }, () => {
-    assertEquals(resolveBeatRetrievalPort({ retrieval: " Exa " }), "exa");
-    assertEquals(
-      resolveBeatRetrievalPort({ retrieval: " Firecrawl " }),
-      "firecrawl",
-    );
-  });
-});
-
-Deno.test("resolveBeatRetrievalPort — ignores invalid env values instead of breaking scout defaults", () => {
-  return withEnv({ BEAT_RETRIEVAL: "disabled" }, () => {
     assertEquals(resolveBeatRetrievalPort(null), "exa");
-    assertEquals(resolveBeatRetrievalPort({}), "exa");
-    assertEquals(resolveBeatRetrievalPort({ retrieval: "firecrawl" }), "firecrawl");
   });
 });
 
-Deno.test("resolveBeatRetrievalPort — defaults to exa when unset everywhere", () => {
+Deno.test("resolveBeatRetrievalPort — exa regardless of env or scout metadata", () => {
   return withEnv({ BEAT_RETRIEVAL: null }, () => {
     assertEquals(resolveBeatRetrievalPort(null), "exa");
     assertEquals(resolveBeatRetrievalPort({}), "exa");
+    assertEquals(resolveBeatRetrievalPort({ retrieval: "firecrawl" }), "exa");
     assertEquals(resolveBeatRetrievalPort({ retrieval: "junk" }), "exa");
   });
 });

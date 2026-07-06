@@ -1,11 +1,22 @@
 /**
- * Firecrawl v2 API client. Minimal surface: single-page scrape and
- * change-tracking scrape (per-scout baseline).
+ * Firecrawl v2 provider (SCRAPING-MIGRATION-PRD U2).
+ *
+ * Moved verbatim from the former `firecrawl.ts` — behavior unchanged. This is
+ * one of two scrape providers behind the `_shared/scrape.ts` port; it is the
+ * default until U7 flips `SCRAPE_PROVIDER=crawl4ai`, and is deleted in U8.
  *
  * Docs: https://docs.firecrawl.dev/api-reference
  */
 
 import { ApiError } from "./errors.ts";
+import type {
+  ChangeTrackingOptions,
+  ChangeTrackingResult,
+  ScrapeOptions,
+  ScrapeResult,
+  SearchHit,
+  SearchOptions,
+} from "./scrape_types.ts";
 
 const FIRECRAWL_BASE = "https://api.firecrawl.dev/v2";
 
@@ -13,38 +24,6 @@ function firecrawlApiKey(): string {
   const k = Deno.env.get("FIRECRAWL_API_KEY");
   if (!k) throw new ApiError("FIRECRAWL_API_KEY not configured", 500);
   return k;
-}
-
-export interface ScrapeResult {
-  markdown: string;
-  html?: string;
-  rawHtml?: string | null;
-  title?: string;
-  metadata?: Record<string, unknown>;
-  requested_url?: string;
-  source_url: string;
-  fetched_at: string;
-}
-
-export interface ScrapeOptions {
-  formats?: Array<"markdown" | "html" | "rawHtml">;
-  onlyMainContent?: boolean;
-  /**
-   * PDF parser mode. Defaults to "fast", which matches the dorfkoenig
-   * reference benchmark (far more section markers, zero OCR hallucinations
-   * on InDesign/embedded-text PDFs vs. the default "auto"/"ocr" modes).
-   * Pass `null` to omit the parsers field entirely (e.g. for HTML-only callers
-   * that want to avoid any PDF-specific behaviour).
-   */
-  pdfMode?: "fast" | "auto" | "ocr" | null;
-  /** Firecrawl server-side timeout in ms. Default 120_000 for civic PDFs. */
-  timeoutMs?: number;
-  /** Client-side AbortController fuse in ms. Defaults to timeoutMs + 5000. */
-  abortAfterMs?: number;
-  /** Firecrawl cache freshness in ms. Omitted by default to preserve caller behavior. */
-  maxAgeMs?: number;
-  /** Whether Firecrawl may store this scrape in its cache. Omitted by default. */
-  storeInCache?: boolean;
 }
 
 export async function firecrawlScrape(
@@ -115,32 +94,10 @@ export async function firecrawlScrape(
     requested_url: url,
     source_url: sourceUrl,
     fetched_at: new Date().toISOString(),
+    status_code: typeof metadata.statusCode === "number"
+      ? metadata.statusCode
+      : undefined,
   };
-}
-
-export interface SearchHit {
-  url: string;
-  title?: string;
-  description?: string;
-  markdown?: string;
-  date?: string | null;
-  source?: "web" | "news";
-}
-
-export interface FirecrawlSearchOptions {
-  limit?: number;
-  scrape?: boolean;
-  lang?: string;
-  location?: string;
-  country?: string;
-  sources?: Array<"web" | "news">;
-  categories?: Array<"github" | "pdf" | "research">;
-  tbs?: string;
-  ignoreInvalidURLs?: boolean;
-  includeDomains?: string[];
-  excludeDomains?: string[];
-  /** Client-side AbortController fuse in ms. Defaults to 45_000. */
-  abortAfterMs?: number;
 }
 
 /**
@@ -150,7 +107,7 @@ export interface FirecrawlSearchOptions {
  */
 export async function firecrawlSearch(
   query: string,
-  opts: FirecrawlSearchOptions = {},
+  opts: SearchOptions = {},
 ): Promise<SearchHit[]> {
   const body: Record<string, unknown> = {
     query,
@@ -319,70 +276,17 @@ export async function firecrawlMap(
     .filter((s: string) => typeof s === "string" && s.length > 0);
 }
 
-export interface ChangeTrackingResult extends ScrapeResult {
-  change_status: "new" | "same" | "changed" | "removed";
-  visibility?: "visible" | "hidden";
-  previous_scrape_at?: string;
-}
-
-export interface ChangeTrackingOptions {
-  formats?: Array<"markdown" | "html" | "rawHtml">;
-  onlyMainContent?: boolean;
-  /** Firecrawl server-side timeout in ms. Default 120_000. */
-  timeoutMs?: number;
-  /** Client-side AbortController fuse in ms. Defaults to timeoutMs + 5000. */
-  abortAfterMs?: number;
-}
-
 /**
  * Firecrawl v2 changeTracking scrape.
  *
- * CRITICAL SHAPE (matches the production FastAPI implementation — see
- * cojournalist/backend/app/services/scout_service.py::_firecrawl_scrape):
- * the changeTracking config lives INSIDE the `formats` array as an object
- * `{ type: "changeTracking", tag }`. The older `changeTrackingOptions`
- * top-level key is rejected by the v2 API with HTTP 400 "Unrecognized key".
+ * CRITICAL SHAPE: the changeTracking config lives INSIDE the `formats` array
+ * as an object `{ type: "changeTracking", tag }`. The older
+ * `changeTrackingOptions` top-level key is rejected by the v2 API with HTTP
+ * 400 "Unrecognized key". The `tag` is per-scout and caps at 128 chars.
  *
- * The `tag` is per-scout and caps at 128 chars.
+ * NOTE: this is a legacy Firecrawl-only feature. It is retired in U4 in favor
+ * of in-house canonical-hash baselines; the Crawl4AI provider has no analog.
  */
-/**
- * Double-probe: verify that Firecrawl's changeTracking actually stores a
- * baseline for this URL. Some sites are "ghost baseline" — Firecrawl returns
- * a `previousScrapeAt` timestamp but no stored content, so the next call
- * always reports `changeStatus="new"`. We detect this by doing two sequential
- * changeTracking scrapes with the same tag and inspecting the second result.
- *
- * Returns:
- *   "firecrawl"        — baseline verified (previousScrapeAt set + changeStatus
- *                        is same/changed). Future runs can trust changeTracking.
- *   "firecrawl_plain"  — baseline dropped or ghost. Future runs must use
- *                        plain scrape + SHA-256 hash dedup.
- *
- * Port of backend/app/services/scout_service.py::double_probe.
- */
-export async function doubleProbe(
-  url: string,
-  tag: string,
-  opts: ChangeTrackingOptions = {},
-): Promise<"firecrawl" | "firecrawl_plain"> {
-  try {
-    await firecrawlChangeTrackingScrape(url, tag, opts);
-  } catch {
-    return "firecrawl_plain";
-  }
-  let result2: ChangeTrackingResult;
-  try {
-    result2 = await firecrawlChangeTrackingScrape(url, tag, opts);
-  } catch {
-    return "firecrawl_plain";
-  }
-  const { previous_scrape_at: prev, change_status: status } = result2;
-  if (prev && (status === "same" || status === "changed")) {
-    return "firecrawl";
-  }
-  return "firecrawl_plain";
-}
-
 export async function firecrawlChangeTrackingScrape(
   url: string,
   tag: string,
@@ -448,193 +352,31 @@ export async function firecrawlChangeTrackingScrape(
   };
 }
 
-export type PrimaryScrapeStrategy =
-  | "combined"
-  | "combined_retry"
-  | "split"
-  | "markdown_only_fallback";
-
-export interface PrimaryPageScrapeResult extends ScrapeResult {
-  change_status?: ChangeTrackingResult["change_status"];
-  visibility?: ChangeTrackingResult["visibility"];
-  previous_scrape_at?: string;
-  scrape_strategy: PrimaryScrapeStrategy;
-  scrape_attempts: number;
-  scrape_warning?: string;
-}
-
-interface PrimaryPageScrapeDeps {
-  scrape: typeof firecrawlScrape;
-  changeTrackingScrape: typeof firecrawlChangeTrackingScrape;
-  sleep: (ms: number) => Promise<void>;
-}
-
-const DEFAULT_PRIMARY_DEPS: PrimaryPageScrapeDeps = {
-  scrape: firecrawlScrape,
-  changeTrackingScrape: firecrawlChangeTrackingScrape,
-  sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
-};
-
-export interface PrimaryPageScrapeOptions {
-  url: string;
-  changeTrackingTag?: string;
-  onlyMainContent?: boolean;
-  timeoutMs?: number;
-  abortAfterMs?: number;
-  maxAgeMs?: number;
-  storeInCache?: boolean;
-  retryDelayMs?: number;
-  deps?: Partial<PrimaryPageScrapeDeps>;
-}
-
-export async function scrapePrimaryPageResilient(
-  opts: PrimaryPageScrapeOptions,
-): Promise<PrimaryPageScrapeResult> {
-  const deps: PrimaryPageScrapeDeps = {
-    ...DEFAULT_PRIMARY_DEPS,
-    ...opts.deps,
-  };
-  const baseOpts = {
-    onlyMainContent: opts.onlyMainContent,
-    timeoutMs: opts.timeoutMs,
-    abortAfterMs: opts.abortAfterMs,
-    maxAgeMs: opts.maxAgeMs,
-    storeInCache: opts.storeInCache,
-  };
-  const retryDelayMs = opts.retryDelayMs ?? 2_000;
-  const warnings: string[] = [];
-  let attempts = 0;
-
-  const combined = async () => {
-    attempts++;
-    if (opts.changeTrackingTag) {
-      return await deps.changeTrackingScrape(
-        opts.url,
-        opts.changeTrackingTag,
-        baseOpts,
-      );
-    }
-    return await deps.scrape(opts.url, {
-      ...baseOpts,
-      formats: ["markdown", "rawHtml"],
-    });
-  };
-
-  let firstError: unknown;
+/**
+ * Double-probe: verify Firecrawl's changeTracking actually stores a baseline.
+ * Returns "firecrawl" (baseline verified) or "firecrawl_plain" (ghost/dropped
+ * baseline → caller falls back to plain scrape + SHA-256 hash dedup).
+ * Retired in U4 alongside changeTracking.
+ */
+export async function doubleProbe(
+  url: string,
+  tag: string,
+  opts: ChangeTrackingOptions = {},
+): Promise<"firecrawl" | "firecrawl_plain"> {
   try {
-    const result = await combined();
-    return withPrimaryMetadata(result, "combined", attempts);
-  } catch (e) {
-    firstError = e;
-    if (!isTransientFirecrawlError(e)) throw e;
-    warnings.push(warningForFirecrawlError(e, "combined"));
+    await firecrawlChangeTrackingScrape(url, tag, opts);
+  } catch {
+    return "firecrawl_plain";
   }
-
-  if (retryDelayMs > 0) await deps.sleep(retryDelayMs);
+  let result2: ChangeTrackingResult;
   try {
-    const result = await combined();
-    return withPrimaryMetadata(
-      result,
-      "combined_retry",
-      attempts,
-      warnings,
-    );
-  } catch (e) {
-    if (!isTransientFirecrawlError(e)) throw e;
-    warnings.push(warningForFirecrawlError(e, "combined_retry"));
+    result2 = await firecrawlChangeTrackingScrape(url, tag, opts);
+  } catch {
+    return "firecrawl_plain";
   }
-
-  let markdownResult: ScrapeResult | ChangeTrackingResult;
-  try {
-    attempts++;
-    markdownResult = opts.changeTrackingTag
-      ? await deps.changeTrackingScrape(opts.url, opts.changeTrackingTag, {
-        ...baseOpts,
-        formats: ["markdown"],
-      })
-      : await deps.scrape(opts.url, { ...baseOpts, formats: ["markdown"] });
-  } catch (e) {
-    if (firstError instanceof Error) throw firstError;
-    throw e;
+  const { previous_scrape_at: prev, change_status: status } = result2;
+  if (prev && (status === "same" || status === "changed")) {
+    return "firecrawl";
   }
-
-  if (!markdownResult.markdown?.trim()) {
-    throw new ApiError("firecrawl returned empty markdown", 502);
-  }
-
-  try {
-    attempts++;
-    const rawHtmlResult = await deps.scrape(opts.url, {
-      ...baseOpts,
-      formats: ["rawHtml"],
-    });
-    return withPrimaryMetadata(
-      {
-        ...markdownResult,
-        rawHtml: rawHtmlResult.rawHtml ?? null,
-        html: rawHtmlResult.html ?? markdownResult.html,
-        title: markdownResult.title ?? rawHtmlResult.title,
-        source_url: markdownResult.source_url || rawHtmlResult.source_url,
-        requested_url: markdownResult.requested_url ??
-          rawHtmlResult.requested_url,
-      },
-      "split",
-      attempts,
-      warnings,
-    );
-  } catch (e) {
-    warnings.push(warningForFirecrawlError(e, "raw_html"));
-    return withPrimaryMetadata(
-      { ...markdownResult, rawHtml: null },
-      "markdown_only_fallback",
-      attempts,
-      warnings,
-    );
-  }
-}
-
-function withPrimaryMetadata(
-  result: ScrapeResult | ChangeTrackingResult,
-  scrapeStrategy: PrimaryScrapeStrategy,
-  scrapeAttempts: number,
-  warnings: string[] = [],
-): PrimaryPageScrapeResult {
-  const change = result as ChangeTrackingResult;
-  return {
-    ...result,
-    change_status: change.change_status,
-    visibility: change.visibility,
-    previous_scrape_at: change.previous_scrape_at,
-    scrape_strategy: scrapeStrategy,
-    scrape_attempts: scrapeAttempts,
-    scrape_warning: warnings.length > 0 ? warnings.join(",") : undefined,
-  };
-}
-
-export function isTransientFirecrawlError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/SCRAPE_UNSUPPORTED_FILE_ERROR/i.test(message)) return false;
-  if (/aborted|timeout|timed out|network/i.test(message)) return true;
-
-  const upstreamStatus = message.match(/failed:\s*(\d{3})/)?.[1];
-  if (upstreamStatus) {
-    const status = Number(upstreamStatus);
-    return status === 429 || status >= 500;
-  }
-
-  if (error instanceof ApiError) {
-    return error.status === 429 || error.status === 504 ||
-      error.status >= 500;
-  }
-  return false;
-}
-
-function warningForFirecrawlError(error: unknown, phase: string): string {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/aborted/i.test(message)) return `${phase}_aborted`;
-  if (/timeout|timed out/i.test(message)) return `${phase}_timeout`;
-  const upstreamStatus = message.match(/failed:\s*(\d{3})/)?.[1];
-  if (upstreamStatus) return `${phase}_${upstreamStatus}`;
-  if (error instanceof ApiError) return `${phase}_${error.status}`;
-  return `${phase}_failed`;
+  return "firecrawl_plain";
 }

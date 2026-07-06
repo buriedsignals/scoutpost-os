@@ -1,0 +1,6 @@
+# Runtime — full stack including the browser renderer.
+# Pins reviewed monthly per docs/architecture/scrape-service.md (U6 runbook).
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+httpx==0.28.1
+crawl4ai==0.8.9

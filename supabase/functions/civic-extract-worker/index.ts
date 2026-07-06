@@ -23,7 +23,7 @@ import { AuthError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { classifyCivicQueueFailure } from "../_shared/civic_queue_state.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
-import { firecrawlScrape } from "../_shared/firecrawl.ts";
+import { NeedsOcrError, parseDocument } from "../_shared/docparse.ts";
 import {
   EMBEDDING_MODEL_TAG,
   geminiEmbed,
@@ -268,13 +268,30 @@ async function processItem(
 
   const userId = (scout.user_id as string) ?? row.user_id;
 
-  // 2. Firecrawl the source URL.
+  // 2. Parse the source document (PDF → text, or HTML → markdown) via the
+  //    doc-parse port. Dark default routes to Firecrawl; U7 flips to the
+  //    self-hosted pdftotext/scrape service.
   if (row.scout_run_id) {
     await markRunStage(svc, row.scout_run_id, "scrape");
   }
-  const scraped = await firecrawlScrape(row.source_url);
+  // Note on the Gemini fallback (U3d): a scanned PDF parsed via Gemini yields
+  // non-deterministic text, but civic-execute suppresses re-enqueueing already-
+  // processed URLs (scouts.processed_pdf_urls), so each doc is parsed once —
+  // no content_sha256 churn across runs.
+  let scraped;
+  try {
+    scraped = await parseDocument(row.source_url);
+  } catch (e) {
+    // A scanned (bitmap-only) PDF has no extractable text. Production has
+    // never OCR'd, so this is the same outcome as the legacy empty-markdown
+    // path — surface it with the identical message for run classification.
+    if (e instanceof NeedsOcrError) {
+      throw new Error("document parse returned empty markdown (needs OCR)");
+    }
+    throw e;
+  }
   const markdown = (scraped.markdown ?? "").slice(0, RAW_CONTENT_MAX);
-  if (!markdown.trim()) throw new Error("firecrawl returned empty markdown");
+  if (!markdown.trim()) throw new Error("document parse returned empty markdown");
 
   const contentHash = await sha256Hex(markdown);
   const sourceDomain = deriveSourceDomain(row.source_url);

@@ -1,0 +1,7 @@
+# Unit-test tier: no crawl4ai/Playwright — the browser path is lazily imported
+# (app/scraper.py) and exercised by `live`-marked tests + container healthcheck.
+fastapi==0.115.12
+httpx==0.28.1
+pytest==8.3.5
+pytest-asyncio==0.26.0
+pytest-cov==6.1.1

@@ -50,11 +50,9 @@ import {
   type TransportConfig,
   validateTransportConfig,
 } from "../_shared/transport_config.ts";
-import {
-  doubleProbe,
-  firecrawlChangeTrackingScrape,
-  firecrawlScrape,
-} from "../_shared/firecrawl.ts";
+import { doubleProbe, firecrawlScrape } from "../_shared/scrape_firecrawl.ts";
+import { scrape } from "../_shared/scrape.ts";
+import { writeCanonicalBaseline } from "../_shared/canonical_baseline.ts";
 import { geminiExtract } from "../_shared/gemini.ts";
 import { compressContext } from "../_shared/taco_compress.ts";
 import { ensureWebBaseline } from "../_shared/web_scout_baseline.ts";
@@ -627,15 +625,6 @@ function normalizeTrackedUrls(value: unknown): string[] {
     .slice(0, CIVIC_BASELINE_MAX_TRACKED);
 }
 
-async function shortHash(input: string): Promise<string> {
-  const bytes = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")
-    .slice(0, 12);
-}
-
 async function stampBaseline(
   svc: ReturnType<typeof getServiceClient>,
   scoutId: string,
@@ -652,6 +641,7 @@ async function stampBaseline(
 }
 
 async function establishCivicBaseline(
+  svc: ReturnType<typeof getServiceClient>,
   scout: BaselineableScout,
 ): Promise<void> {
   const tracked = normalizeTrackedUrls(scout.tracked_urls);
@@ -661,10 +651,77 @@ async function establishCivicBaseline(
     );
   }
 
+  // Write a canonical-hash baseline per tracked URL with NO scout_run_id, so
+  // the first scheduled run finds an immediately-usable baseline to diff
+  // against (schedule-time inserts are always usable). Mirrors
+  // establishWebBaseline; replaces the retired Firecrawl changeTracking prime.
+  //
+  // Empty markdown is NON-FATAL: the retired changeTracking prime never
+  // checked content, so a tracked page that renders empty markdown (image/JS
+  // pages, or onlyMainContent stripping everything) must not block scout
+  // creation. Skip its baseline — at run time an empty page classifies "new"
+  // and is processed via its rawHtml link extraction, exactly as before.
+  //
+  // Viability, however, IS enforced: if not a single tracked URL is reachable
+  // (all scrapes threw or every page returned a 4xx/5xx error status), the
+  // scout is dead-on-arrival — refuse to stamp a functionless baseline and
+  // surface the bad URLs to the user at creation time.
+  let reachedCount = 0;
   for (const url of tracked) {
-    await firecrawlChangeTrackingScrape(
-      url,
-      `civic-${scout.id}-${await shortHash(url)}`.slice(0, 128),
+    let scraped;
+    try {
+      scraped = await scrape(url, { formats: ["markdown"], onlyMainContent: true });
+    } catch (e) {
+      logEvent({
+        level: "warn",
+        fn: "scouts",
+        event: "civic_baseline_scrape_failed",
+        scout_id: scout.id,
+        url,
+        msg: e instanceof Error ? e.message : String(e),
+      });
+      continue;
+    }
+    // An error-status target (both providers return HTTP 200 with the error
+    // page's body and the target's real status in status_code) must never be
+    // baselined — the error page's content would poison the first run's diff.
+    // It also does not count toward reachability: a scout whose every tracked
+    // URL is an error page cannot function.
+    const status = scraped.status_code;
+    if (typeof status === "number" && status >= 400) {
+      logEvent({
+        level: "warn",
+        fn: "scouts",
+        event: "civic_baseline_error_status",
+        scout_id: scout.id,
+        url,
+        upstream_status: status,
+      });
+      continue;
+    }
+    reachedCount += 1;
+    const markdown = scraped.markdown ?? "";
+    if (!markdown.trim()) {
+      logEvent({
+        level: "warn",
+        fn: "scouts",
+        event: "civic_baseline_empty_content",
+        scout_id: scout.id,
+        url,
+      });
+      continue;
+    }
+    await writeCanonicalBaseline(svc, {
+      userId: scout.user_id,
+      scoutId: scout.id,
+      sourceUrl: url,
+      markdown,
+    });
+  }
+  if (reachedCount === 0) {
+    throw new ValidationError(
+      "could not reach any civic tracked URL (all failed to scrape or " +
+        "returned an error status); check the URLs before scheduling",
     );
   }
 }
@@ -704,7 +761,7 @@ async function ensureScheduledBaseline(
     scheduleBeatBaselineInBackground(scout.id);
     return;
   }
-  await establishCivicBaseline(scout);
+  await establishCivicBaseline(svc, scout);
   await stampBaseline(svc, scout.id);
 }
 

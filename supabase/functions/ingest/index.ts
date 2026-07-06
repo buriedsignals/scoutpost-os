@@ -26,7 +26,7 @@ import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
-import { firecrawlScrape } from "../_shared/firecrawl.ts";
+import { scrape } from "../_shared/scrape.ts";
 import {
   EMBEDDING_MODEL_TAG,
   geminiEmbed,
@@ -252,9 +252,11 @@ async function runPipeline(
 
   if (input.kind === "url") {
     sourceUrl = input.url!;
-    const scrape = await firecrawlScrape(sourceUrl);
-    content = scrape.markdown ?? "";
-    if (!sourceTitle && scrape.title) sourceTitle = scrape.title;
+    // Route through the scrape port so U7's SCRAPE_PROVIDER flip switches this
+    // caller. HTML ingest is provider-agnostic (no PDF/changeTracking needs).
+    const result = await scrape(sourceUrl);
+    content = result.markdown ?? "";
+    if (!sourceTitle && result.title) sourceTitle = result.title;
   } else {
     content = input.text!;
   }

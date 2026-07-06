@@ -30,11 +30,8 @@ import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
-import {
-  firecrawlScrape,
-  firecrawlSearch,
-  ScrapeResult,
-} from "../_shared/firecrawl.ts";
+import { firecrawlScrape, firecrawlSearch } from "../_shared/scrape_firecrawl.ts";
+import type { ScrapeResult } from "../_shared/scrape_types.ts";
 import {
   normalizeRetrievalPort,
   resolveBeatRetrievalPort,

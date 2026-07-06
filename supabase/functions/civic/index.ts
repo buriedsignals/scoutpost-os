@@ -34,7 +34,7 @@ import { AuthedUser, requireUser } from "../_shared/auth.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
-import { firecrawlMap } from "../_shared/firecrawl.ts";
+import { mapSite } from "../_shared/site_map.ts";
 import {
   filterCivicDiscoveryCandidates,
   rankCivicDiscoveryUrls,
@@ -144,7 +144,7 @@ async function discover(req: Request, user: AuthedUser): Promise<Response> {
 
   let urls: string[] = [];
   try {
-    urls = await firecrawlMap(target, { limit: 200, includeSubdomains: true });
+    urls = await mapSite(target, { limit: 200, includeSubdomains: true });
   } catch (e) {
     logEvent({
       level: "warn",

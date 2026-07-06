@@ -83,8 +83,18 @@ services:
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       VERIFY_JWT: "false"
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY}
-      # Beat Scout's default retrieval port. Falls back to Firecrawl if unset.
+      # Self-hosted scrape service (SCRAPING-MIGRATION-PRD U6) — the Firecrawl
+      # replacement. Default stays firecrawl: several call sites (web-scout
+      # baseline, civic link-harvest, Beat direct scrapes) still call Firecrawl
+      # directly and migrate to the port in later units, so crawl4ai is not yet
+      # a complete standalone provider. Self-hosters set SCRAPE_PROVIDER=crawl4ai
+      # only after those land (tracked in SCRAPING-MIGRATION-PRD). Until then a
+      # FIRECRAWL_API_KEY is required.
+      SCRAPE_PROVIDER: ${SCRAPE_PROVIDER:-firecrawl}
+      SCRAPE_SERVICE_URL: http://scrape-service:8080
+      SCRAPE_SERVICE_TOKEN: ${SCRAPE_SERVICE_TOKEN:-local-scrape-token}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+      # Beat Scout retrieval port (Exa-only since U5).
       EXA_API_KEY: ${EXA_API_KEY:-}
       APIFY_API_TOKEN: ${APIFY_API_TOKEN}
       RESEND_API_KEY: ${RESEND_API_KEY}
@@ -92,6 +102,21 @@ services:
     command: start --main-service /home/deno/functions/main
     volumes:
       - ../../supabase/functions:/home/deno/functions
+    restart: unless-stopped
+
+  # Self-hosted scraping: Crawl4AI browser rendering + poppler pdftotext,
+  # replacing Firecrawl (SCRAPING-MIGRATION-PRD). Default-on — the headline OSS
+  # win is that self-hosters no longer need a paid Firecrawl key.
+  scrape-service:
+    build:
+      context: ../../scrape-service
+      dockerfile: Dockerfile
+    environment:
+      SCRAPE_SERVICE_TOKEN: ${SCRAPE_SERVICE_TOKEN:-local-scrape-token}
+      # Optional: enables the Gemini native-PDF fallback for scanned/thin PDFs.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      PORT: "8080"
+    shm_size: 1gb
     restart: unless-stopped
 
   kong:
@@ -140,7 +165,6 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash-lite}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY}
       EXA_API_KEY: ${EXA_API_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-scouts@newsroom.org}

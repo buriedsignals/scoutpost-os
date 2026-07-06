@@ -284,6 +284,7 @@ export function classifyRunError(
   }
   if (
     lower.includes("firecrawl") ||
+    lower.includes("crawl4ai") ||
     lower.includes("gemini") ||
     lower.includes("apify") ||
     lower.includes("all ") && lower.includes(" sources failed") ||

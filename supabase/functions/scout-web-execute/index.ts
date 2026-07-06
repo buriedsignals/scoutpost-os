@@ -31,11 +31,10 @@ import {
 } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
-import {
-  type ChangeTrackingResult,
-  firecrawlScrape,
-  scrapePrimaryPageResilient,
-} from "../_shared/firecrawl.ts";
+import { firecrawlScrape } from "../_shared/scrape_firecrawl.ts";
+import { scrapePrimaryPageResilient } from "../_shared/scrape.ts";
+import { hashChangeStatusForUrl } from "../_shared/canonical_baseline.ts";
+import type { ChangeTrackingResult } from "../_shared/scrape_types.ts";
 import { EMBEDDING_MODEL_TAG, geminiEmbed } from "../_shared/gemini.ts";
 import {
   extractAtomicUnits,
@@ -464,7 +463,7 @@ async function runPipeline(
     scrapeMetadata = plain.metadata;
     scrapeStrategy = plain.scrape_strategy;
     scrapeWarning = plain.scrape_warning;
-    changeStatus = await hashChangeStatus(svc, scout.id, markdown);
+    changeStatus = await hashChangeStatusForUrl(svc, scout.id, markdown, { fn: "scout-web-execute" });
   } else {
     try {
       const ct = await scrapePrimaryPageResilient({
@@ -500,7 +499,7 @@ async function runPipeline(
       scrapeMetadata = plain.metadata;
       scrapeStrategy = `plain_${plain.scrape_strategy}`;
       scrapeWarning = plain.scrape_warning;
-      changeStatus = await hashChangeStatus(svc, scout.id, markdown);
+      changeStatus = await hashChangeStatusForUrl(svc, scout.id, markdown, { fn: "scout-web-execute" });
     }
   }
 
@@ -1442,101 +1441,5 @@ async function insertExtractedUnits(
   };
 }
 
-/**
- * Compute the versioned canonical hash of newly scraped markdown and compare it
- * against the latest usable raw_captures baseline for this scout.
- *
- * A raw_capture only advances the baseline when it was created at schedule-time
- * with no run id, or when its scout_run completed successfully. This prevents a
- * provider/LLM failure after raw capture insertion from causing the next run to
- * skip the same page content.
- */
-async function hashChangeStatus(
-  svc: SupabaseClient,
-  scoutId: string,
-  markdown: string,
-): Promise<"new" | "same" | "changed"> {
-  if (!markdown.trim()) return "new";
-  const rawHash = await sha256Hex(markdown);
-  const canonicalHash = await webCanonicalHash(markdown);
-  const { data, error } = await svc
-    .from("raw_captures")
-    .select(
-      "id, scout_run_id, content_sha256, content_md, canonical_content_sha256, canonicalizer_version",
-    )
-    .eq("scout_id", scoutId)
-    .order("captured_at", { ascending: false })
-    .limit(50);
-  if (error || !data?.length) return "new";
-
-  const captures = data as Array<{
-    id: string;
-    scout_run_id: string | null;
-    content_sha256: string | null;
-    content_md: string | null;
-    canonical_content_sha256: string | null;
-    canonicalizer_version: string | null;
-  }>;
-  const runIds = captures
-    .map((capture) => capture.scout_run_id)
-    .filter((runId): runId is string => typeof runId === "string" && !!runId);
-  let successfulRunIds = new Set<string>();
-  if (runIds.length > 0) {
-    const { data: runs, error: runsError } = await svc
-      .from("scout_runs")
-      .select("id, status")
-      .in("id", [...new Set(runIds)]);
-    if (!runsError && runs) {
-      successfulRunIds = new Set(
-        (runs as Array<{ id: string; status: string | null }>)
-          .filter((run) => run.status === "success")
-          .map((run) => run.id),
-      );
-    } else if (runsError) {
-      logEvent({
-        level: "warn",
-        fn: "scout-web-execute",
-        event: "baseline_run_status_lookup_failed",
-        scout_id: scoutId,
-        msg: runsError.message,
-      });
-    }
-  }
-
-  const latestBaseline = captures.find((capture) =>
-    !capture.scout_run_id || successfulRunIds.has(capture.scout_run_id)
-  );
-  if (!latestBaseline) return "new";
-
-  if (
-    latestBaseline.canonicalizer_version === WEB_CANONICALIZER_VERSION &&
-    latestBaseline.canonical_content_sha256
-  ) {
-    return latestBaseline.canonical_content_sha256 === canonicalHash
-      ? "same"
-      : "changed";
-  }
-
-  if (
-    typeof latestBaseline.content_md === "string" &&
-    latestBaseline.content_md.trim()
-  ) {
-    const priorCanonicalHash = await webCanonicalHash(
-      latestBaseline.content_md,
-    );
-    await svc
-      .from("raw_captures")
-      .update({
-        canonical_content_sha256: priorCanonicalHash,
-        canonicalizer_version: WEB_CANONICALIZER_VERSION,
-      })
-      .eq("id", latestBaseline.id);
-    return priorCanonicalHash === canonicalHash ? "same" : "changed";
-  }
-
-  // Legacy fallback for old captures that have only the raw hash.
-  if (latestBaseline.content_sha256 === rawHash) return "same";
-  return "changed";
-}
 
 // normalizeDate moved to ../_shared/date_utils.ts (imported at the top).

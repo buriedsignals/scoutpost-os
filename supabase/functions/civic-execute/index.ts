@@ -1,12 +1,14 @@
 /**
  * civic-execute Edge Function — Civic Scout fast entry point.
  *
- * Uses Firecrawl changeTracking against each tracked URL; when a tracked
- * listing page changes, it parses the raw HTML, extracts downstream meeting
- * document links, classifies them with the migrated civic keyword/LLM flow,
- * and enqueues them in civic_extraction_queue for downstream processing by
- * a PDF worker. Per-scout `processed_pdf_urls` is maintained to suppress
- * repeat enqueues (cap 100 most recent).
+ * Scrapes each tracked URL through the scrape port and detects change with
+ * in-house canonical-hash baselines per (scout, source_url) — see
+ * _shared/canonical_baseline.ts (SCRAPING-MIGRATION-PRD U4; replaced Firecrawl
+ * changeTracking). When a tracked listing page changes, it parses the raw
+ * HTML, extracts downstream meeting document links, classifies them with the
+ * migrated civic keyword/LLM flow, and enqueues them in civic_extraction_queue
+ * for downstream processing by a PDF worker. Per-scout `processed_pdf_urls` is
+ * maintained to suppress repeat enqueues (cap 100 most recent).
  *
  * Route:
  *   POST /civic-execute
@@ -30,9 +32,13 @@ import { getServiceClient, SupabaseClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
-import { firecrawlChangeTrackingScrape } from "../_shared/firecrawl.ts";
+import { scrape } from "../_shared/scrape.ts";
 import {
-  allTrackedUrlsAre4xx,
+  hashChangeStatusForUrl,
+  writeCanonicalBaseline,
+} from "../_shared/canonical_baseline.ts";
+import {
+  allTrackedUrlsGone,
   CivicTrackedUrlStatus,
   firecrawlUpstreamStatus,
 } from "../_shared/civic_diagnostics.ts";
@@ -235,11 +241,15 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         });
         continue;
       }
-      const tag = `civic-${scout.id}-${await shortHash(url)}`;
       let result;
       try {
-        result = await firecrawlChangeTrackingScrape(url, tag);
+        // Fresh scrape via the port (dark: firecrawl; U7: crawl4ai).
+        result = await scrape(url, {
+          formats: ["markdown", "rawHtml"],
+          onlyMainContent: true,
+        });
       } catch (e) {
+        // The provider's OWN API failed (timeout, 5xx). Transient/provider.
         scrapeFailureCount += 1;
         trackedUrlStatus.push({
           url,
@@ -258,31 +268,103 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         continue;
       }
 
-      if (result.change_status === "removed") {
+      // Removed / dead page detection (U4 fix): a deleted council page does
+      // NOT make the scrape throw — both providers return HTTP 200 with the
+      // 404 error page's content and the target's real status in status_code
+      // (verified against firecrawl metadata.statusCode and the crawl4ai
+      // scrape-service). An error-status target must never be hashed or
+      // baselined (an error page's body would poison the baseline), so both
+      // branches below `continue` before the change-detection step.
+      const targetStatus = result.status_code;
+      if (typeof targetStatus === "number" && targetStatus >= 400) {
+        if (targetStatus < 500) {
+          // 4xx → GONE. A permanent condition (removed / forbidden). Record it
+          // but do NOT increment scrapeFailureCount: a single dead page among
+          // healthy tracked URLs must not trip the queuedCount===0 throw and
+          // auto-pause a working scout. The all-gone case is caught by
+          // allTrackedUrlsGone below (skip + refund, surfaces a dead scout).
+          trackedUrlStatus.push({
+            url,
+            status: "gone",
+            upstream_status: targetStatus,
+            queued_documents: 0,
+            error: `tracked page returned HTTP ${targetStatus}`,
+          });
+          logEvent({
+            level: "warn",
+            fn: "civic-execute",
+            event: "tracked_url_gone",
+            scout_id: scoutId,
+            url,
+            upstream_status: targetStatus,
+          });
+          continue;
+        }
+        // 5xx → transient upstream error. Count it as a scrape failure so a run
+        // that queued nothing throws and retries (matching a provider API 5xx),
+        // rather than skipping the URL as permanently dead.
         scrapeFailureCount += 1;
         trackedUrlStatus.push({
           url,
           status: "scrape_failed",
-          change_status: result.change_status,
-          upstream_status: 404,
+          upstream_status: targetStatus,
           queued_documents: 0,
-          error: "firecrawl changeTracking reported removed",
+          error: `tracked page returned HTTP ${targetStatus}`,
+        });
+        logEvent({
+          level: "warn",
+          fn: "civic-execute",
+          event: "scrape_failed",
+          scout_id: scoutId,
+          url,
+          upstream_status: targetStatus,
         });
         continue;
       }
+
+      // In-house canonical-hash change detection, per tracked URL (U4). Maps
+      // to the same control flow as the retired Firecrawl changeTracking:
+      // "same" → skip, "new"/"changed" → process (document-level
+      // processed_pdf_urls dedup prevents re-processing, so a first-run "new"
+      // is safe to process rather than silently baseline).
+      const changeStatus = await hashChangeStatusForUrl(
+        db,
+        scoutId,
+        result.markdown,
+        { sourceUrl: url, fn: "civic-execute" },
+      );
+      // Write the per-URL baseline on EVERY successful scrape (not only on
+      // change): raw_captures rows carry a 30-day TTL and are purged by
+      // cleanup_raw_captures, so a page that stays unchanged for >30 days
+      // would otherwise lose its only baseline and re-classify as "new",
+      // re-storming the queue. Writing each run refreshes the TTL and keeps a
+      // usable baseline. Written with this run's id → only usable once the run
+      // succeeds.
+      await writeCanonicalBaseline(db, {
+        userId: scout.user_id as string,
+        scoutId,
+        scoutRunId: runId,
+        sourceUrl: url,
+        markdown: result.markdown,
+      });
 
       const directDocumentUrl = isCivicDirectDocumentUrl(url)
         ? normalizeCivicUrl(url)
         : null;
       if (directDocumentUrl) {
+        // Skip an already-processed direct document unless the page genuinely
+        // CHANGED against a known baseline (a new version worth re-extracting).
+        // Gate on `!== "changed"` so a first-run "new" (no baseline exists yet
+        // for the 19 live scouts on migration) still honors processed_pdf_urls
+        // and does not re-enqueue months-old documents.
         if (
           queueSeen.has(directDocumentUrl) ||
-          (result.change_status === "same" && scoutSeen.has(directDocumentUrl))
+          (changeStatus !== "changed" && scoutSeen.has(directDocumentUrl))
         ) {
           trackedUrlStatus.push({
             url,
             status: "already_seen",
-            change_status: result.change_status,
+            change_status: changeStatus,
             queued_documents: 0,
           });
           continue;
@@ -302,7 +384,7 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
           trackedUrlStatus.push({
             url,
             status: "queued",
-            change_status: result.change_status,
+            change_status: changeStatus,
             queued_documents: 1,
           });
         } else {
@@ -310,7 +392,7 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
           trackedUrlStatus.push({
             url,
             status: "scraped",
-            change_status: result.change_status,
+            change_status: changeStatus,
             queued_documents: 0,
             error: "queue insert failed",
           });
@@ -318,11 +400,11 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         continue;
       }
 
-      if (result.change_status === "same") {
+      if (changeStatus === "same") {
         trackedUrlStatus.push({
           url,
           status: "unchanged",
-          change_status: result.change_status,
+          change_status: changeStatus,
           queued_documents: 0,
         });
         continue;
@@ -363,14 +445,14 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
       trackedUrlStatus.push({
         url,
         status: queuedForTrackedUrl > 0 ? "queued" : "no_new_documents",
-        change_status: result.change_status,
+        change_status: changeStatus,
         queued_documents: queuedForTrackedUrl,
       });
     }
 
     await persistCivicRunMetadata(db, runId, trackedUrlStatus);
 
-    if (allTrackedUrlsAre4xx(trackedUrlStatus, tracked.length)) {
+    if (allTrackedUrlsGone(trackedUrlStatus, tracked.length)) {
       await refundCredits(db, {
         userId: scout.user_id,
         cost: CREDIT_COSTS.civic,
@@ -378,7 +460,7 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         scoutType: "civic",
         operation: "civic",
       });
-      const message = "all civic tracked URLs returned upstream 4xx";
+      const message = "all civic tracked URLs are gone (upstream 4xx)";
       await markRunError(db, runId, {
         stage: "scrape",
         errorClass: "validation",
@@ -394,7 +476,7 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         run_id: runId,
         queued: 0,
         tracked_urls_checked: tracked.length,
-        reason: "all_tracked_urls_4xx",
+        reason: "all_tracked_urls_gone",
       });
     }
 
@@ -402,7 +484,7 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
       queuedCount === 0 && (scrapeFailureCount > 0 || queueFailureCount > 0)
     ) {
       throw new Error(
-        `civic pipeline failed before queueing documents; firecrawl scrape failed=${scrapeFailureCount}; queue insert failed=${queueFailureCount}`,
+        `civic pipeline failed before queueing documents; scrape failed=${scrapeFailureCount}; queue insert failed=${queueFailureCount}`,
       );
     }
 
@@ -654,13 +736,4 @@ async function persistCivicRunMetadata(
 function normalizeCivicUrl(url: string): string | null {
   const normalized = normalizeSourceUrl(url);
   return normalized && normalized.length > 0 ? normalized : null;
-}
-
-async function shortHash(input: string): Promise<string> {
-  const buf = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest("SHA-256", buf);
-  return Array.from(new Uint8Array(digest))
-    .slice(0, 8)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 }

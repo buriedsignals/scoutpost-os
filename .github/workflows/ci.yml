@@ -77,6 +77,25 @@ jobs:
       # forgets to stub fetch fails loudly instead of making a live call.
       - name: Deno unit tests (stack-free set, network-isolated)
         run: cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ scout-transport-execute/ transport-sampler/
+      - name: Scrape-port coverage gate (100% on new modules)
+        run: bash scripts/ops/check-scrape-coverage.sh
+
+  # scrape-service unit tier: 100% coverage gate enforced by its pytest.ini.
+  # The browser path is lazily imported and exercised by live-marked tests +
+  # the container healthcheck (scripts/dev/scrape-stack.sh), not in CI.
+  test-scrape-service:
+    name: scrape-service unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scrape-service/requirements-dev.txt
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - run: pip install -r scrape-service/requirements-dev.txt
+      - run: cd scrape-service && python -m pytest
 
   selfhost-maintenance:
     name: Self-host maintenance tooling

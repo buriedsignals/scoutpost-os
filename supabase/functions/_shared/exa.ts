@@ -17,7 +17,8 @@
  */
 
 import { ApiError } from "./errors.ts";
-import type { SearchHit } from "./firecrawl.ts";
+import { logEvent } from "./log.ts";
+import type { SearchHit } from "./scrape_types.ts";
 
 const EXA_BASE = "https://api.exa.ai";
 
@@ -233,11 +234,21 @@ export async function exaSearchWithMetadata(
 export function resolveBeatRetrievalPort(
   scoutMetadata: Record<string, unknown> | null | undefined,
 ): "exa" | "firecrawl" {
-  const envOverride = normalizeRetrievalPort(Deno.env.get("BEAT_RETRIEVAL"));
-  if (envOverride) return envOverride;
-
-  const scoutFlag = normalizeRetrievalPort(scoutMetadata?.retrieval);
-  if (scoutFlag) return scoutFlag;
+  // Exa is the sole Beat retrieval port (SCRAPING-MIGRATION-PRD U5). The
+  // Firecrawl kill-switch (env BEAT_RETRIEVAL=firecrawl / scout metadata
+  // retrieval=firecrawl) is retired; a lingering request is logged and
+  // ignored. Signature keeps the union so the beat_pipeline firecrawl branch
+  // (dead, deleted with Firecrawl in U8) still typechecks.
+  const requested = normalizeRetrievalPort(Deno.env.get("BEAT_RETRIEVAL")) ??
+    normalizeRetrievalPort(scoutMetadata?.retrieval);
+  if (requested === "firecrawl") {
+    logEvent({
+      level: "warn",
+      fn: "beat-retrieval",
+      event: "firecrawl_retrieval_deprecated",
+      msg: "BEAT_RETRIEVAL=firecrawl is retired; using Exa",
+    });
+  }
   return "exa";
 }
 

@@ -37,11 +37,9 @@ import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
-import {
-  firecrawlScrape,
-  firecrawlSearch,
-  ScrapeResult,
-} from "../_shared/firecrawl.ts";
+import { firecrawlScrape } from "../_shared/scrape_firecrawl.ts";
+import { exaSearch } from "../_shared/exa.ts";
+import type { ScrapeResult } from "../_shared/scrape_types.ts";
 import { geminiExtract } from "../_shared/gemini.ts";
 import {
   type BeatCategory,
@@ -154,21 +152,29 @@ async function discoverPriorityDomainHits(opts: {
     const main = [subject, location].filter(Boolean).join(" ");
     const fallback = [location, "news"].filter(Boolean).join(" ") ||
       "recent news";
-    return uniqueStrings([
-      `site:${domain} ${main || fallback}`,
-      `site:${domain} ${fallback}`,
-    ]).map((query) => ({ domain, query }));
+    // Domain scoping is done with Exa's includeDomains, NOT a `site:` operator
+    // in the query text — Exa's neural search treats `site:` as literal words
+    // (unlike the Firecrawl SERP it replaced), which silently returned zero
+    // on-domain hits. The query is now just the topic.
+    return uniqueStrings([main || fallback, fallback])
+      .map((query) => ({ domain, query }));
   });
   const results = await mapLimit(jobs, 4, async (job) => {
     try {
-      const hits = await firecrawlSearch(job.query, {
-        limit: 5,
-        lang: opts.preferredLanguage,
-        location: opts.locationLabel ?? undefined,
-        country: opts.countryCode ?? undefined,
-        sources: ["web"],
-        ignoreInvalidURLs: true,
+      // Exa is the sole Beat retrieval port (U5). includeDomains scopes to the
+      // priority source; the urlMatchesDomain post-filter is kept as a
+      // belt-and-suspenders guard. Exa's country model replaces Firecrawl's
+      // lang/location/sources.
+      const hits = await exaSearch(job.query, {
+        numResults: 5,
+        category: "news",
+        userLocation: opts.countryCode ?? undefined,
+        includeDomains: [job.domain],
         excludeDomains: opts.excludedDomains,
+        contents: {
+          text: { maxCharacters: 1000, verbosity: "compact" },
+          maxAgeHours: 72,
+        },
       });
       return hits
         .filter((hit) => urlMatchesDomain(hit.url, job.domain))
