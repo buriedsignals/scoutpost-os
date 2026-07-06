@@ -163,6 +163,16 @@ const CreateSchema = z
     // Type-specific overflow config (scouts.config JSONB). Currently used by
     // transport scouts; validated per-type in superRefine.
     config: z.record(z.unknown()).optional(),
+    // Extraction/notification language for this scout's runs. Workers fall
+    // back to "en" when NULL. Missing from this schema until 2026-07-06 —
+    // zod silently stripped it, every scout row stayed NULL, and ALL
+    // extractions were forced English regardless of the user's language
+    // (caught by the weekly page benchmark's language check).
+    preferred_language: z
+      .string()
+      .regex(/^[a-zA-Z]{2}$/, "ISO 639-1 two-letter code")
+      .transform((s) => s.toLowerCase())
+      .optional(),
   })
   .superRefine((v, ctx) => {
     if (v.type === "web" && !v.url?.trim()) {
@@ -282,6 +292,12 @@ const UpdateSchema = z
     tracked_urls: z.array(z.string().url().max(2000)).max(20).nullable()
       .optional(),
     config: z.record(z.unknown()).optional(),
+    preferred_language: z
+      .string()
+      .regex(/^[a-zA-Z]{2}$/, "ISO 639-1 two-letter code")
+      .transform((s) => s.toLowerCase())
+      .nullable()
+      .optional(),
   })
   .superRefine((v, ctx) => {
     const scheduleError = schedulePolicyError(v.type, v.regularity);
@@ -955,6 +971,19 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
     }
     rest.config = validated.config as Record<string, unknown>;
     await ensureTransportPresetValid(getServiceClient(), validated.config);
+  }
+
+  // Default the scout's language from the owner's profile preference when the
+  // request doesn't set one — otherwise workers force "en" for everyone.
+  if (!rest.preferred_language) {
+    const { data: prefs } = await getServiceClient()
+      .from("user_preferences")
+      .select("preferred_language")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (typeof prefs?.preferred_language === "string" && prefs.preferred_language) {
+      rest.preferred_language = prefs.preferred_language;
+    }
   }
 
   const { db } = getCallerClient(user);
