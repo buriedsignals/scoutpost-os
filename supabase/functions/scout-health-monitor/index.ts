@@ -1,20 +1,29 @@
 /**
- * scout-health-monitor Edge Function — weekly pg_cron digest.
+ * scout-health-monitor Edge Function — weekly pg_cron OPERATOR digest.
  *
- * Finds scouts that have been auto-paused (is_active=false AND
- * consecutive_failures >= 3), groups by owner, and emails each owner a markdown
- * digest via Resend. Skips sending entirely if RESEND_API_KEY is not set
- * (logged).
+ * Operator decision (2026-07-06): users do NOT receive weekly health digests
+ * — only the operator does. Users still get the immediate per-scout
+ * deactivation email when the 3-strike threshold trips (that one respects
+ * their `health_notifications_enabled` preference; see
+ * `_shared/notifications.ts` sendScoutDeactivated).
  *
- * Email lookup: fetched per-owner from `auth.users` via the service-role
- * admin API at send-time. No email address is persisted in `public.*` —
- * matches the per-scout notification pipelines for strict parity with the
- * "never store emails outside auth.users" policy.
+ * This function finds every auto-paused scout (is_active=false AND
+ * consecutive_failures >= 3) across ALL users, groups them by owner email,
+ * and sends ONE digest to the operator recipients so silent user-churn risk
+ * is visible weekly. Skips sending entirely if RESEND_API_KEY is not set
+ * (logged) or nothing is paused.
+ *
+ * Owner emails are fetched from `auth.users` via the service-role admin API
+ * at send-time — nothing is persisted in `public.*`.
  *
  * Route:
  *   POST /scout-health-monitor
  *     body: {}
- *     -> 200 { emailed: N, paused_scouts: total }
+ *     -> 200 { emailed: 0|1, paused_scouts: total, owners: N }
+ *
+ * Env:
+ *   HEALTH_REPORT_RECIPIENTS — comma-separated operator emails
+ *                              (default: tom@buriedsignals.com)
  *
  * Auth: shared service auth (X-Service-Key from cron, with service-role bearer
  *       fallback for operator tooling).
@@ -28,7 +37,7 @@ import { AuthError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 
 const EMAIL_FROM = "Scoutpost <alerts@scoutpost.ai>";
-const EMAIL_SUBJECT = "\u26A0\uFE0F Scout health digest";
+const DEFAULT_RECIPIENTS = "tom@buriedsignals.com";
 
 interface PausedScout {
   id: string;
@@ -36,6 +45,7 @@ interface PausedScout {
   user_id: string;
   consecutive_failures: number;
   type: string;
+  updated_at: string | null;
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -54,11 +64,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const svc = getServiceClient();
   const resendKey = Deno.env.get("RESEND_API_KEY") ?? "";
+  const recipients = (Deno.env.get("HEALTH_REPORT_RECIPIENTS") ?? DEFAULT_RECIPIENTS)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   try {
     const { data: scouts, error } = await svc
       .from("scouts")
-      .select("id, name, user_id, consecutive_failures, type")
+      .select("id, name, user_id, consecutive_failures, type, updated_at")
       .eq("is_active", false)
       .gte("consecutive_failures", 3);
     if (error) throw new Error(error.message);
@@ -72,10 +86,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
         fn: "scout-health-monitor",
         event: "no_paused_scouts",
       });
-      return jsonOk({ emailed: 0, paused_scouts: 0 });
+      return jsonOk({ emailed: 0, paused_scouts: 0, owners: 0 });
     }
 
-    // Group by user_id.
+    // Group by user_id, then resolve each owner's email once for display.
     const grouped = new Map<string, PausedScout[]>();
     for (const s of pausedScouts) {
       if (!s.user_id) continue;
@@ -84,38 +98,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
       else grouped.set(s.user_id, [s]);
     }
 
-    // Respect opt-out: skip users with health_notifications_enabled=false.
-    // Missing user_preferences rows fall back to the column default (TRUE), so
-    // new users are opted in until they change the toggle.
-    const allUserIds = Array.from(grouped.keys());
-    if (allUserIds.length > 0) {
-      const { data: optedOut, error: prefErr } = await svc
-        .from("user_preferences")
-        .select("user_id")
-        .in("user_id", allUserIds)
-        .eq("health_notifications_enabled", false);
-      if (prefErr) {
+    const ownerEmails = new Map<string, string>();
+    for (const userId of grouped.keys()) {
+      try {
+        const { data, error: authErr } = await svc.auth.admin.getUserById(
+          userId,
+        );
+        if (authErr) throw new Error(authErr.message);
+        ownerEmails.set(userId, data.user?.email ?? userId);
+      } catch (e) {
         logEvent({
           level: "warn",
           fn: "scout-health-monitor",
-          event: "opt_out_lookup_failed",
-          msg: prefErr.message,
+          event: "auth_lookup_failed",
+          user_id: userId,
+          msg: e instanceof Error ? e.message : String(e),
         });
-      } else if (optedOut) {
-        for (const row of optedOut) {
-          if (row.user_id) grouped.delete(row.user_id);
-        }
+        ownerEmails.set(userId, userId);
       }
-    }
-
-    if (grouped.size === 0) {
-      logEvent({
-        level: "info",
-        fn: "scout-health-monitor",
-        event: "all_owners_opted_out",
-        paused_scouts: totalPaused,
-      });
-      return jsonOk({ emailed: 0, paused_scouts: totalPaused });
     }
 
     if (!resendKey) {
@@ -126,52 +126,49 @@ Deno.serve(async (req: Request): Promise<Response> => {
         paused_scouts: totalPaused,
         owners: grouped.size,
       });
-      return jsonOk({ emailed: 0, paused_scouts: totalPaused });
+      return jsonOk({
+        emailed: 0,
+        paused_scouts: totalPaused,
+        owners: grouped.size,
+      });
     }
 
+    const subject =
+      `⚠️ Scoutpost operator digest: ${totalPaused} auto-paused scout${
+        totalPaused === 1 ? "" : "s"
+      } across ${grouped.size} user${grouped.size === 1 ? "" : "s"}`;
+    const html = buildOperatorHtml(grouped, ownerEmails);
+
     let emailed = 0;
-    for (const [userId, userScouts] of grouped) {
-      // Fetch email fresh from auth.users each time — nothing is stored in
-      // `public.*`. Matches the per-run scout notification pattern.
-      let to: string | null = null;
-      try {
-        const { data, error: authErr } = await svc.auth.admin.getUserById(
-          userId,
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${resendKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: EMAIL_FROM,
+          to: recipients,
+          subject,
+          html,
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(
+          `resend responded ${res.status}: ${detail.slice(0, 500)}`,
         );
-        if (authErr) throw new Error(authErr.message);
-        to = data.user?.email ?? null;
-      } catch (e) {
-        logEvent({
-          level: "warn",
-          fn: "scout-health-monitor",
-          event: "auth_lookup_failed",
-          user_id: userId,
-          msg: e instanceof Error ? e.message : String(e),
-        });
-        continue;
       }
-      if (!to) {
-        logEvent({
-          level: "info",
-          fn: "scout-health-monitor",
-          event: "skipped_no_email",
-          user_id: userId,
-          scouts: userScouts.length,
-        });
-        continue;
-      }
-      try {
-        const sent = await sendDigest(resendKey, to, userScouts);
-        if (sent) emailed += 1;
-      } catch (e) {
-        logEvent({
-          level: "warn",
-          fn: "scout-health-monitor",
-          event: "resend_failed",
-          user_id: userId,
-          msg: e instanceof Error ? e.message : String(e),
-        });
-      }
+      await res.body?.cancel();
+      emailed = 1;
+    } catch (e) {
+      logEvent({
+        level: "warn",
+        fn: "scout-health-monitor",
+        event: "resend_failed",
+        msg: e instanceof Error ? e.message : String(e),
+      });
     }
 
     logEvent({
@@ -182,7 +179,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
       owners: grouped.size,
       emailed,
     });
-    return jsonOk({ emailed, paused_scouts: totalPaused });
+    return jsonOk({
+      emailed,
+      paused_scouts: totalPaused,
+      owners: grouped.size,
+    });
   } catch (e) {
     logEvent({
       level: "error",
@@ -196,75 +197,33 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
 // ---------------------------------------------------------------------------
 
-function buildMarkdown(scouts: PausedScout[]): string {
-  const lines = scouts.map(
-    (s) =>
-      `- **${
-        escapeMd(s.name)
-      }** (${s.type}): ${s.consecutive_failures} consecutive failures.`,
-  );
-  return [
-    "# Scout health alert",
-    "",
-    "The following scouts have been paused after repeated failures:",
-    "",
-    ...lines,
-    "",
-    "Re-enable from the scouts dashboard after investigating the source.",
-    "",
-  ].join("\n");
-}
-
-function buildHtml(scouts: PausedScout[]): string {
-  const items = scouts
-    .map(
-      (s) =>
-        `<li><strong>${escapeHtml(s.name)}</strong> (${
-          escapeHtml(s.type)
-        }): ${s.consecutive_failures} consecutive failures.</li>`,
-    )
+function buildOperatorHtml(
+  grouped: Map<string, PausedScout[]>,
+  ownerEmails: Map<string, string>,
+): string {
+  const sections = [...grouped.entries()]
+    .map(([userId, scouts]) => {
+      const owner = escapeHtml(ownerEmails.get(userId) ?? userId);
+      const items = scouts
+        .map(
+          (s) =>
+            `<li><strong>${escapeHtml(s.name)}</strong> (${
+              escapeHtml(s.type)
+            }): ${s.consecutive_failures} consecutive failures${
+              s.updated_at ? `, paused since ${s.updated_at.slice(0, 10)}` : ""
+            }</li>`,
+        )
+        .join("");
+      return `<p style="margin-bottom:2px;"><strong>${owner}</strong> — ${scouts.length} paused</p><ul style="margin-top:2px;">${items}</ul>`;
+    })
     .join("");
   return [
-    "<h1>Scout health alert</h1>",
-    "<p>The following scouts have been paused after repeated failures:</p>",
-    `<ul>${items}</ul>`,
-    "<p>Re-enable from the scouts dashboard after investigating the source.</p>",
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1F1A17;">',
+    "<h2>Auto-paused scouts (operator digest)</h2>",
+    "<p>These scouts stopped after 3+ consecutive failures. Owners received an immediate deactivation email at pause time; this weekly digest is operator-only.</p>",
+    sections,
+    "</div>",
   ].join("\n");
-}
-
-async function sendDigest(
-  resendKey: string,
-  to: string,
-  scouts: PausedScout[],
-): Promise<boolean> {
-  const text = buildMarkdown(scouts);
-  const html = buildHtml(scouts);
-
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${resendKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: EMAIL_FROM,
-      to: [to],
-      subject: EMAIL_SUBJECT,
-      text,
-      html,
-    }),
-  });
-
-  if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`resend responded ${res.status}: ${detail.slice(0, 500)}`);
-  }
-  await res.body?.cancel();
-  return true;
-}
-
-function escapeMd(s: string): string {
-  return s.replace(/([*_`\[\]])/g, "\\$1");
 }
 
 function escapeHtml(s: string): string {
