@@ -524,10 +524,31 @@ function normalizeCivicText(text: string): string {
     .trim();
 }
 
+/**
+ * CMS utility/export endpoints that are not civic documents: content-management
+ * export scripts and internal module routes (Zurich's Axioma CMS exposes
+ * `/format/module/.../sitzungen_exports.php`). They carry no meeting text, and
+ * the headless browser errors on them (observed 2026-07-06: crawl4ai 502
+ * "Unexpected error in _crawl_web"). Queuing one wastes a MAX_DOCS_PER_RUN slot
+ * and burns the retry budget, starving real meeting pages (#233).
+ */
+function isCivicUtilityEndpoint(url: string): boolean {
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    return path.includes("/format/module/") ||
+      path.includes("/module/") && path.endsWith(".php") ||
+      /_exports?\.php$/.test(path) ||
+      path.endsWith("/export.php");
+  } catch {
+    return false;
+  }
+}
+
 export function isCivicScrapableUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol)) return false;
+    if (isCivicUtilityEndpoint(url)) return false;
     return !hasDeniedCivicAssetExtension(url);
   } catch {
     return false;

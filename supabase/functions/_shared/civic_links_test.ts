@@ -299,6 +299,28 @@ Deno.test("isCivicScrapableUrl rejects image, video, and archive assets", () => 
   );
 });
 
+Deno.test("isCivicScrapableUrl rejects CMS export/module utility endpoints (#233)", () => {
+  // Zurich Axioma export endpoint — crawl4ai 502s on it; not a document.
+  assertEquals(
+    isCivicScrapableUrl(
+      "https://www.gemeinderat-zuerich.ch/format/module/politik_axioma/sitzungen/sitzungen_exports.php",
+    ),
+    false,
+  );
+  assertEquals(isCivicScrapableUrl("https://x.gov/data/export.php"), false);
+  // Real meeting documents and listings stay scrapable.
+  assertEquals(
+    isCivicScrapableUrl(
+      "https://www.gemeinderat-zuerich.ch/sitzungen/sitzung/index.php?gid=11f79556",
+    ),
+    true,
+  );
+  assertEquals(
+    isCivicScrapableUrl("https://x.gov/wAssets/docs/protokoll.pdf"),
+    true,
+  );
+});
+
 Deno.test("isCivicDirectDocumentUrl identifies tracked PDF documents", () => {
   const directPdfUrls = [
     "https://www.cityofmadison.com/council/documents/meeting-minutes.pdf",
