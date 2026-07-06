@@ -32,7 +32,7 @@ import {
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
 import { firecrawlScrape } from "../_shared/scrape_firecrawl.ts";
-import { scrapePrimaryPageResilient } from "../_shared/scrape.ts";
+import { scrapePrimaryPageResilient, scrapeProvider } from "../_shared/scrape.ts";
 import { hashChangeStatusForUrl } from "../_shared/canonical_baseline.ts";
 import type { ChangeTrackingResult } from "../_shared/scrape_types.ts";
 import { EMBEDDING_MODEL_TAG, geminiEmbed } from "../_shared/gemini.ts";
@@ -429,12 +429,52 @@ interface PipelineResult {
   rawHtml?: string | null;
 }
 
+/** Best-effort merge into scout_runs.metadata (same pattern as beat's
+ * requested_retrieval). Never fails the run. */
+async function mergeRunMetadata(
+  svc: SupabaseClient,
+  runId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const { data: run } = await svc
+      .from("scout_runs")
+      .select("metadata")
+      .eq("id", runId)
+      .maybeSingle();
+    const existing = (run as { metadata?: unknown } | null)?.metadata;
+    const metadata = {
+      ...(existing && typeof existing === "object" && !Array.isArray(existing)
+        ? existing as Record<string, unknown>
+        : {}),
+      ...patch,
+    };
+    const { error } = await svc
+      .from("scout_runs")
+      .update({ metadata })
+      .eq("id", runId);
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    logEvent({
+      level: "warn",
+      fn: "scout-web-execute",
+      event: "run_metadata_update_failed",
+      run_id: runId,
+      msg: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
 async function runPipeline(
   svc: SupabaseClient,
   scout: ScoutRow,
   runId: string,
 ): Promise<PipelineResult> {
   await markRunStage(svc, runId, "scrape");
+  // Stamp which scrape backend serves this run (firecrawl | crawl4ai) so the
+  // weekly scoreboard and bake monitoring can attribute results per provider —
+  // the U7 flip's observability contract (mirrors beat's requested_retrieval).
+  await mergeRunMetadata(svc, runId, { scrape_provider: scrapeProvider() });
   // 3. Scrape via the provider recorded for this scout:
   //      - "firecrawl_plain": fresh scrape + local canonical hash compare.
   //      - "firecrawl" or null: legacy changeTracking scrape. On a successful

@@ -35,6 +35,7 @@ import {
   triggerScoutRun,
   userFetch,
   waitForScoutRun,
+  purgeScoutUnits,
 } from "./_bench_shared.ts";
 
 // Far-future cron so pg_cron never fires mid-benchmark; passes the transport
@@ -229,7 +230,9 @@ async function main() {
     }
   } finally {
     if (scoutId) {
-      // State rows + runs cascade with the scout via FK.
+      // Units first (cross-scout dedup poisoning — see purgeScoutUnits);
+      // state rows + runs cascade with the scout via FK.
+      await purgeScoutUnits(ctx, scoutId).catch(() => {});
       await userFetch(ctx, `/scouts/${scoutId}`, { method: "DELETE" })
         .catch(() => {});
     }
