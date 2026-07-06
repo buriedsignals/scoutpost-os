@@ -10,6 +10,7 @@ import {
   filterCivicDiscoveryCandidates,
   isCivicDirectDocumentUrl,
   isCivicScrapableUrl,
+  isEmptyQueryStubUrl,
   rankCivicDiscoveryUrls,
 } from "./civic_links.ts";
 
@@ -103,6 +104,40 @@ Deno.test("filterCivicDiscoveryCandidates rejects dead /pdf listing paths but ke
       confidence: 0.9,
     },
   ]);
+});
+
+Deno.test("isEmptyQueryStubUrl flags dangling empty params, keeps populated ones", () => {
+  // The #233 root cause: an individual-meeting template with no gid value.
+  assertEquals(
+    isEmptyQueryStubUrl(
+      "https://www.gemeinderat-zuerich.ch/sitzungen/sitzung/index.php?gid=",
+    ),
+    true,
+  );
+  assertEquals(isEmptyQueryStubUrl("https://x.gov/a?id=&type="), true); // all empty
+  // Populated params are real listings, not stubs.
+  assertEquals(isEmptyQueryStubUrl("https://x.gov/protokolle?all=1"), false);
+  assertEquals(isEmptyQueryStubUrl("https://x.gov/sitzung?gid=42"), false);
+  assertEquals(isEmptyQueryStubUrl("https://x.gov/a?page=1&q="), false); // one populated
+  assertEquals(isEmptyQueryStubUrl("https://x.gov/sitzungen/termine/"), false); // no query
+});
+
+Deno.test("civic discovery never selects an empty-query template stub (#233)", () => {
+  // Real shape of the Zurich map: the empty-gid template outscores the calendar
+  // under the old logic (government terms + a search bonus), then previews to
+  // zero documents. It must be dropped from both ranking and the merged filter.
+  const stub = "https://www.gemeinderat-zuerich.ch/sitzungen/sitzung/index.php?gid=";
+  const listing = "https://www.gemeinderat-zuerich.ch/sitzungen/termine";
+
+  const ranked = rankCivicDiscoveryUrls([stub, listing]);
+  assertEquals(ranked.some((c) => c.url.includes("index.php?gid=")), false);
+  assertEquals(ranked[0]?.url, listing);
+
+  const filtered = filterCivicDiscoveryCandidates([
+    { url: stub, confidence: 0.9 },
+    { url: listing, confidence: 0.8 },
+  ]);
+  assertEquals(filtered.map((c) => c.url), [listing]);
 });
 
 Deno.test("rankCivicDiscoveryUrls finds the Zermatt protocol listing before PDF documents", () => {

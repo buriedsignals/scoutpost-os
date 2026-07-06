@@ -324,6 +324,25 @@ export async function classifyCivicMeetingUrls(
   }
 }
 
+/**
+ * True for a URL whose query string is present but has ONLY empty-valued
+ * params — a template/detail stub, not a real listing. Zurich's council site
+ * exposes `.../sitzung/index.php?gid=` (an individual-meeting template needing
+ * a real `gid=<N>`); with the param empty the page holds no documents, so
+ * civic preview resolves zero and the scout is functionless (root cause of
+ * the 2026-07-06 civic benchmark failure, #233). Populated params — `?all=1`,
+ * `?page=1`, `?gid=42` — are kept; only fully-empty query strings are stubs.
+ */
+export function isEmptyQueryStubUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const params = [...parsed.searchParams];
+    return params.length > 0 && params.every(([, value]) => value.trim() === "");
+  } catch {
+    return false;
+  }
+}
+
 export function filterCivicDiscoveryCandidates<T extends { url: string }>(
   candidates: T[],
 ): T[] {
@@ -334,6 +353,9 @@ export function filterCivicDiscoveryCandidates<T extends { url: string }>(
       if (hasDeniedCivicAssetExtension(candidate.url)) return false;
       if (path.endsWith(".pdf")) return false;
       if (path.startsWith("/pdf/")) return false;
+      // Reject empty-query template stubs regardless of how they were
+      // surfaced (deterministic ranker OR Gemini ranking merged in).
+      if (isEmptyQueryStubUrl(candidate.url)) return false;
       return true;
     } catch {
       return false;
@@ -365,6 +387,9 @@ export function rankCivicDiscoveryUrls(
     if (!isCivicScrapableUrl(normalizedUrl)) continue;
     if (path.endsWith(".pdf")) continue;
     if (path.startsWith("/pdf/")) continue;
+    // Skip empty-query template stubs (e.g. `index.php?gid=`) — they preview
+    // to zero documents and must never be selected as the listing candidate.
+    if (isEmptyQueryStubUrl(normalizedUrl)) continue;
 
     const matchText = normalizeCivicText(`${parsed.pathname} ${parsed.search}`);
     const hasMeetingTerms = hasMeetingKeyword(matchText);
