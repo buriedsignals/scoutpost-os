@@ -1,20 +1,21 @@
 /**
- * Transport Scout live health benchmark (aircraft mode).
+ * Fleet Scout (type `transport`) live health benchmark — aircraft mode.
  *
  * Manual/weekly operator run on the user-authenticated product path (see
- * docs/solutions/workflow-issues/benchmark-auth-model.md): the benchmark
- * owner session creates a real aircraft scout over the Dover Strait preset,
+ * docs/solutions/workflow-issues/benchmark-auth-model.md). watch_ids are
+ * mandatory (product decision 2026-07-04), so the benchmark first PROBES
+ * adsb.lol for aircraft currently over the Dover Strait, then creates a real
+ * scout watching up to 20 of those hexes within the dover-strait preset,
  * triggers Run Now twice, and audits the enter-only state machine:
  *
- *   run 1 — silent baseline: status success, articles_count 0, positional
- *           state rows recorded, baseline_established_at stamped.
- *   run 2 — steady state: status success, and NO run-2 feed event may name
- *           an aircraft that was already baselined in run 1 (exact identity
- *           check — any re-alert of baselined traffic fails the benchmark).
- *
- * Dover Strait always carries commercial traffic, so a healthy deployment
- * should observe >0 aircraft on run 1. Zero observed aircraft fails the
- * benchmark (upstream adsb.lol outage or fetch pipeline regression).
+ *   probe  — >0 aircraft over Dover (always-busy corridor); zero fails the
+ *            benchmark (adsb.lol outage) before any credits are spent.
+ *   run 1  — silent baseline: status success, articles_count 0, positional
+ *            state rows recorded for the watched hexes,
+ *            baseline_established_at stamped.
+ *   run 2  — steady state: status success, and NO run-2 feed event may name
+ *            an aircraft that was already baselined in run 1 (exact identity
+ *            check — any re-alert of baselined traffic fails the benchmark).
  *
  * Usage:
  *   scripts/benchmarks/with-linked-supabase-env.sh \
@@ -41,13 +42,40 @@ import {
 const FUTURE_CRON = "0 0 1 1 *";
 const RUN_TIMEOUT_MS = 4 * 60_000;
 const PRESET_ID = "dover-strait";
+// Center/radius of the dover-strait preset bbox (50.5..51.5, 0.5..2.5) for
+// the probe query. 60 nm covers the box; well under adsb.lol's 250 nm cap.
+const DOVER_PROBE = { lat: 51.0, lon: 1.5, distNm: 60 };
+// Mirrors MAX_WATCH_IDS in supabase/functions/_shared/transport_config.ts.
+const MAX_WATCH_IDS = 20;
 
 interface CreatedScout {
   id: string;
   baseline_established_at?: string | null;
 }
 
-async function createTransportScout(ctx: BenchCtx): Promise<string> {
+/** Probe adsb.lol directly for aircraft currently over Dover — these become
+ * the scout's mandatory watch list, so run 1 deterministically observes
+ * traffic. Zero probed aircraft = upstream outage; fail before spending. */
+async function probeDoverHexes(): Promise<string[]> {
+  const res = await fetch(
+    `https://api.adsb.lol/v2/lat/${DOVER_PROBE.lat}/lon/${DOVER_PROBE.lon}/dist/${DOVER_PROBE.distNm}`,
+    { headers: { "Accept": "application/json" } },
+  );
+  if (!res.ok) {
+    throw new Error(`adsb.lol probe responded ${res.status}`);
+  }
+  const payload = await res.json() as { ac?: { hex?: string }[] };
+  const hexes = (payload.ac ?? [])
+    .map((a) => (a.hex ?? "").trim().toLowerCase())
+    // 24-bit ICAO only; "~" TIS-B pseudo-addresses are rejected by the API.
+    .filter((h) => /^[0-9a-f]{6}$/.test(h));
+  return [...new Set(hexes)].slice(0, MAX_WATCH_IDS);
+}
+
+async function createTransportScout(
+  ctx: BenchCtx,
+  watchIds: string[],
+): Promise<string> {
   const res = await userFetch(ctx, "/scouts", {
     method: "POST",
     body: {
@@ -57,6 +85,7 @@ async function createTransportScout(ctx: BenchCtx): Promise<string> {
       config: {
         mode: "aircraft",
         geofence: { preset_id: PRESET_ID },
+        watch_ids: watchIds,
       },
     },
   });
@@ -128,8 +157,17 @@ async function main() {
   const failures: string[] = [];
 
   try {
-    scoutId = await createTransportScout(ctx);
-    console.log(`created transport scout ${scoutId} (aircraft, ${PRESET_ID})`);
+    const watchIds = await probeDoverHexes();
+    console.log(`probe: ${watchIds.length} aircraft over ${PRESET_ID}`);
+    if (watchIds.length === 0) {
+      throw new Error(
+        "probe observed zero aircraft over Dover Strait — adsb.lol outage or upstream regression",
+      );
+    }
+    scoutId = await createTransportScout(ctx, watchIds);
+    console.log(
+      `created transport scout ${scoutId} (aircraft, ${PRESET_ID}, watching ${watchIds.length} hexes)`,
+    );
 
     // Run 1 — silent baseline.
     const run1 = await waitForScoutRun(
@@ -152,7 +190,7 @@ async function main() {
     );
     if (baselined.length === 0) {
       failures.push(
-        "run 1 observed zero aircraft over Dover Strait — adsb.lol outage or fetch pipeline regression",
+        "run 1 observed zero of the probed watch-list aircraft — fetch pipeline regression (probe saw them airborne seconds earlier)",
       );
     }
     const scoutRow = await pgSelectOne<CreatedScout>(
