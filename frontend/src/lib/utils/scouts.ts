@@ -38,7 +38,7 @@ export const SCOUT_TYPE_CONFIG: Record<ScoutType, ScoutTypeDisplay> = {
 	// scouts render with the right identity instead of falling back to the
 	// Page Monitor display + editor. Borrows the 'web' stripe styling until
 	// the dedicated panel ships.
-	transport: { icon: Navigation, className: 'web', label: 'Transport Monitor' }
+	transport: { icon: Navigation, className: 'web', label: 'Fleet Monitor' }
 };
 
 const DEFAULT_SCOUT_DISPLAY: ScoutTypeDisplay = {

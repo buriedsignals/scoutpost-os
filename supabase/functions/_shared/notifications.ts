@@ -342,7 +342,7 @@ export async function sendTransportScoutAlert(
 
     const html = buildBaseHtml({
       variant: "transport",
-      eyebrowLabel: "Transport Scout",
+      eyebrowLabel: "Fleet Scout",
       contextLabel: headerTitle,
       headerTitle,
       headerSubtitle: params.scoutName,
@@ -366,7 +366,7 @@ export async function sendTransportScoutAlert(
     });
 
     return {
-      subject: `\u{1F6F0} Transport Scout: ${params.scoutName} — ${count} ${
+      subject: `\u{1F6F0} Fleet Scout: ${params.scoutName} — ${count} ${
         watchlist ? "watched aircraft spotted" : `new in ${params.areaName}`
       }`,
       html,

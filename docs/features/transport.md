@@ -1,4 +1,4 @@
-# Transport Scout (type `transport`)
+# Fleet Scout (type `transport`)
 
 AI-adjacent physical-movement monitoring: **vessels** (AIS), **aircraft**
 (ADS-B), and **satellites** (orbital elements). A transport scout alerts

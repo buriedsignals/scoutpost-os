@@ -29,7 +29,7 @@ function usage(): void {
       "",
       "  Topic tags are short comma-separated labels, not long criteria. Use 1-3.",
       "  Beat and civic scouts support weekly or monthly schedules only.",
-      "  Transport scouts (aircraft/vessel/satellite) support 3h/6h/12h/daily",
+      "  Fleet scouts (--type transport; aircraft/vessel/satellite) support 3h/6h/12h/daily",
       "  (satellite daily only). --watch-ids is REQUIRED for every mode — the",
       "  specific MMSIs / ICAO hexes / NORAD ids to track, max 20 (--categories",
       "  only narrows the list). Vessel and satellite scouts also need a geofence;",
