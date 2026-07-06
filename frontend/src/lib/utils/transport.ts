@@ -30,6 +30,11 @@ export const TRANSPORT_PRESETS: TransportPreset[] = [
 
 export type TransportMode = 'aircraft' | 'vessel' | 'satellite';
 
+/** Max watch IDs per scout — mirrors MAX_WATCH_IDS in
+ * supabase/functions/_shared/transport_config.ts (product decision
+ * 2026-07-06); alert emails cap their cards at the same number. */
+export const TRANSPORT_MAX_WATCH_IDS = 20;
+
 // Client-side ID validators mirroring _shared/transport_config.ts, so users
 // get inline errors instead of confusing server 400s.
 const VESSEL_MMSI_RE = /^[2-7]\d{8}$/;

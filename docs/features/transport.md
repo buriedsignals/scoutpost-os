@@ -7,7 +7,7 @@ criteria), using the same pg_cron → `execute-scout` → worker pipeline as eve
 other scout type. Pro-gated on SaaS; ships in the OSS mirror.
 
 **Every scout must list the specific objects it tracks** — `watch_ids` (up to
-50 MMSIs / ICAO hexes / NORAD ids per scout) is mandatory for all modes.
+20 MMSIs / ICAO hexes / NORAD ids per scout) is mandatory for all modes.
 Area-only or category-only scouts ("all military ships crossing a point") are
 rejected at create/run time: that's a firehose, not monitoring (product
 decision 2026-07-04). `categories` only narrow a watch list further.

@@ -6,6 +6,7 @@
 	import ScoutScheduleModal from '$lib/components/modals/ScoutScheduleModal.svelte';
 	import {
 		TRANSPORT_ID_SOURCES,
+		TRANSPORT_MAX_WATCH_IDS,
 		TRANSPORT_PRESETS,
 		transportModeCategories,
 		transportParseNum,
@@ -115,6 +116,9 @@
 		// Watch IDs are mandatory for every mode — area/category-only scouts
 		// would alert on all matching traffic (product decision 2026-07-04).
 		if (watchIds.length === 0) return m.transport_errorWatchIdsRequired();
+		if (watchIds.length > TRANSPORT_MAX_WATCH_IDS) {
+			return m.transport_errorWatchIdsMax({ max: TRANSPORT_MAX_WATCH_IDS });
+		}
 		if (geofenceRequired && !hasGeofence) return m.transport_errorGeofence();
 
 		if (geofenceKind === 'radius') {

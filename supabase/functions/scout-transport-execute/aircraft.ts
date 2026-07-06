@@ -141,7 +141,7 @@ export async function fetchAircraftCandidates(
     // and returns all matching aircraft. Per-hex loops (even paced at ~1/s)
     // kept tripping adsb.lol's burst limiter (~5 requests, no Retry-After)
     // from Supabase's shared egress IPs — QA runs died on the 4th hex.
-    // Watch lists cap at 50 ids (~350 URL chars), well within limits.
+    // Watch lists cap at 20 ids (~140 URL chars), well within limits.
     const hexes = config.watch_ids ?? [];
     if (hexes.length === 0) return [];
     return await fetchAdsb(`/hex/${hexes.join(",")}`);

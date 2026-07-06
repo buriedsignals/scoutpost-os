@@ -6,7 +6,7 @@
  *   { mode, geofence?, watch_ids?, categories?, criteria? }
  *
  * Every transport scout must list the SPECIFIC objects it tracks —
- * watch_ids (MMSIs / ICAO hexes / NORAD ids, up to 50 per scout). An
+ * watch_ids (MMSIs / ICAO hexes / NORAD ids, up to 20 per scout). An
  * area-only or category-only scout would alert on all matching traffic
  * entering the area — a firehose, not monitoring (product decision
  * 2026-07-04). Categories only narrow a watch list further. Geofences are
@@ -38,6 +38,11 @@ export const TRANSPORT_CATEGORIES: Record<TransportMode, readonly string[]> = {
   satellite: [], // satellites are scoped by NORAD watch_ids only
 };
 
+/** Max watch_ids per scout (product decision 2026-07-06). Keeps alert emails
+ * readable (cards cap at the same number) and one batched /v2/hex URL short.
+ * Mirrored in frontend/src/lib/utils/transport.ts and the CLI guard. */
+export const MAX_WATCH_IDS = 20;
+
 /** adsb.lol /v2/point caps radius at 250 nm (~463 km). Aircraft geofences are
  * creation-capped so one run needs at most a few tile queries. */
 export const AIRCRAFT_MAX_RADIUS_KM = 463;
@@ -66,7 +71,7 @@ const GeofenceSchema = z.object({
 export const TransportConfigSchema = z.object({
   mode: z.enum(TRANSPORT_MODES),
   geofence: GeofenceSchema.optional(),
-  watch_ids: z.array(z.string().min(1).max(20)).max(50).optional(),
+  watch_ids: z.array(z.string().min(1).max(20)).max(MAX_WATCH_IDS).optional(),
   categories: z.array(z.string().min(1).max(50)).max(10).optional(),
   criteria: z.string().max(4000).optional(),
 });

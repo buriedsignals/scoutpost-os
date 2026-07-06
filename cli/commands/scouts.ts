@@ -31,8 +31,8 @@ function usage(): void {
       "  Beat and civic scouts support weekly or monthly schedules only.",
       "  Transport scouts (aircraft/vessel/satellite) support 3h/6h/12h/daily",
       "  (satellite daily only). --watch-ids is REQUIRED for every mode — the",
-      "  specific MMSIs / ICAO hexes / NORAD ids to track (--categories only",
-      "  narrows the list). Vessel and satellite scouts also need a geofence;",
+      "  specific MMSIs / ICAO hexes / NORAD ids to track, max 20 (--categories",
+      "  only narrows the list). Vessel and satellite scouts also need a geofence;",
       "  aircraft geofence is optional. Give a geofence as --geofence-preset OR",
       "  all of --center-lat/--center-lon/--radius-km (not both). --time",
       "  defaults to 09:00 when omitted.",
@@ -361,6 +361,11 @@ export async function run(argv: string[]): Promise<void> {
           console.error(
             "transport scouts require --watch-ids — the specific MMSIs / ICAO hexes / NORAD ids to track (--categories only narrows the list)",
           );
+          Deno.exit(1);
+        }
+        // Mirrors MAX_WATCH_IDS in _shared/transport_config.ts.
+        if ((config.watch_ids as string[]).length > 20) {
+          console.error("--watch-ids accepts at most 20 ids per scout");
           Deno.exit(1);
         }
         if (transportMode !== "aircraft" && !hasGeofence) {

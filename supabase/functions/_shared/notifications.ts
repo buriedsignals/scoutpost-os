@@ -187,7 +187,7 @@ const FONT_DISPLAY = "Georgia, 'Times New Roman', serif";
 const FONT_BODY = "Arial, Helvetica, sans-serif";
 const FONT_MONO = "'Courier New', Courier, monospace";
 
-const VARIANT_THEME: Record<
+export const VARIANT_THEME: Record<
   NotificationVariant,
   { accent: string; accentSoft: string; labelColor?: string }
 > = {
@@ -289,6 +289,20 @@ export interface TransportAlertParams extends BaseAlertParams {
   sourceLabel: string;
 }
 
+/** Cards rendered per transport alert email. Matches MAX_WATCH_IDS in
+ * _shared/transport_config.ts — entrants can't exceed the watch list, so this
+ * is belt-and-braces for legacy rows; the overflow count still shows. */
+export const MAX_TRANSPORT_EMAIL_CARDS = 20;
+
+/** Cap the entrant list for email rendering. Pure + exported for tests. */
+export function capTransportEntrants(
+  statements: string[],
+  max: number = MAX_TRANSPORT_EMAIL_CARDS,
+): { shown: string[]; overflow: number } {
+  if (statements.length <= max) return { shown: statements, overflow: 0 };
+  return { shown: statements.slice(0, max), overflow: statements.length - max };
+}
+
 /** Enter-only transport alert: one email per run listing every object that
  * newly entered the watched area (or newly appeared, for watch-list scouts).
  * The state machine guarantees each object appears at most once per entry,
@@ -315,12 +329,16 @@ export async function sendTransportScoutAlert(
       ? `${count} watched ${noun} spotted.`
       : `${count} new arrivals in ${params.areaName}.`;
 
-    const articles: Article[] = params.entrantStatements.map((statement) => ({
+    const { shown, overflow } = capTransportEntrants(params.entrantStatements);
+    const articles: Article[] = shown.map((statement) => ({
       title: statement,
       url: "",
       summary: "",
       source: params.sourceLabel,
     }));
+    const sectionBase = watchlist
+      ? "Watch list appearances"
+      : `Entered ${params.areaName}`;
 
     const html = buildBaseHtml({
       variant: "transport",
@@ -332,9 +350,9 @@ export async function sendTransportScoutAlert(
       articles,
       articlesSectionTitle: count === 0
         ? ""
-        : watchlist
-        ? "Watch list appearances"
-        : `Entered ${params.areaName}`,
+        : overflow > 0
+        ? `${sectionBase} (showing ${shown.length} of ${count})`
+        : sectionBase,
       metadataPanels: [
         {
           label: watchlist ? "Scope" : "Watched area",

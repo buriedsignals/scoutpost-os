@@ -75,6 +75,28 @@ Deno.test("multiple watch_ids in one scout are supported", () => {
   assertEquals(result.config?.watch_ids?.length, 5);
 });
 
+Deno.test("watch_ids cap at 20 per scout (product decision 2026-07-06)", () => {
+  // 20 valid MMSIs → accepted; 21 → schema rejection.
+  const ids = Array.from(
+    { length: 21 },
+    (_, i) => String(636000000 + i), // 6xxx = valid ship-station MID range
+  );
+  const atCap = validateTransportConfig({
+    mode: "vessel",
+    geofence: { preset_id: "strait-of-hormuz" },
+    watch_ids: ids.slice(0, 20),
+  });
+  assertEquals(atCap.error, null);
+  assertEquals(atCap.config?.watch_ids?.length, 20);
+  const overCap = validateTransportConfig({
+    mode: "vessel",
+    geofence: { preset_id: "strait-of-hormuz" },
+    watch_ids: ids,
+  });
+  assertExists(overCap.error);
+  assertStringIncludes(overCap.error!, "config.watch_ids");
+});
+
 Deno.test("categories narrow a watch list; unknown categories are rejected per mode", () => {
   // Valid: watch_ids + a real category.
   const ok = validateTransportConfig({
