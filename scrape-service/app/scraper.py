@@ -18,10 +18,27 @@ class Scraper:
     async def _ensure_crawler(self) -> Any:  # pragma: no cover - live path
         async with self._lock:
             if self._crawler is None:
-                from crawl4ai import AsyncWebCrawler, BrowserConfig
+                from crawl4ai import AsyncWebCrawler, BrowserConfig, UndetectedAdapter
+                from crawl4ai.async_crawler_strategy import (
+                    AsyncPlaywrightCrawlerStrategy,
+                )
 
+                # Stealth by default: production Firecrawl cleared Cloudflare
+                # JS challenges that vanilla Playwright on a datacenter IP does
+                # not (2026-07-06 flip: galeria.de, mardigras.org.au,
+                # npcc.police.uk, pappers.fr all 307→challenge). The undetected
+                # adapter + stealth flag patch the browser fingerprint at the
+                # driver level; content output is unchanged for unprotected
+                # sites, so canonical hashing/dedup is unaffected.
+                browser_config = BrowserConfig(
+                    headless=True, verbose=False, enable_stealth=True
+                )
                 crawler = AsyncWebCrawler(
-                    config=BrowserConfig(headless=True, verbose=False)
+                    crawler_strategy=AsyncPlaywrightCrawlerStrategy(
+                        browser_config=browser_config,
+                        browser_adapter=UndetectedAdapter(),
+                    ),
+                    config=browser_config,
                 )
                 await crawler.start()
                 self._crawler = crawler
