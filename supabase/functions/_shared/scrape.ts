@@ -14,6 +14,7 @@
  */
 
 import { ApiError } from "./errors.ts";
+import { logEvent } from "./log.ts";
 import { firecrawlChangeTrackingScrape, firecrawlScrape } from "./scrape_firecrawl.ts";
 import { crawl4aiScrape } from "./scrape_crawl4ai.ts";
 import type {
@@ -34,6 +35,19 @@ export function scrapeProvider(): ScrapeProvider {
 }
 
 /**
+ * True when a provider error means the TARGET blocked us with anti-bot
+ * protection (Cloudflare JS challenge, DataDome captcha, Imperva structural
+ * challenge, 503 bot walls…). The scrape-service detects and labels all of
+ * these uniformly ("Blocked by anti-bot protection: …"), which its client
+ * wraps into the ApiError message. Deliberately narrow: transient provider
+ * errors (timeouts, 5xx) must NOT match, or the fallback would double-spend
+ * on every blip.
+ */
+export function isAntiBotBlockedError(e: unknown): e is ApiError {
+  return e instanceof ApiError && /anti-bot|captcha|challenge/i.test(e.message);
+}
+
+/**
  * Scrape a single URL through the active provider — the switch point for the
  * U7 `SCRAPE_PROVIDER` flip. Reached today by `scrapePrimaryPageResilient`
  * (the web-scout primary path) and by direct callers that have migrated
@@ -44,13 +58,34 @@ export function scrapeProvider(): ScrapeProvider {
  * Firecrawl (and needs `FIRECRAWL_API_KEY`) even after the flip — intentional,
  * per-subsystem cutover.
  */
-export function scrape(
+export async function scrape(
   url: string,
   opts: ScrapeOptions = {},
 ): Promise<ScrapeResult> {
-  return scrapeProvider() === "crawl4ai"
-    ? crawl4aiScrape(url, opts)
-    : firecrawlScrape(url, opts);
+  if (scrapeProvider() !== "crawl4ai") {
+    return { ...await firecrawlScrape(url, opts), served_by: "firecrawl" };
+  }
+  try {
+    return { ...await crawl4aiScrape(url, opts), served_by: "crawl4ai" };
+  } catch (e) {
+    // Anti-bot fallback (Tom, 2026-07-06): Firecrawl stays as a scoped
+    // fallback for hosts whose bot protection our own service cannot pass
+    // (measured 2026-07-06: 8 of 53 fleet URLs — Cloudflare, DataDome,
+    // Imperva). Fires ONLY on anti-bot classification, never on transient
+    // errors; every fallback is logged and the result is stamped so the
+    // weekly scoreboard attributes serving per provider.
+    if (!isAntiBotBlockedError(e) || !Deno.env.get("FIRECRAWL_API_KEY")) {
+      throw e;
+    }
+    logEvent({
+      level: "warn",
+      fn: "scrape-port",
+      event: "antibot_fallback_to_firecrawl",
+      url,
+      msg: e.message.slice(0, 300),
+    });
+    return { ...await firecrawlScrape(url, opts), served_by: "firecrawl" };
+  }
 }
 
 /**

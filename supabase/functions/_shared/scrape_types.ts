@@ -25,6 +25,13 @@ export interface ScrapeResult {
    * scrape-service's status_code; undefined when the provider omits it.
    */
   status_code?: number;
+  /**
+   * Which provider actually served this result. Differs from the requested
+   * provider when the anti-bot fallback fired (crawl4ai blocked -> firecrawl).
+   * Surfaced into scout_runs.metadata.scrape_provider_served for the weekly
+   * scoreboard's fallback-health monitoring.
+   */
+  served_by?: "firecrawl" | "crawl4ai";
 }
 
 export interface ScrapeOptions {

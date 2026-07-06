@@ -489,6 +489,7 @@ async function runPipeline(
   let scrapeMetadata: Record<string, unknown> | undefined;
   let scrapeStrategy = "combined";
   let scrapeWarning: string | undefined;
+  let servedBy: string | undefined;
 
   if (scout.provider === "firecrawl_plain") {
     const plain = await scrapePrimaryPageResilient({
@@ -503,6 +504,7 @@ async function runPipeline(
     scrapeMetadata = plain.metadata;
     scrapeStrategy = plain.scrape_strategy;
     scrapeWarning = plain.scrape_warning;
+    servedBy = plain.served_by;
     changeStatus = await hashChangeStatusForUrl(svc, scout.id, markdown, { fn: "scout-web-execute" });
   } else {
     try {
@@ -518,6 +520,7 @@ async function runPipeline(
       scrapeMetadata = ct.metadata;
       scrapeStrategy = ct.scrape_strategy;
       scrapeWarning = ct.scrape_warning;
+      servedBy = ct.served_by;
       changeStatus = ct.change_status ?? "new";
     } catch (e) {
       logEvent({
@@ -539,9 +542,17 @@ async function runPipeline(
       scrapeMetadata = plain.metadata;
       scrapeStrategy = `plain_${plain.scrape_strategy}`;
       scrapeWarning = plain.scrape_warning;
+      servedBy = plain.served_by;
       changeStatus = await hashChangeStatusForUrl(svc, scout.id, markdown, { fn: "scout-web-execute" });
     }
   }
+
+  // Which backend ACTUALLY served the content — differs from scrape_provider
+  // when the anti-bot fallback fired (crawl4ai blocked → firecrawl). The
+  // weekly scoreboard monitors this to prove the fallback path stays healthy.
+  await mergeRunMetadata(svc, runId, {
+    scrape_provider_served: servedBy ?? scrapeProvider(),
+  });
 
   if (scrapeStrategy !== "combined" || scrapeWarning) {
     logEvent({

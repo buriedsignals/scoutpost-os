@@ -6,6 +6,7 @@ import {
 import { ApiError } from "./errors.ts";
 import {
   changeTrackingScrape,
+  isAntiBotBlockedError,
   isTransientScrapeError,
   scrape,
   scrapePrimaryPageResilient,
@@ -76,6 +77,153 @@ Deno.test("scrape() dispatches to the active provider", async () => {
     Deno.env.delete("FIRECRAWL_API_KEY");
     Deno.env.delete("SCRAPE_SERVICE_URL");
     Deno.env.delete("SCRAPE_SERVICE_TOKEN");
+  }
+});
+
+// ---- anti-bot fallback (crawl4ai blocked → firecrawl) ----------------------
+
+const ANTIBOT_DETAIL = JSON.stringify({
+  detail:
+    "scrape failed: status 403; Blocked by anti-bot protection: Cloudflare JS challenge",
+});
+
+function fallbackEnv() {
+  Deno.env.set("SCRAPE_PROVIDER", "crawl4ai");
+  Deno.env.set("SCRAPE_SERVICE_URL", "https://scrape.internal");
+  Deno.env.set("SCRAPE_SERVICE_TOKEN", "tok");
+}
+
+function clearFallbackEnv() {
+  Deno.env.delete("SCRAPE_PROVIDER");
+  Deno.env.delete("FIRECRAWL_API_KEY");
+  Deno.env.delete("SCRAPE_SERVICE_URL");
+  Deno.env.delete("SCRAPE_SERVICE_TOKEN");
+}
+
+Deno.test("isAntiBotBlockedError matches only anti-bot ApiErrors", () => {
+  assertEquals(
+    isAntiBotBlockedError(
+      new ApiError("crawl4ai scrape failed: 502 " + ANTIBOT_DETAIL, 502),
+    ),
+    true,
+  );
+  assertEquals(
+    isAntiBotBlockedError(new ApiError("DataDome captcha", 502)),
+    true,
+  );
+  // transient provider errors must NOT trigger the fallback
+  assertEquals(
+    isAntiBotBlockedError(
+      new ApiError("crawl4ai scrape aborted after 5000ms", 504),
+    ),
+    false,
+  );
+  // non-ApiError never matches, even with matching text
+  assertEquals(isAntiBotBlockedError(new Error("anti-bot")), false);
+});
+
+Deno.test("scrape() falls back to firecrawl on an anti-bot block", async () => {
+  const originalFetch = globalThis.fetch;
+  const seen: string[] = [];
+  try {
+    globalThis.fetch = ((input) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.startsWith("https://scrape.internal")) {
+        return Promise.resolve(new Response(ANTIBOT_DETAIL, { status: 502 }));
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ data: { markdown: "fc-fallback" } }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    fallbackEnv();
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+
+    const result = await scrape("https://blocked.example/");
+    assertEquals(result.markdown, "fc-fallback");
+    assertEquals(result.served_by, "firecrawl");
+    assertEquals(seen[0], "https://scrape.internal/scrape");
+    assertEquals(seen[1], "https://api.firecrawl.dev/v2/scrape");
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearFallbackEnv();
+  }
+});
+
+Deno.test("scrape() rethrows an anti-bot block when no FIRECRAWL_API_KEY", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(ANTIBOT_DETAIL, { status: 502 }),
+      )) as typeof fetch;
+    fallbackEnv();
+    Deno.env.delete("FIRECRAWL_API_KEY");
+
+    await assertRejects(
+      () => scrape("https://blocked.example/"),
+      ApiError,
+      "anti-bot",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearFallbackEnv();
+  }
+});
+
+Deno.test("scrape() does NOT fall back on non-anti-bot provider errors", async () => {
+  const originalFetch = globalThis.fetch;
+  const seen: string[] = [];
+  try {
+    globalThis.fetch = ((input) => {
+      seen.push(String(input));
+      return Promise.resolve(
+        new Response("upstream exploded", { status: 502 }),
+      );
+    }) as typeof fetch;
+    fallbackEnv();
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+
+    await assertRejects(() => scrape("https://flaky.example/"), ApiError);
+    // firecrawl must never have been called — transient errors keep their
+    // existing retry semantics, no double spend.
+    assertEquals(seen.length, 1);
+    assertEquals(seen[0], "https://scrape.internal/scrape");
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearFallbackEnv();
+  }
+});
+
+Deno.test("scrape() stamps served_by on the normal (non-fallback) paths", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: { markdown: "fc" },
+            markdown: "c4a",
+            source_url: "https://example.com",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )) as typeof fetch;
+    fallbackEnv();
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+
+    const c4a = await scrape("https://example.com");
+    assertEquals(c4a.served_by, "crawl4ai");
+
+    Deno.env.delete("SCRAPE_PROVIDER");
+    const fc = await scrape("https://example.com");
+    assertEquals(fc.served_by, "firecrawl");
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearFallbackEnv();
   }
 });
 
