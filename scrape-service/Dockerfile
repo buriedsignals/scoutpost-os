@@ -12,8 +12,11 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
+# xvfb + xauth: the browser runs HEADED under a virtual display — headless
+# mode itself is what Cloudflare's JS challenge keys on (verified 2026-07-06:
+# headless + undetected adapter + stealth still blocked on all 6 probe hosts).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends poppler-utils \
+    && apt-get install -y --no-install-recommends poppler-utils xvfb xauth \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv
@@ -35,4 +38,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD python -c "import os,urllib.request;urllib.request.urlopen(f\"http://127.0.0.1:{os.environ.get('PORT','8080')}/health\")" || exit 1
 
-CMD ["sh", "-c", "uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8080}"]
+# xvfb-run gives the headed Chromium a virtual display (-a: auto display num).
+CMD ["sh", "-c", "xvfb-run -a --server-args='-screen 0 1920x1080x24' uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT:-8080}"]

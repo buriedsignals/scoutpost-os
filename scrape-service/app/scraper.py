@@ -30,8 +30,14 @@ class Scraper:
                 # adapter + stealth flag patch the browser fingerprint at the
                 # driver level; content output is unchanged for unprotected
                 # sites, so canonical hashing/dedup is unaffected.
+                #
+                # headless=False: verified 2026-07-06 that headless stealth
+                # alone still trips the CF JS challenge on all 6 probe hosts —
+                # headless itself is the detection vector. The container runs
+                # the process under xvfb-run (see Dockerfile CMD) so the headed
+                # browser has a display.
                 browser_config = BrowserConfig(
-                    headless=True, verbose=False, enable_stealth=True
+                    headless=False, verbose=False, enable_stealth=True
                 )
                 crawler = AsyncWebCrawler(
                     crawler_strategy=AsyncPlaywrightCrawlerStrategy(
@@ -52,9 +58,15 @@ class Scraper:
         from crawl4ai import CacheMode, CrawlerRunConfig
 
         crawler = await self._ensure_crawler()
+        # magic/simulate_user/override_navigator: crawl4ai's page-level
+        # anti-detection (human-like interaction timing, navigator patches) —
+        # layered with the undetected adapter for CF-challenged scout hosts.
         run_config = CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,
             page_timeout=timeout_ms,
+            magic=True,
+            simulate_user=True,
+            override_navigator=True,
         )
         async with self._semaphore:
             return await crawler.arun(url=url, config=run_config)
