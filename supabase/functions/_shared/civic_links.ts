@@ -349,6 +349,48 @@ export function isEmptyQueryStubUrl(url: string): boolean {
   }
 }
 
+// Query params that select a SINGLE record (one meeting), making the URL a
+// leaf detail page rather than a listing. Deliberately explicit, not
+// "ends-with-id", so navigation params like `navid` (which point at a listing
+// view) are NOT caught.
+const CIVIC_RECORD_ID_PARAMS = new Set([
+  "id",
+  "gid",
+  "sid",
+  "oid",
+  "uid",
+  "docid",
+  "recordid",
+  "objectid",
+  "entryid",
+  "meetingid",
+  "itemid",
+  "aid",
+]);
+
+/**
+ * True for an individual-record DETAIL page — a URL carrying a populated
+ * record-id param (`index.php?gid=<hash>`). Such a page is a single meeting: a
+ * static leaf that never gains new content, so it is useless as the *tracked*
+ * URL of a civic scout, and civic preview finds no further documents inside
+ * it. Zurich's Gemeinderat ranked these leaves above its `/sitzungen/termine/`
+ * calendar (#233). They are excluded from DISCOVERY candidates only — they are
+ * still extracted as documents when preview scrapes the listing.
+ */
+export function isCivicRecordDetailUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    for (const [name, value] of parsed.searchParams) {
+      if (CIVIC_RECORD_ID_PARAMS.has(name.toLowerCase()) && value.trim() !== "") {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function filterCivicDiscoveryCandidates<T extends { url: string }>(
   candidates: T[],
 ): T[] {
@@ -362,6 +404,7 @@ export function filterCivicDiscoveryCandidates<T extends { url: string }>(
       // Reject empty-query template stubs regardless of how they were
       // surfaced (deterministic ranker OR Gemini ranking merged in).
       if (isEmptyQueryStubUrl(candidate.url)) return false;
+      if (isCivicRecordDetailUrl(candidate.url)) return false;
       return true;
     } catch {
       return false;
@@ -396,6 +439,10 @@ export function rankCivicDiscoveryUrls(
     // Skip empty-query template stubs (e.g. `index.php?gid=`) — they preview
     // to zero documents and must never be selected as the listing candidate.
     if (isEmptyQueryStubUrl(normalizedUrl)) continue;
+    // Skip single-record leaf detail pages (e.g. `index.php?gid=<hash>`): they
+    // are static individual meetings, not a trackable listing. Still found as
+    // documents when preview scrapes the chosen listing.
+    if (isCivicRecordDetailUrl(normalizedUrl)) continue;
 
     const matchText = normalizeCivicText(`${parsed.pathname} ${parsed.search}`);
     const hasMeetingTerms = hasMeetingKeyword(matchText);

@@ -9,6 +9,7 @@ import {
   extractCivicLinksFromPages,
   filterCivicDiscoveryCandidates,
   isCivicDirectDocumentUrl,
+  isCivicRecordDetailUrl,
   isCivicScrapableUrl,
   isEmptyQueryStubUrl,
   rankCivicDiscoveryUrls,
@@ -120,6 +121,45 @@ Deno.test("isEmptyQueryStubUrl flags dangling empty params, keeps populated ones
   assertEquals(isEmptyQueryStubUrl("https://x.gov/sitzung?gid=42"), false);
   assertEquals(isEmptyQueryStubUrl("https://x.gov/a?page=1&q="), false); // one populated
   assertEquals(isEmptyQueryStubUrl("https://x.gov/sitzungen/termine/"), false); // no query
+});
+
+Deno.test("isCivicRecordDetailUrl flags single-record leaves, not listings/nav", () => {
+  // Zurich individual meeting — a static leaf, useless as a tracked URL.
+  assertEquals(
+    isCivicRecordDetailUrl(
+      "https://www.gemeinderat-zuerich.ch/sitzungen/sitzung/index.php?gid=11f79556c7844e17",
+    ),
+    true,
+  );
+  assertEquals(isCivicRecordDetailUrl("https://x.gov/a?id=42"), true);
+  // Navigation params point at listing VIEWS, not single records — kept.
+  assertEquals(
+    isCivicRecordDetailUrl("https://x.gov/sitzungen/termine/?navid=455439"),
+    false,
+  );
+  // Listing params — kept.
+  assertEquals(isCivicRecordDetailUrl("https://x.gov/protokolle?all=1"), false);
+  assertEquals(isCivicRecordDetailUrl("https://x.gov/sitzungen/termine/"), false);
+});
+
+Deno.test("civic discovery selects the listing over individual meeting leaves (#233)", () => {
+  // The real Zurich map: the calendar plus many populated-gid meeting pages.
+  // The ranker previously picked a gid leaf (#1) → preview found no further
+  // documents. Leaves must be excluded so the calendar is selected.
+  const calendar = "https://www.gemeinderat-zuerich.ch/sitzungen/termine";
+  const urls = [
+    "https://www.gemeinderat-zuerich.ch/sitzungen/sitzung/index.php?gid=11f79556c7844e17",
+    "https://www.gemeinderat-zuerich.ch/sitzungen/sitzung/index.php?gid=409c95a301f448f3",
+    calendar,
+  ];
+  const ranked = rankCivicDiscoveryUrls(urls);
+  assertEquals(ranked.some((c) => c.url.includes("index.php?gid=")), false);
+  assertEquals(ranked[0]?.url, calendar);
+
+  const filtered = filterCivicDiscoveryCandidates(
+    urls.map((url) => ({ url, confidence: 0.8 })),
+  );
+  assertEquals(filtered.map((c) => c.url), [calendar]);
 });
 
 Deno.test("civic discovery never selects an empty-query template stub (#233)", () => {
