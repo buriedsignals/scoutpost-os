@@ -215,3 +215,133 @@ Deno.test("crawl4aiScrape requires SCRAPE_SERVICE_TOKEN", async () => {
     Deno.env.delete("SCRAPE_SERVICE_URL");
   }
 });
+
+Deno.test(
+  "crawl4aiScrape sends snapshot:true + widened fuse and maps the inline payload",
+  withEnv(async () => {
+    let seenBody: Record<string, unknown> = {};
+    globalThis.fetch = ((_input, init) => {
+      seenBody = JSON.parse(String((init as RequestInit)?.body ?? "{}"));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            markdown: "# Cap",
+            source_url: "https://example.org",
+            fetched_at: "2026-07-07T00:00:00Z",
+            response_headers: { "content-type": "text/html", "x-num": 5 },
+            snapshot: {
+              mhtml_b64: "bWh0bWw=",
+              mhtml_sha256: "a".repeat(64),
+              screenshot_b64: "cG5n",
+              screenshot_sha256: "b".repeat(64),
+              sizes: { mhtml: 5, screenshot: 3 },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+
+    const result = await crawl4aiScrape("https://example.org", {
+      timeoutMs: 20_000,
+      snapshot: true,
+    });
+    assertEquals(seenBody.snapshot, true);
+    // response_headers keeps only string-valued entries.
+    assertEquals(result.response_headers, { "content-type": "text/html" });
+    assertEquals(result.snapshot?.mhtml_b64, "bWh0bWw=");
+    assertEquals(result.snapshot?.sizes, { mhtml: 5, screenshot: 3 });
+  }),
+);
+
+Deno.test(
+  "crawl4aiScrape ignores the on_fallback hint (no snapshot flag sent)",
+  withEnv(async () => {
+    let seenBody: Record<string, unknown> = {};
+    globalThis.fetch = ((_input, init) => {
+      seenBody = JSON.parse(String((init as RequestInit)?.body ?? "{}"));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ markdown: "x", source_url: "u", response_headers: null }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    const result = await crawl4aiScrape("https://example.org", {
+      snapshot: "on_fallback",
+    });
+    assertEquals(seenBody.snapshot, undefined);
+    assertEquals(result.snapshot, undefined); // no snapshot fields when not requested
+    assertEquals(result.response_headers, undefined); // null headers → undefined
+  }),
+);
+
+Deno.test(
+  "crawl4aiScrape maps a malformed snapshot payload / error to null + passthrough",
+  withEnv(async () => {
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            markdown: "x",
+            source_url: "u",
+            snapshot: { mhtml_b64: 123 }, // wrong types → null
+            snapshot_error: "artifact_too_large:mhtml:99",
+            response_headers: ["not", "an", "object"],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )) as typeof fetch;
+    const result = await crawl4aiScrape("https://example.org", { snapshot: true });
+    assertEquals(result.snapshot, null);
+    assertEquals(result.snapshot_error, "artifact_too_large:mhtml:99");
+    assertEquals(result.response_headers, undefined); // array → undefined
+  }),
+);
+
+Deno.test(
+  "crawl4aiScrape maps a snapshot payload without sizes",
+  withEnv(async () => {
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            markdown: "x",
+            source_url: "u",
+            snapshot: {
+              mhtml_b64: "bQ==",
+              mhtml_sha256: "a".repeat(64),
+              screenshot_b64: "cA==",
+              screenshot_sha256: "b".repeat(64),
+            },
+            response_headers: {},
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )) as typeof fetch;
+    const result = await crawl4aiScrape("https://example.org", { snapshot: true });
+    assertEquals(result.snapshot?.sizes, undefined);
+    assertEquals(result.response_headers, undefined); // empty object → undefined
+  }),
+);
+
+Deno.test(
+  "crawl4aiScrape maps an absent snapshot payload to null (service omitted it)",
+  withEnv(async () => {
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            markdown: "x",
+            source_url: "u",
+            // snapshot key absent; only the structured error present
+            snapshot_error: "screenshot_not_png:ffd8",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )) as typeof fetch;
+    const result = await crawl4aiScrape("https://example.org", { snapshot: true });
+    assertEquals(result.snapshot, null);
+    assertEquals(result.snapshot_error, "screenshot_not_png:ffd8");
+  }),
+);

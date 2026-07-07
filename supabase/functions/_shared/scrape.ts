@@ -74,7 +74,14 @@ export async function scrape(
     // Imperva). Fires ONLY on anti-bot classification, never on transient
     // errors; every fallback is logged and the result is stamped so the
     // weekly scoreboard attributes serving per provider.
-    if (!isAntiBotBlockedError(e) || !Deno.env.get("FIRECRAWL_API_KEY")) {
+    //
+    // KTD2 capture-fetch pin: `noAntibotFallback` propagates the block
+    // instead — a Firecrawl-served capture must never masquerade as a local
+    // render; the caller degrades to a markdown_only record.
+    if (
+      opts.noAntibotFallback || !isAntiBotBlockedError(e) ||
+      !Deno.env.get("FIRECRAWL_API_KEY")
+    ) {
       throw e;
     }
     logEvent({
@@ -84,6 +91,9 @@ export async function scrape(
       url,
       msg: e.message.slice(0, 300),
     });
+    // A snapshot hint (either mode) rides into the Firecrawl request as the
+    // KTD9 same-fetch capture formats — this branch is the only place the
+    // "on_fallback" hint materializes into artifacts.
     return { ...await firecrawlScrape(url, opts), served_by: "firecrawl" };
   }
 }
@@ -123,6 +133,10 @@ export async function scrapePrimaryPageResilient(
     abortAfterMs: opts.abortAfterMs,
     maxAgeMs: opts.maxAgeMs,
     storeInCache: opts.storeInCache,
+    // Detection-fetch capture hint (KTD9) — rides every ladder attempt so a
+    // fallback-served detection fetch carries its same-fetch artifacts. The
+    // changeTracking legacy path ignores it (retires with that path).
+    snapshot: opts.snapshot,
   };
   const retryDelayMs = opts.retryDelayMs ?? 2_000;
   const warnings: string[] = [];

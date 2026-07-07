@@ -159,7 +159,54 @@ traceability. Page Scout rows include:
 
 ### `scout_runs`
 
-Stores run lifecycle, stage, notification, and diagnostic fields.
+Stores run lifecycle, stage, notification, and diagnostic fields. When
+archiving is on, the background capture writes `snapshot_status` (and, on
+success, `snapshot_id`/`snapshot_fidelity`) into `scout_runs.metadata` — a
+diagnostic only; it never changes the run outcome.
+
+## Evidence Archiving (Page Archive)
+
+Opt-in, per-scout **evidence-grade snapshots** of the page updating. Gated on
+`scouts.archive_enabled` and a Pro/Team tier (OSS: available to everyone);
+`scouts.wayback_enabled` (default true) is the per-scout opt-out from public
+Internet Archive submission. Dark by default — no scout captures until a user
+enables it.
+
+**When it captures (R4):** at schedule-time baseline establishment and on runs
+whose change status is `changed`/`new`. Never on `same` runs (~75%), never in
+preview/test. Capture runs in the **background** (`EdgeRuntime.waitUntil`) after
+the run is marked success and its notification is sent, so a capture fetch —
+which can take tens of seconds — never delays or endangers the run or the alert
+(R11).
+
+**Two-fetch flow (KTD2 / Decision 10):** the detection scrape stays the
+change-detection baseline, raw capture, and extraction input. On a gated
+`changed`/`new` run, a second **provider-pinned** capture fetch
+(`snapshot: true`, anti-bot fallback disabled) produces the archived artifacts —
+its own MHTML + full-page screenshot + markdown. The detection and capture
+markdowns diverge on lazy-load pages (the capture fetch's full-page scan pulls
+lazy content into the DOM); that divergence is expected and never flags a
+change.
+
+**Fidelity tiers (KTD9):**
+
+| `fidelity` | Source | Artifacts |
+|---|---|---|
+| `full` | crawl4ai local render | MHTML + full-page PNG (verbatim) + `.md` |
+| `rendered_thirdparty` | Firecrawl anti-bot fallback, same fetch | rawHtml + full-page PNG (verbatim) + `.md` |
+| `markdown_only` | any capture failure (degrade) | `.md` content record only |
+
+A notified change **always** leaves at least a `markdown_only` record. On
+anti-bot-walled hosts (served by the Firecrawl fallback), the alert-firing fetch
+itself carries the same-fetch rawHtml + screenshot (KTD9) — no local render is
+possible. Firecrawl's `screenshot`/`rawHtml` formats add **no** extra credits
+over a plain scrape (verified against Firecrawl billing, 2026-07-07); the
+fallback's cost driver is its proxy mode, not the capture formats.
+
+Persistence, hashing, storage layout, RLS, and the deletion contract live in
+`page_snapshots` + the `page-snapshots` bucket (see
+`docs/supabase/retention.md`). Scout deletion sweeps the bucket objects (a DB
+cascade can only remove the rows).
 
 ## Credit Cost
 

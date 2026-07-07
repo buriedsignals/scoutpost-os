@@ -34,7 +34,17 @@ import { normalizeDate } from "../_shared/date_utils.ts";
 import { firecrawlScrape } from "../_shared/scrape_firecrawl.ts";
 import { scrapePrimaryPageResilient, scrapeProvider } from "../_shared/scrape.ts";
 import { hashChangeStatusForUrl } from "../_shared/canonical_baseline.ts";
-import type { ChangeTrackingResult } from "../_shared/scrape_types.ts";
+import type {
+  ChangeTrackingResult,
+  PrimaryPageScrapeResult,
+} from "../_shared/scrape_types.ts";
+import {
+  type CaptureStoreContext,
+  performArchiveCapture,
+  resolveArchiveGate,
+  runSnapshotInBackground,
+  snapshotDiagnostics,
+} from "../_shared/snapshot_capture.ts";
 import { EMBEDDING_MODEL_TAG, geminiEmbed } from "../_shared/gemini.ts";
 import {
   extractAtomicUnits,
@@ -144,7 +154,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const { data: scout, error: scoutErr } = await svc
     .from("scouts")
     .select(
-      "id, user_id, type, name, url, criteria, project_id, is_active, provider, preferred_language, baseline_established_at",
+      "id, user_id, type, name, url, criteria, project_id, is_active, provider, preferred_language, baseline_established_at, archive_enabled",
     )
     .eq("id", scout_id)
     .maybeSingle();
@@ -341,6 +351,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
     }
 
+    // Archive capture (PAGE-ARCHIVE-PRD U3) — scheduled AFTER the run is
+    // marked success and the notification is sent, so a capture fetch that
+    // takes tens of seconds never delays or endangers either (R11). The row
+    // and its scout_runs.metadata diagnostics land asynchronously. Dark unless
+    // the scout's archive gate resolved on (KTD6).
+    if (result.archiveContext) {
+      const { detection, ctx } = result.archiveContext;
+      runSnapshotInBackground((async () => {
+        const outcome = await performArchiveCapture(svc, ctx, detection);
+        await mergeRunMetadata(svc, runId, snapshotDiagnostics(outcome));
+      })());
+    }
+
     return jsonOk({
       status: "ok",
       change: result.change_status,
@@ -415,6 +438,7 @@ interface ScoutRow {
   provider: "firecrawl" | "firecrawl_plain" | null;
   preferred_language: string | null;
   baseline_established_at?: string | null;
+  archive_enabled?: boolean | null;
 }
 
 interface PipelineResult {
@@ -427,6 +451,13 @@ interface PipelineResult {
   matchedTitle?: string | null;
   matchedSummary?: string | null;
   rawHtml?: string | null;
+  /** Present only when the archive gate is on AND the run is changed/new
+   * (KTD6/R4). Handed to the background capture AFTER the run + notification
+   * finalize, so capture latency never touches the run's critical path (R11). */
+  archiveContext?: {
+    detection: PrimaryPageScrapeResult;
+    ctx: CaptureStoreContext;
+  };
 }
 
 /** Best-effort merge into scout_runs.metadata (same pattern as beat's
@@ -475,6 +506,17 @@ async function runPipeline(
   // weekly scoreboard and bake monitoring can attribute results per provider —
   // the U7 flip's observability contract (mirrors beat's requested_retrieval).
   await mergeRunMetadata(svc, runId, { scrape_provider: scrapeProvider() });
+
+  // Archive gate (KTD6). Resolved before the detection scrape so a
+  // fallback-served host carries the KTD9 same-fetch capture hint. Off →
+  // nothing about this run changes (dark by default).
+  const archiveGateOn = await resolveArchiveGate(svc, {
+    user_id: scout.user_id,
+    archive_enabled: scout.archive_enabled,
+  });
+  const snapshotHint: "on_fallback" | undefined = archiveGateOn
+    ? "on_fallback"
+    : undefined;
   // 3. Scrape via the provider recorded for this scout:
   //      - "firecrawl_plain": fresh scrape + local canonical hash compare.
   //      - "firecrawl" or null: legacy changeTracking scrape. On a successful
@@ -490,14 +532,20 @@ async function runPipeline(
   let scrapeStrategy = "combined";
   let scrapeWarning: string | undefined;
   let servedBy: string | undefined;
+  // The full detection scrape result is retained (not just its fields) so the
+  // background archive capture can read served_by + any KTD9 same-fetch
+  // artifacts (screenshot_url/rawHtml) that a fallback-served fetch carried.
+  let detectionResult: PrimaryPageScrapeResult | null = null;
 
   if (scout.provider === "firecrawl_plain") {
     const plain = await scrapePrimaryPageResilient({
       url: scout.url,
       timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
       abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
+      snapshot: snapshotHint,
       ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
     });
+    detectionResult = plain;
     markdown = plain.markdown ?? "";
     rawHtml = plain.rawHtml ?? null;
     scrapeTitle = plain.title ?? null;
@@ -513,7 +561,9 @@ async function runPipeline(
         changeTrackingTag: tag,
         timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
         abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
+        snapshot: snapshotHint,
       });
+      detectionResult = ct;
       markdown = ct.markdown ?? "";
       rawHtml = ct.rawHtml ?? null;
       scrapeTitle = ct.title ?? null;
@@ -534,8 +584,10 @@ async function runPipeline(
         url: scout.url,
         timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
         abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
+        snapshot: snapshotHint,
         ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
       });
+      detectionResult = plain;
       markdown = plain.markdown ?? "";
       rawHtml = plain.rawHtml ?? null;
       scrapeTitle = plain.title ?? null;
@@ -643,6 +695,28 @@ async function runPipeline(
     markdown,
     contentHash,
   });
+
+  // Archive capture context (R4): built only for gated changed/new runs.
+  // 'same' returned earlier; 'removed' (page gone) has nothing to capture.
+  // The capture itself runs in the background after the run finalizes (below),
+  // binding to the exact detection markdown that fired (KTD4/Decision 10).
+  const archiveContext = (archiveGateOn && detectionResult &&
+      (changeStatus === "changed" || changeStatus === "new"))
+    ? {
+      detection: detectionResult,
+      ctx: {
+        scoutId: scout.id,
+        userId: scout.user_id,
+        scoutRunId: runId,
+        rawCaptureId,
+        captureKind: "change" as const,
+        requestedUrl: scout.url,
+        fallbackMarkdown: markdown,
+        contentSha256: contentHash,
+        canonicalContentSha256: await webCanonicalHash(markdown),
+      } satisfies CaptureStoreContext,
+    }
+    : undefined;
 
   // 5. Extract units and insert non-dupes.
   // Always run extraction; criteria narrows focus when set.
@@ -812,6 +886,7 @@ async function runPipeline(
     matchedUrl,
     matchedTitle,
     matchedSummary,
+    archiveContext,
   };
 }
 

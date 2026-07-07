@@ -33,9 +33,21 @@ export async function firecrawlScrape(
   const timeoutMs = opts.timeoutMs ?? 120_000;
   const abortAfterMs = opts.abortAfterMs ?? timeoutMs + 5_000;
 
+  // Same-fetch third-party capture (PAGE-ARCHIVE-PRD KTD9): a snapshot hint
+  // (either mode) means this fetch must also deliver the capture artifacts —
+  // rawHtml inline plus a full-page screenshot (short-lived CDN URL). Adding
+  // these formats costs no extra credits (verified against Firecrawl billing
+  // docs, 2026-07-07); one scrape stays one credit.
+  const formats: Array<string | Record<string, unknown>> = [
+    ...(opts.formats ?? ["markdown", "rawHtml"]),
+  ];
+  if (opts.snapshot) {
+    if (!formats.includes("rawHtml")) formats.push("rawHtml");
+    formats.push({ type: "screenshot", fullPage: true });
+  }
   const body: Record<string, unknown> = {
     url,
-    formats: opts.formats ?? ["markdown", "rawHtml"],
+    formats,
     onlyMainContent: opts.onlyMainContent ?? true,
     timeout: timeoutMs,
   };
@@ -97,6 +109,9 @@ export async function firecrawlScrape(
     status_code: typeof metadata.statusCode === "number"
       ? metadata.statusCode
       : undefined,
+    ...(opts.snapshot && typeof d.screenshot === "string" && d.screenshot
+      ? { screenshot_url: d.screenshot }
+      : {}),
   };
 }
 

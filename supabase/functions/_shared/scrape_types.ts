@@ -7,6 +7,20 @@
  * without an import cycle.
  */
 
+/**
+ * Inline snapshot payload from the scrape-service capture fetch
+ * (PAGE-ARCHIVE-PRD U1/KTD2). Hashes are computed server-side over the exact
+ * bytes the base64 fields decode to; the Edge Function re-verifies before
+ * storing (hash-before-store, R2).
+ */
+export interface ScrapeSnapshotPayload {
+  mhtml_b64: string;
+  mhtml_sha256: string;
+  screenshot_b64: string;
+  screenshot_sha256: string;
+  sizes?: { mhtml?: number; screenshot?: number };
+}
+
 export interface ScrapeResult {
   markdown: string;
   html?: string;
@@ -16,6 +30,22 @@ export interface ScrapeResult {
   requested_url?: string;
   source_url: string;
   fetched_at: string;
+  /**
+   * Response headers of the target page, when the provider surfaces them
+   * (the scrape-service maps CrawlResult.response_headers; Firecrawl has no
+   * equivalent). Persisted on page_snapshots rows (KTD4).
+   */
+  response_headers?: Record<string, string>;
+  /** Same-render capture artifacts — present only when the crawl4ai provider
+   * served a `snapshot: true` fetch and capture succeeded (KTD1/KTD2). */
+  snapshot?: ScrapeSnapshotPayload | null;
+  /** Structured reason the service omitted the snapshot payload (over-cap,
+   * incomplete capture, non-PNG error card). The scrape itself succeeded. */
+  snapshot_error?: string;
+  /** Firecrawl full-page screenshot URL (short-lived CDN link, ~24h) — present
+   * only when a snapshot-hinted fetch was served by Firecrawl (KTD9). The
+   * caller must download and persist the bytes promptly. */
+  screenshot_url?: string;
   /**
    * HTTP status of the TARGET page (not the provider API). Both providers
    * return the page content even for a 4xx target (a dead/removed page comes
@@ -52,6 +82,27 @@ export interface ScrapeOptions {
   maxAgeMs?: number;
   /** Whether the provider may store this scrape in its cache. Firecrawl-only. */
   storeInCache?: boolean;
+  /**
+   * Snapshot capture (PAGE-ARCHIVE-PRD KTD2/KTD9).
+   *
+   * `true` — capture fetch: the crawl4ai provider requests same-render
+   * MHTML + full-page screenshot, returned inline as `snapshot`. On the
+   * Firecrawl provider this degenerates to the same-fetch third-party
+   * artifacts below (a baseline scrape on an anti-bot host lands here).
+   *
+   * `"on_fallback"` — detection-fetch hint: the crawl4ai provider ignores it
+   * (no capture flags sent); if the anti-bot fallback fires inside `scrape()`,
+   * the Firecrawl request adds rawHtml + full-page-screenshot formats so the
+   * alert-firing fetch itself carries the KTD9 artifacts (`screenshot_url` +
+   * `rawHtml`). Without this hint the rendered_thirdparty tier is unreachable.
+   */
+  snapshot?: true | "on_fallback";
+  /**
+   * Disable the anti-bot Firecrawl fallback for this call (KTD2 capture-fetch
+   * pin): a Firecrawl-served capture must never masquerade as a local render.
+   * An anti-bot block then propagates as an error for the caller to degrade.
+   */
+  noAntibotFallback?: boolean;
 }
 
 export interface SearchHit {
@@ -131,5 +182,11 @@ export interface PrimaryPageScrapeOptions {
   maxAgeMs?: number;
   storeInCache?: boolean;
   retryDelayMs?: number;
+  /**
+   * Detection-fetch capture hint only (KTD9). The resilient ladder never
+   * issues a local capture fetch — `snapshot: true` is reserved for the
+   * dedicated provider-pinned capture call (KTD2), outside this ladder.
+   */
+  snapshot?: "on_fallback";
   deps?: Partial<PrimaryPageScrapeDeps>;
 }

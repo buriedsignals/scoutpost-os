@@ -59,6 +59,14 @@ Deno.test("ensureWebBaseline stores only baseline state for firecrawl_plain scou
       baseline_established_at: null,
     },
     {
+      // firecrawl_plain enters the canonical-hash branch, now routed through
+      // the scrape() port (crawl4ai in prod; Firecrawl anti-bot fallback).
+      scrape: async () => ({
+        markdown: "Initial baseline body",
+        source_url: "https://example.com",
+        fetched_at: "2026-04-24T00:00:00Z",
+        served_by: "crawl4ai" as const,
+      }),
       doubleProbe: async () => "firecrawl_plain",
       firecrawlScrape: async () => ({
         markdown: "Initial baseline body",
@@ -121,6 +129,14 @@ Deno.test("maybeInitializeMissingWebBaselineRun short-circuits first run to base
       },
       "run-1",
       {
+        // Canonical hash disabled + provider 'firecrawl' → legacy doubleProbe
+        // branch; scrape() is present for the type but never called here.
+        scrape: async () => ({
+          markdown: "",
+          source_url: "https://example.com",
+          fetched_at: "2026-04-24T00:00:00Z",
+          served_by: "firecrawl" as const,
+        }),
         doubleProbe: async () => "firecrawl",
         firecrawlScrape: async () => ({
           markdown: "",

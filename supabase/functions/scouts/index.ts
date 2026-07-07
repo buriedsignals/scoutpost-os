@@ -58,7 +58,14 @@ import { scrape } from "../_shared/scrape.ts";
 import { writeCanonicalBaseline } from "../_shared/canonical_baseline.ts";
 import { geminiExtract } from "../_shared/gemini.ts";
 import { compressContext } from "../_shared/taco_compress.ts";
-import { ensureWebBaseline } from "../_shared/web_scout_baseline.ts";
+import {
+  captureWebBaselineSnapshot,
+  ensureWebBaseline,
+} from "../_shared/web_scout_baseline.ts";
+import { creditsEnabled } from "../_shared/credits.ts";
+import { runSnapshotInBackground } from "../_shared/snapshot_capture.ts";
+import { deleteScoutSnapshots } from "../_shared/snapshot_store.ts";
+import { ApiError } from "../_shared/errors.ts";
 import {
   WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
   webCanonicalHashEnabled,
@@ -165,6 +172,11 @@ const CreateSchema = z
     profile_handle: z.string().min(1).max(200).optional(),
     monitor_mode: SocialMonitorMode.optional(),
     track_removals: z.boolean().optional(),
+    // Page-archive gates (PAGE-ARCHIVE-PRD KTD5/KTD6). archive_enabled is
+    // Pro/Team-gated at runtime via assertArchiveEntitled; wayback_enabled is
+    // a per-scout opt-out from public Internet Archive submission.
+    archive_enabled: z.boolean().optional(),
+    wayback_enabled: z.boolean().optional(),
     baseline_posts: z.array(BaselinePostSchema).max(100).optional(),
     root_domain: z.string().min(1).max(300).optional(),
     tracked_urls: z.array(z.string().url().max(2000)).min(1).max(20).optional(),
@@ -308,6 +320,8 @@ const UpdateSchema = z
     profile_handle: z.string().max(200).nullable().optional(),
     monitor_mode: SocialMonitorMode.nullable().optional(),
     track_removals: z.boolean().optional(),
+    archive_enabled: z.boolean().optional(),
+    wayback_enabled: z.boolean().optional(),
     root_domain: z.string().max(300).nullable().optional(),
     tracked_urls: z.array(z.string().url().max(2000)).max(20).nullable()
       .optional(),
@@ -762,6 +776,36 @@ async function establishCivicBaseline(
   }
 }
 
+/**
+ * KTD6 tier gate on create/update: a SaaS free-tier user may not enable
+ * archiving. OSS (credits disabled) allows it for everyone. Mirrors the
+ * runtime gate in snapshot_capture.resolveArchiveGate — both read the
+ * user_preferences.tier mirror. Only enforced when the caller is turning the
+ * flag ON (turning it off, or omitting it, is always allowed). Throws 403.
+ */
+async function assertArchiveEntitled(
+  svc: ReturnType<typeof getServiceClient>,
+  userId: string,
+  archiveEnabled: boolean | undefined,
+): Promise<void> {
+  if (archiveEnabled !== true) return;
+  if (!creditsEnabled()) return;
+  const { data, error } = await svc
+    .from("user_preferences")
+    .select("tier")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const tier = (data as { tier?: string } | null)?.tier;
+  if (tier !== "pro" && tier !== "team") {
+    throw new ApiError(
+      "Evidence archiving is a Pro/Team feature — upgrade to enable snapshots for this scout.",
+      403,
+      "archive_forbidden",
+    );
+  }
+}
+
 async function ensureScheduledBaseline(
   svc: ReturnType<typeof getServiceClient>,
   scout: BaselineableScout,
@@ -961,6 +1005,14 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
     );
   }
 
+  // KTD6: a free-tier SaaS user may not enable archiving. Checked before the
+  // insert so the scout is never created with a flag the user can't hold.
+  await assertArchiveEntitled(
+    getServiceClient(),
+    user.id,
+    parsed.data.archive_enabled,
+  );
+
   // Strip legacy schedule fields; synthesise schedule_cron from them when
   // the client didn't provide one explicitly.
   const {
@@ -1099,6 +1151,25 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
     }
   }
 
+  // Baseline snapshot capture (PAGE-ARCHIVE-PRD R4) — fired in the background
+  // AFTER the scout is committed and scheduled, off the create critical path:
+  // a capture fetch can take tens of seconds, and web baselines are already
+  // established synchronously above. Best-effort and self-gated on the archive
+  // toggle + tier (captureWebBaselineSnapshot re-checks). Only for scheduled
+  // web scouts, mirroring where the change-detection baseline is established.
+  if (schedule_cron && data.type === "web" && data.archive_enabled) {
+    runSnapshotInBackground(
+      captureWebBaselineSnapshot(getServiceClient(), {
+        id: data.id,
+        user_id: user.id,
+        url: data.url,
+        provider: data.provider,
+        archive_enabled: data.archive_enabled,
+        name: data.name,
+      }),
+    );
+  }
+
   logEvent({
     level: "info",
     fn: "scouts",
@@ -1168,6 +1239,15 @@ async function updateScout(
     .maybeSingle();
   if (readErr) throw new Error(readErr.message);
   if (!current) throw new NotFoundError("scout");
+
+  // KTD6: a free-tier SaaS user may not switch archiving on. Turning it off or
+  // leaving it unchanged is always allowed (evidence is never destroyed by a
+  // plan change — existing snapshots stay readable; captures just stop).
+  await assertArchiveEntitled(
+    getServiceClient(),
+    user.id,
+    (parsed.data as { archive_enabled?: boolean }).archive_enabled,
+  );
 
   const nextScout = { ...current, ...parsed.data } as BaselineableScout & {
     schedule_cron?: string | null;
@@ -1317,6 +1397,27 @@ async function deleteScout(user: AuthedUser, id: string): Promise<Response> {
   );
   if (rpcErr) throw new Error(rpcErr.message);
   if (!deleted) throw new NotFoundError("scout");
+
+  // Deletion contract (PAGE-ARCHIVE-PRD R3): the RPC cascades the
+  // page_snapshots ROWS via FK, but a DB cascade can never reach Storage
+  // objects — deleteScoutSnapshots is the only thing standing between R3's
+  // promise and orphaned page copies. Runs AFTER the row delete (its two-pass
+  // sweep then also collects any artifact an in-flight capture uploaded before
+  // it failed on the now-missing scout FK). Best-effort: a storage-sweep
+  // failure must not 500 a delete whose scout row is already gone — the
+  // account-level sweep (docs/supabase/retention.md) is the backstop.
+  try {
+    await deleteScoutSnapshots(svc, user.id, id);
+  } catch (e) {
+    logEvent({
+      level: "warn",
+      fn: "scouts",
+      event: "snapshot_object_sweep_failed",
+      user_id: user.id,
+      scout_id: id,
+      msg: e instanceof Error ? e.message : String(e),
+    });
+  }
 
   return new Response(null, {
     status: 204,

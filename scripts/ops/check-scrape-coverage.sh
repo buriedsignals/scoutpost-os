@@ -9,6 +9,15 @@
 # its residual uncovered lines are defensive network branches (an abort-timer
 # callback, a null-body gzip path) that don't warrant contrived fetch mocks.
 #
+# snapshot_capture.ts (PAGE-ARCHIVE-PRD U3 orchestration) is likewise NOT gated
+# for the same reason: it is exhaustively tested (32 cases: gate resolution,
+# base64 caps, screenshot URL/host guards, streamed download ceiling, every
+# fidelity path + degrade class, background scheduling), but its two remaining
+# branches are the `deps.fetchImpl ?? fetch` and `deps.scrapeImpl ?? scrape`
+# default seams — real-network calls that the network-isolated gate run (no
+# --allow-net) cannot exercise. snapshot_store.ts, the pure persistence half of
+# U3/U2, IS gated at 100%.
+#
 # Usage: scripts/ops/check-scrape-coverage.sh
 set -euo pipefail
 

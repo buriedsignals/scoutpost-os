@@ -10,7 +10,11 @@
  */
 
 import { ApiError } from "./errors.ts";
-import type { ScrapeOptions, ScrapeResult } from "./scrape_types.ts";
+import type {
+  ScrapeOptions,
+  ScrapeResult,
+  ScrapeSnapshotPayload,
+} from "./scrape_types.ts";
 
 function serviceConfig(): { url: string; token: string } {
   const url = Deno.env.get("SCRAPE_SERVICE_URL");
@@ -26,7 +30,15 @@ export async function crawl4aiScrape(
 ): Promise<ScrapeResult> {
   const { url: base, token } = serviceConfig();
   const timeoutMs = opts.timeoutMs ?? 120_000;
-  const abortAfterMs = opts.abortAfterMs ?? timeoutMs + 5_000;
+  // `"on_fallback"` is a detection-fetch hint for the Firecrawl fallback
+  // branch — this provider deliberately ignores it (KTD9).
+  const snapshot = opts.snapshot === true;
+  // Capture fetches run extra crawl4ai phases timed separately from
+  // page_timeout; the service budgets 2×timeout+20s (scrape_fuse_seconds),
+  // so the client fuse must sit outside that or heavy captures 504 here
+  // while the service is still working.
+  const abortAfterMs = opts.abortAfterMs ??
+    (snapshot ? timeoutMs * 2 + 25_000 : timeoutMs + 5_000);
 
   const ac = new AbortController();
   const fuse = setTimeout(() => ac.abort(), abortAfterMs);
@@ -38,7 +50,11 @@ export async function crawl4aiScrape(
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ url, timeout_ms: timeoutMs }),
+      body: JSON.stringify({
+        url,
+        timeout_ms: timeoutMs,
+        ...(snapshot ? { snapshot: true } : {}),
+      }),
       signal: ac.signal,
     });
   } catch (e) {
@@ -81,5 +97,53 @@ export async function crawl4aiScrape(
       ? d.fetched_at
       : new Date().toISOString(),
     status_code: typeof d.status_code === "number" ? d.status_code : undefined,
+    response_headers: mapResponseHeaders(d.response_headers),
+    ...(snapshot
+      ? {
+        snapshot: mapSnapshotPayload(d.snapshot),
+        ...(typeof d.snapshot_error === "string"
+          ? { snapshot_error: d.snapshot_error }
+          : {}),
+      }
+      : {}),
+  };
+}
+
+function mapResponseHeaders(
+  value: unknown,
+): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const headers: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === "string") headers[k] = v;
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+/** Shape-validate the inline capture payload (U1's contract). A payload with
+ * missing/mistyped fields is treated as absent — the caller degrades to a
+ * markdown_only record rather than trusting a malformed capture. */
+function mapSnapshotPayload(value: unknown): ScrapeSnapshotPayload | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const p = value as Record<string, unknown>;
+  if (
+    typeof p.mhtml_b64 !== "string" || typeof p.mhtml_sha256 !== "string" ||
+    typeof p.screenshot_b64 !== "string" ||
+    typeof p.screenshot_sha256 !== "string"
+  ) {
+    return null;
+  }
+  const sizes = (p.sizes && typeof p.sizes === "object" &&
+      !Array.isArray(p.sizes))
+    ? p.sizes as { mhtml?: number; screenshot?: number }
+    : undefined;
+  return {
+    mhtml_b64: p.mhtml_b64,
+    mhtml_sha256: p.mhtml_sha256,
+    screenshot_b64: p.screenshot_b64,
+    screenshot_sha256: p.screenshot_sha256,
+    ...(sizes ? { sizes } : {}),
   };
 }
