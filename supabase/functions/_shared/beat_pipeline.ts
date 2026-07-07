@@ -534,6 +534,8 @@ export interface SearchOpts {
   concurrency?: number;
   excludedDomains?: string[];
   retrievalPort?: "firecrawl" | "exa";
+  /** Exa search tier. "auto" (default) or "deep-lite" (more thorough low-coverage retry). */
+  exaType?: "auto" | "deep-lite";
   category?: BeatCategory;
   sourceMode?: BeatSourceMode;
 }
@@ -590,6 +592,7 @@ async function runSearchesWithMetadata(
     try {
       const res = retrievalPort === "exa"
         ? await exaSearchWithMetadata(job.query, {
+          type: opts.exaType ?? "auto",
           numResults: searchLimit,
           category: exaCategoryForBeat(opts.category, opts.sourceMode),
           userLocation: opts.country,
@@ -673,6 +676,7 @@ export interface BeatDiscoveryOpts {
   preferredLanguage: string;
   excludedDomains?: string[];
   retrievalPort?: "firecrawl" | "exa";
+  exaType?: "auto" | "deep-lite";
   usage?: GeminiUsageContext;
 }
 
@@ -816,6 +820,7 @@ export async function discoverBeatHits(
 
   const searchResult = await runSearchesWithMetadata({
     plan,
+    exaType: opts.exaType,
     scope: opts.scope,
     category: opts.category,
     sourceMode: opts.sourceMode,

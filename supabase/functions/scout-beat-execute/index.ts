@@ -30,10 +30,10 @@ import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
-import { firecrawlSearch } from "../_shared/scrape_firecrawl.ts";
-import { scrape } from "../_shared/scrape.ts";
+import { scrape, scrapeProvider } from "../_shared/scrape.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
 import {
+  exaSearch,
   normalizeRetrievalPort,
   resolveBeatRetrievalPort,
   shouldFallbackFromExa,
@@ -53,10 +53,7 @@ import {
   BeatSourceMode,
   discoverBeatHits,
 } from "../_shared/beat_pipeline.ts";
-import {
-  logBeatAbRun,
-  promoteScoutFallbackAfterRepeatedExaLowCoverage,
-} from "../_shared/beat_ab_logger.ts";
+import { logBeatAbRun } from "../_shared/beat_ab_logger.ts";
 import {
   type DigestArticle,
   formatBeatDigest,
@@ -225,20 +222,24 @@ async function discoverPriorityDomainHits(opts: {
     const main = [subject, location].filter(Boolean).join(" ");
     const fallback = [location, "news"].filter(Boolean).join(" ") ||
       "recent news";
-    return uniqueStrings([
-      `site:${domain} ${main || fallback}`,
-      `site:${domain} ${fallback}`,
-    ]).map((query) => ({ domain, query }));
+    // Scope to the priority domain via Exa `includeDomains`, NOT a `site:`
+    // operator — Exa neural search treats `site:` as literal words and returns
+    // zero on-domain hits (this matches the beat-search preview surface, and
+    // keeps beat search Exa-only).
+    return uniqueStrings([main || fallback, fallback])
+      .map((query) => ({ domain, query }));
   });
   const results = await mapLimit(jobs, 4, async (job) => {
-    const hits = await firecrawlSearch(job.query, {
-      limit: 5,
-      lang: opts.preferredLanguage,
-      location: opts.locationLabel ?? undefined,
-      country: opts.countryCode ?? undefined,
-      sources: ["web"],
-      ignoreInvalidURLs: true,
+    const hits = await exaSearch(job.query, {
+      numResults: 5,
+      category: "news",
+      userLocation: opts.countryCode ?? undefined,
+      includeDomains: [job.domain],
       excludeDomains: opts.excludedDomains,
+      contents: {
+        text: { maxCharacters: 1000, verbosity: "compact" },
+        maxAgeHours: 72,
+      },
     });
     return hits
       .filter((hit) => urlMatchesDomain(hit.url, job.domain))
@@ -265,6 +266,7 @@ async function discoverPriorityDomainHits(opts: {
 
 interface RetrievalDiscoveryOpts {
   port: "firecrawl" | "exa";
+  exaType?: "auto" | "deep-lite";
   scope: BeatScope;
   sourceMode: BeatSourceMode;
   cityName: string | null;
@@ -308,6 +310,7 @@ async function discoverForRetrievalPort(
     preferredLanguage: opts.preferredLanguage,
     excludedDomains: opts.excludedDomains,
     retrievalPort: opts.port,
+    exaType: opts.exaType,
     usage: opts.usage,
   });
   let gov: BeatHit[] = [];
@@ -327,6 +330,7 @@ async function discoverForRetrievalPort(
       preferredLanguage: opts.preferredLanguage,
       excludedDomains: opts.excludedDomains,
       retrievalPort: opts.port,
+      exaType: opts.exaType,
       usage: opts.usage,
     });
     gov = govDiscovery.hits;
@@ -432,7 +436,7 @@ async function execute(
   await markRunStage(db, runId, "dispatch");
   const scoutMetadata = asObject(scout.metadata);
   const retrievalPort = resolveBeatRetrievalPort(scoutMetadata);
-  let effectiveRetrievalPort = retrievalPort;
+  const effectiveRetrievalPort = retrievalPort;
   const retrievalEnv = normalizeRetrievalPort(Deno.env.get("BEAT_RETRIEVAL"));
   const runBeatAbShadow = retrievalEnv === "firecrawl"
     ? false
@@ -633,17 +637,22 @@ async function execute(
             selected_url_count: primaryDiscoveredCount,
           },
         });
-        await promoteScoutFallbackAfterRepeatedExaLowCoverage(db, { scoutId });
+        // Low-coverage retry stays on Exa (a more thorough "deep-lite" tier)
+        // rather than falling back to Firecrawl — beat search is Exa-only.
+        // Firecrawl search on these niche queries returned ~0 results in
+        // practice (audit 2026-07-07), so a deeper Exa pass is both cleaner and
+        // a better coverage attempt. Per-query errors degrade gracefully to
+        // empty in runOne, so this never worsens the low-coverage case.
         primaryDiscovery = await discoverForRetrievalPort({
           ...baseDiscoveryOpts,
-          port: "firecrawl",
+          port: "exa",
+          exaType: "deep-lite",
         });
-        effectiveRetrievalPort = "firecrawl";
         retrievalFallbackTriggered = true;
         await mergeRunMetadata(db, runId, {
-          retrieval: "firecrawl",
+          retrieval: "exa",
           requested_retrieval: "exa",
-          fallback_reason: "exa_low_coverage",
+          fallback_reason: "exa_low_coverage_keyword_retry",
           exa_candidate_count: primaryDiscoveredCount,
         });
       }
@@ -804,6 +813,26 @@ async function execute(
             : String(r.reason),
         });
       }
+    });
+
+    // Provider telemetry (audit 2026-07-07): stamp which scraper actually
+    // served each URL so beat has the same crawl4ai / anti-bot-fallback
+    // visibility as web scouts (it had none before), and the benchmark can
+    // assert crawl4ai instead of assuming it.
+    const scrapeServed = scraped.reduce(
+      (acc, r) => {
+        if (r.status === "fulfilled") {
+          if (r.value.served_by === "crawl4ai") acc.crawl4ai++;
+          else if (r.value.served_by === "firecrawl") acc.firecrawl++;
+        }
+        return acc;
+      },
+      { crawl4ai: 0, firecrawl: 0 },
+    );
+    await mergeRunMetadata(db, runId, {
+      scrape_provider: scrapeProvider(),
+      scrape_served_crawl4ai: scrapeServed.crawl4ai,
+      scrape_served_firecrawl: scrapeServed.firecrawl,
     });
 
     if (succeeded.length === 0) {
