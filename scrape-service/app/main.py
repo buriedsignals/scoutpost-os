@@ -36,6 +36,7 @@ from .pdfparse import (
     parse_pdf_url,
 )
 from .scraper import Scraper
+from .snapshots import build_snapshot_payload, scrape_fuse_seconds
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -88,6 +89,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     class ScrapeBody(BaseModel):
         url: str
         timeout_ms: int | None = Field(default=None, ge=1000, le=120_000)
+        # PAGE-ARCHIVE-PRD U1: capture MHTML + full-page screenshot on the
+        # same render and return them inline. Only the archive pipeline's
+        # capture fetch sets this.
+        snapshot: bool = False
 
     class ParseBody(BaseModel):
         url: str
@@ -108,8 +113,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         timeout_ms = body.timeout_ms or cfg.default_scrape_timeout_ms
         try:
             result = await asyncio.wait_for(
-                request.app.state.scraper.run(body.url, timeout_ms=timeout_ms),
-                timeout=(timeout_ms / 1000) + 5,
+                request.app.state.scraper.run(
+                    body.url, timeout_ms=timeout_ms, snapshot=body.snapshot,
+                ),
+                # Snapshot fetches budget for crawl4ai's separately-timed
+                # capture phases (scan wait_for + MHTML readiness waits +
+                # screenshot compositor) — see scrape_fuse_seconds.
+                timeout=scrape_fuse_seconds(timeout_ms, body.snapshot),
             )
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail=f"scrape timed out after {timeout_ms}ms")
@@ -118,9 +128,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not getattr(result, "success", False):
             raise HTTPException(status_code=502, detail=f"scrape failed: {crawl_failure_detail(result)}")
         try:
-            return map_crawl_result(result, requested_url=body.url)
+            mapped = map_crawl_result(result, requested_url=body.url)
         except ValueError as e:
             raise HTTPException(status_code=502, detail=f"crawl result mapping failed: {e}")
+        if body.snapshot:
+            # Capture problems never fail the scrape: the caller still needs
+            # the markdown for change detection, and degrades the archive
+            # record per KTD9 when snapshot_error is set. Payload assembly is
+            # pure CPU over multi-MB buffers → off the event loop; and NO
+            # exception may escape past the markdown.
+            try:
+                payload, snapshot_error = await asyncio.to_thread(
+                    build_snapshot_payload, result,
+                )
+            except Exception as e:
+                payload, snapshot_error = None, (
+                    f"payload_assembly_failed:{e.__class__.__name__}"
+                )
+            if payload is not None:
+                mapped["snapshot"] = payload
+            else:
+                mapped["snapshot_error"] = snapshot_error
+        return mapped
 
     @app.post("/parse", dependencies=[Depends(require_token)])
     async def parse(body: ParseBody, request: Request):

@@ -71,13 +71,15 @@ class FakeScraper:
         self.result = result
         self.exc = exc
         self.calls: list[tuple[str, int]] = []
+        self.snapshot_flags: list[bool] = []
 
     @property
     def warm(self) -> bool:
         return True
 
-    async def run(self, url: str, timeout_ms: int):
+    async def run(self, url: str, timeout_ms: int, snapshot: bool = False):
         self.calls.append((url, timeout_ms))
+        self.snapshot_flags.append(snapshot)
         if self.exc is not None:
             raise self.exc
         return self.result
@@ -96,6 +98,7 @@ def crawl_result(**overrides) -> SimpleNamespace:
         metadata={"title": "Example Page", "sourceURL": "https://example.org/final"},
         status_code=200,
         error_message=None,
+        response_headers={"content-type": "text/html; charset=utf-8"},
     )
     base.update(overrides)
     return SimpleNamespace(**base)

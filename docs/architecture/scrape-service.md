@@ -73,3 +73,46 @@ paid Firecrawl key. The edge-functions service points at
 - **Alerting:** enable Render health-check + resource alerts on
   `scoutpost-scrape`; a scrape-service outage surfaces to scouts as provider
   errors (refunded automatically via the existing run-lifecycle machinery).
+
+## Snapshot capture (PAGE-ARCHIVE-PRD U1)
+
+`POST /scrape` accepts `snapshot: true` (set only by the Page Archive capture
+fetch). The same `arun` that produces the markdown also captures MHTML
+(`capture_mhtml`) and a full-page screenshot (`screenshot`) — same-render
+provenance is the contract (KTD1/KTD2). Artifacts return **inline** as
+base64 with SHA-256 hashes computed over the exact bytes
+(`snapshot.{mhtml_b64,mhtml_sha256,screenshot_b64,screenshot_sha256,sizes}`);
+screenshots ship verbatim as rendered (PNG, no transcode — Decision 9). The
+service keeps **zero snapshot state** — no tmp files, no pickup endpoint —
+so horizontal scaling stays safe.
+
+Caps (R8): 25 MB per artifact, 30 MB combined, with cheap pre-materialization
+guards. Over-cap, incomplete, or non-genuine captures never fail the scrape:
+the response carries a structured `snapshot_error` instead of a payload and
+the archive pipeline degrades to a `markdown_only` record. `response_headers`
+is mapped on every scrape response for the snapshot record's capture metadata.
+
+Integrity and fidelity notes (U1 review findings, all confirmed):
+
+- crawl4ai screenshots **never fail loudly** — capture errors return a black
+  JPEG error card. The payload requires PNG magic bytes and rejects anything
+  else (`snapshot_error: screenshot_not_png:*`), so a fake artifact is never
+  sealed as evidence.
+- For scrollable pages crawl4ai's full-page compositor stitches **JPEG-q85
+  segments** into the final PNG (Decision 10b disclosure): the hash covers
+  exactly the stored bytes, but the pixels are not lossless; MHTML is the
+  primary fidelity artifact.
+- The capture fetch's markdown includes lazy-loaded content (scan_full_page
+  scrolls before HTML retrieval) and therefore **must not feed change
+  detection** — it is the snapshot's `.md` record only (Decision 10a).
+- Snapshot scrapes get a larger outer fuse (`scrape_fuse_seconds`: 2x
+  timeout + 20 s) because crawl4ai times the scan/capture phases separately
+  from `page_timeout`; and they serialize on a dedicated single-slot
+  semaphore so long captures cannot starve ordinary scrapes out of the
+  browser pool.
+
+Verification: `pytest -m live --no-cov` includes a snapshot capture probe
+that must pass under the production browser config (UndetectedAdapter +
+stealth + headed/xvfb in the container), and `scripts/dev/scrape-stack.sh`
+plus a `snapshot: true` curl against a heavy page is the container-level
+smoke.

@@ -42,6 +42,10 @@ def map_crawl_result(result: Any, requested_url: str) -> dict[str, Any]:
     metadata = getattr(result, "metadata", None) or {}
     title = metadata.get("title") if isinstance(metadata, dict) else None
     source_url = getattr(result, "url", None) or requested_url
+    # response_headers (PAGE-ARCHIVE-PRD U1): the snapshot record persists
+    # selected response headers as capture metadata (KTD4). Mapped for every
+    # scrape — harmless without snapshot, required with it.
+    headers = getattr(result, "response_headers", None)
     return {
         "markdown": _extract_markdown(getattr(result, "markdown", None)),
         "rawHtml": getattr(result, "html", None),
@@ -52,6 +56,7 @@ def map_crawl_result(result: Any, requested_url: str) -> dict[str, Any]:
         "source_url": source_url,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "status_code": getattr(result, "status_code", None),
+        "response_headers": headers if isinstance(headers, dict) else {},
     }
 
 

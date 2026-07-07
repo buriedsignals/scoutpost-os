@@ -101,3 +101,110 @@ def test_docs_surfaces_disabled(app):
     client = TestClient(app)
     for path in ("/docs", "/redoc", "/openapi.json"):
         assert client.get(path).status_code == 404, path
+
+
+# --- PAGE-ARCHIVE-PRD U1: inline snapshot capture ---------------------------
+
+
+def test_scrape_without_snapshot_flag_requests_no_capture(app):
+    fake = FakeScraper(result=crawl_result())
+    app.state.scraper = fake
+    res = TestClient(app).post(
+        "/scrape", json={"url": "https://example.org"}, headers=auth_headers()
+    )
+    assert res.status_code == 200
+    assert fake.snapshot_flags == [False]
+    body = res.json()
+    assert "snapshot" not in body
+    assert "snapshot_error" not in body
+    # response_headers is mapped for every scrape (U1)
+    assert body["response_headers"] == {"content-type": "text/html; charset=utf-8"}
+
+
+def test_scrape_snapshot_happy_path_returns_inline_payload(app):
+    import base64 as b64
+    import hashlib
+
+    png = b"\x89PNG\r\n\x1a\npixels"
+    fake = FakeScraper(
+        result=crawl_result(
+            mhtml="MIME-Version: 1.0\n\nsnapshot body",
+            screenshot=b64.b64encode(png).decode("ascii"),
+        )
+    )
+    app.state.scraper = fake
+    res = TestClient(app).post(
+        "/scrape",
+        json={"url": "https://example.org", "snapshot": True},
+        headers=auth_headers(),
+    )
+    assert res.status_code == 200
+    assert fake.snapshot_flags == [True]
+    body = res.json()
+    snapshot = body["snapshot"]
+    assert snapshot["screenshot_sha256"] == hashlib.sha256(png).hexdigest()
+    assert b64.b64decode(snapshot["mhtml_b64"]).decode() == "MIME-Version: 1.0\n\nsnapshot body"
+    assert body["markdown"] == "# Heading\n\nBody text."  # scrape contract unchanged
+
+
+def test_scrape_snapshot_capture_failure_degrades_not_fails(app):
+    # crawl4ai produced no capture artifacts: the scrape must still succeed
+    # with markdown, carrying a structured snapshot_error instead of a payload.
+    fake = FakeScraper(result=crawl_result())  # no mhtml/screenshot attrs beyond defaults
+    app.state.scraper = fake
+    res = TestClient(app).post(
+        "/scrape",
+        json={"url": "https://example.org", "snapshot": True},
+        headers=auth_headers(),
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert "snapshot" not in body
+    assert body["snapshot_error"].startswith("capture_incomplete")
+    assert body["markdown"] == "# Heading\n\nBody text."
+
+
+def test_scrape_snapshot_rejects_error_card_screenshot(app):
+    # The REAL crawl4ai failure shape (finding: screenshots never fail loudly
+    # — a black JPEG error card comes back instead). Must degrade, not seal.
+    import base64 as b64
+
+    fake = FakeScraper(
+        result=crawl_result(
+            mhtml="MIME-Version: 1.0\n\nbody",
+            screenshot=b64.b64encode(b"\xff\xd8\xff\xe0error-card").decode("ascii"),
+        )
+    )
+    app.state.scraper = fake
+    res = TestClient(app).post(
+        "/scrape",
+        json={"url": "https://example.org", "snapshot": True},
+        headers=auth_headers(),
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert "snapshot" not in body
+    assert body["snapshot_error"].startswith("screenshot_not_png:")
+    assert body["markdown"] == "# Heading\n\nBody text."
+
+
+def test_scrape_snapshot_assembly_exception_never_escapes(app):
+    # An unexpected payload-assembly crash must degrade to snapshot_error,
+    # never 500 the scrape away from its markdown.
+    class Unencodable:
+        def __bool__(self):
+            return True
+
+    fake = FakeScraper(
+        result=crawl_result(mhtml=Unencodable(), screenshot="aGVsbG8=")
+    )
+    app.state.scraper = fake
+    res = TestClient(app).post(
+        "/scrape",
+        json={"url": "https://example.org", "snapshot": True},
+        headers=auth_headers(),
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["snapshot_error"].startswith("payload_assembly_failed:")
+    assert body["markdown"] == "# Heading\n\nBody text."

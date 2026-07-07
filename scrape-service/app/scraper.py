@@ -12,6 +12,11 @@ from typing import Any
 class Scraper:
     def __init__(self, pool_size: int) -> None:
         self._semaphore = asyncio.Semaphore(pool_size)
+        # Snapshot fetches hold a browser slot far longer than ordinary
+        # scrapes (scan + MHTML + compositor). Serializing them keeps at most
+        # ONE pool slot on long-hold duty, so concurrent captures cannot
+        # starve ordinary scrapes into queue-wait 504s.
+        self._snapshot_semaphore = asyncio.Semaphore(1)
         self._crawler: Any = None
         self._lock = asyncio.Lock()
 
@@ -54,20 +59,45 @@ class Scraper:
     def warm(self) -> bool:
         return self._crawler is not None
 
-    async def run(self, url: str, timeout_ms: int) -> Any:  # pragma: no cover - live path
+    async def run(
+        self,
+        url: str,
+        timeout_ms: int,
+        snapshot: bool = False,
+    ) -> Any:  # pragma: no cover - live path
         from crawl4ai import CacheMode, CrawlerRunConfig
 
         crawler = await self._ensure_crawler()
         # magic/simulate_user/override_navigator: crawl4ai's page-level
         # anti-detection (human-like interaction timing, navigator patches) —
         # layered with the undetected adapter for CF-challenged scout hosts.
+        #
+        # snapshot=True (PAGE-ARCHIVE-PRD U1/KTD1): capture MHTML + full-page
+        # screenshot on the SAME arun that produces the markdown — same-render
+        # provenance is the point. Both flags ride crawl4ai's native capture
+        # (CDP Page.captureSnapshot under the hood); the live test suite must
+        # prove them under this exact stealth/undetected/headed config, not
+        # vanilla Playwright.
+        # scan_full_page is load-bearing for the screenshot: crawl4ai's
+        # screenshot path degrades to viewport-only when it is False (its
+        # default) — verified against 0.8.9's take_screenshot kwargs. It also
+        # scrolls the page pre-capture, which pulls lazy-loaded content into
+        # the MHTML. max_scroll_steps bounds infinite-scroll pages.
         run_config = CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,
             page_timeout=timeout_ms,
             magic=True,
             simulate_user=True,
             override_navigator=True,
+            capture_mhtml=snapshot,
+            screenshot=snapshot,
+            scan_full_page=snapshot,
+            max_scroll_steps=30 if snapshot else None,
         )
+        if snapshot:
+            async with self._snapshot_semaphore:
+                async with self._semaphore:
+                    return await crawler.arun(url=url, config=run_config)
         async with self._semaphore:
             return await crawler.arun(url=url, config=run_config)
 
