@@ -66,7 +66,7 @@ docs/
 ## Key Documentation by Topic
 
 ### Scout System
-- **Page Scout** (type `web`): `features/web-scouts.md` - fresh Firecrawl scrape + local canonical hash baselines
+- **Page Scout** (type `web`): `features/web-scouts.md` - fresh crawl4ai scrape + local canonical-hash baselines
 - **Beat Scout** (type `beat`): `features/beat.md` - Multi-language search, AI filtering
 - **Social Scout** (type `social`): `features/social.md` - Social media monitoring, Apify scraping
 - **Civic Scout** (type `civic`): `features/civic.md` - Council monitoring, promise extraction, design reference

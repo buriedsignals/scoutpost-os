@@ -223,7 +223,7 @@ AI-powered local news monitoring platform. Users create "scouts" that monitor we
 | Scheduling | Supabase `pg_cron` + `pg_net` calling Edge Functions |
 | Auth | MuckRock OAuth 2.0 (SaaS, session cookies) / Supabase Auth (OSS, Bearer JWT) |
 | Scout runtime | Supabase Edge Functions (`execute-scout`, `scout-*`, `social-*`, `civic-*`) |
-| AI | Gemini 2.5 Flash-Lite (default LLM, direct API), Exa for beat search, OpenRouter fallback, Firecrawl scraping |
+| AI | Gemini 2.5 Flash-Lite (default LLM, direct API), Exa for beat search, OpenRouter fallback, crawl4ai scraping (self-hosted scrape-service; Firecrawl anti-bot fallback) |
 | Email | Resend |
 | Maps | MapTiler (geocoding) |
 
@@ -259,10 +259,10 @@ Detailed docs for each sidebar service in `docs/features/`:
 
 | Service | File | Description |
 |---------|------|-------------|
-| Page Scout (type `web`) | `web-scouts.md` | Firecrawl changeTracking, per-scout baselines, criteria analysis |
+| Page Scout (type `web`) | `web-scouts.md` | crawl4ai scrape + in-house canonical-hash baselines, criteria analysis |
 | Location Scout (type `beat`) | `beat.md` | Location-based monitoring — niche local sources by default |
 | Beat Scout (type `beat`) | `beat.md` | Topic/criteria monitoring — reliable sources by default |
-| Scrape | `scrape.md` | Firecrawl extraction, format options |
+| Scrape | `scrape.md` | crawl4ai extraction via the scrape-service, format options |
 | Social Scout (type `social`) | `social.md` | Social media monitoring, post diffing, Apify scraping |
 | Civic Scout (type `civic`) | `civic.md` | Council website monitoring, PDF parsing, promise extraction |
 | Feed & Export | `feed.md` | Information units, export generation |
@@ -276,7 +276,7 @@ Detailed docs for each sidebar service in `docs/features/`:
 | Beat Scout | `beat` | `scout-beat-execute` | `beat_pipeline.ts` |
 | Social Scout | `social` | `social-kickoff` | `social_orchestrator.py` |
 | Civic Scout | `civic` | `civic-execute` | `civic_orchestrator.py` |
-| Scrape | N/A | `data_extractor.py` | `firecrawl_client.py` |
+| Scrape | N/A | scrape-service (crawl4ai) | `_shared/scrape.ts` |
 | Feed / Export | N/A | `export.py` | `export_generator.py` |
 
 ## Admin Dashboard (SaaS-only, stripped from OSS mirror)
@@ -349,7 +349,7 @@ bearer token or `cj_...` API key.
 
 **Scout topics are tags:** The UI stores multiple topics as a comma-separated string when saving a scout, but those values are semantically independent tags. Frontend display, filters, counts, and suggestions must use `frontend/src/lib/utils/topics.ts` (`parseTopicTags`, `collectTopicCounts`, `topicMatches`) rather than comparing `scout.topic` as one opaque string.
 
-**Page Scout change detection:** Uses Firecrawl `changeTracking` with per-scout `tag` parameter. Each scout has its own baseline. See `docs/features/web-scouts.md`.
+**Page Scout change detection:** Uses in-house canonical-hash baselines (per-scout) — each run compares the current crawl4ai scrape's canonical content hash against the stored baseline. See `docs/features/web-scouts.md`.
 
 **Page Scout first-run extraction:** Users control whether to import existing page data via "Import current page data" toggle. OFF (default) establishes baseline only; ON extracts content to knowledge base.
 
@@ -449,7 +449,7 @@ feature branch → push → CI runs
 - `LLM_MODEL` - LLM model identifier (default: `gemini-2.5-flash-lite`). Gemini models route to Google AI direct API; others route to OpenRouter.
 - `GEMINI_API_KEY` - Gemini API key (LLM + multimodal embeddings)
 - `EXA_API_KEY` - Beat search provider
-- `FIRECRAWL_API_KEY` - Web scraping
+- `FIRECRAWL_API_KEY` - Anti-bot fallback scraping (crawl4ai is the primary scraper; Firecrawl fires only on anti-bot-blocked hosts)
 - `APIFY_API_TOKEN` - Apify API token (social media scraping)
 - `RESEND_API_KEY` - Email notifications
 - `INTERNAL_SERVICE_KEY` - Internal Edge Function / scheduled-worker auth

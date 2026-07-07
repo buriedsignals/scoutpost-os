@@ -32,8 +32,8 @@ Both flows expose a source mode toggle so users can switch between niche and rel
 │                                                                  │
 │  Step 0: Retrieval port selection                                │
 │  ├─ Default: Exa retrieval                                       │
-│  ├─ Per-scout override: scout.metadata.retrieval                 │
-│  ├─ Kill-switch/force: BEAT_RETRIEVAL                            │
+│  ├─ Firecrawl kill-switch retired (Exa only)                     │
+│  ├─ Low-coverage (<2) → Exa deep-lite retry                      │
 │  └─ A/B discovery shadow: BEAT_AB_SHADOW=1                       │
 │           │                                                      │
 │           ▼                                                      │
@@ -49,9 +49,9 @@ Both flows expose a source mode toggle so users can switch between niche and rel
 │           ▼                                                      │
 │  Step 2: Retrieval                                               │
 │  ├─ Exa default: /search with category, userLocation, dates      │
-│  ├─ Firecrawl kill switch: explicit sources ["web"] only         │
+│  ├─ Scrape found URLs via crawl4ai (Firecrawl AB fallback)       │
 │  ├─ Persist beat_ab_runs metrics + Exa cost when available       │
-│  └─ Low-coverage Exa runs fall back to Firecrawl                 │
+│  └─ Low-coverage Exa runs retry Exa deep-lite                    │
 │           │                                                      │
 │           ▼                                                      │
 │  Step 3: Legacy filter/ranking path                              │
@@ -83,10 +83,10 @@ Both flows expose a source mode toggle so users can switch between niche and rel
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `scout-beat-execute/index.ts` | `supabase/functions/` | Beat scout entrypoint. Branches on `priority_sources`: explicit → direct scrape; empty → retrieval pipeline. Resolves Firecrawl vs Exa, logs `beat_ab_runs`, handles low-coverage Exa fallback, extracts units, and sends deterministic extractive digest email. |
+| `scout-beat-execute/index.ts` | `supabase/functions/` | Beat scout entrypoint. Branches on `priority_sources`: explicit → direct scrape; empty → retrieval pipeline. Uses Exa retrieval (crawl4ai scrape), logs `beat_ab_runs`, handles the low-coverage Exa deep-lite retry, extracts units, and sends deterministic extractive digest email. |
 | `_shared/beat_pipeline.ts` | `supabase/functions/` | Public facade for Beat discovery helpers. Kept intentionally small so downstream imports stay stable during Exa migration. |
 | `_shared/exa.ts` | `supabase/functions/` | Exa `/search` client and retrieval-port helpers. Preserves `SearchHit` shape plus Exa metadata/cost for canary logging. |
-| `_shared/beat_ab_logger.ts` | `supabase/functions/` | Writes `beat_ab_runs`, computes raw/dated/final/locality/freshness metrics, and promotes repeated low-coverage Exa canaries back to Firecrawl. |
+| `_shared/beat_ab_logger.ts` | `supabase/functions/` | Writes `beat_ab_runs` and computes raw/dated/final/locality/freshness metrics. |
 | `_shared/extractive_summary.ts` | `supabase/functions/` | Deterministic Beat email digest renderer and grounding checks. No LLM calls. |
 | `beat-search/index.ts` | `supabase/functions/` | Preview endpoint — synchronous version of the pipeline for the New Scout modal's "Start Search" button. No credit charge, no persistence. |
 
@@ -169,7 +169,7 @@ When multiple articles cover the same story, the system picks the best one using
 
 ## Source Modes
 
-Source mode changes ranking, filtering, target count, and Exa category mapping. Firecrawl remains available only as the kill-switch path while Exa is the default retrieval port.
+Source mode changes ranking, filtering, target count, and Exa category mapping. Exa is the retrieval port for all beat discovery — see [Retrieval Port](#retrieval-port).
 
 | Mode | Firecrawl source | Exa category | Discovery | Date Window | AI Target | Domain Cap |
 |---|---|---|---|---|---|---|
@@ -178,22 +178,34 @@ Source mode changes ranking, filtering, target count, and Exa category mapping. 
 
 ## Retrieval Port
 
-Exa `/search` is the default retrieval port for Beat discovery. Firecrawl is
-kept as the global kill-switch path:
+Exa `/search` is the **sole** retrieval port for Beat discovery. The former
+Firecrawl retrieval kill-switch is **retired**: `resolveBeatRetrievalPort`
+(`_shared/exa.ts`) always returns `"exa"`, and a lingering
+`BEAT_RETRIEVAL=firecrawl` or `scouts.metadata.retrieval="firecrawl"` request is
+logged (`firecrawl_retrieval_deprecated`) and ignored.
 
-| Control | Effect |
-|---|---|
-| unset `BEAT_RETRIEVAL` | Use Exa by default. |
-| `scouts.metadata.retrieval = "exa"` | Keep this scout on Exa retrieval unless the global env overrides it. |
-| `scouts.metadata.retrieval = "firecrawl"` | Force this scout to the Firecrawl-compatible path. |
-| `BEAT_RETRIEVAL=exa` | Force all Beat scouts to Exa. Disables low-coverage fallback for the run. |
-| `BEAT_RETRIEVAL=firecrawl` | Global kill switch back to Firecrawl. |
-| `BEAT_AB_SHADOW=1` or `scouts.metadata.beat_ab_shadow=true` | Run the alternate port through discovery/filtering only and write a `beat_ab_runs` shadow row. |
-| `scouts.metadata.exa_fallback=false` | Disable per-scout low-coverage fallback during a canary. |
+Beat **search is Exa-only** — it never uses Firecrawl:
 
-Low-coverage Exa runs (`final candidates < 2`) log the Exa row, execute the
-current run through Firecrawl, and after three consecutive low-coverage Exa rows
-update `scouts.metadata.retrieval` to `"firecrawl"`.
+- **Low-coverage retry (Exa).** When an Exa run discovers `< 2` final candidates
+  (`shouldFallbackFromExa`), it retries Exa with the more thorough `deep-lite`
+  tier rather than falling back to Firecrawl (audit 2026-07-07: Firecrawl search
+  on those niche queries returned ~0). `retrieval` stays `"exa"`. Opt out
+  per-scout with `scouts.metadata.exa_fallback=false`.
+- **Priority sources** are scoped with Exa `includeDomains` (not a `site:`
+  operator, which Exa treats as literal text) — identical on the preview and the
+  scheduled runner.
+
+Firecrawl survives in Beat as exactly **one** thing — the **anti-bot scrape
+fallback**: discovered article URLs are scraped through the crawl4ai
+scrape-service (`scrape()` in `_shared/scrape.ts`); when a host blocks it
+(Cloudflare/DataDome/Imperva) that single scrape retries via Firecrawl
+(`isAntiBotBlockedError`). Every run stamps `scrape_served_crawl4ai` /
+`scrape_served_firecrawl` into `scout_runs.metadata`, and `benchmark-beat`
+asserts crawl4ai actually served and that retrieval stayed Exa.
+
+`BEAT_AB_SHADOW=1` (or `scouts.metadata.beat_ab_shadow=true`) still runs an
+alternate-port shadow through discovery/filtering only and writes a
+`beat_ab_runs` row.
 
 ## Search Relevance Guardrails
 
