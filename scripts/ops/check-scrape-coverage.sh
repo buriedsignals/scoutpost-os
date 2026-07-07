@@ -19,6 +19,7 @@ GATED_FILES=(
   "_shared/scrape_crawl4ai.ts"
   "_shared/docparse.ts"
   "_shared/canonical_baseline.ts"
+  "_shared/snapshot_store.ts"
 )
 
 rm -rf coverage
