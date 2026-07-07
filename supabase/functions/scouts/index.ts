@@ -781,7 +781,13 @@ async function establishCivicBaseline(
  * archiving. OSS (credits disabled) allows it for everyone. Mirrors the
  * runtime gate in snapshot_capture.resolveArchiveGate — both read the
  * user_preferences.tier mirror. Only enforced when the caller is turning the
- * flag ON (turning it off, or omitting it, is always allowed). Throws 403.
+ * flag ON (turning it off, or omitting it, is always allowed). Denies with 403.
+ *
+ * Fails CLOSED on a tier-read error (same posture as resolveArchiveGate, which
+ * returns false): a transient user_preferences read blip must not 500 and
+ * block scout creation — it denies the archive flag with the normal 403. The
+ * runtime capture gate re-checks tier on every run, so this is only the
+ * early-UX guard, not the sole enforcement.
  */
 async function assertArchiveEntitled(
   svc: ReturnType<typeof getServiceClient>,
@@ -795,8 +801,18 @@ async function assertArchiveEntitled(
     .select("tier")
     .eq("user_id", userId)
     .maybeSingle();
-  if (error) throw new Error(error.message);
-  const tier = (data as { tier?: string } | null)?.tier;
+  // A read error leaves tier undefined → falls through to the 403 deny below
+  // (fail closed), rather than throwing a 500 that aborts the whole request.
+  if (error) {
+    logEvent({
+      level: "warn",
+      fn: "scouts",
+      event: "archive_entitlement_tier_read_failed",
+      user_id: userId,
+      msg: error.message,
+    });
+  }
+  const tier = error ? undefined : (data as { tier?: string } | null)?.tier;
   if (tier !== "pro" && tier !== "team") {
     throw new ApiError(
       "Evidence archiving is a Pro/Team feature — upgrade to enable snapshots for this scout.",

@@ -380,6 +380,73 @@ Deno.test("scrapePrimaryPageResilient splits markdown and rawHtml after transien
   );
 });
 
+Deno.test("scrapePrimaryPageResilient split path drops capture artifacts + snapshot hint (chain-of-custody)", async () => {
+  // The two split sub-fetches can be served by different providers, so a
+  // screenshot from the markdown fetch must never be sealed alongside rawHtml
+  // from the rawHtml fetch as one 'same-fetch' snapshot (KTD9). Assert the
+  // merged result carries no screenshot_url/snapshot AND the sub-fetches never
+  // receive the snapshot hint.
+  const seenSnapshotHints: Array<unknown> = [];
+  let scrapeCalls = 0;
+  const result = await scrapePrimaryPageResilient({
+    url: "https://example.com",
+    retryDelayMs: 0,
+    snapshot: "on_fallback",
+    deps: {
+      scrape: async (_url, opts) => {
+        scrapeCalls += 1;
+        if (scrapeCalls <= 2) {
+          throw new ApiError("crawl4ai scrape aborted after 30000ms", 504);
+        }
+        seenSnapshotHints.push(opts?.snapshot);
+        if (opts?.formats?.includes("markdown")) {
+          // markdown sub-fetch pretends it fell back to firecrawl w/ a screenshot
+          return {
+            ...scrapeResult("markdown only", null),
+            served_by: "firecrawl",
+            screenshot_url: "https://cdn.firecrawl.dev/s.png",
+          };
+        }
+        return scrapeResult("", "<a href='/minutes'>Minutes</a>");
+      },
+    },
+  });
+
+  assertEquals(result.scrape_strategy, "split");
+  assertEquals(result.rawHtml, "<a href='/minutes'>Minutes</a>");
+  // Capture artifacts stripped — no mismatched same-fetch snapshot can form.
+  assertEquals((result as { screenshot_url?: string }).screenshot_url, undefined);
+  assertEquals((result as { snapshot?: unknown }).snapshot, null);
+  // Neither split sub-fetch carried the snapshot hint.
+  assertEquals(seenSnapshotHints, [undefined, undefined]);
+});
+
+Deno.test("scrape() strips the on_fallback hint on the primary firecrawl path", async () => {
+  const originalFetch = globalThis.fetch;
+  Deno.env.delete("SCRAPE_PROVIDER"); // firecrawl is primary
+  Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+  let sentFormats: unknown[] = [];
+  try {
+    globalThis.fetch = ((_input, init) => {
+      const body = JSON.parse(String((init as RequestInit)?.body ?? "{}"));
+      sentFormats = body.formats;
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: { markdown: "x", metadata: {} } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }) as typeof fetch;
+    const result = await scrape("https://example.com", { snapshot: "on_fallback" });
+    // Primary firecrawl must NOT append a screenshot format for the fallback hint.
+    assertEquals(sentFormats.some((f) => typeof f === "object"), false);
+    assertEquals(result.screenshot_url, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Deno.env.delete("FIRECRAWL_API_KEY");
+  }
+});
+
 Deno.test("scrapePrimaryPageResilient allows markdown-only fallback when rawHtml fails", async () => {
   let scrapeCalls = 0;
   const result = await scrapePrimaryPageResilient({

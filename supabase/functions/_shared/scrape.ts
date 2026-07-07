@@ -63,7 +63,16 @@ export async function scrape(
   opts: ScrapeOptions = {},
 ): Promise<ScrapeResult> {
   if (scrapeProvider() !== "crawl4ai") {
-    return { ...await firecrawlScrape(url, opts), served_by: "firecrawl" };
+    // Primary firecrawl path: the KTD9 `snapshot: "on_fallback"` hint is a
+    // FALLBACK signal — it must not fire a same-fetch capture on the primary
+    // provider (that would append a full-page screenshot to every detection
+    // scrape, including `same` runs). Only an explicit `snapshot: true` capture
+    // fetch materializes here, and those are pinned to crawl4ai (never reach
+    // this branch). So strip the hint. The fallback branch below keeps it.
+    return {
+      ...await firecrawlScrape(url, { ...opts, snapshot: undefined }),
+      served_by: "firecrawl",
+    };
   }
   try {
     return { ...await crawl4aiScrape(url, opts), served_by: "crawl4ai" };
@@ -184,12 +193,21 @@ export async function scrapePrimaryPageResilient(
   let markdownResult: ScrapeResult | ChangeTrackingResult;
   try {
     attempts++;
+    // The split path issues TWO independent fetches (markdown, then rawHtml),
+    // which can be served by different providers — so it can never satisfy the
+    // KTD9 same-fetch capture guarantee. Drop the snapshot hint from both
+    // sub-fetches (no wasted screenshot work, no stray screenshot_url) and
+    // clear any capture artifacts from the merged result below, so a
+    // split-path detection scrape degrades to markdown_only rather than
+    // sealing a screenshot and rawHtml from two different fetches as one
+    // "rendered_thirdparty" snapshot.
+    const splitOpts = { ...baseOpts, snapshot: undefined };
     markdownResult = opts.changeTrackingTag
       ? await deps.changeTrackingScrape(opts.url, opts.changeTrackingTag, {
-        ...baseOpts,
+        ...splitOpts,
         formats: ["markdown"],
       })
-      : await deps.scrape(opts.url, { ...baseOpts, formats: ["markdown"] });
+      : await deps.scrape(opts.url, { ...splitOpts, formats: ["markdown"] });
   } catch (e) {
     if (firstError instanceof Error) throw firstError;
     throw e;
@@ -203,6 +221,7 @@ export async function scrapePrimaryPageResilient(
     attempts++;
     const rawHtmlResult = await deps.scrape(opts.url, {
       ...baseOpts,
+      snapshot: undefined,
       formats: ["rawHtml"],
     });
     return withPrimaryMetadata(
@@ -214,6 +233,10 @@ export async function scrapePrimaryPageResilient(
         source_url: markdownResult.source_url || rawHtmlResult.source_url,
         requested_url: markdownResult.requested_url ??
           rawHtmlResult.requested_url,
+        // Capture artifacts can never be same-fetch on the split path — clear
+        // them so no mismatched rendered_thirdparty snapshot can be sealed.
+        screenshot_url: undefined,
+        snapshot: null,
       },
       "split",
       attempts,

@@ -116,11 +116,15 @@ export interface CaptureStoreDeps {
 }
 
 /** Capture fetch timeout sent to the service (KTD1: "inside the existing 25 s
- * primary-scrape budget"). The provider computes its own longer service fuse
- * from this; the abort ceiling below caps the EF's real exposure so a hung
- * capture can never blow the run's wall-clock. */
+ * primary-scrape budget"). The crawl4ai provider derives the client abort fuse
+ * as `timeoutMs*2 + 25_000` (~75 s) for snapshot fetches, which sits OUTSIDE
+ * the service's own `2×timeout+20 s` (~70 s) snapshot budget — so a heavy-page
+ * capture the service is still legitimately working on is not aborted early.
+ * We deliberately do NOT pass an explicit abortAfterMs here (an earlier 40 s
+ * override sat inside the service budget and silently degraded slow pages to
+ * markdown_only). The capture runs in the background, so the longer wait never
+ * touches the run's critical path. */
 const CAPTURE_FETCH_TIMEOUT_MS = 25_000;
-const CAPTURE_FETCH_ABORT_MS = 40_000;
 
 /** base64 → bytes with a decoded-size ceiling enforced BEFORE decoding. The
  * whitespace-stripped length gives a tight upper bound on the decoded size
@@ -462,7 +466,8 @@ export async function performArchiveCapture(
       snapshot: true,
       noAntibotFallback: true,
       timeoutMs: CAPTURE_FETCH_TIMEOUT_MS,
-      abortAfterMs: CAPTURE_FETCH_ABORT_MS,
+      // No explicit abortAfterMs — see CAPTURE_FETCH_TIMEOUT_MS: the provider's
+      // ~75 s snapshot default sits outside the service's ~70 s budget.
     });
   } catch (e) {
     // Capture-fetch failure or anti-bot block on the pin → never flip
