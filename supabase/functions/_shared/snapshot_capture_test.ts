@@ -41,6 +41,8 @@ function fakeSvc(opts: {
 } = {}) {
   const uploads: Array<{ path: string; bytes: Uint8Array }> = [];
   const rows: Record<string, unknown>[] = [];
+  const updates: Record<string, unknown>[] = [];
+  const SNAP_ID = "44444444-4444-4444-4444-444444444444";
   const svc = {
     storage: {
       from() {
@@ -87,17 +89,21 @@ function fakeSvc(opts: {
                   return Promise.resolve(
                     opts.insertError
                       ? { data: null, error: { message: opts.insertError } }
-                      : { data: { id: "snap-1" }, error: null },
+                      : { data: { id: SNAP_ID }, error: null },
                   );
                 },
               };
             },
           };
         },
+        update(patch: Record<string, unknown>) {
+          updates.push(patch);
+          return { eq() { return Promise.resolve({ error: null }); } };
+        },
       };
     },
   };
-  return { svc: svc as unknown as SupabaseClient, uploads, rows };
+  return { svc: svc as unknown as SupabaseClient, uploads, rows, updates };
 }
 
 function baseResult(over: Partial<ScrapeResult> = {}): ScrapeResult {
@@ -600,3 +606,5 @@ Deno.test("performArchiveCapture: capture-fetch failure degrades to markdown_onl
   assertEquals(out.fidelity, "markdown_only");
   assertStringIncludes(out.status, "degraded:antibot");
 });
+
+

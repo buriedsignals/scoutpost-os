@@ -17,6 +17,7 @@ import {
   performArchiveCapture,
   resolveArchiveGate,
 } from "./snapshot_capture.ts";
+import { applyTrustLayer, scoutWaybackEnabled } from "./trust.ts";
 
 export interface WebBaselineScout {
   id: string;
@@ -28,6 +29,8 @@ export interface WebBaselineScout {
   /** Archive gate (KTD6). Present so baseline snapshot capture can be
    * gated without a second scout read. */
   archive_enabled?: boolean | null;
+  /** Per-scout Wayback opt-out (KTD5), threaded to the baseline trust layer. */
+  wayback_enabled?: boolean | null;
 }
 
 interface WebBaselineDeps {
@@ -214,6 +217,26 @@ export async function captureWebBaselineSnapshot(
     contentSha256: await sha256Hex(detection.markdown),
     canonicalContentSha256: await webCanonicalHash(detection.markdown),
   }, detection);
+
+  // Trust layer (U4) — applied after the row is stored, non-fatal. Baseline
+  // rows have no scout_run, so there is nothing to sequence before it here.
+  if (outcome.stored) {
+    try {
+      await applyTrustLayer(
+        svc,
+        outcome.stored,
+        scoutWaybackEnabled(scout.wayback_enabled),
+      );
+    } catch (e) {
+      logEvent({
+        level: "warn",
+        fn: "web-scout-baseline",
+        event: "baseline_trust_failed",
+        scout_id: scout.id,
+        msg: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
 
   logEvent({
     level: "info",

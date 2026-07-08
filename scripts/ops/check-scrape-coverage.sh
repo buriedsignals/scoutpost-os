@@ -18,6 +18,14 @@
 # --allow-net) cannot exercise. snapshot_store.ts, the pure persistence half of
 # U3/U2, IS gated at 100%.
 #
+# tsa.ts / wayback.ts / trust.ts (PAGE-ARCHIVE-PRD U4 trust layer) are NOT gated
+# for the same fetch-seam reason: they are heavily tested (49 cases incl. an
+# exact-byte RFC 3161 TSQ fixture, the full TSResponse validator across
+# granted/rejection/imprint/nonce, SPN2 save→status/stale/disabled/kill-switch,
+# and the manifest→TSA→Wayback→row orchestration), at ~96-97% line coverage; the
+# residue is the `deps.fetchImpl ?? fetch` default and a couple of bounded-fetch
+# fuse callbacks the isolated run cannot drive.
+#
 # Usage: scripts/ops/check-scrape-coverage.sh
 set -euo pipefail
 

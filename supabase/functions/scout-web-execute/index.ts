@@ -45,6 +45,7 @@ import {
   runSnapshotInBackground,
   snapshotDiagnostics,
 } from "../_shared/snapshot_capture.ts";
+import { applyTrustLayer, scoutWaybackEnabled } from "../_shared/trust.ts";
 import { EMBEDDING_MODEL_TAG, geminiEmbed } from "../_shared/gemini.ts";
 import {
   extractAtomicUnits,
@@ -154,7 +155,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const { data: scout, error: scoutErr } = await svc
     .from("scouts")
     .select(
-      "id, user_id, type, name, url, criteria, project_id, is_active, provider, preferred_language, baseline_established_at, archive_enabled",
+      "id, user_id, type, name, url, criteria, project_id, is_active, provider, preferred_language, baseline_established_at, archive_enabled, wayback_enabled",
     )
     .eq("id", scout_id)
     .maybeSingle();
@@ -358,9 +359,28 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // the scout's archive gate resolved on (KTD6).
     if (result.archiveContext) {
       const { detection, ctx } = result.archiveContext;
+      const waybackEnabled = scoutWaybackEnabled(scout.wayback_enabled);
       runSnapshotInBackground((async () => {
         const outcome = await performArchiveCapture(svc, ctx, detection);
+        // Land the capture diagnostics FIRST, then run the slower trust layer
+        // (up to ~30s of TSA/Wayback). If the isolate is evicted mid-trust, the
+        // snapshot row + its scout_runs.metadata diagnostics are already saved;
+        // only the trust columns stay at their honest 'pending' default.
         await mergeRunMetadata(svc, runId, snapshotDiagnostics(outcome));
+        if (outcome.stored) {
+          try {
+            await applyTrustLayer(svc, outcome.stored, waybackEnabled);
+          } catch (e) {
+            logEvent({
+              level: "warn",
+              fn: "scout-web-execute",
+              event: "trust_layer_failed",
+              scout_id: scout.id,
+              run_id: runId,
+              msg: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
       })());
     }
 
@@ -439,6 +459,7 @@ interface ScoutRow {
   preferred_language: string | null;
   baseline_established_at?: string | null;
   archive_enabled?: boolean | null;
+  wayback_enabled?: boolean | null;
 }
 
 interface PipelineResult {

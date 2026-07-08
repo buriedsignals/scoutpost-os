@@ -1181,6 +1181,7 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
         url: data.url,
         provider: data.provider,
         archive_enabled: data.archive_enabled,
+        wayback_enabled: data.wayback_enabled,
         name: data.name,
       }),
     );

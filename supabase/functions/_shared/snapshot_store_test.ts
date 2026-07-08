@@ -455,3 +455,29 @@ Deno.test("deleteScoutSnapshots surfaces storage and row errors", async () => {
     SnapshotPathError,
   );
 });
+
+Deno.test("updateSnapshotTrust returns false (never throws) on a row-update error", async () => {
+  const { updateSnapshotTrust } = await import("./snapshot_store.ts");
+  const okSvc = {
+    from() {
+      return { update() { return { eq() { return Promise.resolve({ error: null }); } }; } };
+    },
+  } as unknown as SupabaseClient;
+  assertEquals(
+    await updateSnapshotTrust(okSvc, "44444444-4444-4444-4444-444444444444", { tsa_status: "ok" }),
+    true,
+  );
+  const errSvc = {
+    from() {
+      return {
+        update() {
+          return { eq() { return Promise.resolve({ error: { message: "db down" } }); } };
+        },
+      };
+    },
+  } as unknown as SupabaseClient;
+  assertEquals(
+    await updateSnapshotTrust(errSvc, "44444444-4444-4444-4444-444444444444", { tsa_status: "ok" }),
+    false,
+  );
+});

@@ -28,6 +28,7 @@ import {
   SnapshotIntegrityError,
   snapshotDiagnostics,
   SnapshotStorageError,
+  type StoredSnapshot,
   storeSnapshot,
 } from "./snapshot_store.ts";
 
@@ -104,6 +105,9 @@ export interface CaptureOutcome {
   status: string;
   snapshotId?: string;
   fidelity?: SnapshotFidelity;
+  /** The persisted row (present on every stored tier incl. markdown_only), so
+   * the caller can apply the U4 trust layer. Absent only on total failure. */
+  stored?: StoredSnapshot;
 }
 
 export interface CaptureStoreDeps {
@@ -305,6 +309,7 @@ export async function storeDegraded(
       status: `degraded:${cls}`,
       snapshotId: stored.id,
       fidelity: "markdown_only",
+      stored,
     };
   } catch (e) {
     logEvent({
@@ -375,7 +380,7 @@ export async function storeCaptureResult(
         markdown: capture.markdown,
         artifacts,
       });
-      return { status: "stored", snapshotId: stored.id, fidelity: "full" };
+      return { status: "stored", snapshotId: stored.id, fidelity: "full", stored };
     }
 
     if (capture.screenshot_url && capture.rawHtml?.trim()) {
@@ -405,6 +410,7 @@ export async function storeCaptureResult(
         status: "stored",
         snapshotId: stored.id,
         fidelity: "rendered_thirdparty",
+        stored,
       };
     }
 

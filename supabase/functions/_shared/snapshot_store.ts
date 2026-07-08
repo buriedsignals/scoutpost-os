@@ -17,6 +17,7 @@
  */
 
 import type { SupabaseClient } from "./supabase.ts";
+import type { SnapshotManifestInput } from "./tsa.ts";
 import { logEvent } from "./log.ts";
 
 export const SNAPSHOT_BUCKET = "page-snapshots";
@@ -92,6 +93,68 @@ export function manifestObjectPath(
   return `${userId.toLowerCase()}/${scoutId.toLowerCase()}/manifest-${snapshotId.toLowerCase()}.json`;
 }
 
+/** RFC 3161 token object path (U4). Sits beside the manifest it timestamps. */
+export function tsrObjectPath(
+  userId: string,
+  scoutId: string,
+  snapshotId: string,
+): string {
+  assertUuid(userId, "userId");
+  assertUuid(scoutId, "scoutId");
+  assertUuid(snapshotId, "snapshotId");
+  return `${userId.toLowerCase()}/${scoutId.toLowerCase()}/${snapshotId.toLowerCase()}.tsr`;
+}
+
+/** Idempotent upload of a trust-layer object (manifest JSON, .tsr token). Same
+ * 409-is-success semantics as artifact uploads — content is re-derivable, so a
+ * re-run over identical evidence is safe. Throws only on a real storage error. */
+export async function uploadTrustObject(
+  svc: SupabaseClient,
+  path: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<void> {
+  const { error } = await svc.storage
+    .from(SNAPSHOT_BUCKET)
+    .upload(path, bytes, { contentType, upsert: false });
+  const isDuplicate = error !== null &&
+    ((error as { statusCode?: string }).statusCode === "409" ||
+      /already exists|duplicate/i.test(error.message));
+  if (error && !isDuplicate) {
+    throw new SnapshotStorageError(`trust upload failed (${path}): ${error.message}`);
+  }
+}
+
+/** Patch the trust-layer columns on a page_snapshots row (U4). Best-effort:
+ * returns whether the update succeeded; never throws (trust status is a
+ * diagnostic, never a reason to fail a run). */
+export async function updateSnapshotTrust(
+  svc: SupabaseClient,
+  snapshotId: string,
+  patch: {
+    manifest_path?: string | null;
+    tsa_status?: string;
+    tsa_path?: string | null;
+    wayback_status?: string;
+    wayback_url?: string | null;
+  },
+): Promise<boolean> {
+  const { error } = await svc
+    .from("page_snapshots")
+    .update(patch)
+    .eq("id", snapshotId);
+  if (error) {
+    logEvent({
+      level: "warn",
+      fn: "snapshot-store",
+      event: "trust_row_update_failed",
+      msg: error.message,
+    });
+    return false;
+  }
+  return true;
+}
+
 export interface SnapshotArtifact {
   kind: SnapshotArtifactKind;
   bytes: Uint8Array;
@@ -127,6 +190,10 @@ export interface StoredSnapshot {
   fidelity: SnapshotFidelity;
   markdownPath: string;
   paths: Partial<Record<SnapshotArtifactKind, string>>;
+  /** Everything the U4 trust layer needs to build the canonical manifest —
+   * surfaced here so the manifest is hashed over the exact bytes that were
+   * stored, without a round-trip read of the row. */
+  manifestInput: SnapshotManifestInput;
 }
 
 /** Fidelity tiers imply exact artifact sets (KTD9). Enforced so a bug cannot
@@ -252,11 +319,31 @@ export async function storeSnapshot(
     const upload = byKind.get(kind);
     if (upload) paths[kind] = upload.path;
   }
+  const snapshotId = (data as { id: string }).id;
   return {
-    id: (data as { id: string }).id,
+    id: snapshotId,
     fidelity: params.fidelity,
     markdownPath: byKind.get("markdown")!.path,
     paths,
+    manifestInput: {
+      snapshotId,
+      scoutId: params.scoutId,
+      userId: params.userId,
+      scoutRunId: params.scoutRunId ?? null,
+      captureKind: params.captureKind,
+      fidelity: params.fidelity,
+      servedBy: params.servedBy ?? null,
+      capturedAt: params.capturedAt,
+      requestedUrl: params.requestedUrl,
+      finalUrl: params.finalUrl ?? null,
+      httpStatus: params.httpStatus ?? null,
+      contentSha256: params.contentSha256 ?? null,
+      canonicalContentSha256: params.canonicalContentSha256 ?? null,
+      markdownSha256: markdownSha,
+      mhtmlSha256: byKind.get("mhtml")?.sha256 ?? null,
+      screenshotSha256: byKind.get("screenshot")?.sha256 ?? null,
+      rawhtmlSha256: byKind.get("rawhtml")?.sha256 ?? null,
+    },
   };
 }
 
