@@ -282,6 +282,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
           matchedUrl: result.matchedUrl ?? null,
           matchedTitle: result.matchedTitle ?? null,
           matchedSummary: result.matchedSummary ?? null,
+          // Archive deep link (U5): archiveContext is present exactly when this
+          // run was gated (archive on) + changed/new, which guarantees a
+          // snapshot row lands from the background capture.
+          archiveEnabled: !!result.archiveContext,
         });
         if (!notification.ok) {
           await markNotificationResult(

@@ -10,503 +10,1740 @@
     }
   },
   "servers": [
-    { "url": "https://scoutpost.ai/functions/v1", "description": "Production" },
-    { "url": "/functions/v1", "description": "Relative (when proxied by the app)" }
+    {
+      "url": "https://scoutpost.ai/functions/v1",
+      "description": "Production"
+    },
+    {
+      "url": "/functions/v1",
+      "description": "Relative (when proxied by the app)"
+    }
   ],
-  "security": [{ "bearerAuth": [], "anonKey": [] }],
+  "security": [
+    {
+      "bearerAuth": [],
+      "anonKey": []
+    }
+  ],
   "tags": [
-    { "name": "scouts", "description": "Scout CRUD + lifecycle (list/create/update/run/pause/resume/delete)" },
-    { "name": "units", "description": "Information units — the editorial inbox + verification + semantic search" },
-    { "name": "projects", "description": "Investigation projects (a workspace for grouping scouts + units)" },
-    { "name": "entities", "description": "Canonical entity store + merge" },
-    { "name": "reflections", "description": "Durable editorial notes tied to units/scouts/entities" },
-    { "name": "knowledge", "description": "Ingest content into information units" },
-    { "name": "user", "description": "Authed user profile + preferences" },
-    { "name": "agents", "description": "`cj_…` API keys (create, list, revoke) + MCP server" },
-    { "name": "meta", "description": "Spec + health" }
+    {
+      "name": "scouts",
+      "description": "Scout CRUD + lifecycle (list/create/update/run/pause/resume/delete)"
+    },
+    {
+      "name": "units",
+      "description": "Information units — the editorial inbox + verification + semantic search"
+    },
+    {
+      "name": "projects",
+      "description": "Investigation projects (a workspace for grouping scouts + units)"
+    },
+    {
+      "name": "entities",
+      "description": "Canonical entity store + merge"
+    },
+    {
+      "name": "reflections",
+      "description": "Durable editorial notes tied to units/scouts/entities"
+    },
+    {
+      "name": "knowledge",
+      "description": "Ingest content into information units"
+    },
+    {
+      "name": "user",
+      "description": "Authed user profile + preferences"
+    },
+    {
+      "name": "agents",
+      "description": "`cj_…` API keys (create, list, revoke) + MCP server"
+    },
+    {
+      "name": "meta",
+      "description": "Spec + health"
+    }
   ],
   "paths": {
     "/scouts": {
       "get": {
-        "tags": ["scouts"],
+        "tags": [
+          "scouts"
+        ],
         "summary": "List scouts owned by the caller",
         "parameters": [
-          { "$ref": "#/components/parameters/Limit" },
-          { "$ref": "#/components/parameters/Offset" },
-          { "name": "type", "in": "query", "schema": { "$ref": "#/components/schemas/ScoutType" } }
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScoutType"
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "Paginated scouts",
-            "content": { "application/json": { "schema": {
-              "allOf": [
-                { "$ref": "#/components/schemas/Paginated" },
-                { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Scout" } } } }
-              ]
-            }}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Paginated"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Scout"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
           }
         }
       },
       "post": {
-        "tags": ["scouts"],
+        "tags": [
+          "scouts"
+        ],
         "summary": "Create a scout. Scheduled creation establishes the initial baseline; Run Now never bootstraps a missing baseline.",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScoutCreate" } } } },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScoutCreate"
+              }
+            }
+          }
+        },
         "responses": {
-          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Scout" } } } },
-          "400": { "$ref": "#/components/responses/ValidationError" },
-          "402": { "$ref": "#/components/responses/OutOfCredits" }
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scout"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "402": {
+            "$ref": "#/components/responses/OutOfCredits"
+          }
         }
       }
     },
     "/scouts/from-template": {
       "post": {
-        "tags": ["scouts"],
+        "tags": [
+          "scouts"
+        ],
         "summary": "Create a scout from a named template",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["template_slug", "name"],
-          "properties": {
-            "template_slug": { "type": "string" },
-            "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-            "fields": { "type": "object", "additionalProperties": true },
-            "project_id": { "type": "string", "format": "uuid", "nullable": true }
-          }
-        } } } },
-        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Scout" } } } } }
-      }
-    },
-    "/scouts/test": {
-      "post": {
-        "tags": ["scouts"],
-        "summary": "Dry-run a scout configuration without creating it (establishes no baseline)",
-        "responses": { "200": { "description": "Preview" } }
-      }
-    },
-    "/scouts/{id}": {
-      "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
-      "get": {
-        "tags": ["scouts"],
-        "summary": "Fetch a scout",
-        "responses": {
-          "200": { "description": "ok", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Scout" } } } },
-          "404": { "$ref": "#/components/responses/NotFound" }
-        }
-      },
-      "patch": {
-        "tags": ["scouts"],
-        "summary": "Update a scout (any subset of name/criteria/schedule/is_active)",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScoutUpdate" } } } },
-        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Scout" } } } } }
-      },
-      "delete": {
-        "tags": ["scouts"],
-        "summary": "Delete a scout and unschedule its cron job",
-        "responses": { "204": { "description": "deleted" } }
-      }
-    },
-    "/scouts/{id}/run": {
-      "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
-      "post": {
-        "tags": ["scouts"],
-        "summary": "Trigger an on-demand scout run (spends credits)",
-        "responses": {
-          "202": {
-            "description": "Accepted — run queued",
-            "content": { "application/json": { "schema": { "type": "object", "properties": { "run_id": { "type": "string", "format": "uuid" } } } } }
-          },
-          "402": { "$ref": "#/components/responses/OutOfCredits" }
-        }
-      }
-    },
-    "/scouts/{id}/pause": {
-      "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
-      "post": {
-        "tags": ["scouts"],
-        "summary": "Set is_active=false and unschedule the cron job",
-        "responses": { "200": { "description": "paused" } }
-      }
-    },
-    "/scouts/{id}/resume": {
-      "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
-      "post": {
-        "tags": ["scouts"],
-        "summary": "Set is_active=true and re-schedule the cron job",
-        "responses": { "200": { "description": "resumed" } }
-      }
-    },
-
-    "/units": {
-      "get": {
-        "tags": ["units"],
-        "summary": "List information units with scope and lifecycle-state filters.",
-        "parameters": [
-          { "$ref": "#/components/parameters/Limit" },
-          { "$ref": "#/components/parameters/Offset" },
-          { "name": "project_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
-          { "name": "scout_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
-          { "name": "verified", "in": "query", "schema": { "type": "boolean" }, "description": "Filter by verified state. `false` = needs-review inbox." },
-          { "name": "used_in_article", "in": "query", "schema": { "type": "boolean" }, "description": "Filter by published state. `false` = not yet used." },
-          { "name": "include_deleted", "in": "query", "schema": { "type": "boolean" }, "description": "Include soft-deleted units. Deleted units are excluded by default." },
-          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "Lower bound for `last_seen_at` / surfaced `extracted_at`." },
-          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "Upper bound for `last_seen_at` / surfaced `extracted_at`." }
-        ],
-        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": {
-          "allOf": [
-            { "$ref": "#/components/schemas/Paginated" },
-            { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Unit" } } } }
-          ]
-        } } } } }
-      }
-    },
-    "/units/locations": {
-      "get": {
-        "tags": ["units"],
-        "summary": "Legacy compatibility: list location keys represented in the caller's units.",
-        "deprecated": true,
-        "description": "Compatibility route used by older feed/workspace clients. Prefer GET /units with location filters for new integrations.",
-        "responses": { "200": { "description": "location keys" } }
-      }
-    },
-    "/units/topics": {
-      "get": {
-        "tags": ["units"],
-        "summary": "Legacy compatibility: list topics represented in the caller's units.",
-        "deprecated": true,
-        "description": "Compatibility route used by older feed/workspace clients. Prefer GET /units with topic/scout/project filters for new integrations.",
-        "responses": { "200": { "description": "topics" } }
-      }
-    },
-    "/units/all": {
-      "get": {
-        "tags": ["units"],
-        "summary": "Legacy compatibility: list unused units.",
-        "deprecated": true,
-        "parameters": [{ "$ref": "#/components/parameters/Limit" }],
-        "responses": { "200": { "description": "legacy units envelope" } }
-      }
-    },
-    "/units/unused": {
-      "get": {
-        "tags": ["units"],
-        "summary": "Legacy compatibility: list unused units for a required country/location scope.",
-        "deprecated": true,
-        "parameters": [
-          { "$ref": "#/components/parameters/Limit" },
-          { "name": "country", "in": "query", "required": true, "schema": { "type": "string" } },
-          { "name": "state", "in": "query", "schema": { "type": "string" } },
-          { "name": "city", "in": "query", "schema": { "type": "string" } }
-        ],
-        "responses": { "200": { "description": "legacy units envelope" } }
-      }
-    },
-    "/units/by-topic": {
-      "get": {
-        "tags": ["units"],
-        "summary": "Legacy compatibility: list unused units by topic.",
-        "deprecated": true,
-        "parameters": [
-          { "$ref": "#/components/parameters/Limit" },
-          { "name": "topic", "in": "query", "required": true, "schema": { "type": "string" } },
-          { "name": "country", "in": "query", "schema": { "type": "string" } },
-          { "name": "state", "in": "query", "schema": { "type": "string" } },
-          { "name": "city", "in": "query", "schema": { "type": "string" } }
-        ],
-        "responses": { "200": { "description": "legacy units envelope" } }
-      }
-    },
-    "/units/search": {
-      "get": {
-        "tags": ["units"],
-        "summary": "Legacy compatibility: search units with query-string parameters.",
-        "deprecated": true,
-        "parameters": [
-          { "name": "query", "in": "query", "required": true, "schema": { "type": "string", "minLength": 2 } },
-          { "$ref": "#/components/parameters/Limit" },
-          { "name": "topic", "in": "query", "schema": { "type": "string" } },
-          { "name": "country", "in": "query", "schema": { "type": "string" } },
-          { "name": "state", "in": "query", "schema": { "type": "string" } },
-          { "name": "city", "in": "query", "schema": { "type": "string" } }
-        ],
-        "responses": { "200": { "description": "legacy units envelope" } }
-      },
-      "post": {
-        "tags": ["units"],
-        "summary": "Search over the caller's units using semantic, keyword, or hybrid mode.",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["query_text"],
-          "properties": {
-            "query_text": { "type": "string", "minLength": 1, "maxLength": 4000 },
-            "mode": { "type": "string", "enum": ["semantic", "keyword", "hybrid"], "default": "hybrid" },
-            "project_id": { "type": "string", "format": "uuid" },
-            "scout_id": { "type": "string", "format": "uuid" },
-            "verified": { "type": "boolean" },
-            "used_in_article": { "type": "boolean" },
-            "include_deleted": { "type": "boolean" },
-            "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
-          }
-        } } } },
-        "responses": { "200": { "description": "ranked units", "content": { "application/json": { "schema": {
-          "type": "object",
-          "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Unit" } } }
-        } } } } }
-      }
-    },
-    "/units/mark-used": {
-      "patch": {
-        "tags": ["units"],
-        "summary": "Legacy compatibility: mark units used from Dynamo-style unit keys.",
-        "deprecated": true,
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["unit_keys"],
-          "properties": {
-            "unit_keys": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 200,
-              "items": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
                 "type": "object",
-                "required": ["pk", "sk"],
+                "required": [
+                  "template_slug",
+                  "name"
+                ],
                 "properties": {
-                  "pk": { "type": "string" },
-                  "sk": { "type": "string" }
+                  "template_slug": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  }
                 }
               }
             }
           }
-        } } } },
-        "responses": { "200": { "description": "marked count" } }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scout"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scouts/test": {
+      "post": {
+        "tags": [
+          "scouts"
+        ],
+        "summary": "Dry-run a scout configuration without creating it (establishes no baseline)",
+        "responses": {
+          "200": {
+            "description": "Preview"
+          }
+        }
+      }
+    },
+    "/scouts/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "scouts"
+        ],
+        "summary": "Fetch a scout",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scout"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "scouts"
+        ],
+        "summary": "Update a scout (any subset of name/criteria/schedule/is_active)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScoutUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scout"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "scouts"
+        ],
+        "summary": "Delete a scout and unschedule its cron job",
+        "responses": {
+          "204": {
+            "description": "deleted"
+          }
+        }
+      }
+    },
+    "/scouts/{id}/run": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "scouts"
+        ],
+        "summary": "Trigger an on-demand scout run (spends credits)",
+        "responses": {
+          "202": {
+            "description": "Accepted — run queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "402": {
+            "$ref": "#/components/responses/OutOfCredits"
+          }
+        }
+      }
+    },
+    "/scouts/{id}/pause": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "scouts"
+        ],
+        "summary": "Set is_active=false and unschedule the cron job",
+        "responses": {
+          "200": {
+            "description": "paused"
+          }
+        }
+      }
+    },
+    "/scouts/{id}/resume": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "scouts"
+        ],
+        "summary": "Set is_active=true and re-schedule the cron job",
+        "responses": {
+          "200": {
+            "description": "resumed"
+          }
+        }
+      }
+    },
+    "/units": {
+      "get": {
+        "tags": [
+          "units"
+        ],
+        "summary": "List information units with scope and lifecycle-state filters.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "scout_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "verified",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by verified state. `false` = needs-review inbox."
+          },
+          {
+            "name": "used_in_article",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by published state. `false` = not yet used."
+          },
+          {
+            "name": "include_deleted",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Include soft-deleted units. Deleted units are excluded by default."
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Lower bound for `last_seen_at` / surfaced `extracted_at`."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Upper bound for `last_seen_at` / surfaced `extracted_at`."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Paginated"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Unit"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/units/locations": {
+      "get": {
+        "tags": [
+          "units"
+        ],
+        "summary": "Legacy compatibility: list location keys represented in the caller's units.",
+        "deprecated": true,
+        "description": "Compatibility route used by older feed/workspace clients. Prefer GET /units with location filters for new integrations.",
+        "responses": {
+          "200": {
+            "description": "location keys"
+          }
+        }
+      }
+    },
+    "/units/topics": {
+      "get": {
+        "tags": [
+          "units"
+        ],
+        "summary": "Legacy compatibility: list topics represented in the caller's units.",
+        "deprecated": true,
+        "description": "Compatibility route used by older feed/workspace clients. Prefer GET /units with topic/scout/project filters for new integrations.",
+        "responses": {
+          "200": {
+            "description": "topics"
+          }
+        }
+      }
+    },
+    "/units/all": {
+      "get": {
+        "tags": [
+          "units"
+        ],
+        "summary": "Legacy compatibility: list unused units.",
+        "deprecated": true,
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "legacy units envelope"
+          }
+        }
+      }
+    },
+    "/units/unused": {
+      "get": {
+        "tags": [
+          "units"
+        ],
+        "summary": "Legacy compatibility: list unused units for a required country/location scope.",
+        "deprecated": true,
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "name": "country",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "legacy units envelope"
+          }
+        }
+      }
+    },
+    "/units/by-topic": {
+      "get": {
+        "tags": [
+          "units"
+        ],
+        "summary": "Legacy compatibility: list unused units by topic.",
+        "deprecated": true,
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "name": "topic",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "country",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "legacy units envelope"
+          }
+        }
+      }
+    },
+    "/units/search": {
+      "get": {
+        "tags": [
+          "units"
+        ],
+        "summary": "Legacy compatibility: search units with query-string parameters.",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 2
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "name": "topic",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "country",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "legacy units envelope"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "units"
+        ],
+        "summary": "Search over the caller's units using semantic, keyword, or hybrid mode.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "query_text"
+                ],
+                "properties": {
+                  "query_text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "semantic",
+                      "keyword",
+                      "hybrid"
+                    ],
+                    "default": "hybrid"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "scout_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "verified": {
+                    "type": "boolean"
+                  },
+                  "used_in_article": {
+                    "type": "boolean"
+                  },
+                  "include_deleted": {
+                    "type": "boolean"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ranked units",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Unit"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/units/mark-used": {
+      "patch": {
+        "tags": [
+          "units"
+        ],
+        "summary": "Legacy compatibility: mark units used from Dynamo-style unit keys.",
+        "deprecated": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "unit_keys"
+                ],
+                "properties": {
+                  "unit_keys": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 200,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "pk",
+                        "sk"
+                      ],
+                      "properties": {
+                        "pk": {
+                          "type": "string"
+                        },
+                        "sk": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "marked count"
+          }
+        }
       }
     },
     "/units/{id}": {
-      "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
       "get": {
-        "tags": ["units"],
+        "tags": [
+          "units"
+        ],
         "summary": "Fetch a unit",
-        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Unit" } } } } }
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unit"
+                }
+              }
+            }
+          }
+        }
       },
       "patch": {
-        "tags": ["units"],
+        "tags": [
+          "units"
+        ],
         "summary": "Verify / reject / mark-used. All fields optional; only sent keys change.",
         "description": "Conventions:\n- Verify: `{ verified: true, verified_by, verification_notes }`\n- Reject: `{ verified: false, verification_notes: \"<reason>\" }`\n- Mark used: `{ used_in_article: true, used_in_url, used_at }`",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UnitUpdate" } } } },
-        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Unit" } } } } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unit"
+                }
+              }
+            }
+          }
+        }
       },
       "delete": {
-        "tags": ["units"],
+        "tags": [
+          "units"
+        ],
         "summary": "Soft-delete a unit",
-        "responses": { "204": { "description": "deleted" } }
+        "responses": {
+          "204": {
+            "description": "deleted"
+          }
+        }
       }
     },
-
     "/projects": {
       "get": {
-        "tags": ["projects"],
+        "tags": [
+          "projects"
+        ],
         "summary": "List projects",
-        "parameters": [{ "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Offset" }],
-        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": {
-          "allOf": [
-            { "$ref": "#/components/schemas/Paginated" },
-            { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Project" } } } }
-          ]
-        } } } } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Paginated"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Project"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
       },
       "post": {
-        "tags": ["projects"],
+        "tags": [
+          "projects"
+        ],
         "summary": "Create a project",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["name"],
-          "properties": {
-            "name": { "type": "string", "minLength": 1, "maxLength": 120 },
-            "description": { "type": "string", "maxLength": 2000 },
-            "visibility": { "type": "string", "enum": ["private", "team"], "default": "private" },
-            "tags": { "type": "array", "items": { "type": "string", "maxLength": 50 }, "maxItems": 30 }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "visibility": {
+                    "type": "string",
+                    "enum": [
+                      "private",
+                      "team"
+                    ],
+                    "default": "private"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 50
+                    },
+                    "maxItems": 30
+                  }
+                }
+              }
+            }
           }
-        } } } },
-        "responses": { "201": { "description": "created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } } }
+        },
+        "responses": {
+          "201": {
+            "description": "created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/projects/{id}": {
-      "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
-      "get": { "tags": ["projects"], "summary": "Fetch a project", "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } } } },
-      "patch": {
-        "tags": ["projects"],
-        "summary": "Update a project",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "properties": {
-            "name": { "type": "string", "minLength": 1, "maxLength": 120 },
-            "description": { "type": "string", "maxLength": 2000, "nullable": true },
-            "visibility": { "type": "string", "enum": ["private", "team"] },
-            "tags": { "type": "array", "items": { "type": "string" }, "maxItems": 30 }
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Fetch a project",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
           }
-        } } } },
-        "responses": { "200": { "description": "ok" } }
+        }
       },
-      "delete": { "tags": ["projects"], "summary": "Delete a project", "responses": { "204": { "description": "deleted" } } }
+      "patch": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Update a project",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "nullable": true
+                  },
+                  "visibility": {
+                    "type": "string",
+                    "enum": [
+                      "private",
+                      "team"
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 30
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Delete a project",
+        "responses": {
+          "204": {
+            "description": "deleted"
+          }
+        }
+      }
     },
-
     "/entities": {
       "get": {
-        "tags": ["entities"],
+        "tags": [
+          "entities"
+        ],
         "summary": "List canonical entities",
         "parameters": [
-          { "$ref": "#/components/parameters/Limit" },
-          { "$ref": "#/components/parameters/Offset" },
-          { "name": "search", "in": "query", "schema": { "type": "string" } },
-          { "name": "type", "in": "query", "schema": { "type": "string", "enum": ["person", "org", "place", "policy"] } }
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "person",
+                "org",
+                "place",
+                "policy"
+              ]
+            }
+          }
         ],
-        "responses": { "200": { "description": "ok" } }
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
       },
-      "post": { "tags": ["entities"], "summary": "Create an entity", "responses": { "201": { "description": "created" } } }
+      "post": {
+        "tags": [
+          "entities"
+        ],
+        "summary": "Create an entity",
+        "responses": {
+          "201": {
+            "description": "created"
+          }
+        }
+      }
     },
     "/entities/{id}": {
-      "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
-      "get": { "tags": ["entities"], "summary": "Fetch an entity (with mentions[])", "responses": { "200": { "description": "ok" } } }
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "entities"
+        ],
+        "summary": "Fetch an entity (with mentions[])",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
     },
     "/entities/merge": {
       "post": {
-        "tags": ["entities"],
+        "tags": [
+          "entities"
+        ],
         "summary": "Collapse duplicate entities into a keeper",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["keeper_id", "merge_ids"],
-          "properties": {
-            "keeper_id": { "type": "string", "format": "uuid" },
-            "merge_ids": { "type": "array", "items": { "type": "string", "format": "uuid" }, "minItems": 1 }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "keeper_id",
+                  "merge_ids"
+                ],
+                "properties": {
+                  "keeper_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "merge_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "minItems": 1
+                  }
+                }
+              }
+            }
           }
-        } } } },
-        "responses": { "200": { "description": "merged" } }
+        },
+        "responses": {
+          "200": {
+            "description": "merged"
+          }
+        }
       }
     },
-
     "/reflections": {
       "get": {
-        "tags": ["reflections"],
+        "tags": [
+          "reflections"
+        ],
         "summary": "List reflections owned by the caller",
-        "parameters": [{ "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Offset" }],
-        "responses": { "200": { "description": "ok" } }
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
       },
       "post": {
-        "tags": ["reflections"],
+        "tags": [
+          "reflections"
+        ],
         "summary": "Create a reflection (embeds content for semantic search)",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["scope_description", "content"],
-          "properties": {
-            "scope_description": { "type": "string", "minLength": 1 },
-            "content": { "type": "string", "minLength": 1 },
-            "unit_ids": { "type": "array", "items": { "type": "string", "format": "uuid" } },
-            "entity_ids": { "type": "array", "items": { "type": "string", "format": "uuid" } },
-            "scout_ids": { "type": "array", "items": { "type": "string", "format": "uuid" } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "scope_description",
+                  "content"
+                ],
+                "properties": {
+                  "scope_description": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "content": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "unit_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "entity_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "scout_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
           }
-        } } } },
-        "responses": { "201": { "description": "created" } }
+        },
+        "responses": {
+          "201": {
+            "description": "created"
+          }
+        }
       }
     },
     "/reflections/search": {
       "post": {
-        "tags": ["reflections"],
+        "tags": [
+          "reflections"
+        ],
         "summary": "Semantic search over reflections",
-        "responses": { "200": { "description": "ok" } }
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
       }
     },
     "/reflections/{id}": {
-      "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
-      "get": { "tags": ["reflections"], "summary": "Fetch a reflection", "responses": { "200": { "description": "ok" } } },
-      "delete": { "tags": ["reflections"], "summary": "Delete a reflection", "responses": { "204": { "description": "deleted" } } }
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "reflections"
+        ],
+        "summary": "Fetch a reflection",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "reflections"
+        ],
+        "summary": "Delete a reflection",
+        "responses": {
+          "204": {
+            "description": "deleted"
+          }
+        }
+      }
     },
-
     "/ingest": {
       "post": {
-        "tags": ["knowledge"],
+        "tags": [
+          "knowledge"
+        ],
         "summary": "Ingest a URL or raw text → extracts atomic information units",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["kind"],
-          "properties": {
-            "kind": { "type": "string", "enum": ["url", "text"] },
-            "url": { "type": "string", "format": "uri" },
-            "text": { "type": "string" },
-            "title": { "type": "string" },
-            "criteria": { "type": "string" },
-            "notes": { "type": "string" },
-            "project_id": { "type": "string", "format": "uuid" }
-          }
-        } } } },
-        "responses": {
-          "201": { "description": "ingested", "content": { "application/json": { "schema": {
-            "type": "object",
-            "properties": {
-              "ingest_id": { "type": "string", "format": "uuid" },
-              "raw_capture_id": { "type": "string", "format": "uuid" },
-              "units": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" }, "statement": { "type": "string" } } } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "url",
+                      "text"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "criteria": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
             }
-          } } } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ingested",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ingest_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "raw_capture_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "units": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "statement": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
     "/user/me": {
-      "get": { "tags": ["user"], "summary": "Authed user profile (tier, credit balance, timezone)", "responses": { "200": { "description": "ok" } } }
+      "get": {
+        "tags": [
+          "user"
+        ],
+        "summary": "Authed user profile (tier, credit balance, timezone)",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
     },
     "/user/preferences": {
-      "get": { "tags": ["user"], "summary": "Get preferences", "responses": { "200": { "description": "ok" } } },
-      "patch": {
-        "tags": ["user"],
-        "summary": "Update preferences",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "properties": {
-            "preferred_language": { "type": "string" },
-            "timezone": { "type": "string" },
-            "health_notifications_enabled": { "type": "boolean" }
+      "get": {
+        "tags": [
+          "user"
+        ],
+        "summary": "Get preferences",
+        "responses": {
+          "200": {
+            "description": "ok"
           }
-        } } } },
-        "responses": { "200": { "description": "ok" } }
+        }
+      },
+      "patch": {
+        "tags": [
+          "user"
+        ],
+        "summary": "Update preferences",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "preferred_language": {
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "type": "string"
+                  },
+                  "health_notifications_enabled": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
       }
     },
     "/user/onboarding-complete": {
-      "post": { "tags": ["user"], "summary": "Mark onboarding complete", "responses": { "200": { "description": "ok" } } }
-    },
-
-    "/api-keys": {
-      "get": { "tags": ["agents"], "summary": "List active cj_… API keys", "responses": { "200": { "description": "ok" } } },
       "post": {
-        "tags": ["agents"],
+        "tags": [
+          "user"
+        ],
+        "summary": "Mark onboarding complete",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
+    },
+    "/api-keys": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "List active cj_… API keys",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agents"
+        ],
         "summary": "Mint a new cj_… API key. The full key is returned ONCE.",
-        "responses": { "201": { "description": "created", "content": { "application/json": { "schema": {
-          "type": "object",
-          "properties": { "id": { "type": "string", "format": "uuid" }, "key": { "type": "string", "description": "cj_… — store immediately, the server never returns it again" } }
-        } } } } }
+        "responses": {
+          "201": {
+            "description": "created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "key": {
+                      "type": "string",
+                      "description": "cj_… — store immediately, the server never returns it again"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api-keys/{id}": {
-      "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
-      "delete": { "tags": ["agents"], "summary": "Revoke an API key", "responses": { "204": { "description": "revoked" } } }
-    },
-
-    "/mcp-server": {
-      "post": {
-        "tags": ["agents"],
-        "summary": "MCP JSON-RPC 2.0 entry point (protocol 2024-11-05)",
-        "description": "Used by stdio bridges (scout-mcp) and remote MCP clients. Request/response bodies follow the MCP spec. Use the OAuth metadata endpoint under this path (`/.well-known/oauth-authorization-server`) for client discovery.",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["jsonrpc", "method"],
-          "properties": {
-            "jsonrpc": { "type": "string", "const": "2.0" },
-            "id": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "null" }] },
-            "method": { "type": "string", "example": "tools/list" },
-            "params": { "type": "object" }
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "delete": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Revoke an API key",
+        "responses": {
+          "204": {
+            "description": "revoked"
           }
-        } } } },
-        "responses": { "200": { "description": "JSON-RPC response" } }
+        }
       }
     },
-
-    "/openapi-spec": { "get": { "tags": ["meta"], "summary": "Fetch this spec", "security": [], "responses": { "200": { "description": "ok" } } } }
+    "/mcp-server": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "MCP JSON-RPC 2.0 entry point (protocol 2024-11-05)",
+        "description": "Used by stdio bridges (scout-mcp) and remote MCP clients. Request/response bodies follow the MCP spec. Use the OAuth metadata endpoint under this path (`/.well-known/oauth-authorization-server`) for client discovery.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "jsonrpc",
+                  "method"
+                ],
+                "properties": {
+                  "jsonrpc": {
+                    "type": "string",
+                    "const": "2.0"
+                  },
+                  "id": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "method": {
+                    "type": "string",
+                    "example": "tools/list"
+                  },
+                  "params": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response"
+          }
+        }
+      }
+    },
+    "/openapi-spec": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Fetch this spec",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
+    },
+    "/snapshots": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "summary": "List Page Archive evidence snapshots (newest first).",
+        "description": "Returns the caller's page snapshots, optionally scoped to one scout. Each item lists the artifact kinds it holds (full: mhtml+screenshot+markdown; rendered_thirdparty: screenshot+rawhtml+markdown; markdown_only: markdown) plus RFC 3161 / Wayback trust statuses.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          },
+          {
+            "name": "scout_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated snapshot list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "scout_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "capture_kind": {
+                            "type": "string",
+                            "enum": [
+                              "baseline",
+                              "change"
+                            ]
+                          },
+                          "fidelity": {
+                            "type": "string",
+                            "enum": [
+                              "full",
+                              "rendered_thirdparty",
+                              "markdown_only"
+                            ]
+                          },
+                          "served_by": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "captured_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "requested_url": {
+                            "type": "string"
+                          },
+                          "final_url": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "http_status": {
+                            "type": "integer",
+                            "nullable": true
+                          },
+                          "sizes": {
+                            "type": "object"
+                          },
+                          "trust": {
+                            "type": "object",
+                            "properties": {
+                              "tsa_status": {
+                                "type": "string"
+                              },
+                              "wayback_status": {
+                                "type": "string"
+                              },
+                              "wayback_url": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            }
+                          },
+                          "artifacts": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "mhtml",
+                                "screenshot",
+                                "rawhtml",
+                                "markdown",
+                                "manifest",
+                                "tsr"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snapshots/{id}/url": {
+      "post": {
+        "tags": [
+          "snapshots"
+        ],
+        "summary": "Mint a short-lived (5 min) signed download URL for one snapshot artifact.",
+        "description": "The URL forces a download (content-disposition attachment) so archived HTML never renders on the storage origin. MHTML downloads as multipart/related for Chrome/Edge.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "artifact"
+                ],
+                "properties": {
+                  "artifact": {
+                    "type": "string",
+                    "enum": [
+                      "mhtml",
+                      "screenshot",
+                      "rawhtml",
+                      "markdown",
+                      "manifest",
+                      "tsr"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "artifact": {
+                      "type": "string"
+                    },
+                    "content_type": {
+                      "type": "string"
+                    },
+                    "expires_in": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown artifact kind"
+          },
+          "404": {
+            "description": "Snapshot not found, not owned by caller, or artifact not present on this row"
+          }
+        }
+      }
+    }
   },
   "components": {
     "securitySchemes": {
@@ -523,133 +1760,437 @@
       }
     },
     "parameters": {
-      "Limit": { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 } },
-      "Offset": { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0, "default": 0 } },
-      "IdPath": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50
+        }
+      },
+      "Offset": {
+        "name": "offset",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "IdPath": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
     },
     "responses": {
-      "ValidationError": { "description": "Invalid input", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-      "NotFound": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-      "OutOfCredits": { "description": "Not enough credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+      "ValidationError": {
+        "description": "Invalid input",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "OutOfCredits": {
+        "description": "Not enough credits",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
     },
     "schemas": {
-      "ScoutType": { "type": "string", "enum": ["web", "beat", "social", "civic"] },
-      "Regularity": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
+      "ScoutType": {
+        "type": "string",
+        "enum": [
+          "web",
+          "beat",
+          "social",
+          "civic"
+        ]
+      },
+      "Regularity": {
+        "type": "string",
+        "enum": [
+          "daily",
+          "weekly",
+          "monthly"
+        ]
+      },
       "Scout": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "name": { "type": "string" },
-          "type": { "$ref": "#/components/schemas/ScoutType" },
-          "description": { "type": "string", "nullable": true, "description": "Human-readable scout context shown in clients." },
-          "criteria": { "type": "string", "nullable": true },
-          "topic": { "type": "string", "nullable": true, "description": "1-3 short comma-separated tags for organization, not filtering criteria." },
-          "url": { "type": "string", "format": "uri", "nullable": true },
-          "location": { "type": "object", "nullable": true, "additionalProperties": true },
-          "regularity": { "$ref": "#/components/schemas/Regularity", "nullable": true },
-          "schedule_cron": { "type": "string", "nullable": true },
-          "is_active": { "type": "boolean" },
-          "consecutive_failures": { "type": "integer" },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ScoutType"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "description": "Human-readable scout context shown in clients."
+          },
+          "criteria": {
+            "type": "string",
+            "nullable": true
+          },
+          "topic": {
+            "type": "string",
+            "nullable": true,
+            "description": "1-3 short comma-separated tags for organization, not filtering criteria."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "location": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "regularity": {
+            "$ref": "#/components/schemas/Regularity",
+            "nullable": true
+          },
+          "schedule_cron": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "consecutive_failures": {
+            "type": "integer"
+          },
           "last_run": {
             "type": "object",
             "nullable": true,
             "properties": {
-              "started_at": { "type": "string", "format": "date-time", "nullable": true },
-              "status": { "type": "string", "nullable": true },
-              "articles_count": { "type": "integer", "nullable": true },
-              "merged_existing_count": { "type": "integer", "nullable": true }
+              "started_at": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "status": {
+                "type": "string",
+                "nullable": true
+              },
+              "articles_count": {
+                "type": "integer",
+                "nullable": true
+              },
+              "merged_existing_count": {
+                "type": "integer",
+                "nullable": true
+              }
             }
           },
-          "project_id": { "type": "string", "format": "uuid", "nullable": true },
-          "created_at": { "type": "string", "format": "date-time" }
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         },
-        "required": ["id", "name", "type", "is_active"]
+        "required": [
+          "id",
+          "name",
+          "type",
+          "is_active"
+        ]
       },
       "ScoutCreate": {
         "type": "object",
-        "required": ["name", "type"],
+        "required": [
+          "name",
+          "type"
+        ],
         "properties": {
-          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-          "type": { "$ref": "#/components/schemas/ScoutType" },
-          "description": { "type": "string", "maxLength": 2000, "description": "Optional human-readable context. Use criteria for filtering and notification rules." },
-          "criteria": { "type": "string", "maxLength": 4000 },
-          "topic": { "type": "string", "maxLength": 200, "description": "Required when location is omitted. Use 1-3 short comma-separated tags, e.g. 'housing, council, budget'." },
-          "url": { "type": "string", "format": "uri", "maxLength": 2000 },
-          "location": { "type": "object", "additionalProperties": true },
-          "regularity": { "$ref": "#/components/schemas/Regularity" },
-          "schedule_cron": { "type": "string", "maxLength": 200, "description": "When supplied, the server establishes the initial baseline before scheduling. This applies to web, beat, social, and civic scouts." },
-          "day_number": { "type": "integer", "minimum": 0, "maximum": 31 },
-          "time": { "type": "string", "pattern": "^\\d{1,2}:\\d{2}$" },
-          "provider": { "type": "string" },
-          "project_id": { "type": "string", "format": "uuid" },
-          "priority_sources": { "type": "array", "items": { "type": "string" } }
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "type": {
+            "$ref": "#/components/schemas/ScoutType"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Optional human-readable context. Use criteria for filtering and notification rules."
+          },
+          "criteria": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "topic": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Required when location is omitted. Use 1-3 short comma-separated tags, e.g. 'housing, council, budget'."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2000
+          },
+          "location": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "regularity": {
+            "$ref": "#/components/schemas/Regularity"
+          },
+          "schedule_cron": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "When supplied, the server establishes the initial baseline before scheduling. This applies to web, beat, social, and civic scouts."
+          },
+          "day_number": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 31
+          },
+          "time": {
+            "type": "string",
+            "pattern": "^\\d{1,2}:\\d{2}$"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "priority_sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       },
       "ScoutUpdate": {
         "type": "object",
         "properties": {
-          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-          "description": { "type": "string", "maxLength": 2000, "nullable": true },
-          "criteria": { "type": "string", "nullable": true },
-          "topic": { "type": "string", "nullable": true, "description": "1-3 short comma-separated tags. Scout must retain topic or location." },
-          "url": { "type": "string", "format": "uri", "nullable": true },
-          "regularity": { "$ref": "#/components/schemas/Regularity" },
-          "schedule_cron": { "type": "string" },
-          "day_number": { "type": "integer", "minimum": 0, "maximum": 31 },
-          "time": { "type": "string", "pattern": "^\\d{1,2}:\\d{2}$" },
-          "is_active": { "type": "boolean" },
-          "project_id": { "type": "string", "format": "uuid" }
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          },
+          "criteria": {
+            "type": "string",
+            "nullable": true
+          },
+          "topic": {
+            "type": "string",
+            "nullable": true,
+            "description": "1-3 short comma-separated tags. Scout must retain topic or location."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "regularity": {
+            "$ref": "#/components/schemas/Regularity"
+          },
+          "schedule_cron": {
+            "type": "string"
+          },
+          "day_number": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 31
+          },
+          "time": {
+            "type": "string",
+            "pattern": "^\\d{1,2}:\\d{2}$"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          }
         }
       },
       "Unit": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "statement": { "type": "string", "nullable": true },
-          "unit_type": { "type": "string", "nullable": true },
-          "context_excerpt": { "type": "string", "nullable": true },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "statement": {
+            "type": "string",
+            "nullable": true
+          },
+          "unit_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "context_excerpt": {
+            "type": "string",
+            "nullable": true
+          },
           "entities": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "entity_id": { "type": "string", "format": "uuid", "nullable": true },
-                "canonical_name": { "type": "string", "nullable": true },
-                "type": { "type": "string", "nullable": true },
-                "mention_text": { "type": "string" }
+                "entity_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "canonical_name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "type": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "mention_text": {
+                  "type": "string"
+                }
               },
-              "required": ["entity_id", "canonical_name", "type", "mention_text"]
+              "required": [
+                "entity_id",
+                "canonical_name",
+                "type",
+                "mention_text"
+              ]
             }
           },
-          "location": { "type": "object", "nullable": true, "additionalProperties": true },
-          "country": { "type": "string", "nullable": true },
-          "state": { "type": "string", "nullable": true },
-          "city": { "type": "string", "nullable": true },
-          "topic": { "type": "string", "nullable": true },
-          "scout_type": { "type": "string", "nullable": true },
-          "occurred_at": { "type": "string", "format": "date", "nullable": true },
-          "extracted_at": { "type": "string", "format": "date-time", "nullable": true },
-          "occurrence_count": { "type": "integer" },
+          "location": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "country": {
+            "type": "string",
+            "nullable": true
+          },
+          "state": {
+            "type": "string",
+            "nullable": true
+          },
+          "city": {
+            "type": "string",
+            "nullable": true
+          },
+          "topic": {
+            "type": "string",
+            "nullable": true
+          },
+          "scout_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "extracted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "occurrence_count": {
+            "type": "integer"
+          },
           "source": {
             "type": "object",
             "properties": {
-              "url": { "type": "string", "format": "uri", "nullable": true },
-              "title": { "type": "string", "nullable": true },
-              "domain": { "type": "string", "nullable": true }
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "nullable": true
+              },
+              "title": {
+                "type": "string",
+                "nullable": true
+              },
+              "domain": {
+                "type": "string",
+                "nullable": true
+              }
             },
-            "required": ["url", "title", "domain"]
+            "required": [
+              "url",
+              "title",
+              "domain"
+            ]
           },
           "sources": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "url": { "type": "string", "format": "uri", "nullable": true },
-                "title": { "type": "string", "nullable": true },
-                "domain": { "type": "string", "nullable": true },
-                "extracted_at": { "type": "string", "format": "date-time", "nullable": true }
+                "url": {
+                  "type": "string",
+                  "format": "uri",
+                  "nullable": true
+                },
+                "title": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "domain": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "extracted_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                }
               },
-              "required": ["url", "title", "domain", "extracted_at"]
+              "required": [
+                "url",
+                "title",
+                "domain",
+                "extracted_at"
+              ]
             }
           },
           "linked_scouts": {
@@ -657,45 +2198,119 @@
             "items": {
               "type": "object",
               "properties": {
-                "id": { "type": "string", "format": "uuid", "nullable": true },
-                "name": { "type": "string", "nullable": true },
-                "type": { "type": "string", "nullable": true }
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "type": {
+                  "type": "string",
+                  "nullable": true
+                }
               },
-              "required": ["id", "name", "type"]
+              "required": [
+                "id",
+                "name",
+                "type"
+              ]
             }
           },
-          "scout_id": { "type": "string", "format": "uuid", "nullable": true },
-          "scout_name": { "type": "string", "nullable": true },
+          "scout_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "scout_name": {
+            "type": "string",
+            "nullable": true
+          },
           "verification": {
             "type": "object",
             "properties": {
-              "verified": { "type": "boolean" },
-              "verified_at": { "type": "string", "format": "date-time", "nullable": true },
-              "verified_by": { "type": "string", "nullable": true },
-              "notes": { "type": "string", "nullable": true }
+              "verified": {
+                "type": "boolean"
+              },
+              "verified_at": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "verified_by": {
+                "type": "string",
+                "nullable": true
+              },
+              "notes": {
+                "type": "string",
+                "nullable": true
+              }
             },
-            "required": ["verified", "verified_at", "verified_by", "notes"]
+            "required": [
+              "verified",
+              "verified_at",
+              "verified_by",
+              "notes"
+            ]
           },
           "usage": {
             "type": "object",
             "properties": {
-              "used_in_article": { "type": "boolean" },
-              "used_at": { "type": "string", "format": "date-time", "nullable": true },
-              "used_in_url": { "type": "string", "format": "uri", "nullable": true }
+              "used_in_article": {
+                "type": "boolean"
+              },
+              "used_at": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "used_in_url": {
+                "type": "string",
+                "format": "uri",
+                "nullable": true
+              }
             },
-            "required": ["used_in_article", "used_at", "used_in_url"]
+            "required": [
+              "used_in_article",
+              "used_at",
+              "used_in_url"
+            ]
           },
           "deletion": {
             "type": "object",
             "properties": {
-              "deleted": { "type": "boolean" },
-              "deleted_at": { "type": "string", "format": "date-time", "nullable": true },
-              "deleted_by": { "type": "string", "nullable": true },
-              "reason": { "type": "string", "nullable": true }
+              "deleted": {
+                "type": "boolean"
+              },
+              "deleted_at": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "deleted_by": {
+                "type": "string",
+                "nullable": true
+              },
+              "reason": {
+                "type": "string",
+                "nullable": true
+              }
             },
-            "required": ["deleted", "deleted_at", "deleted_by", "reason"]
+            "required": [
+              "deleted",
+              "deleted_at",
+              "deleted_by",
+              "reason"
+            ]
           },
-          "tags": { "type": "array", "items": { "type": "string" } }
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "required": [
           "id",
@@ -721,37 +2336,96 @@
       "UnitUpdate": {
         "type": "object",
         "properties": {
-          "verified": { "type": "boolean" },
-          "verification_notes": { "type": "string", "maxLength": 4000, "nullable": true },
-          "verified_by": { "type": "string", "maxLength": 200, "nullable": true },
-          "used_in_article": { "type": "boolean" },
-          "used_at": { "type": "string", "format": "date-time", "nullable": true },
-          "used_in_url": { "type": "string", "format": "uri", "nullable": true },
-          "deletion_reason": { "type": "string", "maxLength": 4000, "nullable": true }
+          "verified": {
+            "type": "boolean"
+          },
+          "verification_notes": {
+            "type": "string",
+            "maxLength": 4000,
+            "nullable": true
+          },
+          "verified_by": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "used_in_article": {
+            "type": "boolean"
+          },
+          "used_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "used_in_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          },
+          "deletion_reason": {
+            "type": "string",
+            "maxLength": 4000,
+            "nullable": true
+          }
         }
       },
       "Project": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "name": { "type": "string" },
-          "description": { "type": "string", "nullable": true },
-          "visibility": { "type": "string", "enum": ["private", "team"] },
-          "tags": { "type": "array", "items": { "type": "string" } },
-          "created_at": { "type": "string", "format": "date-time" }
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "team"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "Paginated": {
         "type": "object",
         "properties": {
-          "items": { "type": "array", "items": { "type": "object" } },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
           "pagination": {
             "type": "object",
             "properties": {
-              "total": { "type": "integer" },
-              "offset": { "type": "integer" },
-              "limit": { "type": "integer" },
-              "has_more": { "type": "boolean" }
+              "total": {
+                "type": "integer"
+              },
+              "offset": {
+                "type": "integer"
+              },
+              "limit": {
+                "type": "integer"
+              },
+              "has_more": {
+                "type": "boolean"
+              }
             }
           }
         }
@@ -759,9 +2433,15 @@
       "Error": {
         "type": "object",
         "properties": {
-          "error": { "type": "string" },
-          "code": { "type": "string" },
-          "detail": { "type": "string" }
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
         }
       }
     }

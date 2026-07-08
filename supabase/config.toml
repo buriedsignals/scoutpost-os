@@ -429,6 +429,9 @@ verify_jwt = false
 [functions.user]
 verify_jwt = false
 
+[functions.snapshots]
+verify_jwt = false
+
 [functions.ingest]
 verify_jwt = false
 

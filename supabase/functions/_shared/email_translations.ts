@@ -30,6 +30,8 @@ export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number];
 
 export const EMAIL_STRINGS: Record<string, StringMap> = {
   en: {
+    archived_evidence: "Archived evidence",
+    view_archived_snapshot: "View archived snapshot",
     scout_alert: "Scout Alert!",
     top_stories: "Top Stories",
     matching_results: "Matching Results",
@@ -72,6 +74,8 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "Social data scraped from platform \u2014 may be incomplete.",
   },
   no: {
+    archived_evidence: "Arkivert bevis",
+    view_archived_snapshot: "Vis arkivert øyeblikksbilde",
     scout_alert: "Scout-varsling!",
     top_stories: "Toppsaker",
     matching_results: "Treff",
@@ -114,6 +118,8 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "Sosiale data hentet fra plattformen \u2014 kan v\u00e6re ufullstendige.",
   },
   de: {
+    archived_evidence: "Archivierte Beweise",
+    view_archived_snapshot: "Archivierte Momentaufnahme ansehen",
     scout_alert: "Scout-Alarm!",
     top_stories: "Top-Meldungen",
     matching_results: "Passende Ergebnisse",
@@ -156,6 +162,8 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "Soziale Daten von der Plattform abgerufen \u2014 m\u00f6glicherweise unvollst\u00e4ndig.",
   },
   fr: {
+    archived_evidence: "Preuve archivée",
+    view_archived_snapshot: "Voir l'instantané archivé",
     scout_alert: "Alerte Scout !",
     top_stories: "\u00c0 la une",
     matching_results: "R\u00e9sultats correspondants",
@@ -200,6 +208,8 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "Donn\u00e9es sociales extraites de la plateforme \u2014 peuvent \u00eatre incompl\u00e8tes.",
   },
   es: {
+    archived_evidence: "Evidencia archivada",
+    view_archived_snapshot: "Ver la instantánea archivada",
     scout_alert: "\u00a1Alerta de Scout!",
     top_stories: "Noticias destacadas",
     matching_results: "Resultados coincidentes",
@@ -242,6 +252,8 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "Datos sociales obtenidos de la plataforma \u2014 pueden estar incompletos.",
   },
   it: {
+    archived_evidence: "Prova archiviata",
+    view_archived_snapshot: "Vedi l'istantanea archiviata",
     scout_alert: "Avviso Scout!",
     top_stories: "Notizie principali",
     matching_results: "Risultati corrispondenti",
@@ -284,6 +296,8 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "Dati social estratti dalla piattaforma \u2014 potrebbero essere incompleti.",
   },
   pt: {
+    archived_evidence: "Evidência arquivada",
+    view_archived_snapshot: "Ver instantâneo arquivado",
     scout_alert: "Alerta de Scout!",
     top_stories: "Principais not\u00edcias",
     matching_results: "Resultados correspondentes",
@@ -326,6 +340,8 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "Dados sociais extra\u00eddos da plataforma \u2014 podem estar incompletos.",
   },
   nl: {
+    archived_evidence: "Gearchiveerd bewijs",
+    view_archived_snapshot: "Gearchiveerde momentopname bekijken",
     scout_alert: "Scout-melding!",
     top_stories: "Topverhalen",
     matching_results: "Overeenkomende resultaten",
@@ -369,6 +385,8 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "Sociale gegevens verzameld van platform \u2014 mogelijk onvolledig.",
   },
   sv: {
+    archived_evidence: "Arkiverat bevis",
+    view_archived_snapshot: "Visa arkiverad ögonblicksbild",
     scout_alert: "Scout-varning!",
     top_stories: "Toppnyheter",
     matching_results: "Matchande resultat",
@@ -411,6 +429,8 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "Sociala data h\u00e4mtade fr\u00e5n plattformen \u2014 kan vara ofullst\u00e4ndiga.",
   },
   da: {
+    archived_evidence: "Arkiveret bevis",
+    view_archived_snapshot: "Se arkiveret øjebliksbillede",
     scout_alert: "Scout-advarsel!",
     top_stories: "Tophistorier",
     matching_results: "Matchende resultater",
@@ -453,6 +473,8 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "Sociale data hentet fra platformen \u2014 kan v\u00e6re ufuldst\u00e6ndige.",
   },
   fi: {
+    archived_evidence: "Arkistoitu todiste",
+    view_archived_snapshot: "Näytä arkistoitu tilannekuva",
     scout_alert: "Scout-h\u00e4lytys!",
     top_stories: "P\u00e4\u00e4uutiset",
     matching_results: "Vastaavat tulokset",
@@ -497,6 +519,8 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "Sosiaalisen median tiedot haettu alustalta \u2014 voivat olla puutteellisia.",
   },
   pl: {
+    archived_evidence: "Zarchiwizowany dowód",
+    view_archived_snapshot: "Zobacz zarchiwizowany zrzut",
     scout_alert: "Alert Scout!",
     top_stories: "Najwa\u017cniejsze wiadomo\u015bci",
     matching_results: "Pasuj\u0105ce wyniki",

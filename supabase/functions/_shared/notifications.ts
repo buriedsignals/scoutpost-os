@@ -31,6 +31,19 @@ const RESEND_URL = "https://api.resend.com/emails";
 const FROM = "Scoutpost <alerts@scoutpost.ai>";
 const REPLY_TO = "updates@scoutpost.ai";
 
+/** Public workspace base URL the browser sees — configurable so OSS/self-host
+ * deep links resolve to their own deployment instead of the hosted SaaS
+ * (PAGE-ARCHIVE-PRD U5). Reuses the established PUBLIC_APP_URL app-origin env
+ * (the auth functions already resolve it the same way) rather than a second
+ * var, so a self-host that already set it — mandatory for MuckRock auth — gets
+ * correct deep links for free. Hosted default: https://www.scoutpost.ai. */
+function appBaseUrl(): string {
+  return (Deno.env.get("PUBLIC_APP_URL") ?? "https://www.scoutpost.ai").replace(
+    /\/+$/,
+    "",
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -73,6 +86,15 @@ export interface PageScoutAlertParams extends BaseAlertParams {
   matchedUrl?: string | null;
   matchedTitle?: string | null;
   matchedSummary?: string | null;
+  /** When true (the run was archive-gated), render a "View archived snapshot"
+   * deep link into the scout's snapshot history (PAGE-ARCHIVE-PRD U5). It points
+   * at the scout, not a snapshot id — the capture is backgrounded AFTER this
+   * notification (R11), so no id exists yet; the just-captured snapshot normally
+   * tops the history within seconds. Linking to the scout (not a snapshot id)
+   * degrades gracefully: in the rare total capture+storage failure that leaves
+   * no row, the user lands on the scout's history showing "no snapshots yet",
+   * never a broken/404 link. */
+  archiveEnabled?: boolean;
 }
 
 export interface BeatAlertParams extends BaseAlertParams {
@@ -260,6 +282,14 @@ export async function sendPageScoutAlert(
           ? [{
             label: criteriaLabel,
             value: params.criteria,
+          }]
+          : []),
+        ...(params.archiveEnabled
+          ? [{
+            label: getString("archived_evidence", language),
+            value: getString("view_archived_snapshot", language),
+            href: `${appBaseUrl()}/?scout=${encodeURIComponent(params.scoutId)}`,
+            valueColor: VARIANT_THEME.page.accent,
           }]
           : []),
       ],
