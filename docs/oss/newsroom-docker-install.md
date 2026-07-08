@@ -60,6 +60,15 @@ Before running install, collect:
 - Resend API key and sender email
 - MapTiler public API key
 - GitHub access for the newsroom fork if you want update PRs
+- Optional Page Archive trust layer (only if you enable evidence archiving on Page
+  Scouts — all optional, archiving degrades gracefully without them):
+  - `TSA_URL` — RFC 3161 timestamp authority endpoint (defaults to a public TSA;
+    unset/unreachable → snapshots store with `tsa_status` unset, no `.tsr`)
+  - `SPN_ACCESS_KEY` + `SPN_SECRET_KEY` — Internet Archive "Save Page Now" S3-style
+    keys (from your archive.org account); absent → `wayback_status` unset, no public
+    submission. Set both or neither.
+  - `PUBLIC_APP_URL` — your deployment's app origin; already required for auth, and
+    reused for the "View archived snapshot" email deep link (see `docs/features/page-archive.md`)
 
 For Supabase Cloud, the manifest field `supabase.access_token` is used as
 `SUPABASE_ACCESS_TOKEN`. Docker should not start browser-based Supabase login.

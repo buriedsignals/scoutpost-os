@@ -61,8 +61,8 @@ cross-user snapshot id is invisible (RLS) and also 404s.
 
 ## Capability map (UI ⇄ agent parity)
 
-Action parity is a hard rule ([`ce-agent-native-architecture`](../../../kit/compound-engineering/skills/ce-agent-native-architecture/SKILL.md)):
-every UI action here has an equivalent agent tool, shipped in the same change.
+Action parity is a hard rule (the agent-native architecture discipline): every UI
+action here has an equivalent agent tool, shipped in the same change.
 
 | Capability | UI | CLI | MCP tool | REST |
 |---|---|---|---|---|
@@ -88,6 +88,77 @@ Honest limits — carry this language into any user-facing summary:
   A `rendered_thirdparty` snapshot was captured by an anti-bot fallback renderer, not
   a local render; a `markdown_only` snapshot has no visual artifact at all.
 
-The `tsr` + `manifest` artifacts make the timestamp externally verifiable
-(`openssl ts -verify` against the manifest hash); the full verification procedure
-lives in this doc's companion section once the trust layer is user-exposed.
+## Verifying a snapshot
+
+A snapshot is self-verifying evidence. The `manifest` records a SHA-256 for every
+stored artifact, and the `tsr` is an RFC 3161 timestamp token whose message imprint
+is `SHA-256(manifest bytes)`. Two independent checks establish (1) the artifacts are
+unchanged since capture and (2) they existed no later than a trusted timestamp T.
+
+Download the artifacts to check plus the `manifest` and `tsr` (UI, `scout snapshots
+download`, or `POST /snapshots/:id/url`). Treat `manifest.json` and `snapshot.tsr` as
+**raw bytes** — do not reformat the manifest; its hash depends on exact bytes (it is
+canonical JSON: sorted keys, no whitespace).
+
+### 1. Artifact integrity — recompute hashes against the manifest
+
+The manifest has a `*_sha256` field per stored artifact. Recompute and compare:
+
+```bash
+# hash each artifact you downloaded (cross-platform):
+openssl dgst -sha256 page.mhtml screenshot.png content.md
+# read the recorded hashes:
+python3 -m json.tool < manifest.json      # markdown_sha256, mhtml_sha256, screenshot_sha256, rawhtml_sha256
+```
+
+A match proves the artifact's bytes are identical to what was captured. Which fields
+are present depends on fidelity: `full` binds `mhtml_sha256` + `screenshot_sha256`;
+`rendered_thirdparty` binds `rawhtml_sha256` + `screenshot_sha256`; `markdown_only`
+binds `markdown_sha256` alone. `markdown_sha256` is always present.
+
+### 2. Timestamp — verify the token against the manifest
+
+```bash
+# what time did the TSA attest?
+openssl ts -reply -in snapshot.tsr -text | grep -A1 "Time stamp"
+
+# verify the token binds THIS manifest (needs the TSA's CA chain):
+openssl ts -verify -data manifest.json -in snapshot.tsr -CAfile tsa-ca-bundle.pem
+#   → "Verification: OK"
+```
+
+`openssl ts -verify` hashes `manifest.json` with SHA-256, checks it equals the token's
+imprint, then validates the TSA's signature up to `-CAfile`. The signing certificate
+chain is embedded in the token (`certReq=true`), so only the trust anchor is external —
+fetch the timestamping root+intermediate for the configured TSA (defaults: DigiCert and
+Sectigo, both published by the CA). The `.tsr` is stored as a full RFC 3161
+`TimeStampResp` (`application/timestamp-reply`), which is what `openssl ts` expects.
+
+A pass means the manifest — and therefore every artifact hash it records — existed at
+time T. Combined with step 1, the artifacts themselves existed, unaltered, at T.
+
+### 3. Third-party corroboration (optional)
+
+If the snapshot's `wayback_status` is `success`, open its `wayback_url` (from
+`scout snapshots list --json`, or the row's `trust`): an independent public archive (the
+Internet Archive) holds its own capture near `captured_at`. This is corroboration by a
+party you do not control — not a hash check.
+
+### What a successful verification demonstrates — and what it does not
+
+- **Demonstrates:** the stored artifacts are byte-for-byte unchanged since capture
+  (step 1) and existed no later than the TSA's timestamp T (step 2); if Wayback
+  succeeded, an independent archive corroborates a capture near that time (step 3).
+  Together: *this content existed in this exact form at this time and has not been
+  altered since.*
+- **Does not demonstrate:** that the captured page is what a human visitor saw
+  (personalization, geographic variance, A/B tests, and bot-served variants all diverge
+  from a scraper's view); that the source was authentic or unmanipulated upstream; that
+  content the scout did not capture did not exist; or anything about a `markdown_only`
+  snapshot's visual appearance (no rendered artifact exists). A re-stamp after the fact
+  proves only a *later* T — a snapshot never stamped in its capture window cannot be
+  retroactively given an earlier one.
+
+The `scout snapshots download` CLI is itself a verification tool: it writes the exact
+signed bytes to disk, so the hashes above recompute against the same object the server
+stored.
