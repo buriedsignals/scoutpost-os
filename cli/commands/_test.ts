@@ -22,6 +22,7 @@ import {
 import { VERSION } from "../lib/version.ts";
 import { run as runIngest } from "./ingest.ts";
 import { run as runScouts } from "./scouts.ts";
+import { run as runSnapshots } from "./snapshots.ts";
 import { run as runUser } from "./user.ts";
 
 async function withTempHome(
@@ -928,5 +929,196 @@ Deno.test("ingest text — sends API-compatible text field", async () => {
     assertEquals(body.criteria, "housing plan");
     assertEquals(typeof body.text, "string");
     assertEquals("content" in body, false);
+  });
+});
+
+// ---- Page Archive: snapshots command + archive toggle parity --------------
+
+Deno.test("snapshots list — GETs /snapshots and prints a row per snapshot", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://x.supabase.co",
+      api_key: "cj_snap",
+      supabase_anon_key: "anon_test_key",
+    });
+
+    let observedUrl = "";
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    const lines: string[] = [];
+    globalThis.fetch = ((input: string | URL | Request) => {
+      observedUrl = input instanceof Request ? input.url : String(input);
+      // Match the deployed snapshots EF envelope (jsonPaginated → {items, pagination}).
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            items: [{
+              id: "snap-1",
+              scout_id: "scout-1",
+              capture_kind: "change",
+              fidelity: "full",
+              captured_at: "2026-07-08T00:00:00Z",
+              artifacts: ["mhtml", "screenshot", "markdown"],
+              trust: { tsa_status: "ok", wayback_status: "success" },
+            }],
+            pagination: { total: 1, offset: 0, limit: 50, has_more: false },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    console.log = (...args: unknown[]) => void lines.push(args.join(" "));
+
+    try {
+      await runSnapshots(["list", "--scout", "scout-1"]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+
+    assertStringIncludes(observedUrl, "/functions/v1/snapshots?scout_id=scout-1");
+    assertStringIncludes(lines.join("\n"), "snap-1");
+    assertStringIncludes(lines.join("\n"), "mhtml,screenshot,markdown");
+  });
+});
+
+Deno.test("snapshots url — POSTs {artifact} to /:id/url and prints the signed URL", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://x.supabase.co",
+      api_key: "cj_snap",
+      supabase_anon_key: "anon_test_key",
+    });
+
+    let observedUrl = "";
+    let observedBody: Record<string, unknown> | null = null;
+    let observedMethod = "";
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    const lines: string[] = [];
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      observedUrl = input instanceof Request ? input.url : String(input);
+      observedMethod = init?.method ?? "GET";
+      observedBody = init?.body ? JSON.parse(String(init.body)) : null;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            url: "https://x.supabase.co/storage/v1/object/sign/page-snapshots/abc?token=t",
+            artifact: "mhtml",
+            content_type: "multipart/related",
+            expires_in: 300,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    console.log = (...args: unknown[]) => void lines.push(args.join(" "));
+
+    try {
+      await runSnapshots(["url", "snap-1", "--artifact", "mhtml"]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+
+    assertStringIncludes(observedUrl, "/functions/v1/snapshots/snap-1/url");
+    assertEquals(observedMethod, "POST");
+    assertEquals((observedBody as unknown as { artifact: string }).artifact, "mhtml");
+    assertStringIncludes(lines.join("\n"), "storage/v1/object/sign/page-snapshots");
+  });
+});
+
+Deno.test("snapshots download — signs then writes the artifact bytes to disk", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://x.supabase.co",
+      api_key: "cj_snap",
+      supabase_anon_key: "anon_test_key",
+    });
+
+    const out = await Deno.makeTempFile({ suffix: ".mhtml" });
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    globalThis.fetch = ((input: string | URL | Request) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/snapshots/") && url.endsWith("/url")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              url: "https://signed.example/object?token=t",
+              artifact: "mhtml",
+              content_type: "multipart/related",
+              expires_in: 300,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      // The signed-URL fetch → raw artifact bytes.
+      return Promise.resolve(
+        new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 }),
+      );
+    }) as typeof fetch;
+    console.log = () => {};
+
+    try {
+      await runSnapshots(["download", "snap-1", "--artifact", "mhtml", "--out", out]);
+      const written = await Deno.readFile(out);
+      assertEquals([...written], [1, 2, 3, 4]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+      await Deno.remove(out);
+    }
+  });
+});
+
+Deno.test("scouts add — --archive-enabled/--wayback-enabled reach the create body", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://x.supabase.co",
+      api_key: "cj_snap",
+      supabase_anon_key: "anon_test_key",
+    });
+
+    let observedBody: Record<string, unknown> | null = null;
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+      observedBody = init?.body ? JSON.parse(String(init.body)) : null;
+      return Promise.resolve(
+        new Response(JSON.stringify({ id: "scout-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }) as typeof fetch;
+    console.log = () => {};
+
+    try {
+      await runScouts([
+        "add",
+        "--name",
+        "Evidence page",
+        "--type",
+        "web",
+        "--url",
+        "https://example.com",
+        "--topic",
+        "evidence",
+        "--archive-enabled",
+        "true",
+        "--wayback-enabled",
+        "false",
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+
+    assert(observedBody !== null, "fetch was not called");
+    const body = observedBody as Record<string, unknown>;
+    assertEquals(body.archive_enabled, true);
+    assertEquals(body.wayback_enabled, false);
   });
 });

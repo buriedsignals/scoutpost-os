@@ -166,6 +166,11 @@ diagnostic only; it never changes the run outcome.
 
 ## Evidence Archiving (Page Archive)
 
+> **Retrieving snapshots and toggling archiving** (UI / CLI `scout snapshots` /
+> MCP `list_snapshots`+`get_snapshot_url` / REST) is documented in
+> [`page-archive.md`](page-archive.md), including the UI⇄agent capability map. This
+> section covers the capture/storage internals.
+
 Opt-in, per-scout **evidence-grade snapshots** of the page updating. Gated on
 `scouts.archive_enabled` and a Pro/Team tier (OSS: available to everyone);
 `scouts.wayback_enabled` (default true) is the per-scout opt-out from public

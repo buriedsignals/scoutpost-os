@@ -257,6 +257,7 @@ Detailed docs for each sidebar service in `docs/features/`:
 | Service | File | Description |
 |---------|------|-------------|
 | Page Scout (type `web`) | `web-scouts.md` | fresh Firecrawl scrape, local canonical hash baselines, criteria analysis |
+| Page Archive | `page-archive.md` | Evidence-snapshot retrieve/toggle for Page Scouts (CLI `scout snapshots`, MCP `list_snapshots`/`get_snapshot_url`, REST `/snapshots`); `archive_enabled` on scout create/update |
 | Location Scout (type `beat`) | `beat.md` | Location-based monitoring — niche local sources by default |
 | Beat Scout (type `beat`) | `beat.md` | Topic/criteria monitoring — reliable sources by default |
 | Scrape | `scrape.md` | Firecrawl extraction, format options |

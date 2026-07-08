@@ -34,12 +34,14 @@ Scoutpost is built for local reporting, investigative workflows, and newsroom mo
 - [Civic Scout](https://www.scoutpost.ai/docs#scout-civic): Monitor council materials and PDF-heavy civic sources
 - [Information units](https://www.scoutpost.ai/docs#units): Atomic facts, search, verification, and audit trail
 - [Verification](https://www.scoutpost.ai/docs#verification): Human editorial approval before publishable use
+- [Page Archive](https://www.scoutpost.ai/docs#page-archive): Evidence snapshots for Page Scouts — list/download via `scout snapshots` CLI, `list_snapshots`/`get_snapshot_url` MCP, `GET /snapshots`; toggle via `archive_enabled` on scout create/update
 - [Credits](https://www.scoutpost.ai/docs#credits): Hosted cost model and planning
 
 ## Integrations
 
 - [MCP server](https://www.scoutpost.ai/mcp): Remote MCP endpoint for agent clients
 - [REST docs](https://www.scoutpost.ai/docs#rest): Public REST integration guidance
+- [Snapshots retrieval](https://www.scoutpost.ai/docs#page-archive): Page Archive evidence snapshots are part of the CLI/MCP/REST surface (`scout snapshots`, `list_snapshots`/`get_snapshot_url`, `GET /snapshots` + `POST /snapshots/:id/url`)
 - [OpenAPI spec](https://www.scoutpost.ai/functions/v1/openapi-spec): Machine-readable REST schema
 - [Swagger UI](https://www.scoutpost.ai/swagger): Interactive API reference
 - [CLI README](https://github.com/buriedsignals/scoutpost-os/blob/main/cli/README.md): `scout` install and usage

@@ -24,6 +24,7 @@ Scoutpost is built for local and investigative reporting. The public product sto
 - **Beat Scout**: monitor a beat by topic or geography, with source-mode control.
 - **Social Scout**: track social accounts, including deletions.
 - **Civic Scout**: monitor councils, agendas, minutes, and PDFs for promises and decisions.
+- **Page Archive**: opt-in evidence snapshots for Page Scouts — retrieve via `scout snapshots` / `list_snapshots` / `GET /snapshots`; toggle via `archive_enabled`.
 
 ## Start here
 

@@ -36,6 +36,7 @@ The journalist stays responsible for verification. Your job is to help monitor, 
 | **Civic Scout** | Track council materials, including PDFs and promises |
 | **Information unit** | One atomic fact with source and timestamps |
 | **Verification** | Human editorial approval before a fact is treated as publishable |
+| **Page Archive** | Opt-in tamper-evident evidence snapshots of a Page Scout's captures (MHTML, screenshot, markdown, RFC 3161 timestamp, optional Wayback) |
 
 ## How you're connected
 
@@ -86,8 +87,36 @@ The exact command names vary by surface, but the public contract is:
 - verify or reject units
 - mark units used in an article
 - export project material for drafting
+- list a page scout's archived evidence snapshots
+- download a snapshot artifact (MHTML, screenshot, markdown, manifest, timestamp)
+- turn evidence archiving on or off for a page scout
 
 Use whichever surface is connected to your agent. Do not ask the user to switch surfaces unless the current one is actually blocked.
+
+## Page Archive (evidence snapshots)
+
+Page Scouts can archive a tamper-evident snapshot of each capture (the rendered page as MHTML, a screenshot, markdown, an RFC 3161 trusted timestamp, and — unless disabled — a public Internet Archive/Wayback submission). This is how a journalist proves what a page showed at capture time.
+
+**Turn archiving on/off** when creating or updating a page scout:
+
+- CLI: `scout scouts add --type web --url <url> --archive-enabled true [--wayback-enabled false]`, or `scout scouts update <id> --archive-enabled true`
+- MCP: `create_scout` / `update_scout` with `archive_enabled: true` (and optional `wayback_enabled`)
+- REST: include `"archive_enabled": true` in the `POST /scouts` or `PATCH /scouts/:id` body
+- On hosted Scoutpost archiving is Pro/Team-only (a free-tier enable returns 402). Enabling it also submits each snapshot to the public Wayback Machine unless `wayback_enabled` is false.
+
+**List a scout's snapshots** (newest first):
+
+- CLI: `scout snapshots list --scout <scout_id>`
+- MCP: `list_snapshots` with `scout_id`
+- REST: `GET /snapshots?scout_id=<id>`
+
+**Download one artifact** (`mhtml | screenshot | rawhtml | markdown | manifest | tsr`):
+
+- CLI: `scout snapshots download <snapshot_id> --artifact mhtml -o page.mhtml` (or `scout snapshots url <id> --artifact mhtml` to just print the link)
+- MCP: `get_snapshot_url` with `id` + `artifact` → a 5-minute signed download URL
+- REST: `POST /snapshots/:id/url` with `{ "artifact": "mhtml" }`
+
+More detail: `docs/features/page-archive.md`.
 
 ## Verification policy
 

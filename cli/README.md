@@ -95,7 +95,7 @@ scout projects add --name "City Hall Watch" --visibility private
 # Scouts
 scout scouts list
 scout scouts add --name "Council agenda" --type web --url https://example.gov \
-  --topic "council, agenda"
+  --topic "council, agenda" --archive-enabled true   # capture evidence snapshots (Pro/Team)
 scout scouts add --name "Housing minutes" --type civic \
   --root-domain example.gov \
   --tracked-urls https://example.gov/minutes,https://example.gov/agendas \
@@ -123,6 +123,13 @@ echo "raw notes" | scout ingest text --title "Field notes"
 scout units search --query "zoning variance" --mode hybrid --project <id>
 scout units mark-used <id> --url https://example.com/story
 scout units delete <id>
+
+# Page snapshots (evidence archive — Page Scouts created with --archive-enabled)
+scout snapshots list --scout <scout_id>
+scout snapshots download <snapshot_id> --artifact mhtml -o page.mhtml
+scout snapshots url <snapshot_id> --artifact screenshot   # print a signed link instead
+# Turn archiving on/off on an existing scout:
+scout scouts update <scout_id> --archive-enabled true --wayback-enabled false
 ```
 
 Topic tags are for organization and UI filtering. Use 1-3 short comma-separated

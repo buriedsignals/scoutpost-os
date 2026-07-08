@@ -60,6 +60,15 @@
 			: 0;
 	$: perRunCost = getScoutCost(scoutType, scoutType === 'social' ? platform : undefined) + transportAddon;
 
+	// Page Archive (PAGE-ARCHIVE-PRD U6): opt-in evidence capture for Page/web
+	// scouts. archive_enabled is Pro/Team-gated on hosted Scoutpost; self-hosted
+	// builds have no tier gate (strip-oss collapses the reactive below to true),
+	// so the toggle is always interactive there. wayback default = true (matches
+	// the scouts EF column default).
+	let archiveEnabled = false;
+	let waybackEnabled = true;
+	$: archiveUnlocked = true;
+
 	// Form state
 	let regularity: ScheduleRegularity =
 		scoutType === 'civic' ? 'monthly'
@@ -254,21 +263,6 @@
 		isSubmitting = true;
 		errorMessage = '';
 
-		// Validate credits client-side. The authoritative charge happens inside
-		// each executor Edge Function via decrement_credits; this is UX only.
-		const creditCheck = validateScheduleCredits({
-			scoutType,
-			regularity,
-			platform: scoutType === 'social' ? platform : undefined,
-			currentCredits: $authStore.user?.credits ?? 0,
-			perRunAddon: transportAddon
-		});
-		if (!creditCheck.valid) {
-			isSubmitting = false;
-			upgradeRequiredCredits = creditCheck.monthlyCost;
-			showUpgradeModal = true;
-			return;
-		}
 
 		// Compute time
 		let computedHour = hour;
@@ -292,7 +286,9 @@
 				location: selectedLocation || undefined,
 				topic: topicInput.trim() || undefined,
 				content_hash: contentHash,
-				provider
+				provider,
+				archive_enabled: archiveEnabled,
+				wayback_enabled: waybackEnabled
 			});
 		} else if (scoutType === 'social') {
 			schedulePromise = apiClient.scheduleLocalScout({
@@ -372,6 +368,11 @@
 		scheduleSuccess = false;
 		selectedLocation = null;
 		topicInput = '';
+		// Reset per-scout archive intent — the modal instance persists across
+		// opens, so a leaked archiveEnabled would silently archive (and submit to
+		// Wayback) the next scout's URL without the user asking.
+		archiveEnabled = false;
+		waybackEnabled = true;
 	}
 
 	function handleBackdropClick(event: MouseEvent) {
@@ -627,6 +628,36 @@
 						</select>
 					</div>
 
+					{#if scoutType === 'web'}
+						<div class="form-field archive-field">
+							<label class="checkbox-row" class:locked={!archiveUnlocked}>
+								<input
+									type="checkbox"
+									class="form-checkbox"
+									checked={archiveEnabled}
+									disabled={!archiveUnlocked}
+									on:change={(e) => (archiveEnabled = (e.currentTarget as HTMLInputElement).checked)}
+								/>
+								<span class="checkbox-content">
+									<span class="checkbox-label">
+										{m.pageScout_archiveEnabled()}
+										{#if !archiveUnlocked}<span class="pro-badge">PRO</span>{/if}
+									</span>
+									<span class="checkbox-desc">{m.pageScout_archiveEnabledDesc()}</span>
+								</span>
+							</label>
+							{#if archiveEnabled && archiveUnlocked}
+								<label class="checkbox-row checkbox-row--nested">
+									<input type="checkbox" class="form-checkbox" bind:checked={waybackEnabled} />
+									<span class="checkbox-content">
+										<span class="checkbox-label">{m.pageScout_waybackEnabled()}</span>
+										<span class="checkbox-desc">{m.pageScout_waybackEnabledDesc()}</span>
+									</span>
+								</label>
+							{/if}
+						</div>
+					{/if}
+
 					{#if regularity === 'weekly'}
 						<div class="form-field">
 							<label for="day-of-week" class="form-label">{m.schedule_dayOfWeek()}</label>
@@ -776,6 +807,65 @@
 
 	.required-star {
 		color: var(--color-error);
+	}
+
+	/* Page Archive evidence toggle (U6) */
+	.archive-field {
+		gap: 0.5rem;
+	}
+	.checkbox-row {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		cursor: pointer;
+	}
+	.checkbox-row.locked {
+		cursor: default;
+	}
+	.checkbox-row--nested {
+		margin-top: 0.5rem;
+		padding-left: 1.5rem;
+	}
+	.form-checkbox {
+		margin-top: 0.15rem;
+		flex-shrink: 0;
+	}
+	.checkbox-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: var(--color-text);
+	}
+	.checkbox-desc {
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+	}
+	.pro-badge {
+		font-size: 0.625rem;
+		font-weight: 700;
+		letter-spacing: 0.03em;
+		padding: 0.05rem 0.35rem;
+		border-radius: 0.25rem;
+		background: var(--color-accent, #6366f1);
+		color: #fff;
+	}
+	.archive-upsell {
+		align-self: flex-start;
+		background: none;
+		border: none;
+		padding: 0;
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--color-accent, #6366f1);
+		cursor: pointer;
+		text-decoration: underline;
 	}
 
 	.helper-row {

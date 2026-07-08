@@ -35,6 +35,12 @@ export interface MonitoringSetupRequest {
 	topic?: string;
 	content_hash?: string;
 	provider?: string;
+	/** Page Archive (PAGE-ARCHIVE-PRD): capture tamper-evident evidence
+	 * snapshots on baseline + each matching change. Pro/Team-gated server-side. */
+	archive_enabled?: boolean;
+	/** When archiving is on, also submit each snapshot to the public Internet
+	 * Archive Wayback Machine (default true). */
+	wayback_enabled?: boolean;
 }
 
 export interface MonitoringSetupResponse {

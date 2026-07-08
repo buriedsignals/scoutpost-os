@@ -96,7 +96,9 @@ in shipped binaries. Local dev builds stay `"dev"`.
 
 - `scout.ts` — entry point, subcommand dispatch, `--version` handling
 - `commands/<name>.ts` — one file per subcommand (config, projects,
-  scouts, units, ingest, export)
+  scouts, units, snapshots, ingest, export). `snapshots` = Page Archive
+  retrieval (`list`/`download`/`url`); archive on/off is a `scouts add/update`
+  flag (`--archive-enabled`/`--wayback-enabled`)
 - `commands/_test.ts` — Deno unit tests
 - `lib/client.ts` — REST client (`apiFetch`), `resolvePath` dual-backend
   shim, arg parser, table/json output helpers

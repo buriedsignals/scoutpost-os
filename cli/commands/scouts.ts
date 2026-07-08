@@ -23,6 +23,7 @@ function usage(): void {
       "                   [--root-domain <domain>] [--tracked-urls <url,url>]",
       "                   [--platform instagram|x|facebook|tiktok|linkedin] [--handle <handle>]",
       "                   [--monitor-mode summarize|criteria] [--track-removals true|false]",
+      "                   [--archive-enabled true|false] [--wayback-enabled true|false]",
       "                   [--mode aircraft|vessel|satellite]",
       "                   [--geofence-preset <id> | --center-lat <n> --center-lon <n> --radius-km <n>]",
       "                   [--watch-ids <id,id>] [--categories <cat,cat>]",
@@ -44,6 +45,11 @@ function usage(): void {
       "              [--source-mode reliable|niche]",
       "              [--priority-sources <domain,domain>]",
       "              [--root-domain <domain>] [--tracked-urls <url,url>]",
+      "              [--archive-enabled true|false] [--wayback-enabled true|false]",
+      "",
+      "  Web/Page scouts: --archive-enabled captures tamper-evident evidence",
+      "  snapshots (Pro/Team). --wayback-enabled (default true) also submits them",
+      "  to the public Internet Archive. Retrieve captures with `scout snapshots`.",
       "  show <id>",
       "  run <id>",
       "  pause <id>",
@@ -324,6 +330,8 @@ export async function run(argv: string[]): Promise<void> {
       const trackedUrls = listFlag(flags, "tracked-urls");
       const day = numberFlag(flags, "day");
       const trackRemovals = boolFlag(flags, "track-removals");
+      const archiveEnabled = boolFlag(flags, "archive-enabled");
+      const waybackEnabled = boolFlag(flags, "wayback-enabled");
       const transportMode = stringFlag(flags, "mode");
       validateSchedulePolicy(flags.type, regularity, cron, transportMode);
 
@@ -345,6 +353,8 @@ export async function run(argv: string[]): Promise<void> {
       if (handle) body.profile_handle = handle;
       if (monitorMode) body.monitor_mode = monitorMode;
       if (trackRemovals !== undefined) body.track_removals = trackRemovals;
+      if (archiveEnabled !== undefined) body.archive_enabled = archiveEnabled;
+      if (waybackEnabled !== undefined) body.wayback_enabled = waybackEnabled;
 
       if (flags.type === "transport") {
         if (!transportMode || !TRANSPORT_MODES.includes(transportMode)) {
@@ -453,6 +463,10 @@ export async function run(argv: string[]): Promise<void> {
       if (prioritySources) patch.priority_sources = prioritySources;
       const location = jsonObjectFlag(flags, "location-json");
       if (location) patch.location = location;
+      const archiveEnabled = boolFlag(flags, "archive-enabled");
+      if (archiveEnabled !== undefined) patch.archive_enabled = archiveEnabled;
+      const waybackEnabled = boolFlag(flags, "wayback-enabled");
+      if (waybackEnabled !== undefined) patch.wayback_enabled = waybackEnabled;
       if (flags.active === "true" || flags.active === true) {
         patch.is_active = true;
       }

@@ -167,7 +167,7 @@ interface ToolDef {
   ) => Promise<unknown>;
 }
 
-const TOOLS: ToolDef[] = [
+export const TOOLS: ToolDef[] = [
   // ---------- Scouts ----------
   {
     name: "list_scouts",
@@ -189,7 +189,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "create_scout",
     description:
-      "Create a new scout. Required: name and type (web|beat|social|civic|transport). web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle. Transport scouts (displayed as 'Fleet Scout' in the UI) require a `config` object: { mode: aircraft|vessel|satellite, watch_ids, geofence?, categories?, criteria? } — watch_ids is REQUIRED for every mode: the specific vessel MMSIs / aircraft ICAO hexes / satellite NORAD ids to track (up to 20; categories only narrow the list, they cannot replace it). Vessel and satellite scouts also need a geofence; aircraft geofence is optional. geofence is { preset_id } or { center: {lat,lon}, radius_km }. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes the baseline immediately for every scout type; Run Now compares against that baseline and never creates the first baseline.",
+      "Create a new scout. Required: name and type (web|beat|social|civic|transport). web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle. Transport scouts (displayed as 'Fleet Scout' in the UI) require a `config` object: { mode: aircraft|vessel|satellite, watch_ids, geofence?, categories?, criteria? } — watch_ids is REQUIRED for every mode: the specific vessel MMSIs / aircraft ICAO hexes / satellite NORAD ids to track (up to 20; categories only narrow the list, they cannot replace it). Vessel and satellite scouts also need a geofence; aircraft geofence is optional. geofence is { preset_id } or { center: {lat,lon}, radius_km }. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes the baseline immediately for every scout type; Run Now compares against that baseline and never creates the first baseline. Web/Page scouts can turn on evidence archiving with archive_enabled (Pro/Team); captured snapshots are then retrievable via list_snapshots.",
     inputSchema: {
       type: "object",
       required: ["name", "type"],
@@ -306,6 +306,16 @@ const TOOLS: ToolDef[] = [
             },
           },
         },
+        archive_enabled: {
+          type: "boolean",
+          description:
+            "Web/Page scouts only: turn on evidence archiving — a tamper-evident snapshot (MHTML + screenshot + markdown, RFC 3161 timestamp, optional Wayback) is captured on baseline and on each matching change. Pro/Team only (free tier → 402). Retrieve captures with list_snapshots.",
+        },
+        wayback_enabled: {
+          type: "boolean",
+          description:
+            "Web/Page scouts only, default true: also submit each archived snapshot to the public Internet Archive Wayback Machine for third-party corroboration. Set false to keep captures private to Scoutpost.",
+        },
       },
     },
     handler: (_u, token, args) =>
@@ -325,7 +335,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "update_scout",
     description:
-      "Patch an existing scout. All fields optional; only sent keys change. Keep topic as 1-3 short comma-separated tags; put longer context in description and filtering/notification rules in criteria. A scout must retain either location or topic (transport scouts are scoped by config instead). For transport scouts, pass a full replacement `config` object to change mode/geofence/watch_ids/categories/criteria.",
+      "Patch an existing scout. All fields optional; only sent keys change. Keep topic as 1-3 short comma-separated tags; put longer context in description and filtering/notification rules in criteria. A scout must retain either location or topic (transport scouts are scoped by config instead). For transport scouts, pass a full replacement `config` object to change mode/geofence/watch_ids/categories/criteria. For web/page scouts, toggle evidence archiving with archive_enabled / wayback_enabled (archive_enabled is Pro/Team-gated).",
     inputSchema: {
       type: "object",
       required: ["id"],
@@ -365,6 +375,16 @@ const TOOLS: ToolDef[] = [
           type: "array",
           items: { type: "string", format: "uri" },
           maxItems: 20,
+        },
+        archive_enabled: {
+          type: "boolean",
+          description:
+            "Web/Page scouts only: enable/disable evidence archiving. Enabling is Pro/Team-gated (free tier → 402); disabling is always allowed.",
+        },
+        wayback_enabled: {
+          type: "boolean",
+          description:
+            "Web/Page scouts only: whether archived snapshots are also submitted to the public Internet Archive Wayback Machine.",
         },
       },
     },
@@ -425,6 +445,45 @@ const TOOLS: ToolDef[] = [
     },
     handler: (_u, token, args) =>
       forward(token, "DELETE", "scouts", `/${String(args.id)}`),
+  },
+
+  // ---------- Page Archive (snapshots) ----------
+  {
+    name: "list_snapshots",
+    description:
+      "List evidence-archive snapshots for the caller's Web/Page scouts, newest first. Each row: id, scout_id, captured_at, capture_kind (baseline|change), fidelity (full|rendered_thirdparty|markdown_only), sizes, trust (RFC 3161 timestamp status + Wayback status/url), and the `artifacts` available to download. Filter by scout_id. Snapshots exist only for scouts with archiving enabled (create_scout/update_scout archive_enabled).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        scout_id: { type: "string", format: "uuid" },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+        offset: { type: "integer", minimum: 0 },
+      },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "GET", "snapshots", "", {
+        query: q(args, ["scout_id", "limit", "offset"]),
+      }),
+  },
+  {
+    name: "get_snapshot_url",
+    description:
+      "Get a short-lived (5 min) signed download URL for one artifact of a snapshot. Artifacts: mhtml (full captured page, opens in Chrome/Edge), screenshot (png), rawhtml, markdown, manifest (JSON of per-artifact SHA-256 hashes), tsr (RFC 3161 timestamp token). Every URL downloads as an attachment. Returns 404 if the snapshot lacks that artifact (e.g. mhtml on a markdown_only capture) — call list_snapshots first to see each snapshot's `artifacts`.",
+    inputSchema: {
+      type: "object",
+      required: ["id", "artifact"],
+      properties: {
+        id: { type: "string", format: "uuid" },
+        artifact: {
+          type: "string",
+          enum: ["mhtml", "screenshot", "rawhtml", "markdown", "manifest", "tsr"],
+        },
+      },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "POST", "snapshots", `/${String(args.id)}/url`, {
+        body: { artifact: args.artifact },
+      }),
   },
 
   // ---------- Units ----------

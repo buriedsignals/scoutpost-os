@@ -48,6 +48,23 @@ Current references:
 
 ---
 
+## Page Archive Snapshot Endpoints
+
+Edge-Function-served (proxied like the other Supabase Edge Functions when
+`PUBLIC_DEPLOYMENT_TARGET=supabase`) by the `snapshots` Edge Function. Retrieve a
+Page Scout's evidence snapshots and mint short-lived signed artifact download
+URLs.
+
+| Method | Path | Auth | Rate Limit | Description |
+|--------|------|------|------------|-------------|
+| GET | `/snapshots?scout_id=<id>` | User JWT or `cj_` API key | — | List a scout's evidence snapshots (paginated) |
+| POST | `/snapshots/:id/url` | User JWT or `cj_` API key | — | Body `{ "artifact": "..." }` → 5-minute signed download URL. Artifact kinds: `mhtml \| screenshot \| rawhtml \| markdown \| manifest \| tsr` |
+
+See `docs/features/page-archive.md` for the retrieval + toggle contract and
+`docs/supabase/edge-functions.md` for the backing `snapshots` Edge Function.
+
+---
+
 ## Auth Endpoints
 
 ### Hosted Production (MuckRock OAuth proxy)

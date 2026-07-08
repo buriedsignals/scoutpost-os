@@ -34,8 +34,11 @@ The product story exposed on the public site is:
 - **Verification**: the human editorial checkpoint that promotes a lead into a citeable fact.
 - **Project**: the organizational container for scouts, units, and exports.
 - **Credits**: the hosted cost model.
+- **Page Archive**: opt-in tamper-evident evidence snapshots of a Page Scout's captures.
 
 Verification is a hard product boundary. Agents can help search and summarize, but unverified units must be treated as leads rather than publishable facts.
+
+Page Archive is an opt-in, dark-by-default capability for Page Scouts (type `web`), Pro/Team-gated on hosted Scoutpost: each capture can be stored as a tamper-evident snapshot — MHTML, screenshot, markdown, a manifest of per-artifact SHA-256 hashes, an RFC 3161 trusted timestamp (`tsr`), and (unless disabled) a public Internet Archive/Wayback submission. Turn it on/off with `archive_enabled` (plus optional `wayback_enabled`) when creating or updating a scout: CLI `scout scouts add/update --archive-enabled true|false [--wayback-enabled true|false]`, MCP `create_scout`/`update_scout` with `archive_enabled`/`wayback_enabled`, or REST `POST /scouts` / `PATCH /scouts/:id`. Retrieve snapshots with CLI `scout snapshots list --scout <id>`, MCP `list_snapshots`, or REST `GET /snapshots?scout_id=<id>`, and download an artifact (`mhtml | screenshot | rawhtml | markdown | manifest | tsr`) with CLI `scout snapshots download <id> --artifact <kind>`, MCP `get_snapshot_url` (`id` + `artifact` → a 5-minute signed URL), or REST `POST /snapshots/:id/url`.
 
 ## 4. Public docs and routes
 

@@ -16,6 +16,7 @@ docs/
 │   ├── civic.md                           # Civic Scout: council monitoring, promises (incl. design ref)
 │   ├── beat.md                           # Beat Scout (type `beat`)
 │   ├── social.md                          # Social media monitoring (Apify)
+│   ├── page-archive.md                    # Page Archive: retrieve/toggle evidence snapshots (UI⇄agent parity)
 │   └── web-scouts.md                      # Website change detection
 ├── mcp/                                   # MCP remote server (separate, read first if touching MCP)
 │   ├── README.md                          # Index + 30-second overview
@@ -67,6 +68,7 @@ docs/
 
 ### Scout System
 - **Page Scout** (type `web`): `features/web-scouts.md` - fresh crawl4ai scrape + local canonical-hash baselines
+- **Page Archive**: `features/page-archive.md` - retrieve/toggle evidence snapshots (CLI `scout snapshots`, MCP `list_snapshots`/`get_snapshot_url`, REST `/snapshots`)
 - **Beat Scout** (type `beat`): `features/beat.md` - Multi-language search, AI filtering
 - **Social Scout** (type `social`): `features/social.md` - Social media monitoring, Apify scraping
 - **Civic Scout** (type `civic`): `features/civic.md` - Council monitoring, promise extraction, design reference

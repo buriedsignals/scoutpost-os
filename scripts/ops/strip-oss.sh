@@ -341,6 +341,28 @@ rewrite(
     ],
 )
 
+# Page Archive toggle: SaaS gates archiving to Pro/Team via PUBLIC_MUCKROCK_ENABLED;
+# OSS/self-host has no tier gate, so archiving is unlimited. Collapse the reactive
+# to `true` (removes the MuckRock reference) AND delete the free-tier upsell block:
+# it is dead in OSS (archiveUnlocked is always true) and references showUpgradeModal,
+# which the credit-gating strip below removes — leaving it would break svelte-check
+# on the OSS tree.
+rewrite(
+    "frontend/src/lib/components/modals/ScoutScheduleModal.svelte",
+    [
+        (
+            r"\t\$: archiveUnlocked =\n\t\timport\.meta\.env\.PUBLIC_MUCKROCK_ENABLED !== 'true' \|\|\n\t\t\(\$authStore\.user\?\.tier \?\? 'free'\) !== 'free';",
+            "\t$: archiveUnlocked = true;",
+            0,
+        ),
+        (
+            r"\n\s*\{#if !archiveUnlocked\}\s*<button type=\"button\" class=\"archive-upsell\" on:click=\{\(\) => \(showUpgradeModal = true\)\}>\s*\{m\.pageScout_archiveUpgrade\(\)\}\s*</button>\s*\{/if\}",
+            "",
+            re.DOTALL,
+        ),
+    ],
+)
+
 rewrite(
     "supabase/functions/user/index.ts",
     [
@@ -422,8 +444,12 @@ rewrite(
         (r"import \{ getScoutCost, validateScheduleCredits \} from '\$lib/utils/scouts';", "import { getScoutCost } from '$lib/utils/scouts';", 0),
         (r"\n\timport UpgradeModal from '\$lib/components/modals/UpgradeModal\.svelte';", "", 0),
         (r"\n\tlet showUpgradeModal = false;\n\tlet upgradeRequiredCredits = 0;\n", "\n", 0),
+        # Robust match: anchor on the comment start and the block's closing brace,
+        # spanning the validateScheduleCredits call with `.*?` so field/shorthand
+        # drift (e.g. `regularity,` vs `regularity as …`, added `perRunAddon`)
+        # can't leave a dangling `showUpgradeModal` reference in the OSS tree.
         (
-            r"\n\t\t// Validate credits client-side\..*?\n\t\tconst creditCheck = validateScheduleCredits\(\{\n\t\t\tscoutType,\n\t\t\tregularity: regularity as 'daily' \| 'weekly' \| 'monthly',\n\t\t\tplatform: scoutType === 'social' \? platform : undefined,\n\t\t\tcurrentCredits: \$authStore\.user\?\.credits \?\? 0\n\t\t\}\);\n\t\tif \(!creditCheck\.valid\) \{\n\t\t\tisSubmitting = false;\n\t\t\tupgradeRequiredCredits = creditCheck\.monthlyCost;\n\t\t\tshowUpgradeModal = true;\n\t\t\treturn;\n\t\t\}\n",
+            r"\n\t\t// Validate credits client-side\..*?showUpgradeModal = true;\n\t\t\treturn;\n\t\t\}\n",
             "\n",
             re.DOTALL,
         ),

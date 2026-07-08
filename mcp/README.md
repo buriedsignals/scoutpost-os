@@ -92,7 +92,8 @@ Claude profiles), pass credentials via env instead:
 ```
 
 Restart Claude Desktop. It should advertise tools like `list_scouts`,
-`verify_unit`, `search_units` in the tool picker.
+`verify_unit`, `search_units`, `list_snapshots`, and `get_snapshot_url` in the
+tool picker.
 
 ## Wire it into Cursor / other local MCP clients
 

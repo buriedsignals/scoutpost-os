@@ -13,6 +13,13 @@ Scoutpost lets users create "scouts" that monitor:
 
 Scouts run on schedules and send email notifications when criteria are met.
 
+Page Scouts can optionally capture **tamper-evident evidence snapshots** of each
+change (MHTML + screenshot + RFC 3161 timestamp, with optional Internet Archive
+submission). Archiving is toggled per scout (`archive_enabled`) and snapshots are
+retrievable through the UI-less agent surfaces — the `scout snapshots` CLI, the
+`list_snapshots` / `get_snapshot_url` MCP tools, and the `/snapshots` REST
+endpoints. See [`docs/features/page-archive.md`](docs/features/page-archive.md).
+
 ## Tech Stack
 
 - **Frontend**: SvelteKit + TailwindCSS (static SPA)
