@@ -451,7 +451,6 @@
 				<div class="section-eyebrow section-eyebrow-spaced">More from Buried Signals</div>
 				<div class="promo-grid">
 					<div class="promo-card">
-						<span class="promo-section-label promo-section-label--top">Launching May 2026</span>
 						<h3 class="promo-title">Membership</h3>
 						<p class="promo-subtitle">Investigations with AI. The tools to run your own.</p>
 						<ul class="promo-features">
@@ -1271,10 +1270,6 @@
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
 		color: var(--color-secondary);
-	}
-
-	.promo-section-label--top {
-		margin-bottom: 0.125rem;
 	}
 
 	.promo-title {
