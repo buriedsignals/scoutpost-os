@@ -60,6 +60,10 @@ afterEach(() => {
 
 describe('Page Archive toggle (ScoutScheduleModal, web scout)', () => {
 	it('Pro user: enabling archiving sends archive_enabled + wayback_enabled to scheduleMonitoring', async () => {
+		// Stub SaaS mode so the toggle's unlock genuinely exercises the tier gate
+		// (`tier !== 'free'`) rather than defaulting open via the self-host
+		// disjunct (PUBLIC_MUCKROCK_ENABLED undefined → unlocked regardless of tier).
+		vi.stubEnv('PUBLIC_MUCKROCK_ENABLED', 'true');
 		setTier('pro');
 		render(ScoutScheduleModal, { props: webProps });
 
@@ -81,6 +85,7 @@ describe('Page Archive toggle (ScoutScheduleModal, web scout)', () => {
 	});
 
 	it('Pro user: archiving stays off by default (archive_enabled false in payload)', async () => {
+		vi.stubEnv('PUBLIC_MUCKROCK_ENABLED', 'true');
 		setTier('pro');
 		render(ScoutScheduleModal, { props: webProps });
 

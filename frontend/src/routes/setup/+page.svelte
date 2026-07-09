@@ -60,7 +60,7 @@ docker run --rm -it \\
 		{
 			name: 'Exa API key',
 			purpose:
-				'Default Beat Scout retrieval port. Without it, Beat Scout silently falls back to Firecrawl-only discovery.',
+				'Beat Scout retrieval. Beat search is Exa-only — without this key, Beat Scout runs fail (there is no Firecrawl search fallback). Not needed if you do not use Beat Scout.',
 			signup: 'https://exa.ai/',
 			signupLabel: 'exa.ai',
 			optional: true

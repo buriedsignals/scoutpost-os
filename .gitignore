@@ -140,3 +140,7 @@ scrape-service/.coverage
 scrape-service/.pytest_cache/
 scripts/benchmarks/baselines/
 eng.traineddata
+
+# send-user-update-email.ts append-only sent ledger (contains real recipient emails)
+USER_UPDATE_EMAIL.sent.jsonl
+*.sent.jsonl

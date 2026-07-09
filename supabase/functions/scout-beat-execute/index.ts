@@ -292,6 +292,42 @@ interface RetrievalDiscoveryResult {
   gov: BeatHit[];
   raw: BeatHit[];
   totalCostDollars: number | null;
+  /** True only when every search leg that ran was a total provider failure —
+   * lets the caller distinguish an Exa outage from a genuine zero-hit run. */
+  searchErrored: boolean;
+}
+
+/** Merge two discovery passes, deduping hits by URL and summing cost. The
+ * low-coverage retry uses this so a second (deep-lite) Exa pass can only ADD
+ * coverage: replacing outright would let a 1-hit primary degrade to 0 when
+ * deep-lite — a different, non-deterministic tier — returns fewer or
+ * all-rejected candidates, contradicting the "never worsens" intent. */
+function mergeDiscoveries(
+  a: RetrievalDiscoveryResult,
+  b: RetrievalDiscoveryResult,
+): RetrievalDiscoveryResult {
+  const dedupeByUrl = (hits: BeatHit[]): BeatHit[] => {
+    const seen = new Set<string>();
+    const out: BeatHit[] = [];
+    for (const hit of hits) {
+      const key = hit.url ?? "";
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      out.push(hit);
+    }
+    return out;
+  };
+  const sumCost = a.totalCostDollars === null && b.totalCostDollars === null
+    ? null
+    : (a.totalCostDollars ?? 0) + (b.totalCostDollars ?? 0);
+  return {
+    news: dedupeByUrl([...a.news, ...b.news]),
+    gov: dedupeByUrl([...a.gov, ...b.gov]),
+    raw: [...a.raw, ...b.raw],
+    totalCostDollars: sumCost,
+    // Both passes must be total failures for the merged result to signal outage.
+    searchErrored: a.searchErrored && b.searchErrored,
+  };
 }
 
 async function discoverForRetrievalPort(
@@ -315,6 +351,7 @@ async function discoverForRetrievalPort(
   });
   let gov: BeatHit[] = [];
   let govRaw: BeatHit[] = [];
+  let govSearchErrored = false;
   let totalCostDollars = newsDiscovery.totalCostDollars;
   if (opts.includeGovernment) {
     const govDiscovery = await discoverBeatHits({
@@ -335,6 +372,7 @@ async function discoverForRetrievalPort(
     });
     gov = govDiscovery.hits;
     govRaw = govDiscovery.rawHits;
+    govSearchErrored = Boolean(govDiscovery.searchErrored);
     if (typeof govDiscovery.totalCostDollars === "number") {
       totalCostDollars = (totalCostDollars ?? 0) +
         govDiscovery.totalCostDollars;
@@ -345,6 +383,11 @@ async function discoverForRetrievalPort(
     gov,
     raw: newsDiscovery.rawHits.concat(govRaw),
     totalCostDollars,
+    // Every leg that ran must be a total failure to count as an outage: news
+    // always runs; gov only when includeGovernment. If gov didn't run, defer to
+    // news alone.
+    searchErrored: Boolean(newsDiscovery.searchErrored) &&
+      (!opts.includeGovernment || Boolean(govSearchErrored)),
   };
 }
 
@@ -555,6 +598,7 @@ async function execute(
     let rawBeatHits: BeatHit[] = [];
     let retrievalTotalCostDollars: number | null = null;
     let retrievalFallbackTriggered = false;
+    let retrievalSearchErrored = false;
     const priorityPlan = partitionPrioritySources(manualSources);
 
     if (
@@ -641,13 +685,16 @@ async function execute(
         // rather than falling back to Firecrawl — beat search is Exa-only.
         // Firecrawl search on these niche queries returned ~0 results in
         // practice (audit 2026-07-07), so a deeper Exa pass is both cleaner and
-        // a better coverage attempt. Per-query errors degrade gracefully to
-        // empty in runOne, so this never worsens the low-coverage case.
-        primaryDiscovery = await discoverForRetrievalPort({
+        // a better coverage attempt. MERGE the retry into the primary rather
+        // than replacing it: deep-lite is a different, non-deterministic tier
+        // that can return fewer hits, and replacing would let a 1-hit primary
+        // degrade to 0 — mergeDiscoveries guarantees the retry only ever adds.
+        const retryDiscovery = await discoverForRetrievalPort({
           ...baseDiscoveryOpts,
           port: "exa",
           exaType: "deep-lite",
         });
+        primaryDiscovery = mergeDiscoveries(primaryDiscovery, retryDiscovery);
         retrievalFallbackTriggered = true;
         await mergeRunMetadata(db, runId, {
           retrieval: "exa",
@@ -660,6 +707,7 @@ async function execute(
       govBeatHits = primaryDiscovery.gov;
       rawBeatHits = rawBeatHits.concat(primaryDiscovery.raw);
       retrievalTotalCostDollars = primaryDiscovery.totalCostDollars;
+      retrievalSearchErrored = primaryDiscovery.searchErrored;
 
       if (runBeatAbShadow && !retrievalFallbackTriggered) {
         const shadowPort = alternateRetrievalPort(effectiveRetrievalPort);
@@ -724,6 +772,41 @@ async function execute(
     const selectedBeatHits = finalUrls
       .map((url) => beatHitByUrl.get(url))
       .filter((hit): hit is BeatHit => Boolean(hit));
+
+    if (finalUrls.length === 0 && retrievalSearchErrored && !baselineOnly) {
+      // Zero URLs because EVERY search query threw — a provider outage (revoked
+      // key, Exa down, 429 storm), not a quiet news day. Recording a no-op
+      // success here (as the block below does) would make the two
+      // indistinguishable and silently hide a total retrieval failure until the
+      // weekly benchmark noticed. Fail the run and refund the pre-charge so it
+      // surfaces in run status. Before the Exa-only cutover a low-coverage run
+      // still had the Firecrawl fallback; now nothing catches a full outage.
+      const msg =
+        "beat retrieval failed: every search query errored (provider outage or throttling)";
+      logEvent({
+        level: "error",
+        fn: "scout-beat-execute",
+        event: "retrieval_all_queries_failed",
+        scout_id: scoutId,
+        run_id: runId,
+        retrieval: effectiveRetrievalPort,
+      });
+      await markRunError(db, runId, {
+        stage: "scrape",
+        errorClass: "provider",
+        message: msg,
+      });
+      if (chargedCredits) {
+        await refundCredits(db, {
+          userId: scout.user_id as string,
+          cost: CREDIT_COSTS.beat,
+          scoutId,
+          scoutType: "beat",
+          operation: "beat",
+        });
+      }
+      throw new Error(msg);
+    }
 
     if (finalUrls.length === 0) {
       // Empty pipeline outcome (no discovered URLs) — record a no-op success

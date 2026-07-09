@@ -40,13 +40,13 @@ describe('setup page', () => {
 		// and the keys list, so allow either or both.
 		expect(screen.getAllByText(/Supabase access token/i).length).toBeGreaterThan(0);
 
-		// Exa is named and explained as Beat Scout's default retrieval port.
+		// Exa is named and explained as Beat Scout's (Exa-only) retrieval port.
 		expect(screen.getByText(/Exa API key/i)).toBeInTheDocument();
 		expect(
-			screen.getByText(/Default Beat Scout retrieval port/i)
+			screen.getByText(/Beat search is Exa-only/i)
 		).toBeInTheDocument();
 
-		// Exa is recommended (optional with fallback), not strictly required.
+		// Exa is recommended (only needed for Beat Scout), not strictly required.
 		const exaRow = screen.getByText(/Exa API key/i).closest('li');
 		expect(exaRow).not.toBeNull();
 		expect(exaRow?.textContent ?? '').toMatch(/recommended/i);

@@ -329,7 +329,12 @@ function normalizeInt(bytes: Uint8Array): Uint8Array {
 // TSA request (network, single attempt, non-fatal)
 // --------------------------------------------------------------------------
 
-const DEFAULT_TSA_URL = "http://timestamp.digicert.com";
+// https so the transport authenticates the TSA: validateTsr checks only
+// PKIStatus/imprint/nonce (all derivable from the outgoing TSQ), so over plain
+// http an on-path attacker could mint a well-formed junk token that stamps
+// tsa_status='ok'. Full CMS signature verification stays an audit-time step
+// (openssl ts -verify per docs/features/page-archive.md).
+const DEFAULT_TSA_URL = "https://timestamp.digicert.com";
 const TSA_ABORT_MS = 15_000;
 
 export interface TsaResult {
@@ -347,7 +352,7 @@ export interface TsaDeps {
 function tsaUrls(explicit?: string): string[] {
   const primary = explicit ?? Deno.env.get("TSA_URL") ?? DEFAULT_TSA_URL;
   // Sectigo fallback (KTD5) unless the operator pinned a specific TSA_URL.
-  const fallback = "http://timestamp.sectigo.com";
+  const fallback = "https://timestamp.sectigo.com";
   return primary === fallback ? [primary] : [primary, fallback];
 }
 

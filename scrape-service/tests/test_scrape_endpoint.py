@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
 
+from app import pdfparse
 from app.scraper import Scraper
-from tests.conftest import FakeScraper, auth_headers, crawl_result
+from tests.conftest import FakeScraper, auth_headers, crawl_result, make_settings
+from app.main import create_app
 
 
 def test_scrape_happy_path(app):
@@ -68,6 +70,53 @@ def test_scrape_rejects_non_http_schemes(app):
     for url in ("file:///etc/passwd", "ftp://x", "chrome://settings", "not-a-url"):
         res = TestClient(app).post("/scrape", json={"url": url}, headers=auth_headers())
         assert res.status_code == 422, url
+
+
+def test_scrape_blocks_private_addresses(app, monkeypatch):
+    # SSRF parity with /parse: a host resolving to a private/loopback address is
+    # rejected before the browser renders it (snapshot capture would otherwise
+    # persist the internal response behind a signed URL).
+    monkeypatch.setattr(
+        pdfparse.socket,
+        "getaddrinfo",
+        lambda host, port: [(2, 1, 6, "", ("169.254.169.254", 0))],
+    )
+    app.state.scraper = FakeScraper(result=crawl_result())
+    res = TestClient(app).post(
+        "/scrape", json={"url": "https://metadata.internal/latest"}, headers=auth_headers()
+    )
+    assert res.status_code == 422
+    assert res.json()["detail"]["error"] == "private_address"
+
+
+def test_scrape_rejects_unresolvable_host(app, monkeypatch):
+    # A host that won't resolve makes assert_public_host raise PdfDownloadError;
+    # /scrape maps it to a 422 rather than letting the browser attempt it.
+    def boom(host, port):
+        raise OSError("Name or service not known")
+
+    monkeypatch.setattr(pdfparse.socket, "getaddrinfo", boom)
+    app.state.scraper = FakeScraper(result=crawl_result())
+    res = TestClient(app).post(
+        "/scrape", json={"url": "https://nope.invalid/x"}, headers=auth_headers()
+    )
+    assert res.status_code == 422
+    assert "cannot resolve host" in res.json()["detail"]
+
+
+def test_scrape_allows_private_addresses_when_opted_out(monkeypatch):
+    # Self-host escape hatch: SCRAPE_ALLOW_PRIVATE_ADDRESSES disables the guard.
+    monkeypatch.setattr(
+        pdfparse.socket,
+        "getaddrinfo",
+        lambda host, port: [(2, 1, 6, "", ("127.0.0.1", 0))],
+    )
+    app = create_app(make_settings(block_private_addresses=False))
+    app.state.scraper = FakeScraper(result=crawl_result())
+    res = TestClient(app).post(
+        "/scrape", json={"url": "https://internal.example/dash"}, headers=auth_headers()
+    )
+    assert res.status_code == 200
 
 
 def test_scrape_timeout_bounds_validated(app):

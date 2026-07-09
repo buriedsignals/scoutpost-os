@@ -119,6 +119,7 @@ def make_settings(**overrides) -> Settings:
         gemini_api_key=None,
         gemini_model="gemini-2.5-flash-lite",
         gemini_timeout_s=90.0,
+        block_private_addresses=True,
     )
     base.update(overrides)
     return Settings(**base)

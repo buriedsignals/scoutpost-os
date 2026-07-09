@@ -210,9 +210,9 @@ Deno.test("requestTsaToken honors an explicit TSA_URL without adding the fallbac
   await requestTsaToken(IMPRINT, {
     fetchImpl,
     randomNonce: fixedNonce,
-    tsaUrl: "http://timestamp.sectigo.com",
+    tsaUrl: "https://timestamp.sectigo.com",
   });
-  assertEquals(seen, ["http://timestamp.sectigo.com"]);
+  assertEquals(seen, ["https://timestamp.sectigo.com"]);
 });
 
 Deno.test("requestTsaToken uses a real random nonce by default", async () => {

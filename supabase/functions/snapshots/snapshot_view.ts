@@ -4,16 +4,9 @@
  * unit-testable without the auth/DB/storage stack.
  */
 
-/** Strict UUID (canonical 8-4-4-4-12 hex). The loose `[0-9a-f-]{36}` shape a
- * naive guard uses also matches non-UUIDs (e.g. 36 hyphens), which then reach a
- * uuid column and raise a Postgres 22P02 cast error → HTTP 500 instead of a
- * clean 4xx. Validate id/scout_id against this before any `.eq()`. */
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export function isUuid(value: string): boolean {
-  return UUID_RE.test(value);
-}
+// Re-exported so existing importers (snapshots/index.ts) keep their path while
+// the pattern itself lives in the shared validation module.
+export { isUuid } from "../_shared/validation.ts";
 
 /** Parse a pagination query param to an int clamped to [min, max], falling back
  * to `fallback` when the value is absent or non-numeric (parseInt → NaN). Keeps

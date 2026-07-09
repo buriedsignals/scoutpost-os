@@ -19,7 +19,7 @@ deployments have no tier gate.
 
 `archive_enabled` (capture on/off) and `wayback_enabled` (also submit to the public
 Wayback Machine; default **true**) are ordinary scout fields set on create or update.
-Enabling `archive_enabled` on a free-tier hosted account returns **402**; disabling
+Enabling `archive_enabled` on a free-tier hosted account returns **403** (`archive_forbidden`); disabling
 is always allowed.
 
 | Surface | Enable on create | Toggle on an existing scout |

@@ -1400,6 +1400,29 @@ async function updateScout(
     throw e;
   }
 
+  // Baseline snapshot on enable-later (PAGE-ARCHIVE-PRD R4): before this hook,
+  // turning archiving on via PATCH captured nothing until the next page change,
+  // so a static page stayed snapshot-less with archiving "on" and the pre-change
+  // state of the first change was never archived. Mirrors createScout: fire the
+  // background capture only on the false→true transition of a scheduled web
+  // scout — captureWebBaselineSnapshot re-checks the gate + tier and never
+  // throws, so this stays off the update critical path.
+  const archiveTurnedOn = parsed.data.archive_enabled === true &&
+    current.archive_enabled !== true;
+  if (archiveTurnedOn && data.type === "web" && willHaveSchedule) {
+    runSnapshotInBackground(
+      captureWebBaselineSnapshot(svc, {
+        id: data.id,
+        user_id: user.id,
+        url: data.url,
+        provider: data.provider,
+        archive_enabled: data.archive_enabled,
+        wayback_enabled: data.wayback_enabled,
+        name: data.name,
+      }),
+    );
+  }
+
   return jsonOk(await shapeScoutResponse(db, data));
 }
 

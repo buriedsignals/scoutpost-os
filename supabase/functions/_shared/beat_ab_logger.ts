@@ -93,59 +93,6 @@ export async function logBeatAbRun(
   }
 }
 
-export async function promoteScoutFallbackAfterRepeatedExaLowCoverage(
-  db: SupabaseClient,
-  opts: { scoutId: string; threshold?: number },
-): Promise<boolean> {
-  const threshold = opts.threshold ?? 3;
-  try {
-    const { data: rows, error } = await db
-      .from("beat_ab_runs")
-      .select("metadata")
-      .eq("scout_id", opts.scoutId)
-      .eq("retrieval", "exa")
-      .order("created_at", { ascending: false })
-      .limit(threshold);
-    if (error) throw new Error(error.message);
-    const recent = Array.isArray(rows) ? rows : [];
-    if (recent.length < threshold) return false;
-    const allLowCoverage = recent.every((row) => {
-      const metadata = asObject((row as { metadata?: unknown }).metadata);
-      return metadata.fallback_triggered === true &&
-        metadata.fallback_reason === "exa_low_coverage";
-    });
-    if (!allLowCoverage) return false;
-
-    const { data: scout, error: scoutErr } = await db
-      .from("scouts")
-      .select("metadata")
-      .eq("id", opts.scoutId)
-      .maybeSingle();
-    if (scoutErr) throw new Error(scoutErr.message);
-    const metadata = {
-      ...asObject((scout as { metadata?: unknown } | null)?.metadata),
-      retrieval: "firecrawl",
-      exa_fallback_promoted_at: new Date().toISOString(),
-      exa_fallback_reason: "three_consecutive_low_coverage_runs",
-    };
-    const { error: updateErr } = await db
-      .from("scouts")
-      .update({ metadata })
-      .eq("id", opts.scoutId);
-    if (updateErr) throw new Error(updateErr.message);
-    return true;
-  } catch (e) {
-    logEvent({
-      level: "warn",
-      fn: "beat-ab-logger",
-      event: "fallback_promotion_failed",
-      scout_id: opts.scoutId,
-      msg: e instanceof Error ? e.message : String(e),
-    });
-    return false;
-  }
-}
-
 function scoreLocality(
   hits: BeatAbHit[],
   location: BeatLocationMetrics | undefined,
@@ -199,10 +146,4 @@ function escapeRegex(value: string): string {
 
 function roundScore(value: number): number {
   return Math.round(value * 1000) / 1000;
-}
-
-function asObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
 }

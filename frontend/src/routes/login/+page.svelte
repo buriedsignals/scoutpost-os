@@ -397,7 +397,7 @@
 						</div>
 						<div>
 							<p class="feature-title">Social profiles</p>
-							<p class="feature-desc">Track Instagram, X, and Facebook — text and images. Catch deleted posts, flag newsworthy changes, sidestep the algorithmic feed.</p>
+							<p class="feature-desc">Track Instagram, X, Facebook, TikTok, and LinkedIn — text and images. Catch deleted posts, flag newsworthy changes, sidestep the algorithmic feed.</p>
 						</div>
 					</div>
 					<div class="feature-item">
@@ -433,6 +433,17 @@
 						<div>
 							<p class="feature-title">Your beat</p>
 							<p class="feature-desc">Scouts monitor locations, topics, or both — pulling from niche and reliable sources on your schedule. Surface under-reported stories and leads.</p>
+						</div>
+					</div>
+					<div class="feature-item">
+						<div class="feature-icon">
+							<svg class="feature-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>
+							</svg>
+						</div>
+						<div>
+							<p class="feature-title">Fleets</p>
+							<p class="feature-desc">Track aircraft, vessels, and satellites by ICAO hex, MMSI, or NORAD id — get alerted when watched objects appear, enter an area, or match your criteria.</p>
 						</div>
 					</div>
 				</div>

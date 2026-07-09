@@ -309,7 +309,7 @@ export const TOOLS: ToolDef[] = [
         archive_enabled: {
           type: "boolean",
           description:
-            "Web/Page scouts only: turn on evidence archiving — a tamper-evident snapshot (MHTML + screenshot + markdown, RFC 3161 timestamp, optional Wayback) is captured on baseline and on each matching change. Pro/Team only (free tier → 402). Retrieve captures with list_snapshots.",
+            "Web/Page scouts only: turn on evidence archiving — a tamper-evident snapshot (MHTML + screenshot + markdown, RFC 3161 timestamp, optional Wayback) is captured on baseline and on each matching change. Pro/Team only (free tier → 403 archive_forbidden). Retrieve captures with list_snapshots.",
         },
         wayback_enabled: {
           type: "boolean",
@@ -379,7 +379,7 @@ export const TOOLS: ToolDef[] = [
         archive_enabled: {
           type: "boolean",
           description:
-            "Web/Page scouts only: enable/disable evidence archiving. Enabling is Pro/Team-gated (free tier → 402); disabling is always allowed.",
+            "Web/Page scouts only: enable/disable evidence archiving. Enabling is Pro/Team-gated (free tier → 403 archive_forbidden); disabling is always allowed.",
         },
         wayback_enabled: {
           type: "boolean",

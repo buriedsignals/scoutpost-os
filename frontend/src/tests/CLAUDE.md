@@ -35,12 +35,25 @@ src/tests/
 
 ## Testing Strategy
 
-We test **logic pipelines**, not Svelte component rendering:
+Prefer testing **logic pipelines** over Svelte component rendering:
 
 1. **Pure utility functions** (`$lib/utils/`) — extracted from Svelte components, tested directly
 2. **API client contract** (`$lib/api-client.ts`) — mocked `fetch`, verifies URLs, methods, bodies, auth headers, error handling
 
-Svelte 5 component rendering in jsdom is not tested due to Paraglide barrel export incompatibility. Visual behavior is verified manually.
+Extract logic into a `$lib/utils/<name>.ts` and test it directly whenever the
+behavior can be isolated from the DOM — it is faster and less brittle.
+
+**Component rendering IS used where behavior is inseparable from the markup.**
+A few suites render a component with `@testing-library/svelte` (e.g.
+`components/archive-toggle.test.ts` renders `ScoutScheduleModal` to prove the
+entitlement gate disables the toggle for free SaaS users; `callback-events` and
+`setup-page` do likewise). This works despite the historical Paraglide
+barrel-export friction. When you render a component that reads
+`import.meta.env.PUBLIC_*`, stub it explicitly with `vi.stubEnv(...)` — vitest
+does not apply the `PUBLIC_`/`VITE_` env prefix, so an unstubbed `PUBLIC_*` var
+reads as `undefined` and can silently pass a gate you meant to assert. Reach for
+rendering only when a pure-function extraction genuinely can't capture the
+behavior; visual/layout appearance is still verified manually.
 
 ## Utility Modules
 

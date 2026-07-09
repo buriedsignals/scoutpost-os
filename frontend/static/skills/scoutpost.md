@@ -108,7 +108,7 @@ Page Scouts can archive a tamper-evident snapshot of each capture (the rendered 
 - CLI: `scout scouts add --type web --url <url> --archive-enabled true [--wayback-enabled false]`, or `scout scouts update <id> --archive-enabled true`
 - MCP: `create_scout` / `update_scout` with `archive_enabled: true` (and optional `wayback_enabled`)
 - REST: include `"archive_enabled": true` in the `POST /scouts` or `PATCH /scouts/:id` body
-- On hosted Scoutpost archiving is Pro/Team-only (a free-tier enable returns 402). Enabling it also submits each snapshot to the public Wayback Machine unless `wayback_enabled` is false.
+- On hosted Scoutpost archiving is Pro/Team-only (a free-tier enable returns 403 archive_forbidden). Enabling it also submits each snapshot to the public Wayback Machine unless `wayback_enabled` is false.
 
 **List a scout's snapshots** (newest first — capture kind baseline/change, fidelity, trust status, and the artifacts available):
 

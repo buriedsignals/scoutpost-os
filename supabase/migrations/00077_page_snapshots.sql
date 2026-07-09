@@ -78,7 +78,11 @@ CREATE INDEX IF NOT EXISTS idx_page_snapshots_raw_capture
   ON page_snapshots (raw_capture_id) WHERE raw_capture_id IS NOT NULL;
 
 -- Owner read; every write path is service-role (bypasses RLS).
+-- DROP-before-CREATE (Postgres has no CREATE POLICY IF NOT EXISTS) so a re-run
+-- on an OSS stack — migration-history reset or a db push after a partial apply —
+-- doesn't abort with "policy already exists". Matches 00066's idempotent shape.
 ALTER TABLE page_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS page_snapshots_owner_read ON page_snapshots;
 CREATE POLICY page_snapshots_owner_read ON page_snapshots FOR SELECT
   USING ((SELECT auth.uid()) = user_id);
 
@@ -98,6 +102,7 @@ ON CONFLICT (id) DO UPDATE
 -- lets OSS clients mint signed URLs directly with a user JWT while SaaS goes
 -- through the snapshots Edge Function. No user write policies — uploads and
 -- deletes are service-role only.
+DROP POLICY IF EXISTS page_snapshots_objects_owner_read ON storage.objects;
 CREATE POLICY page_snapshots_objects_owner_read ON storage.objects FOR SELECT
   USING (
     bucket_id = 'page-snapshots'

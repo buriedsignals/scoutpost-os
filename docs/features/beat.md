@@ -211,8 +211,8 @@ alternate-port shadow through discovery/filtering only and writes a
 
 The production default is intentionally simpler than the earlier fan-out design:
 
-- Use explicit Firecrawl `sources: ["web"]` for all generated and discovery queries.
-- Forward Firecrawl `location`/`country` when the scout has geography.
+- Run all generated and discovery queries through Exa search (the sole retrieval port; see [Retrieval Port](#retrieval-port)) — never Firecrawl search.
+- Forward the scout's geography via Exa `userLocation`/`category` when the scout has a location.
 - Let the LLM query plan translate/localize queries for non-English locations instead of hardcoding country-specific terms.
 - Pass `canonical_query`, `localized_query`, `required_concepts`, and `weak_terms` from query generation into the AI relevance filter.
 - For compound topics, the AI filter must require all major concepts. A result matching only a weak generic term such as `AI`, `policy`, `technology`, or `media` is not enough.

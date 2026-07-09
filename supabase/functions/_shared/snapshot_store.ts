@@ -19,6 +19,7 @@
 import type { SupabaseClient } from "./supabase.ts";
 import type { SnapshotManifestInput } from "./tsa.ts";
 import { logEvent } from "./log.ts";
+import { UUID_RE } from "./validation.ts";
 
 export const SNAPSHOT_BUCKET = "page-snapshots";
 
@@ -44,6 +45,45 @@ export class SnapshotIntegrityError extends Error {}
 export class SnapshotPathError extends Error {}
 export class SnapshotStorageError extends Error {}
 
+/** "Already exists" is success for content-addressed uploads: an object under a
+ * content-hash path holds byte-identical content by construction, so a re-run
+ * over identical evidence is safe. StorageApiError's statusCode "409" is the
+ * contract; the message regex is only a fallback for older client shapes. */
+function isDuplicateStorageError(error: { message: string } | null): boolean {
+  return error !== null &&
+    ((error as { statusCode?: string }).statusCode === "409" ||
+      /already exists|duplicate/i.test(error.message));
+}
+
+// Supabase Storage calls carry no default timeout and the service client wires
+// no global fetch fuse, so a stalled response would hang the backgrounded
+// capture task until the platform wall-clock kills the isolate — silently
+// producing the "notified change, zero archival record" outcome the feature
+// exists to prevent. Bound each storage op so the outcome resolves as a logged
+// failure instead. Generous vs the TSA/Wayback 15s fuses: an upload can legibly
+// move up to ~25MB.
+const STORAGE_OP_TIMEOUT_MS = 45_000;
+
+function withStorageTimeout<T>(op: PromiseLike<T>, label: string): Promise<T> {
+  // ReturnType<typeof setTimeout>, not number: CI's Deno types setTimeout as
+  // returning Timeout, and a `number` annotation fails type-checking (TS2322).
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new SnapshotStorageError(
+            `storage op timed out after ${STORAGE_OP_TIMEOUT_MS}ms: ${label}`,
+          ),
+        ),
+      STORAGE_OP_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([op, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  }) as Promise<T>;
+}
+
 export async function sha256HexBytes(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -54,7 +94,6 @@ export async function sha256HexBytes(bytes: Uint8Array): Promise<string> {
     .join("");
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HEX64_RE = /^[0-9a-f]{64}$/;
 
 function assertUuid(value: string, label: string): void {
@@ -114,13 +153,13 @@ export async function uploadTrustObject(
   bytes: Uint8Array,
   contentType: string,
 ): Promise<void> {
-  const { error } = await svc.storage
-    .from(SNAPSHOT_BUCKET)
-    .upload(path, bytes, { contentType, upsert: false });
-  const isDuplicate = error !== null &&
-    ((error as { statusCode?: string }).statusCode === "409" ||
-      /already exists|duplicate/i.test(error.message));
-  if (error && !isDuplicate) {
+  const { error } = await withStorageTimeout(
+    svc.storage
+      .from(SNAPSHOT_BUCKET)
+      .upload(path, bytes, { contentType, upsert: false }),
+    `trust upload ${path}`,
+  );
+  if (error && !isDuplicateStorageError(error)) {
     throw new SnapshotStorageError(`trust upload failed (${path}): ${error.message}`);
   }
 }
@@ -254,25 +293,56 @@ export async function storeSnapshot(
     path: snapshotObjectPath(params.userId, params.scoutId, markdownSha, "markdown"),
   });
 
-  for (const upload of uploads) {
-    const { error } = await svc.storage
-      .from(SNAPSHOT_BUCKET)
-      .upload(upload.path, upload.bytes, {
-        contentType: ARTIFACT_META[upload.kind].contentType,
-        upsert: false,
+  // Track objects THIS call newly created (not pre-existing duplicates, which a
+  // sibling row may reference) so a mid-loop failure can roll them back instead
+  // of leaving orphaned bytes no page_snapshots row will ever point at. The row
+  // insert happens only after every upload succeeds, so any throw before it
+  // would otherwise strand whatever this call already uploaded.
+  const createdPaths: string[] = [];
+  const cleanupCreated = async () => {
+    if (createdPaths.length === 0) return;
+    try {
+      await withStorageTimeout(
+        svc.storage.from(SNAPSHOT_BUCKET).remove(createdPaths),
+        `orphan cleanup (${createdPaths.length})`,
+      );
+    } catch (e) {
+      // Best-effort: a scout deletion sweep is the backstop. Log and move on.
+      logEvent({
+        level: "warn",
+        fn: "snapshot-store",
+        event: "orphan_cleanup_failed",
+        scout_id: params.scoutId,
+        user_id: params.userId,
+        msg: e instanceof Error ? e.message : String(e),
       });
-    // Content addressing makes re-runs safe: an existing object under this
-    // path holds byte-identical content by construction, so "already exists"
-    // is success, not failure. StorageApiError's statusCode "409" is the
-    // contract; the message regex is only a fallback for older shapes.
-    const isDuplicate = error !== null &&
-      ((error as { statusCode?: string }).statusCode === "409" ||
-        /already exists|duplicate/i.test(error.message));
-    if (error && !isDuplicate) {
+    }
+  };
+
+  for (const upload of uploads) {
+    let error: { message: string } | null;
+    try {
+      ({ error } = await withStorageTimeout(
+        svc.storage
+          .from(SNAPSHOT_BUCKET)
+          .upload(upload.path, upload.bytes, {
+            contentType: ARTIFACT_META[upload.kind].contentType,
+            upsert: false,
+          }),
+        `upload ${upload.kind}`,
+      ));
+    } catch (e) {
+      await cleanupCreated();
+      throw e;
+    }
+    if (error && !isDuplicateStorageError(error)) {
+      await cleanupCreated();
       throw new SnapshotStorageError(
         `upload failed for ${upload.kind} (${upload.path}): ${error.message}`,
       );
     }
+    // Only newly-created (non-duplicate) objects are ours to roll back.
+    if (!error) createdPaths.push(upload.path);
   }
 
   const byKind = new Map(uploads.map((u) => [u.kind, u]));
@@ -309,6 +379,8 @@ export async function storeSnapshot(
     .select("id")
     .single();
   if (error || !data) {
+    // The row that would own these objects never landed — roll them back.
+    await cleanupCreated();
     throw new SnapshotStorageError(
       `page_snapshots insert failed: ${error?.message ?? "no row returned"}`,
     );
@@ -383,9 +455,12 @@ export async function deleteScoutSnapshots(
     let removed = 0;
     let previousPage = "";
     for (;;) {
-      const { data, error } = await svc.storage
-        .from(SNAPSHOT_BUCKET)
-        .list(prefix, { limit: 1000 });
+      const { data, error } = await withStorageTimeout(
+        svc.storage
+          .from(SNAPSHOT_BUCKET)
+          .list(prefix, { limit: 1000 }),
+        `list ${prefix}`,
+      );
       if (error) {
         throw new SnapshotStorageError(`list failed for ${prefix}: ${error.message}`);
       }
@@ -398,9 +473,12 @@ export async function deleteScoutSnapshots(
         );
       }
       previousPage = signature;
-      const { error: removeError } = await svc.storage
-        .from(SNAPSHOT_BUCKET)
-        .remove(names);
+      const { error: removeError } = await withStorageTimeout(
+        svc.storage
+          .from(SNAPSHOT_BUCKET)
+          .remove(names),
+        `remove ${prefix}`,
+      );
       if (removeError) {
         throw new SnapshotStorageError(
           `remove failed for ${prefix}: ${removeError.message}`,

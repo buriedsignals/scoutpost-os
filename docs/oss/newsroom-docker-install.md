@@ -18,7 +18,7 @@ Scoutpost self-hosting uses this stack:
 | Auth             | Supabase Auth           | Newsroom user accounts and domain allowlist            |
 | AI extraction    | Gemini 2.5 Flash-Lite   | Summaries, structured extraction, classification       |
 | Web scraping     | Firecrawl               | Page/civic source fetching and change detection        |
-| Beat retrieval   | Exa (default)           | Default Beat Scout search port; falls back to Firecrawl |
+| Beat retrieval   | Exa                     | Beat Scout search port (Exa-only; no Firecrawl fallback) |
 | Social scraping  | Apify                   | Social scout actor runs                                |
 | Email            | Resend                  | Scout notifications                                    |
 | Maps/geocoding   | MapTiler                | Location scout UI and geocoding                        |
@@ -53,9 +53,8 @@ Before running install, collect:
   existing Supabase project
 - Gemini API key
 - Firecrawl API key
-- Exa API key (default Beat Scout retrieval port — optional, but Beat Scout
-  falls back to Firecrawl-only discovery without it; see
-  `docs/architecture/retrieval-ports.md`)
+- Exa API key (Beat Scout retrieval port — Beat search is Exa-only, so Beat
+  Scout runs fail without it; not needed if you do not use Beat Scout)
 - Apify API token
 - Resend API key and sender email
 - MapTiler public API key

@@ -33,6 +33,7 @@ from .pdfparse import (
     PdfTimeoutError,
     PdfTooLargeError,
     PrivateAddressError,
+    assert_public_host,
     parse_pdf_url,
 )
 from .scraper import Scraper
@@ -110,6 +111,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def scrape(body: ScrapeBody, request: Request):
         assert_http_url(body.url)
         cfg: Settings = request.app.state.settings
+        # SSRF guard (parity with /parse): a snapshot capture durably stores the
+        # fetched bytes behind a signed URL, so an internal-network target would
+        # become a persistent exfiltration channel. Only guards the initial URL
+        # (the browser follows redirects itself) — defense-in-depth, the bearer
+        # token is the primary control. Opt out via SCRAPE_ALLOW_PRIVATE_ADDRESSES.
+        if cfg.block_private_addresses:
+            try:
+                assert_public_host(body.url)
+            except PrivateAddressError:
+                raise HTTPException(status_code=422, detail={"error": "private_address"})
+            except PdfDownloadError as e:
+                # Reused resolver raises this class when the host won't resolve.
+                raise HTTPException(status_code=422, detail=f"cannot resolve host: {e}")
         timeout_ms = body.timeout_ms or cfg.default_scrape_timeout_ms
         try:
             result = await asyncio.wait_for(

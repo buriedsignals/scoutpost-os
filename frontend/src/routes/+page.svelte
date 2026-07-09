@@ -296,6 +296,18 @@
 				scoutsStore.seedDemo();
 				unitsStore.seedDemo();
 			}
+			// Deep link from Page Scout alert emails (`/?scout=<id>`): focus the
+			// scout so the "View archived snapshot" CTA lands on its history
+			// instead of the bare workspace. Consume the param once (strip it) so
+			// a later refresh or Back-to-all doesn't re-trigger the selection.
+			const scoutParam = new URLSearchParams(window.location.search).get('scout');
+			if (scoutParam) {
+				const match = $scoutsStore.scouts.find((s) => s.id === scoutParam);
+				if (match) handleScoutOpen(match);
+				const url = new URL(window.location.href);
+				url.searchParams.delete('scout');
+				history.replaceState(history.state, '', url);
+			}
 			bootstrapped = true;
 		})();
 

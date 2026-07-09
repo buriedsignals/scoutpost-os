@@ -2,7 +2,6 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   type BeatAbHit,
   logBeatAbRun,
-  promoteScoutFallbackAfterRepeatedExaLowCoverage,
   summarizeBeatAbRun,
 } from "./beat_ab_logger.ts";
 
@@ -144,116 +143,7 @@ Deno.test("logBeatAbRun is best-effort on insert errors", async () => {
   assertEquals(ok, false);
 });
 
-Deno.test("promoteScoutFallbackAfterRepeatedExaLowCoverage flips scout after three low-coverage Exa rows", async () => {
-  const updates: Record<string, unknown>[] = [];
-  const db = {
-    from(table: string) {
-      if (table === "beat_ab_runs") {
-        return {
-          select() {
-            return this;
-          },
-          eq() {
-            return this;
-          },
-          order() {
-            return this;
-          },
-          limit() {
-            return {
-              data: [1, 2, 3].map(() => ({
-                metadata: {
-                  fallback_triggered: true,
-                  fallback_reason: "exa_low_coverage",
-                },
-              })),
-              error: null,
-            };
-          },
-        };
-      }
-      assertEquals(table, "scouts");
-      return {
-        select() {
-          return this;
-        },
-        eq() {
-          return this;
-        },
-        maybeSingle() {
-          return {
-            data: { metadata: { retrieval: "exa", keep: true } },
-            error: null,
-          };
-        },
-        update(value: Record<string, unknown>) {
-          updates.push(value);
-          return {
-            eq() {
-              return { error: null };
-            },
-          };
-        },
-      };
-    },
-  };
+// promoteScoutFallbackAfterRepeatedExaLowCoverage and its two tests were removed
+// with the Exa-only cutover — beat retrieval no longer promotes scouts back to
+// Firecrawl, so the function had no remaining callers.
 
-  const promoted = await promoteScoutFallbackAfterRepeatedExaLowCoverage(
-    db as never,
-    { scoutId: "scout-1" },
-  );
-  assertEquals(promoted, true);
-  assertEquals(updates.length, 1);
-  const metadata = updates[0].metadata as Record<string, unknown>;
-  assertEquals(metadata.keep, true);
-  assertEquals(metadata.retrieval, "firecrawl");
-  assertEquals(
-    metadata.exa_fallback_reason,
-    "three_consecutive_low_coverage_runs",
-  );
-});
-
-Deno.test("promoteScoutFallbackAfterRepeatedExaLowCoverage waits for three consecutive low-coverage rows", async () => {
-  const db = {
-    from(table: string) {
-      assertEquals(table, "beat_ab_runs");
-      return {
-        select() {
-          return this;
-        },
-        eq() {
-          return this;
-        },
-        order() {
-          return this;
-        },
-        limit() {
-          return {
-            data: [
-              {
-                metadata: {
-                  fallback_triggered: true,
-                  fallback_reason: "exa_low_coverage",
-                },
-              },
-              { metadata: { fallback_triggered: false } },
-              {
-                metadata: {
-                  fallback_triggered: true,
-                  fallback_reason: "exa_low_coverage",
-                },
-              },
-            ],
-            error: null,
-          };
-        },
-      };
-    },
-  };
-
-  const promoted = await promoteScoutFallbackAfterRepeatedExaLowCoverage(
-    db as never,
-    { scoutId: "scout-1" },
-  );
-  assertEquals(promoted, false);
-});

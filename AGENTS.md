@@ -428,6 +428,42 @@ feature branch → push → CI runs
                merge → Render auto-deploys backend
 ```
 
+### CI gotchas — passes locally, red in CI
+
+Two non-required CI jobs routinely go red on changes that type-check and test
+green locally. Check for them before pushing:
+
+- **`Edge Function unit tests` (Deno type strictness).** CI pins `deno-version:
+  v2.x`, which type-checks **stricter** than a typical local deno (e.g. 2.6.9).
+  Two recurring traps:
+  - Passing a `Uint8Array` as a `fetch`/`new Response(...)` **body** → newer deno
+    lib types it as `Uint8Array<ArrayBufferLike>`, not assignable to `BodyInit`
+    (TS2769). Fix: `body: bytes as unknown as BodyInit`.
+  - Annotating a `setTimeout` handle as `number` (`let timer: number`) → CI types
+    it as `Timeout` (TS2322: Type 'Timeout' is not assignable to type 'number').
+    Fix: `ReturnType<typeof setTimeout>`, or `const timer =` and let inference
+    handle it.
+  Reproduce locally with the exact CI command:
+  `cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ scout-transport-execute/ transport-sampler/`
+  (it type-checks by default). Logs are empty while a run is "in progress" — pull
+  a specific finished job with `gh api repos/<org>/<repo>/actions/jobs/<id>/logs`
+  and grep for `TS####` / `Type checking failed`.
+
+- **`scrape-service unit tests` (100% coverage gate).** `scrape-service/pytest.ini`
+  runs pytest with `--cov=app --cov-fail-under=100`. **Any** uncovered line in
+  `scrape-service/app/*.py` — including `except` branches — fails the job
+  (`Coverage failure: total of 99 is less than fail-under=100`). Add a test for
+  every new branch. `Settings` is a frozen dataclass: a new required field also
+  needs adding to `tests/conftest.py::make_settings`. The global python may lack
+  `pytest-cov`; run `python3 -m pytest tests/ -o addopts=""` for a gate-free
+  sanity pass, or install `pytest-cov` into a scratch dir to see per-file misses.
+
+Neither job is one of the 4 **required** checks (`build-frontend`,
+`test-frontend`, `test-backend`, `lint`), but both should be green before merge.
+The `audit-backend` / `audit-frontend` jobs scan dependency CVEs and can be red
+from pre-existing advisories unrelated to a PR — check whether the PR touched any
+dependency manifest before chasing them.
+
 ## Environment Variables
 
 ### Backend (Render)

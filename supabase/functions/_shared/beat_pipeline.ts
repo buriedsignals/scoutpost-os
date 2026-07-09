@@ -543,6 +543,8 @@ export interface SearchOpts {
 interface SearchRunResult {
   hits: BeatHit[];
   totalCostDollars: number | null;
+  jobsAttempted: number;
+  jobsErrored: number;
 }
 
 type FirecrawlSearchSource = "web" | "news";
@@ -587,6 +589,7 @@ async function runSearchesWithMetadata(
 
   const hits: BeatHit[] = [];
   let totalCostDollars: number | null = null;
+  let jobsErrored = 0;
   const seenUrls = new Set<string>();
   const runOne = async (job: typeof all[number]) => {
     try {
@@ -631,6 +634,7 @@ async function runSearchesWithMetadata(
         });
       }
     } catch (e) {
+      jobsErrored++;
       logEvent({
         level: "warn",
         fn: "beat-pipeline",
@@ -647,7 +651,7 @@ async function runSearchesWithMetadata(
   for (let i = 0; i < all.length; i += concurrency) {
     await Promise.all(all.slice(i, i + concurrency).map(runOne));
   }
-  return { hits, totalCostDollars };
+  return { hits, totalCostDollars, jobsAttempted: all.length, jobsErrored };
 }
 
 function exaCategoryForBeat(
@@ -686,6 +690,11 @@ export interface BeatDiscoveryResult {
   rawHits: BeatHit[];
   queriesUsed: string[];
   totalCostDollars: number | null;
+  /** True only when EVERY search job threw (provider outage / revoked key /
+   * 429 storm) — distinct from a genuine zero-hit quiet day where jobs ran and
+   * returned nothing. Lets the caller avoid recording a silent zero-unit
+   * "success" that masks a total retrieval failure. */
+  searchErrored?: boolean;
 }
 
 export type BeatCandidateRejectReason =
@@ -834,8 +843,11 @@ export async function discoverBeatHits(
   });
   const rawHits = searchResult.hits;
   const totalCostDollars = searchResult.totalCostDollars;
+  // A total provider failure (every job threw) is distinct from a quiet day.
+  const searchErrored = searchResult.jobsAttempted > 0 &&
+    searchResult.jobsErrored === searchResult.jobsAttempted;
   if (rawHits.length === 0) {
-    return { hits: [], plan, rawHits, queriesUsed, totalCostDollars };
+    return { hits: [], plan, rawHits, queriesUsed, totalCostDollars, searchErrored };
   }
 
   const usableRawHits = filterUsableBeatCandidates(rawHits);

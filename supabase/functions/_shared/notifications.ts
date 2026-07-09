@@ -86,14 +86,16 @@ export interface PageScoutAlertParams extends BaseAlertParams {
   matchedUrl?: string | null;
   matchedTitle?: string | null;
   matchedSummary?: string | null;
-  /** When true (the run was archive-gated), render a "View archived snapshot"
-   * deep link into the scout's snapshot history (PAGE-ARCHIVE-PRD U5). It points
-   * at the scout, not a snapshot id — the capture is backgrounded AFTER this
-   * notification (R11), so no id exists yet; the just-captured snapshot normally
-   * tops the history within seconds. Linking to the scout (not a snapshot id)
-   * degrades gracefully: in the rare total capture+storage failure that leaves
-   * no row, the user lands on the scout's history showing "no snapshots yet",
-   * never a broken/404 link. */
+  /** When true (the run was archive-gated), render an "archived evidence" deep
+   * link (`/?scout=<id>`) that focuses the scout in the workspace
+   * (PAGE-ARCHIVE-PRD U5). It points at the scout, not a snapshot id — the
+   * capture is backgrounded AFTER this notification (R11), so no id exists yet.
+   * Linking to the scout degrades gracefully (never a broken/404 link) even in
+   * the rare total capture+storage failure that leaves no row. Snapshot
+   * artifacts themselves are retrieved via the CLI (`scout snapshots`), MCP
+   * (`list_snapshots`/`get_snapshot_url`), or REST — there is no in-app snapshot
+   * browser; the frontend consumes the `?scout=` param in
+   * routes/+page.svelte onMount to select the scout. */
   archiveEnabled?: boolean;
 }
 

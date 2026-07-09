@@ -24,6 +24,13 @@ class Settings:
     gemini_api_key: str | None
     gemini_model: str
     gemini_timeout_s: float
+    # SSRF guard: reject /scrape targets whose host resolves to a
+    # loopback/private/link-local/metadata address. On by default (hosted SaaS
+    # only ever scrapes public URLs, and snapshot capture now durably STORES the
+    # fetched bytes behind a signed URL — an internal-network response would be
+    # an exfiltration channel). Self-hosters legitimately monitoring internal
+    # hosts can opt out with SCRAPE_ALLOW_PRIVATE_ADDRESSES=1.
+    block_private_addresses: bool
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -46,4 +53,5 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         gemini_api_key=e.get("GEMINI_API_KEY") or None,
         gemini_model=e.get("PARSE_GEMINI_MODEL", "gemini-2.5-flash-lite"),
         gemini_timeout_s=float(e.get("PARSE_GEMINI_TIMEOUT_S", "90")),
+        block_private_addresses=e.get("SCRAPE_ALLOW_PRIVATE_ADDRESSES") != "1",
     )

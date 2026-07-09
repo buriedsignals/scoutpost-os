@@ -12,6 +12,7 @@
 
 import { logEvent } from "../../_shared/log.ts";
 import { getServiceClient } from "../../_shared/supabase.ts";
+import { UUID_RE } from "../../_shared/validation.ts";
 import { base64urlEncode, signState } from "./state.ts";
 import { oauthError } from "./errors.ts";
 
@@ -20,8 +21,6 @@ function randUrlSafe(bytes: number): string {
   crypto.getRandomValues(buf);
   return base64urlEncode(buf);
 }
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function brokerBaseUrl(): string {
   // MCP-only broker. Lives in its own EF (`mcp-auth`) so that fixes here

@@ -1565,100 +1565,22 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "format": "uuid"
-                          },
-                          "scout_id": {
-                            "type": "string",
-                            "format": "uuid"
-                          },
-                          "capture_kind": {
-                            "type": "string",
-                            "enum": [
-                              "baseline",
-                              "change"
-                            ]
-                          },
-                          "fidelity": {
-                            "type": "string",
-                            "enum": [
-                              "full",
-                              "rendered_thirdparty",
-                              "markdown_only"
-                            ]
-                          },
-                          "served_by": {
-                            "type": "string",
-                            "nullable": true
-                          },
-                          "captured_at": {
-                            "type": "string",
-                            "format": "date-time"
-                          },
-                          "requested_url": {
-                            "type": "string"
-                          },
-                          "final_url": {
-                            "type": "string",
-                            "nullable": true
-                          },
-                          "http_status": {
-                            "type": "integer",
-                            "nullable": true
-                          },
-                          "sizes": {
-                            "type": "object"
-                          },
-                          "trust": {
-                            "type": "object",
-                            "properties": {
-                              "tsa_status": {
-                                "type": "string"
-                              },
-                              "wayback_status": {
-                                "type": "string"
-                              },
-                              "wayback_url": {
-                                "type": "string",
-                                "nullable": true
-                              }
-                            }
-                          },
-                          "artifacts": {
-                            "type": "array",
-                            "items": {
-                              "type": "string",
-                              "enum": [
-                                "mhtml",
-                                "screenshot",
-                                "rawhtml",
-                                "markdown",
-                                "manifest",
-                                "tsr"
-                              ]
-                            }
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Paginated"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Snapshot"
                           }
                         }
                       }
-                    },
-                    "total": {
-                      "type": "integer"
-                    },
-                    "offset": {
-                      "type": "integer"
-                    },
-                    "limit": {
-                      "type": "integer"
                     }
-                  }
+                  ]
                 }
               }
             }
@@ -1921,6 +1843,14 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "archive_enabled": {
+            "type": "boolean",
+            "description": "Evidence archiving for Page Scouts (Pro/Team on hosted SaaS; enabling on free tier returns 403 archive_forbidden)."
+          },
+          "wayback_enabled": {
+            "type": "boolean",
+            "description": "Also submit captures to the Internet Archive Wayback Machine (public). Default true; per-scout opt-out for sensitive investigations."
           }
         },
         "required": [
@@ -1997,6 +1927,14 @@
             "items": {
               "type": "string"
             }
+          },
+          "archive_enabled": {
+            "type": "boolean",
+            "description": "Evidence archiving for Page Scouts (Pro/Team on hosted SaaS; enabling on free tier returns 403 archive_forbidden)."
+          },
+          "wayback_enabled": {
+            "type": "boolean",
+            "description": "Also submit captures to the Internet Archive Wayback Machine (public). Default true; per-scout opt-out for sensitive investigations."
           }
         }
       },
@@ -2048,6 +1986,14 @@
           "project_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "archive_enabled": {
+            "type": "boolean",
+            "description": "Evidence archiving for Page Scouts (Pro/Team on hosted SaaS; enabling on free tier returns 403 archive_forbidden)."
+          },
+          "wayback_enabled": {
+            "type": "boolean",
+            "description": "Also submit captures to the Internet Archive Wayback Machine (public). Default true; per-scout opt-out for sensitive investigations."
           }
         }
       },
@@ -2441,6 +2387,85 @@
           },
           "detail": {
             "type": "string"
+          }
+        }
+      },
+      "Snapshot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scout_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "capture_kind": {
+            "type": "string",
+            "enum": [
+              "baseline",
+              "change"
+            ]
+          },
+          "fidelity": {
+            "type": "string",
+            "enum": [
+              "full",
+              "rendered_thirdparty",
+              "markdown_only"
+            ]
+          },
+          "served_by": {
+            "type": "string",
+            "nullable": true
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requested_url": {
+            "type": "string"
+          },
+          "final_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "http_status": {
+            "type": "integer",
+            "nullable": true
+          },
+          "sizes": {
+            "type": "object"
+          },
+          "trust": {
+            "type": "object",
+            "properties": {
+              "tsa_status": {
+                "type": "string"
+              },
+              "wayback_status": {
+                "type": "string"
+              },
+              "wayback_url": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "mhtml",
+                "screenshot",
+                "rawhtml",
+                "markdown",
+                "manifest",
+                "tsr"
+              ]
+            }
           }
         }
       }

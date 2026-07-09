@@ -500,9 +500,10 @@ Deno.test("storeCaptureResult catches an upload failure and degrades (storage cl
   });
   // The full-fidelity upload throws; the outer catch degrades. The
   // markdown_only degrade also uploads (the .md record) and would hit the same
-  // uploadError — so this ends at failed:storage, proving the run never throws.
+  // uploadError — so this ends at exactly failed:storage, proving the run never
+  // throws AND that the terminal degrade class is storage (not capture_fetch).
   const out = await storeCaptureResult(svc, ctx(), capture);
-  assertStringIncludes(out.status, "failed:");
+  assertEquals(out.status, "failed:storage");
 });
 
 Deno.test("storeCaptureResult degrades an oversize rawHtml (rendered_thirdparty path)", async () => {

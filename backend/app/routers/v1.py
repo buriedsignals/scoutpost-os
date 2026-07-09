@@ -51,6 +51,7 @@ except ImportError:
     class CronBuilderError(Exception): pass
 from app.services.feed_search_service import FeedSearchService
 from app.services.schedule_service import ScheduleService
+from app.services.snapshot_storage_cleanup import sweep_scout_snapshots
 from app.utils.pricing import CREDIT_COSTS, get_beat_cost, get_social_monitoring_cost
 
 logger = logging.getLogger(__name__)
@@ -480,6 +481,14 @@ async def delete_scout(
         _error(status.HTTP_404_NOT_FOUND, "Scout not found", "NOT_FOUND")
 
     try:
+        # Sweep Page Archive evidence objects before the row delete — FK cascade
+        # removes page_snapshots rows but never the storage objects, and this
+        # FastAPI path never invokes the Edge Function's deleteScoutSnapshots.
+        # Best-effort: never raises, so it can't block the delete.
+        scout_id = existing.get("id")
+        if scout_id:
+            await sweep_scout_snapshots(user["user_id"], scout_id)
+
         await svc.delete_scout(user["user_id"], name)
     except Exception as exc:
         logger.exception("Failed to delete scout: %s", exc)

@@ -37,7 +37,7 @@ Use four categories and keep them separate:
 
 Do not reintroduce a separate weekly benchmark job for `page-subpage` — it belongs inside the Page Scout benchmark as a canary. Social actor preview health belongs behind the deployed `/functions/v1/social-test` diagnostic because the deployed function owns Apify credentials and normalization; since 2026-07-06 (operator decision) the weekly suite includes an `actors` leg that exercises exactly that path for all four platforms via `scripts/benchmarks/benchmark-apify-actors.ts`, and a `report` job emails the full scoreboard to the operator every week regardless of outcome.
 
-Beat benchmark coverage must include Exa. The live Beat benchmark should fail if the deployed run never requests Exa, while still allowing Firecrawl fallback after low-coverage Exa detection. The current assertion is documented in `docs/supabase/benchmarks.md` and implemented in `scripts/benchmarks/benchmark-beat.ts`.
+Beat benchmark coverage must include Exa. The live Beat benchmark should fail if the deployed run never requests Exa. Beat search is Exa-only — the low-coverage fallback retries on Exa's `deep-lite` tier (the Firecrawl search fallback was removed with the cutover), so the benchmark treats any non-Exa retrieval as a violation. The current assertion is documented in `docs/supabase/benchmarks.md` and implemented in `scripts/benchmarks/benchmark-beat.ts`.
 
 ## Why This Matters
 

@@ -30,6 +30,7 @@ from app.dependencies.providers import (
     get_scheduler,
 )
 from app.models.responses import UserPreferencesResponse
+from app.services.snapshot_storage_cleanup import sweep_scout_snapshots
 from app.services.user_service import UserService
 from app.utils.schedule_naming import build_schedule_name
 
@@ -331,6 +332,7 @@ async def delete_account(
 
     for scout in scouts:
         scout_name = scout.get("name", "")
+        scout_id = scout.get("id")
         try:
             # Delete the scheduler entry (EventBridge or Supabase pg_cron)
             rule_name = build_schedule_name(user_id, scout_name)
@@ -341,6 +343,13 @@ async def delete_account(
                     "Failed to delete schedule for scout %s (user %s): %s",
                     scout_name, user_id, sched_exc,
                 )
+
+            # Sweep Page Archive evidence objects BEFORE the row delete. FK
+            # cascade removes page_snapshots rows but never the storage objects
+            # (GDPR Art. 17 requires the bytes go too); this is the only sweep on
+            # the FastAPI deletion path. Best-effort — never raises.
+            if scout_id:
+                await sweep_scout_snapshots(user_id, scout_id)
 
             # Delete scout + cascaded records (EXEC#, TIME#, SEEN#, POSTS#, PROMISE#)
             await scout_storage.delete_scout(user_id, scout_name)
