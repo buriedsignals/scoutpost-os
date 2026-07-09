@@ -1,6 +1,22 @@
+<div align="center">
+
 # Scoutpost
 
-AI-powered local news monitoring platform.
+### Open-source local news monitoring for newsrooms
+
+**AI scouts that watch web pages, local news, search queries, social profiles, and civic sites on a schedule — with email alerts and tamper-evident evidence snapshots. Self-host it, or sign in at scoutpost.ai.**
+
+[Quick Start](#quick-start) | [Deployment](#deployment) | [Docs](#documentation) | [FAQ](https://www.scoutpost.ai/faq) | [scoutpost.ai](https://www.scoutpost.ai/)
+
+[![License: Sustainable Use](https://img.shields.io/badge/license-Sustainable_Use-ff6d00?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](LICENSE.md)[![5 Scout Types](https://img.shields.io/badge/scout_types-5-aa00ff?style=for-the-badge&logo=windowsterminal&logoColor=white)](#overview)[![12 Languages](https://img.shields.io/badge/languages-12-0080ff?style=for-the-badge&logo=googletranslate&logoColor=white)](https://www.scoutpost.ai/)[![CLI on npm](https://img.shields.io/npm/v/scoutpost-cli?style=for-the-badge&logo=npm&logoColor=white&label=scout%20CLI&color=00bfa5)](https://www.npmjs.com/package/scoutpost-cli)
+
+[![Stars](https://img.shields.io/github/stars/buriedsignals/scoutpost-os?style=flat-square&logo=github&label=Stars)](https://github.com/buriedsignals/scoutpost-os/stargazers)[![Issues](https://img.shields.io/github/issues/buriedsignals/scoutpost-os?style=flat-square&logo=github&label=Issues)](https://github.com/buriedsignals/scoutpost-os/issues)[![Last Commit](https://img.shields.io/github/last-commit/buriedsignals/scoutpost-os?style=flat-square&logo=github&label=Last%20Commit)](https://github.com/buriedsignals/scoutpost-os/commits)[![Contributors](https://img.shields.io/github/contributors/buriedsignals/scoutpost-os?style=flat-square&logo=github&label=Contributors)](https://github.com/buriedsignals/scoutpost-os/graphs/contributors)
+
+Built by [**Buried Signals**](https://buriedsignals.com/) • Supported by [IMJ](https://www.imj.ch/) • [tom@buriedsignals.com](mailto:tom@buriedsignals.com)
+
+</div>
+
+---
 
 ## Overview
 
@@ -91,3 +107,18 @@ before merge.
 ├── scripts/         # OSS strip + EF bundler + helpers
 └── Dockerfile       # Production build for the FastAPI service
 ```
+
+## Acknowledgements
+
+Scoutpost stands on open work — community-maintained open-source projects that
+do the heavy operational lifting. A sincere thank-you to every project below.
+*(Listing does not imply affiliation or endorsement.)*
+
+| Category | Projects we're grateful to |
+|----------|----------------------------|
+| **Scraping & browser automation** | [Crawl4AI](https://github.com/unclecode/crawl4ai) (unclecode, Apache-2.0 — the primary scraper) · [Playwright](https://playwright.dev/) (browser automation under the scraper) · [Poppler](https://poppler.freedesktop.org/) (`pdftotext` — civic-PDF extraction) |
+| **Evidence archiving** | [Internet Archive / Wayback Machine](https://web.archive.org/) (optional evidence-snapshot submission) |
+| **Transport Scout** | [satellite.js](https://github.com/shashwatak/satellite-js) (shashwatak, MIT — orbital math) |
+
+> Built something here we should credit, or want a listing changed or removed?
+> Open an issue or PR — we'll fix it fast.

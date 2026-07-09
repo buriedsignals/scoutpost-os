@@ -19,6 +19,10 @@ Self-hosting is supported. You bring your own Supabase, Gemini, Firecrawl, Resen
 
 Scoutpost, formerly coJournalist, helps journalists monitor beats, sources, pages, social profiles, and civic sites through scheduled scouts. Agents can help search, summarize, and export the resulting information units, but journalists remain responsible for verification.
 
+## Open source
+
+Scoutpost is built on community-maintained open-source projects: Crawl4AI (primary scraper), Playwright (browser automation), Poppler/pdftotext (civic-PDF extraction), the Internet Archive Wayback Machine (optional evidence snapshots), and satellite.js (Transport Scout orbital math).
+
 ## Useful links
 
 - FAQ page: https://www.scoutpost.ai/faq
