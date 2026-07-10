@@ -600,6 +600,7 @@
 						</button>
 						<a href="/docs" class="user-menu-item" role="menuitem" on:click={() => (userMenuOpen = false)}>Docs</a>
 						<a href="/terms" class="user-menu-item" role="menuitem" on:click={() => (userMenuOpen = false)}>Terms</a>
+						<a href="/acknowledgements" class="user-menu-item" role="menuitem" on:click={() => (userMenuOpen = false)}>Acknowledgements</a>
 						<button class="user-menu-item user-menu-danger" role="menuitem" on:click={handleSignOut}>
 							Sign out
 						</button>

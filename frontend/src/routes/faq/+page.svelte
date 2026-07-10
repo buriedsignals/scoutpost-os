@@ -133,28 +133,11 @@
 				</details>
 			</section>
 
-			<section class="faq-section" id="open-source">
-				<h2 class="section-title">Open source</h2>
-
-				<details class="faq-item">
-					<summary class="faq-question">What open-source projects is Scoutpost built on?</summary>
-					<div class="faq-answer">
-						<p>Scoutpost stands on community-maintained open-source projects that do the heavy operational lifting. We're grateful to:</p>
-						<ul>
-							<li><a href="https://github.com/unclecode/crawl4ai" target="_blank" rel="noopener">Crawl4AI</a> — the primary scraper behind Page, Beat, and Civic Scouts</li>
-							<li><a href="https://playwright.dev/" target="_blank" rel="noopener">Playwright</a> — browser automation under the scraper</li>
-							<li><a href="https://poppler.freedesktop.org/" target="_blank" rel="noopener">Poppler</a> — <code>pdftotext</code>, for civic-PDF extraction</li>
-							<li><a href="https://web.archive.org/" target="_blank" rel="noopener">Internet Archive / Wayback Machine</a> — optional evidence-snapshot submission</li>
-							<li><a href="https://github.com/shashwatak/satellite-js" target="_blank" rel="noopener">satellite.js</a> — orbital math for the Transport Scout</li>
-						</ul>
-						<p>Built something we should credit, or want a listing changed? <a href="https://github.com/buriedsignals/scoutpost-os/issues" target="_blank" rel="noopener">Open an issue or PR</a> — we'll fix it fast.</p>
-					</div>
-				</details>
-			</section>
 		</div>
 
 		<p class="footer-note">
 			More questions? <a href="https://github.com/buriedsignals/scoutpost-os/issues" target="_blank" rel="noopener">Open an issue on GitHub</a>.
+			The open-source projects we build on are credited at <a href="/acknowledgements">/acknowledgements</a>.
 			AI resources live at <a href="/skills">/skills</a> and <a href="/faq.txt">/faq.txt</a>.
 		</p>
 	</div>

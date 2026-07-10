@@ -21,7 +21,7 @@ Scoutpost, formerly coJournalist, helps journalists monitor beats, sources, page
 
 ## Open source
 
-Scoutpost is built on community-maintained open-source projects: Crawl4AI (primary scraper), Playwright (browser automation), Poppler/pdftotext (civic-PDF extraction), the Internet Archive Wayback Machine (optional evidence snapshots), and satellite.js (Transport Scout orbital math).
+Scoutpost is built on community-maintained open-source projects: Crawl4AI (primary scraper), Playwright (browser automation), Poppler/pdftotext (civic-PDF extraction), pgvector (semantic scout search), langdetect (dedup language scoring), the Internet Archive Wayback Machine (optional evidence snapshots), and satellite.js (Transport Scout orbital math). Full credits: https://www.scoutpost.ai/acknowledgements
 
 ## Useful links
 

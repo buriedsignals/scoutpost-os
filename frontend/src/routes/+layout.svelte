@@ -52,7 +52,7 @@ function markTimezoneVerified(userId?: string | null) {
 			if (cancelled) return;
 
 			const loginPath = '/login';
-			const publicPaths = ['/login', '/setup', '/terms', '/faq', '/docs', '/skills', '/swagger'];
+			const publicPaths = ['/login', '/setup', '/terms', '/faq', '/acknowledgements', '/docs', '/skills', '/swagger'];
 
 			unsubscribe = authStore.subscribe(async (state) => {
 				if (!state.authenticated && !publicPaths.includes($page.url.pathname)) {

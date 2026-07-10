@@ -117,8 +117,12 @@ do the heavy operational lifting. A sincere thank-you to every project below.
 | Category | Projects we're grateful to |
 |----------|----------------------------|
 | **Scraping & browser automation** | [Crawl4AI](https://github.com/unclecode/crawl4ai) (unclecode, Apache-2.0 — the primary scraper) · [Playwright](https://playwright.dev/) (browser automation under the scraper) · [Poppler](https://poppler.freedesktop.org/) (`pdftotext` — civic-PDF extraction) |
+| **Search & analysis** | [pgvector](https://github.com/pgvector/pgvector) (Andrew Kane — vector search behind semantic scout matching) · [langdetect](https://github.com/Mimino666/langdetect) (language detection in dedup scoring) |
 | **Evidence archiving** | [Internet Archive / Wayback Machine](https://web.archive.org/) (optional evidence-snapshot submission) |
 | **Transport Scout** | [satellite.js](https://github.com/shashwatak/satellite-js) (shashwatak, MIT — orbital math) |
+
+These and the app's full credits also live at
+[scoutpost.ai/acknowledgements](https://www.scoutpost.ai/acknowledgements).
 
 > Built something here we should credit, or want a listing changed or removed?
 > Open an issue or PR — we'll fix it fast.
