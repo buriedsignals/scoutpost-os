@@ -39,6 +39,14 @@
 			</section>
 
 			<section class="ack-section">
+				<h2 class="section-title">Application runtime</h2>
+				<ul class="credits">
+					<li><a href="https://deno.com/" target="_blank" rel="noopener">Deno</a> — runs the <code>scout</code> CLI, the MCP bridge, and every Edge Function · MIT</li>
+					<li><a href="https://fastapi.tiangolo.com/" target="_blank" rel="noopener">FastAPI</a> — Sebastián Ramírez · the backend API · MIT</li>
+				</ul>
+			</section>
+
+			<section class="ack-section">
 				<h2 class="section-title">Search &amp; analysis</h2>
 				<ul class="credits">
 					<li><a href="https://github.com/pgvector/pgvector" target="_blank" rel="noopener">pgvector</a> — Andrew Kane · vector search behind semantic scout matching</li>
@@ -54,8 +62,11 @@
 			</section>
 
 			<section class="ack-section">
-				<h2 class="section-title">Transport Scout</h2>
+				<h2 class="section-title">Fleet &amp; transport data</h2>
 				<ul class="credits">
+					<li><a href="https://adsb.lol/" target="_blank" rel="noopener">adsb.lol</a> — community-run ADS-B network · live aircraft positions</li>
+					<li><a href="https://celestrak.org/" target="_blank" rel="noopener">CelesTrak</a> — T.S. Kelso · satellite orbital elements, freely published since 1985</li>
+					<li><a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a> — live vessel positions from community AIS receivers</li>
 					<li><a href="https://github.com/shashwatak/satellite-js" target="_blank" rel="noopener">satellite.js</a> — shashwatak · orbital math · MIT</li>
 				</ul>
 			</section>

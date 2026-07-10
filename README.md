@@ -117,9 +117,10 @@ do the heavy operational lifting. A sincere thank-you to every project below.
 | Category | Projects we're grateful to |
 |----------|----------------------------|
 | **Scraping & browser automation** | [Crawl4AI](https://github.com/unclecode/crawl4ai) (unclecode, Apache-2.0 — the primary scraper) · [Playwright](https://playwright.dev/) (browser automation under the scraper) · [Poppler](https://poppler.freedesktop.org/) (`pdftotext` — civic-PDF extraction) |
+| **Application runtime** | [Deno](https://deno.com/) (MIT — the `scout` CLI, MCP bridge, and every Edge Function) · [FastAPI](https://fastapi.tiangolo.com/) (Sebastián Ramírez, MIT — the backend API) |
 | **Search & analysis** | [pgvector](https://github.com/pgvector/pgvector) (Andrew Kane — vector search behind semantic scout matching) · [langdetect](https://github.com/Mimino666/langdetect) (language detection in dedup scoring) |
 | **Evidence archiving** | [Internet Archive / Wayback Machine](https://web.archive.org/) (optional evidence-snapshot submission) |
-| **Transport Scout** | [satellite.js](https://github.com/shashwatak/satellite-js) (shashwatak, MIT — orbital math) |
+| **Fleet & transport data** | [adsb.lol](https://adsb.lol/) (community ADS-B network — live aircraft positions) · [CelesTrak](https://celestrak.org/) (T.S. Kelso — satellite orbital elements) · [aisstream.io](https://aisstream.io/) (live vessel positions from community AIS receivers) · [satellite.js](https://github.com/shashwatak/satellite-js) (shashwatak, MIT — orbital math) |
 
 These and the app's full credits also live at
 [scoutpost.ai/acknowledgements](https://www.scoutpost.ai/acknowledgements).
