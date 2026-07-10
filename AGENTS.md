@@ -4,8 +4,6 @@
 
 Before coding in this project, read `/Users/tomvaillant/buried_signals/kit/coding-rules/SKILL.md`. It is the canonical source for workflow routing, coding standards, Jujutsu/version-control rules, GitHub operations, and parallel-agent isolation. Local instructions below add project-specific constraints.
 
-<!-- test: verify Codex GitHub Actions workflows -->
-
 ## Deployment Workflow - MANDATORY
 
 **NEVER push directly to `main`.** All changes go through a branch + PR. This is not optional.
@@ -35,7 +33,7 @@ Before coding in this project, read `/Users/tomvaillant/buried_signals/kit/codin
 
 5. **Merge the PR** — Render auto-deploys backend from `main`.
 
-**Why:** Pushing to `main` triggers a Render deploy immediately with no safety net. The PR flow ensures CI passes and Codex reviews the code before anything reaches production.
+**Why:** Pushing to `main` triggers a Render deploy immediately with no safety net. The PR flow ensures CI passes and review happens before anything reaches production.
 
 ---
 
