@@ -4,10 +4,14 @@ import {
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { assertFalse } from "https://deno.land/std@0.208.0/assert/assert_false.ts";
 
-import { buildGenerateQueriesPrompt } from "./beat_pipeline.ts";
-import { runSearches } from "./beat_pipeline.ts";
-import { aiFilterResults } from "./beat_pipeline.ts";
-import { ensureBeatLocationSearchLabel } from "./beat_pipeline.ts";
+import {
+  addLocationNewsSeedQueries,
+  aiFilterResults,
+  buildGenerateQueriesPrompt,
+  ensureBeatLocationSearchLabel,
+  getRecencyConfig,
+  runSearches,
+} from "./beat_pipeline.ts";
 
 Deno.test("buildGenerateQueriesPrompt treats no-location topic scouts as global topic scouts", () => {
   const { prompt } = buildGenerateQueriesPrompt({
@@ -72,6 +76,41 @@ Deno.test("ensureBeatLocationSearchLabel appends ambiguous city disambiguator", 
     ensureBeatLocationSearchLabel("housing policy", null),
     "housing policy",
   );
+});
+
+Deno.test("location-only news plans always include generic seeds within the query budget", () => {
+  const plan = addLocationNewsSeedQueries(
+    {
+      primary_language: "en",
+      queries: ["London politics", "London transport", "London health"],
+      discovery_queries: ["London local newspapers"],
+      local_domains: [],
+    },
+    {
+      city: "London",
+      state: null,
+      country: "United Kingdom",
+      countryCode: "GB",
+      displayName: "London, United Kingdom",
+      criteria: null,
+      category: "news",
+    },
+    3,
+  );
+
+  assertEquals(plan.queries.length, 3);
+  assertEquals(plan.queries[0], 'latest local news "London United Kingdom"');
+  assertEquals(
+    plan.queries[1],
+    'local government public services news "London United Kingdom"',
+  );
+  assertEquals(new Set(plan.queries).size, plan.queries.length);
+});
+
+Deno.test("reliable location news keeps only a small undated fallback", () => {
+  const recency = getRecencyConfig("location", "news", "reliable");
+  assertEquals(recency.max_undated_news, 2);
+  assertEquals(recency.max_undated_discovery, 2);
 });
 
 Deno.test("runSearches uses explicit web-only Firecrawl search by default", async () => {
@@ -229,6 +268,7 @@ Deno.test("runSearches can use Exa retrieval with Beat-compatible options", asyn
       country: "CH",
       excludedDomains: ["youtube.com"],
       retrievalPort: "exa",
+      recencyDays: 14,
     });
 
     assertEquals(requests.length, 1);
@@ -236,6 +276,10 @@ Deno.test("runSearches can use Exa retrieval with Beat-compatible options", asyn
     assertEquals(requests[0].userLocation, "CH");
     assertEquals(requests[0].excludeDomains, ["youtube.com"]);
     assertEquals(typeof requests[0].startPublishedDate, "string");
+    const ageDays = (Date.now() -
+      new Date(String(requests[0].startPublishedDate)).getTime()) /
+      86_400_000;
+    assertEquals(ageDays >= 13.9 && ageDays <= 14.1, true);
     const contents = requests[0].contents as Record<string, unknown>;
     assertEquals(contents.highlights, true);
     assertEquals(hits[0].date, "2026-05-01T00:00:00Z");

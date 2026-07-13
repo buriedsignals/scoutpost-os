@@ -77,6 +77,8 @@ jobs:
       # forgets to stub fetch fails loudly instead of making a live call.
       - name: Deno unit tests (stack-free set, network-isolated)
         run: cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ scout-transport-execute/ transport-sampler/
+      - name: Benchmark truth unit tests
+        run: deno test --allow-import scripts/benchmarks/_bench_truth_test.ts
       - name: Scrape-port coverage gate (100% on new modules)
         run: bash scripts/ops/check-scrape-coverage.sh
 

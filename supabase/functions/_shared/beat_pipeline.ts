@@ -328,7 +328,7 @@ export async function generateQueries(
         }
         : undefined,
     });
-    return enforceLocationScopeOnQueryPlan(
+    const plan = enforceLocationScopeOnQueryPlan(
       normalizeQueryPlanForCompoundTopic(
         {
           primary_language: (res.primary_language ?? "en").slice(0, 2)
@@ -364,6 +364,7 @@ export async function generateQueries(
       ),
       locationSearchLabel,
     );
+    return addLocationNewsSeedQueries(plan, opts, numQueries);
   } catch (e) {
     logEvent({
       level: "warn",
@@ -380,7 +381,7 @@ export async function generateQueries(
     } else if (opts.criteria) queries.push(opts.criteria);
     else if (opts.city) queries.push(`${opts.city} news`);
     else if (opts.country) queries.push(`${opts.country} news`);
-    return enforceLocationScopeOnQueryPlan(
+    const plan = enforceLocationScopeOnQueryPlan(
       normalizeQueryPlanForCompoundTopic(
         {
           primary_language: countryPrimaryLanguage(opts.countryCode ?? null),
@@ -400,7 +401,40 @@ export async function generateQueries(
       ),
       locationSearchLabel,
     );
+    return addLocationNewsSeedQueries(plan, opts, numQueries);
   }
+}
+
+export function addLocationNewsSeedQueries(
+  plan: BeatQueryPlan,
+  opts: GenerateOpts,
+  numQueries: number,
+): BeatQueryPlan {
+  if (
+    opts.category !== "news" || opts.criteria || !(opts.city || opts.country)
+  ) {
+    return plan;
+  }
+  const locationSearchLabel = buildBeatLocationSearchLabel({
+    city: opts.city ?? null,
+    state: opts.state ?? null,
+    country: opts.country ?? null,
+    countryCode: opts.countryCode ?? null,
+    displayName: opts.displayName ?? null,
+  });
+  if (!locationSearchLabel) return plan;
+
+  const seeds = [
+    ensureBeatLocationSearchLabel("latest local news", locationSearchLabel),
+    ensureBeatLocationSearchLabel(
+      "local government public services news",
+      locationSearchLabel,
+    ),
+  ];
+  const queries = [...new Set([...seeds, ...plan.queries].map((q) => q.trim()))]
+    .filter(Boolean)
+    .slice(0, numQueries);
+  return { ...plan, queries };
 }
 
 export function ensureBeatLocationSearchLabel(
@@ -538,6 +572,7 @@ export interface SearchOpts {
   exaType?: "auto" | "deep-lite";
   category?: BeatCategory;
   sourceMode?: BeatSourceMode;
+  recencyDays?: number;
 }
 
 interface SearchRunResult {
@@ -600,7 +635,7 @@ async function runSearchesWithMetadata(
           category: exaCategoryForBeat(opts.category, opts.sourceMode),
           userLocation: opts.country,
           excludeDomains: opts.excludedDomains,
-          startPublishedDate: isoDaysAgo(90),
+          startPublishedDate: isoDaysAgo(opts.recencyDays ?? 90),
           contents: {
             highlights: true,
             text: { maxCharacters: 1000, verbosity: "compact" },
@@ -827,6 +862,7 @@ export async function discoverBeatHits(
     return { hits: [], plan, rawHits: [], queriesUsed, totalCostDollars: null };
   }
 
+  const recency = getRecencyConfig(opts.scope, opts.category, opts.sourceMode);
   const searchResult = await runSearchesWithMetadata({
     plan,
     exaType: opts.exaType,
@@ -840,6 +876,7 @@ export async function discoverBeatHits(
     country: opts.countryCode ?? undefined,
     excludedDomains: opts.excludedDomains,
     retrievalPort: opts.retrievalPort,
+    recencyDays: Math.max(recency.news_days, recency.discovery_days),
   });
   const rawHits = searchResult.hits;
   const totalCostDollars = searchResult.totalCostDollars;
@@ -847,10 +884,20 @@ export async function discoverBeatHits(
   const searchErrored = searchResult.jobsAttempted > 0 &&
     searchResult.jobsErrored === searchResult.jobsAttempted;
   if (rawHits.length === 0) {
-    return { hits: [], plan, rawHits, queriesUsed, totalCostDollars, searchErrored };
+    return {
+      hits: [],
+      plan,
+      rawHits,
+      queriesUsed,
+      totalCostDollars,
+      searchErrored,
+    };
   }
 
-  const usableRawHits = filterUsableBeatCandidates(rawHits);
+  const usableRawHits = filterLocationNewsTourism(
+    filterUsableBeatCandidates(rawHits),
+    opts,
+  );
   if (usableRawHits.length !== rawHits.length) {
     logEvent({
       level: "info",
@@ -865,21 +912,9 @@ export async function discoverBeatHits(
     return { hits: [], plan, rawHits, queriesUsed, totalCostDollars };
   }
 
-  const recency = getRecencyConfig(opts.scope, opts.category, opts.sourceMode);
   const { dated, undated } = applyDateFilter(usableRawHits, recency);
   const capped = capUndatedResults(undated, recency);
   let hits = [...dated, ...capped];
-  if (hits.length === 0) {
-    return { hits: [], plan, rawHits, queriesUsed, totalCostDollars };
-  }
-
-  if (
-    opts.category === "news" &&
-    opts.sourceMode === "niche" &&
-    (opts.city || opts.country)
-  ) {
-    hits = hits.filter((h) => !isLikelyTourismContent(h));
-  }
   if (hits.length === 0) {
     return { hits: [], plan, rawHits, queriesUsed, totalCostDollars };
   }
@@ -949,8 +984,8 @@ const RECENCY_TABLE: Record<string, RecencyConfig> = {
   "location:reliable": {
     news_days: 14,
     discovery_days: 14,
-    max_undated_news: 15,
-    max_undated_discovery: 15,
+    max_undated_news: 2,
+    max_undated_discovery: 2,
   },
   "topic:niche": {
     news_days: 14,
@@ -1104,6 +1139,14 @@ export function isLikelyTourismContent(hit: BeatHit): boolean {
     (hit.description ?? "").toLowerCase()
   }`;
   return TOURISM_TITLE_PATTERNS.some((p) => haystack.includes(p));
+}
+
+export function filterLocationNewsTourism(
+  hits: BeatHit[],
+  opts: Pick<BeatDiscoveryOpts, "category" | "city" | "country">,
+): BeatHit[] {
+  if (opts.category !== "news" || !(opts.city || opts.country)) return hits;
+  return hits.filter((hit) => !isLikelyTourismContent(hit));
 }
 
 // ---------------------------------------------------------------------------

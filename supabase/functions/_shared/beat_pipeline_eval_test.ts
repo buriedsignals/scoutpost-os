@@ -3,6 +3,7 @@ import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import {
   beatCandidateRejectReason,
   type BeatHit,
+  filterLocationNewsTourism,
   filterUsableBeatCandidates,
   isAiJournalismCompoundMatch,
   isLikelyTourismContent,
@@ -130,6 +131,26 @@ Deno.test("beat eval: local niche anti-tourism keeps civic news but rejects trav
       ),
     ),
     false,
+  );
+});
+
+Deno.test("beat eval: reliable location news also rejects tourism pages", () => {
+  const civic = hit(
+    "https://www.standard.co.uk/news/london/council-housing-plan-2026",
+    "London council approves housing plan",
+  );
+  const travel = hit(
+    "https://www.tripadvisor.com/Hotels-g186338-London_England-Hotels.html",
+    "Best hotels in London",
+  );
+
+  assertEquals(
+    filterLocationNewsTourism([travel, civic], {
+      category: "news",
+      city: "London",
+      country: "United Kingdom",
+    }),
+    [civic],
   );
 });
 
