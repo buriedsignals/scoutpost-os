@@ -990,6 +990,7 @@ async function execute(
       const captureId = rawCaptureIds[i];
       const searchHit = beatHitByUrl.get(src.requested_url ?? src.source_url) ??
         beatHitByUrl.get(src.source_url);
+      const sourceTitle = src.title?.trim() || searchHit?.title?.trim() || null;
       const sourceDate = sourcePublishedDate({
         scrape: src,
         searchDate: searchHit?.date,
@@ -1002,7 +1003,7 @@ async function execute(
       let extracted;
       try {
         extracted = await extractAtomicUnits({
-          title: src.title ?? null,
+          title: sourceTitle,
           content: src.markdown ?? "",
           sourceUrl: src.source_url,
           publishedDate: sourceDate,
@@ -1010,6 +1011,7 @@ async function execute(
           criteria: searchCriteria,
           maxUnits: extractionConfig.maxUnits,
           contentLimit: extractionConfig.contentLimit,
+          anchorToTitle: true,
           usage: {
             db,
             userId: scout.user_id as string,
@@ -1036,7 +1038,7 @@ async function execute(
         let embedding: number[];
         try {
           embedding = await geminiEmbed(u.statement, "RETRIEVAL_DOCUMENT", {
-            title: src.title ?? null,
+            title: sourceTitle,
             usage: {
               db,
               userId: scout.user_id as string,
@@ -1107,7 +1109,7 @@ async function execute(
             embeddingModel: EMBEDDING_MODEL_TAG,
             sourceUrl: src.source_url,
             sourceDomain: deriveSourceDomain(src.source_url),
-            sourceTitle: src.title ?? null,
+            sourceTitle,
             contextExcerpt: u.context_excerpt ?? null,
             occurredAt,
             extractedAt: new Date().toISOString(),
@@ -1133,7 +1135,7 @@ async function execute(
             if (baselineOnly) baselineUnitIds.add(result.unitId);
             if (!surfacedArticles.has(src.source_url)) {
               surfacedArticles.set(src.source_url, {
-                title: src.title ?? src.source_url,
+                title: sourceTitle ?? src.source_url,
                 url: src.source_url,
                 summary: u.context_excerpt ?? u.statement,
                 source: safeDomain(src.source_url) ?? "",
