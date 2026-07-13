@@ -1,9 +1,17 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
+  aircraftCanaryConfig,
   modeScheduleCron,
   reAlertedObjectIds,
   selectFreshMalaccaVessels,
 } from "./benchmark-transport.ts";
+
+Deno.test("aircraft canary follows live identities without a transient geofence", () => {
+  assertEquals(aircraftCanaryConfig(["abc123"]), {
+    mode: "aircraft",
+    watch_ids: ["abc123"],
+  });
+});
 
 Deno.test("satellite canary uses a daily schedule while other modes stay dormant", () => {
   assertEquals(modeScheduleCron("satellite"), "0 0 * * *");

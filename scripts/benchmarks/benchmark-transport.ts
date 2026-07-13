@@ -44,6 +44,10 @@ interface TransportConfig {
   watch_ids: string[];
 }
 
+export function aircraftCanaryConfig(watchIds: string[]): TransportConfig {
+  return { mode: "aircraft", watch_ids: watchIds };
+}
+
 interface CreatedScout {
   id: string;
   baseline_established_at?: string | null;
@@ -398,11 +402,7 @@ async function main() {
       if (watchIds.length === 0) {
         throw new Error("adsb.lol observed zero aircraft over Dover Strait");
       }
-      return {
-        mode: "aircraft",
-        geofence: { preset_id: DOVER_PRESET },
-        watch_ids: watchIds,
-      };
+      return aircraftCanaryConfig(watchIds);
     }),
   );
 
