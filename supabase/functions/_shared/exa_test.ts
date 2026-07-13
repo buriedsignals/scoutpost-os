@@ -279,7 +279,7 @@ Deno.test("shouldFallbackFromExa — falls back only for low-coverage canaries",
       discoveredCount: 1,
       scoutMetadata: {},
     }),
-    false,
+    true,
   );
   assertEquals(
     shouldFallbackFromExa({
@@ -288,7 +288,7 @@ Deno.test("shouldFallbackFromExa — falls back only for low-coverage canaries",
       discoveredCount: 1,
       scoutMetadata: {},
     }),
-    false,
+    true,
   );
   assertEquals(
     shouldFallbackFromExa({

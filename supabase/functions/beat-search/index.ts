@@ -36,9 +36,8 @@ import { AuthedUser, requireUser } from "../_shared/auth.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
-import { normalizeDate } from "../_shared/date_utils.ts";
 import { scrape } from "../_shared/scrape.ts";
-import { exaSearch } from "../_shared/exa.ts";
+import { exaSearch, shouldFallbackFromExa } from "../_shared/exa.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
 import { geminiExtract } from "../_shared/gemini.ts";
 import {
@@ -54,7 +53,10 @@ import {
   parseBeatLocation,
 } from "../_shared/beat_location.ts";
 import { buildBeatCriteriaRule } from "../_shared/beat_criteria.ts";
-import { sourcePublishedDate } from "../_shared/atomic_extract.ts";
+import {
+  preferSourcePublishedDate,
+  sourcePublishedDate,
+} from "../_shared/atomic_extract.ts";
 
 const LocationSchema = z.object({
   displayName: z.string().optional(),
@@ -364,7 +366,7 @@ async function runSearch(
       queries.push(...priorityDiscovery.queries);
       selectedHits.push(...priorityDiscovery.hits);
     }
-    const discovery = await discoverBeatHits({
+    const discoveryOpts = {
       scope,
       sourceMode,
       category,
@@ -378,9 +380,26 @@ async function runSearch(
         ? countryPrimaryLanguage(location.countryCode)
         : "en",
       excludedDomains: input.excluded_domains,
-    });
+      retrievalPort: "exa" as const,
+    };
+    const discovery = await discoverBeatHits(discoveryOpts);
     queries.push(...discovery.queriesUsed);
     selectedHits.push(...discovery.hits);
+    if (
+      scope === "location" &&
+      category === "news" &&
+      shouldFallbackFromExa({
+        requestedRetrieval: "exa",
+        discoveredCount: selectedHits.length,
+      })
+    ) {
+      const retry = await discoverBeatHits({
+        ...discoveryOpts,
+        exaType: "deep-lite",
+      });
+      queries.push(...retry.queriesUsed);
+      selectedHits.push(...retry.hits);
+    }
     selectedHits.push(...priorityPlan.directUrls.map((url) => ({ url })));
   }
 
@@ -579,7 +598,7 @@ async function runSearch(
       url: a.url,
       source: a.source ?? safeDomain(a.url) ?? "",
       summary: String(a.summary ?? ""),
-      date: normalizeDate(a.date ?? null) ?? fallbackDate,
+      date: preferSourcePublishedDate(fallbackDate, a.date ?? null),
       imageUrl: null,
       verified: true,
     });

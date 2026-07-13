@@ -267,7 +267,7 @@ export function shouldFallbackFromExa(opts: {
   scoutMetadata?: Record<string, unknown> | null;
 }): boolean {
   if (opts.requestedRetrieval !== "exa") return false;
-  if (normalizeRetrievalPort(opts.retrievalEnv) === "exa") return false;
+  // The Exa environment pin selects the port; it must not disable its deep retry.
   if (opts.scoutMetadata?.exa_fallback === false) return false;
   return opts.discoveredCount < 2;
 }

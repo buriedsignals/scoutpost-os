@@ -29,7 +29,6 @@ import { getServiceClient, SupabaseClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
-import { normalizeDate } from "../_shared/date_utils.ts";
 import { scrape, scrapeProvider } from "../_shared/scrape.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
 import {
@@ -70,6 +69,7 @@ import { Article, sendBeatAlert } from "../_shared/notifications.ts";
 import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
 import {
   extractAtomicUnits,
+  preferSourcePublishedDate,
   sourcePublishedDate,
 } from "../_shared/atomic_extract.ts";
 import {
@@ -1061,9 +1061,12 @@ async function execute(
         if (isWithinRunDuplicate(embedding, runEmbeddings)) continue;
         runEmbeddings.push(embedding);
 
-        // occurred_at priority: LLM-extracted → Firecrawl scrape metadata →
-        // Firecrawl search date → null.
-        const occurredAt = normalizeDate(u.occurred_at) ?? sourceDate;
+        // Prefer source metadata/search dates over extracted dates so a future
+        // year mentioned in the story cannot become the publication date.
+        const occurredAt = preferSourcePublishedDate(
+          sourceDate,
+          u.occurred_at,
+        );
         const unitType = u.type as CanonicalUnitType;
 
         // Fact-check via Abstain-R1 (no-op when endpoint not configured).

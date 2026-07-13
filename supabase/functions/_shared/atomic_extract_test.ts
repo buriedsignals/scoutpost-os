@@ -1,9 +1,18 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 
 import {
+  preferSourcePublishedDate,
   publishedDateFromScrape,
   sourcePublishedDate,
 } from "./atomic_extract.ts";
+
+Deno.test("preferSourcePublishedDate keeps source metadata over an extracted future date", () => {
+  assertEquals(
+    preferSourcePublishedDate("2026-07-04", "2030-01-01"),
+    "2026-07-04",
+  );
+  assertEquals(preferSourcePublishedDate(null, "2026-07-04"), "2026-07-04");
+});
 
 Deno.test("publishedDateFromScrape uses metadata before markdown", () => {
   assertEquals(

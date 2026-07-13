@@ -326,6 +326,13 @@ export function sourcePublishedDate(opts: {
   return scrapeDate ?? normalizeDate(opts.searchDate ?? null);
 }
 
+export function preferSourcePublishedDate(
+  sourceDate: string | null | undefined,
+  extractedDate: string | null | undefined,
+): string | null {
+  return normalizeDate(sourceDate) ?? normalizeDate(extractedDate);
+}
+
 function visibleDateFromMarkdown(markdown: string): string | null {
   const head = markdown.slice(0, 2500);
   const iso = head.match(/\b(\d{4}-\d{2}-\d{2})\b/);
