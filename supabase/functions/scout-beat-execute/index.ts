@@ -100,7 +100,8 @@ const MAX_SOURCES = 20;
 const CONCURRENCY = 5;
 const RAW_CAPTURE_TTL_DAYS = 30;
 const DISCOVERY_SOURCE_LIMITS: Record<BeatScope, number> = {
-  location: 4,
+  // Match topic coverage while keeping location extraction at two units/source.
+  location: 6,
   topic: 6,
   combined: 8,
 };
@@ -994,7 +995,8 @@ async function execute(
         searchDate: searchHit?.date,
       });
       const extractionConfig = scope === "location"
-        ? { maxUnits: 2, contentLimit: 2200 }
+        // Keep location digests concise without truncating article context.
+        ? { maxUnits: 2, contentLimit: 3000 }
         : { maxUnits: 3, contentLimit: 3000 };
 
       let extracted;
