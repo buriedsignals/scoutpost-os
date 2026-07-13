@@ -21,6 +21,7 @@ Scoutpost runs scheduled scouts that watch:
 - local news and beats
 - social profiles
 - councils, agendas, minutes, and PDFs
+- transport: vessels (AIS), aircraft (ADS-B), and satellites
 
 Each run extracts **information units**: atomic, source-linked facts. Units are deduplicated across repeated coverage and land in an editorial inbox.
 
@@ -34,6 +35,7 @@ The journalist stays responsible for verification. Your job is to help monitor, 
 | **Beat Scout** | Monitor a beat by topic or geography |
 | **Social Scout** | Track social posts and deletions |
 | **Civic Scout** | Track council materials, including PDFs and promises |
+| **Fleet Scout** | Alert when specific tracked vessels, aircraft, or satellites (an ID watch list, up to 20) enter a watched area |
 | **Information unit** | One atomic fact with source and timestamps |
 | **Verification** | Human editorial approval before a fact is treated as publishable |
 | **Page Archive** | Opt-in tamper-evident evidence snapshots of a Page Scout's captures (MHTML, screenshot, markdown, RFC 3161 timestamp, optional Wayback) |
@@ -43,10 +45,14 @@ The journalist stays responsible for verification. Your job is to help monitor, 
 Scoutpost is usually exposed to agents through one of these paths:
 
 - **CLI**: the `scout` binary on `$PATH`
-- **MCP**: remote MCP at `https://www.scoutpost.ai/mcp`
-- **REST API**: public HTTP surface documented at `https://www.scoutpost.ai/swagger`
+- **MCP**: the remote MCP URL shown in the app's Agents modal
+- **REST API**: the API base shown in the app's Agents -> API panel
 
 If both CLI and MCP are available, prefer the CLI for shell-capable agents because the commands stay visible in the transcript.
+
+Do not assume a hosted scoutpost.ai endpoint. In self-hosted deployments,
+use the newsroom's own Supabase/API/MCP targets from the Agents modal or the
+local `scout` config.
 
 ## Core workflow
 
@@ -64,15 +70,15 @@ If both CLI and MCP are available, prefer the CLI for shell-capable agents becau
 - Never present an unverified unit as confirmed fact.
 - Always include source URLs when summarizing findings.
 - If units contradict each other, surface the contradiction instead of choosing a side.
+- Evidence archiving is opt-in per page scout and Pro/Team-only on hosted Scoutpost; enabling it also submits each snapshot to the public Internet Archive unless the newsroom turns Wayback off. Disclose that before enabling it for someone.
 
 ## Useful URLs
 
-- App: https://www.scoutpost.ai/login
-- Docs: https://www.scoutpost.ai/docs
-- Docs text: https://www.scoutpost.ai/docs.txt
-- Pricing: https://www.scoutpost.ai/pricing
-- FAQ: https://www.scoutpost.ai/faq
-- Setup skill: https://www.scoutpost.ai/skills/scoutpost-setup.md
+- App: open the newsroom Scoutpost URL
+- Docs: `/docs` on the deployed app
+- Docs text: `/docs.txt` on the deployed app
+- FAQ: `/faq` on the deployed app
+- Setup skill: `/skills/scoutpost-setup.md` on the deployed app
 
 ## CLI and MCP parity
 
@@ -104,7 +110,7 @@ Page Scouts can archive a tamper-evident snapshot of each capture (the rendered 
 - REST: include `"archive_enabled": true` in the `POST /scouts` or `PATCH /scouts/:id` body
 - On hosted Scoutpost archiving is Pro/Team-only (a free-tier enable returns 403 archive_forbidden). Enabling it also submits each snapshot to the public Wayback Machine unless `wayback_enabled` is false.
 
-**List a scout's snapshots** (newest first):
+**List a scout's snapshots** (newest first — capture kind baseline/change, fidelity, trust status, and the artifacts available):
 
 - CLI: `scout snapshots list --scout <scout_id>`
 - MCP: `list_snapshots` with `scout_id`
@@ -116,7 +122,7 @@ Page Scouts can archive a tamper-evident snapshot of each capture (the rendered 
 - MCP: `get_snapshot_url` with `id` + `artifact` → a 5-minute signed download URL
 - REST: `POST /snapshots/:id/url` with `{ "artifact": "mhtml" }`
 
-More detail: `docs/features/page-archive.md`.
+Snapshots exist only for scouts with archiving enabled. Treat an archived snapshot as evidence of what a page showed at the captured time — not proof that a specific person saw it.
 
 ## Verification policy
 

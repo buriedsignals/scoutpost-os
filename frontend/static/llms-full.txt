@@ -1,46 +1,129 @@
 # Scoutpost — full public AI reference
 
-> AI-powered monitoring infrastructure for journalists and newsrooms. This file is the flattened public AI-facing reference for Scoutpost. It combines the product overview, the public docs summary, and both public skill files in one markdown document.
+> AI-powered monitoring infrastructure for investigative and local journalism. Scoutpost runs scheduled scouts across public pages, news coverage, social profiles, civic records, and transport activity. It extracts source-linked information units, deduplicates repeated coverage, and gives journalists and AI assistants a searchable knowledge base with a human verification boundary.
 
-Last updated: 2026-05-07. Canonical source: https://www.scoutpost.ai/llms-full.txt
+Last updated: 2026-07-13. Canonical source: https://www.scoutpost.ai/llms-full.txt
 
 ---
 
-## 1. Product overview
+## Product overview
 
-Scoutpost helps journalists stop re-checking the same pages, feeds, and government sites by hand. It runs scheduled scouts, extracts atomic facts, deduplicates repeated coverage, and keeps the resulting information units in a searchable knowledge base.
+Scoutpost helps journalists stop re-checking the same pages, feeds, and public
+records. A scout runs on a schedule, finds meaningful changes or new material,
+and creates information units: atomic, source-linked leads. Repeated coverage
+is deduplicated into a shared knowledge base, rather than becoming a pile of
+chat transcripts or alerts.
 
-The product story exposed on the public site is:
+Scoutpost is for investigative workflows, local reporting, and continuous
+newsroom monitoring. Journalists use the web app; AI assistants can work
+through MCP, REST, or the `scout` CLI. Hosted Scoutpost is available at
+https://www.scoutpost.ai, and the source-available product can be self-hosted.
 
-- **Schedule from a chat**: agents can help configure ongoing monitoring.
-- **Every story, once**: repeated coverage is collapsed to the underlying facts.
-- **A newsroom database, not a chat log**: information units are structured records with sources and timestamps.
-- **Works with existing workflows**: results can feed briefs, drafts, and exports.
-- **Human verification stays in the loop**: Scoutpost has an explicit editorial approval step.
+### Product principles
 
-## 2. What it monitors
+- **Monitoring, not a one-off search:** scouts run on schedules and retain
+  their history.
+- **Every story, once:** repeated reporting is deduplicated to underlying,
+  source-linked information units.
+- **A newsroom knowledge base, not a chat log:** units carry sources,
+  timestamps, verification state, and links to related entities.
+- **Agents work with editorial guardrails:** agents can configure monitoring,
+  search, organize, export, and draft, but human verification remains the
+  publication boundary.
+- **Evidence when it matters:** Page Scouts can optionally retain
+  tamper-evident captures.
+
+## Scout types
 
 | Scout | What it watches | Typical use |
 |---|---|---|
-| Page Scout | One URL for meaningful changes | press rooms, dockets, filings, policy pages |
-| Beat Scout | A beat by topic or geography; weekly/monthly only | housing, procurement, climate, education, towns, districts, regions |
-| Social Scout | Social profiles, including deletions | politicians, agencies, campaign accounts |
-| Civic Scout | Councils, agendas, minutes, and PDFs | promises, decisions, deadlines, dollar figures |
+| Page Scout (`web`) | One URL for meaningful changes | press rooms, dockets, filings, policy pages |
+| Beat Scout (`beat`) | A topic, geography, or both across relevant coverage | housing, procurement, climate, education, towns, districts |
+| Social Scout (`social`) | Public social profiles, including deletions | politicians, agencies, campaign accounts |
+| Civic Scout (`civic`) | Council materials, agendas, minutes, and PDFs | promises, decisions, deadlines, public spending |
+| Fleet Scout (`transport`) | Watched vessels, aircraft, or satellites entering a defined area | transport, conflict, environment, accountability reporting |
 
-## 3. Core concepts
+Fleet Scouts use a named watch list (up to 20 IDs). Vessels and satellites
+require a geofence; aircraft may be globally watched or geofenced. They support
+3-hour, 6-hour, 12-hour, or daily schedules; satellite scouts are daily only.
 
-- **Scout**: the scheduled monitoring job.
-- **Information unit**: one atomic fact linked to its source.
-- **Verification**: the human editorial checkpoint that promotes a lead into a citeable fact.
-- **Project**: the organizational container for scouts, units, and exports.
-- **Credits**: the hosted cost model.
-- **Page Archive**: opt-in tamper-evident evidence snapshots of a Page Scout's captures.
+## Core concepts and editorial boundary
 
-Verification is a hard product boundary. Agents can help search and summarize, but unverified units must be treated as leads rather than publishable facts.
+- **Scout:** a scheduled monitoring job.
+- **Information unit:** one atomic fact linked to its source and timestamps.
+- **Project:** the container for scouts, units, and exports.
+- **Verification:** the human editorial checkpoint.
+- **Page Archive:** opt-in tamper-evident evidence snapshots for Page Scouts.
+- **Credits:** the hosted cost model for scout runs.
 
-Page Archive is an opt-in, dark-by-default capability for Page Scouts (type `web`), Pro/Team-gated on hosted Scoutpost: each capture can be stored as a tamper-evident snapshot — MHTML, screenshot, markdown, a manifest of per-artifact SHA-256 hashes, an RFC 3161 trusted timestamp (`tsr`), and (unless disabled) a public Internet Archive/Wayback submission. Turn it on/off with `archive_enabled` (plus optional `wayback_enabled`) when creating or updating a scout: CLI `scout scouts add/update --archive-enabled true|false [--wayback-enabled true|false]`, MCP `create_scout`/`update_scout` with `archive_enabled`/`wayback_enabled`, or REST `POST /scouts` / `PATCH /scouts/:id`. Retrieve snapshots with CLI `scout snapshots list --scout <id>`, MCP `list_snapshots`, or REST `GET /snapshots?scout_id=<id>`, and download an artifact (`mhtml | screenshot | rawhtml | markdown | manifest | tsr`) with CLI `scout snapshots download <id> --artifact <kind>`, MCP `get_snapshot_url` (`id` + `artifact` → a 5-minute signed URL), or REST `POST /snapshots/:id/url`.
+Unverified units are leads, not confirmed or publishable facts. A verified unit
+is editor-approved. When summarizing, agents must include source URLs and
+verification state, and must surface contradictions rather than choose a side.
 
-## 4. Public docs and routes
+## Page Archive
+
+Page Archive is an opt-in, Pro/Team-gated feature on hosted Scoutpost. A Page
+Scout can capture MHTML, a screenshot, markdown, artifact hashes, an RFC 3161
+trusted timestamp, and—unless the newsroom disables it—a public Internet
+Archive/Wayback submission. Enable or disable it with `archive_enabled` (and
+optionally `wayback_enabled`) when creating or updating a Page Scout.
+
+- CLI: `scout scouts add` or `update` with `--archive-enabled true`
+- MCP: `create_scout` or `update_scout` with `archive_enabled: true`
+- REST: `POST /scouts` or `PATCH /scouts/:id` with `archive_enabled: true`
+
+List snapshots with `scout snapshots list --scout <id>`, MCP
+`list_snapshots`, or `GET /snapshots?scout_id=<id>`. Download an artifact with
+`scout snapshots download`, MCP `get_snapshot_url`, or
+`POST /snapshots/:id/url`. Archived snapshots show what a page contained at
+capture time; they do not prove that a particular person saw it.
+
+## Agent workflow
+
+1. Identify what the journalist wants to monitor and select the appropriate
+   scout type.
+2. Confirm before creating or running work that spends credits; disclose the
+   expected spend for Civic Scouts, Fleet Scouts, or large batches.
+3. Use scouts and units to find, organize, and summarize leads.
+4. Treat unverified units as leads and cite their sources.
+5. Let a human verify or reject units before treating claims as publishable.
+
+If both the CLI and MCP are available, shell-capable agents should prefer the
+CLI because the commands remain visible in the transcript. In self-hosted
+deployments, use the newsroom's own app, API, and MCP URLs rather than assuming
+the hosted Scoutpost endpoints.
+
+## Integrations
+
+- **MCP:** https://www.scoutpost.ai/mcp (OAuth 2.1 for hosted Scoutpost)
+- **REST API:** https://www.scoutpost.ai/functions/v1
+- **OpenAPI:** https://www.scoutpost.ai/functions/v1/openapi-spec
+- **Swagger UI:** https://www.scoutpost.ai/swagger
+- **CLI:** https://github.com/buriedsignals/scoutpost-os/blob/main/cli/README.md
+- **MCP bridge:** https://github.com/buriedsignals/scoutpost-os/blob/main/mcp/README.md
+
+The shared agent contract includes listing, creating, inspecting, running,
+pausing, resuming, and deleting scouts; listing and searching units; verifying
+or rejecting units; marking units used in an article; exporting project
+material; and working with Page Archive snapshots.
+
+## Hosted credits
+
+| Scout type | Credits per run | Schedule |
+|---|---:|---|
+| Page Scout | 1 | daily, weekly, monthly |
+| Beat Scout | 7 | daily, weekly, monthly |
+| Social Scout (Instagram/X/TikTok) | 2 | daily, weekly, monthly |
+| Social Scout (LinkedIn) | 7 | daily, weekly, monthly |
+| Social Scout (Facebook) | 15 | daily, weekly, monthly |
+| Civic Scout | 10 | weekly or monthly |
+| Fleet Scout | 1, plus 1 if natural-language criteria run | 3h, 6h, 12h, daily; satellite daily only |
+
+Hosted tiers are Free (100 credits/month), Pro (1,000), and Team (5,000 shared
+credits/month). Civic runs that do no billable work are refunded. Fleet Scout
+is Pro-gated on hosted Scoutpost, and Page Archive is Pro/Team-gated.
+
+## Public resources
 
 - Overview: https://www.scoutpost.ai/overview.txt
 - Docs: https://www.scoutpost.ai/docs
@@ -51,95 +134,27 @@ Page Archive is an opt-in, dark-by-default capability for Page Scouts (type `web
 - FAQ text: https://www.scoutpost.ai/faq.txt
 - Skills index: https://www.scoutpost.ai/skills
 - Skills text index: https://www.scoutpost.ai/skills.txt
-- llms.txt: https://www.scoutpost.ai/llms.txt
-
-## 5. Integrations
-
-- **MCP**: https://www.scoutpost.ai/mcp
-- **REST base**: https://www.scoutpost.ai/functions/v1
-- **OpenAPI**: https://www.scoutpost.ai/functions/v1/openapi-spec
-- **Swagger**: https://www.scoutpost.ai/swagger
-- **CLI docs**: https://github.com/buriedsignals/scoutpost-os/blob/main/cli/README.md
-- **MCP bridge docs**: https://github.com/buriedsignals/scoutpost-os/blob/main/mcp/README.md
-
-## 6. Hosted pricing
-
-- Free: 100 credits per month
-- Pro: 1,000 credits per month
-- Team: 5,000 shared credits per month
-
-Public docs currently describe these per-run costs:
-
-- Page Scout: 1 credit
-- Beat Scout: 7 credits; weekly is the highest supported frequency
-- Social Scout: 2 credits for most platforms, 15 for Facebook
-- Civic Scout: 10 credits in the docs cost table
-
-Agents should disclose spend before running expensive scouts or large batches.
-
-## 7. Public skill: product use
-
-# Scoutpost skill
-
-You have been connected to **Scoutpost**, a monitoring platform for journalists and newsrooms. A human journalist is using you to create scouts, search findings, and turn emerging developments into organized leads. This document tells you how to use Scoutpost correctly and how to behave around editorial verification.
-
-Read this once. Apply it for every Scoutpost task in this session.
-
-## What Scoutpost does
-
-Scoutpost runs scheduled scouts that watch public pages, local news and beats, social profiles, and councils. Each run extracts **information units**: atomic, source-linked facts. Units are deduplicated across repeated coverage and land in an editorial inbox.
-
-The journalist stays responsible for verification. Your job is to help monitor, search, organize, summarize, and draft safely.
-
-## Operational rules
-
-- Do not auto-run expensive operations without confirmation.
-- Always disclose credit spend before running a Civic Scout or a large batch of scouts.
-- Never present an unverified unit as confirmed fact.
-- Always include source URLs when summarizing findings.
-- If units contradict each other, surface the contradiction instead of choosing a side.
-
-## Useful URLs
-
-- App: https://www.scoutpost.ai/login
-- Docs: https://www.scoutpost.ai/docs
-- Docs text: https://www.scoutpost.ai/docs.txt
-- Pricing: https://www.scoutpost.ai/pricing
-- FAQ: https://www.scoutpost.ai/faq
+- Curated link index: https://www.scoutpost.ai/llms.txt
+- Product-use skill: https://www.scoutpost.ai/skills/scoutpost.md
 - Setup skill: https://www.scoutpost.ai/skills/scoutpost-setup.md
 
-Canonical URL: `https://www.scoutpost.ai/skills/scoutpost.md`
+## Product-use skill
 
-Legacy compatibility URL: `https://www.scoutpost.ai/skill.md`
+Use the product skill to operate scouts, units, and exports. It contains the
+authoritative agent instructions and verification policy:
 
-## 8. Public skill: setup
+https://www.scoutpost.ai/skills/scoutpost.md
 
-# Scoutpost setup skill
+## Setup skill
 
-Use this skill when the user wants to deploy, self-host, install, or provision Scoutpost on their own infrastructure.
+Use the setup skill only to install, self-host, configure, or validate
+Scoutpost. It covers hosted and self-hosted MCP/CLI setup, supported Supabase
+deployment checks, and the manual-provider boundary:
 
-This is **not** the day-to-day product-use skill. For operating scouts and units inside the hosted product, use:
+https://www.scoutpost.ai/skills/scoutpost-setup.md
 
-- https://www.scoutpost.ai/skills/scoutpost.md
+## Source and support
 
-## What this skill covers
-
-This setup path walks an agent through:
-
-- preparing the environment
-- collecting required API keys
-- provisioning Supabase
-- deploying edge functions
-- building and publishing the frontend
-- verifying that the deployment works
-
-## Required external services
-
-- Supabase
-- Gemini
-- Firecrawl
-- Resend
-- Apify
-- static hosting for the frontend
-
-Canonical URL: `https://www.scoutpost.ai/skills/scoutpost-setup.md`
+- GitHub: https://github.com/buriedsignals/scoutpost-os
+- Releases: https://github.com/buriedsignals/scoutpost-os/releases
+- Issues: https://github.com/buriedsignals/scoutpost-os/issues

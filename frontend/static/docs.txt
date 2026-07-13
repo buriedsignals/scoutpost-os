@@ -4,7 +4,7 @@ This is the short plain-text gateway to the public documentation. The full rende
 
 ## What Scoutpost does
 
-Scoutpost lets journalists create scheduled scouts that monitor pages, local news, social profiles, and civic sources. Each run extracts information units, deduplicates them, and lands them in an editorial inbox for verification.
+Scoutpost lets journalists create scheduled scouts that monitor public pages, news coverage, social profiles, civic sources, and watched transport activity. Each run extracts information units, deduplicates them, and lands them in an editorial inbox for verification.
 
 ## Key concepts
 
@@ -13,7 +13,7 @@ Scoutpost lets journalists create scheduled scouts that monitor pages, local new
 - **Verification**: the editorial checkpoint that promotes a lead into a citeable fact.
 - **Credits**: the cost model for hosted runs.
 - **Projects**: the container for scouts and exports.
-- **Schedules**: Page Scouts can run daily; Beat and Civic Scouts run weekly or monthly.
+- **Schedules**: Page Scouts can run daily; Beat and Civic Scouts run weekly or monthly; Fleet Scouts run every 3, 6, or 12 hours, or daily (satellites daily only).
 - **Page Archive**: opt-in evidence snapshots for Page Scouts — retrieve via `scout snapshots` / `list_snapshots` / `GET /snapshots`; toggle via `archive_enabled`.
 
 ## Integration surfaces
@@ -40,9 +40,10 @@ Scoutpost lets journalists create scheduled scouts that monitor pages, local new
 
 ## Product behavior to preserve
 
-- Page, Beat, Social, and Civic scouts are the public concepts.
+- Page, Beat, Social, Civic, and Fleet scouts are the public concepts.
 - Beat Scout may be scoped by topic or geography, but the geography-scoped flow is not a separate public surface.
 - Beat Scout weekly is the highest supported frequency; daily Beat Scout schedules are rejected.
+- Fleet Scout monitors a named watch list of vessels, aircraft, or satellites; it is not a broad traffic-search tool.
 - Agents can help monitor, search, export, and summarize.
 - Verification remains a hard boundary before publication.
 - Hosted and self-hosted are both supported, but the hosted app is the primary public entrypoint.

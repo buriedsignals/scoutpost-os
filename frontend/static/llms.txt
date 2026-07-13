@@ -1,8 +1,8 @@
 # Scoutpost
 
-> AI-powered monitoring infrastructure for journalists. Scoutpost runs scheduled scouts across pages, local news, social profiles, and civic sources, extracts atomic facts, deduplicates repeated coverage, and hands the results to journalists and AI assistants as a searchable knowledge base with a human verification boundary.
+> AI-powered monitoring infrastructure for investigative and local journalism. Scoutpost runs scheduled scouts across public pages, news coverage, social profiles, civic records, and transport activity; it extracts source-linked information units, deduplicates repeated coverage, and gives journalists and AI assistants a searchable knowledge base with a human verification boundary.
 
-Scoutpost is built for local reporting, investigative workflows, and newsroom monitoring. The public product contract is:
+Scoutpost is built for investigative workflows, local reporting, and continuous newsroom monitoring. The public product contract is:
 
 - scouts monitor sources on schedules
 - runs create information units
@@ -32,6 +32,7 @@ Scoutpost is built for local reporting, investigative workflows, and newsroom mo
 - [Beat Scout](https://www.scoutpost.ai/docs#scout-beat): Monitor a beat by topic or geography
 - [Social Scout](https://www.scoutpost.ai/docs#scout-social): Monitor social profiles and post deletions
 - [Civic Scout](https://www.scoutpost.ai/docs#scout-civic): Monitor council materials and PDF-heavy civic sources
+- [Fleet Scout](https://www.scoutpost.ai/docs#scout-fleet): Alert when watched vessels, aircraft, or satellites enter a defined area
 - [Information units](https://www.scoutpost.ai/docs#units): Atomic facts, search, verification, and audit trail
 - [Verification](https://www.scoutpost.ai/docs#verification): Human editorial approval before publishable use
 - [Page Archive](https://www.scoutpost.ai/docs#page-archive): Evidence snapshots for Page Scouts — list/download via `scout snapshots` CLI, `list_snapshots`/`get_snapshot_url` MCP, `GET /snapshots`; toggle via `archive_enabled` on scout create/update

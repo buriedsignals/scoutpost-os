@@ -2,9 +2,9 @@
 
 # Scoutpost
 
-### Open-source local news monitoring for newsrooms
+### Open-source monitoring for investigative and local journalism
 
-**AI scouts that watch web pages, local news, search queries, social profiles, and civic sites on a schedule — with email alerts and tamper-evident evidence snapshots. Self-host it, or sign in at scoutpost.ai.**
+**AI scouts that watch public pages, news coverage, social profiles, civic records, and transport activity on a schedule. They turn what they find into source-linked, deduplicated information units for journalists and AI assistants — with human verification and optional tamper-evident evidence snapshots. Self-host it, or sign in at scoutpost.ai.**
 
 [Quick Start](#quick-start) | [Deployment](#deployment) | [Docs](#documentation) | [FAQ](https://www.scoutpost.ai/faq) | [scoutpost.ai](https://www.scoutpost.ai/)
 
@@ -20,14 +20,22 @@ Built by [**Buried Signals**](https://buriedsignals.com/) • Supported by [IMJ]
 
 ## Overview
 
-Scoutpost lets users create "scouts" that monitor:
-- **Web pages** for content changes
-- **Local news** for daily digests
-- **Search queries** for specific topics
-- **Social media profiles** for new posts and deletions
-- **Data APIs** for threshold alerts
+Scoutpost is monitoring infrastructure for investigative and local journalism.
+Journalists define recurring scouts; each run finds source-linked information
+units, deduplicates repeated coverage, and sends new leads to an editorial
+inbox. The same workflow is available to people in the web app and to agents
+through MCP, REST, or the `scout` CLI.
 
-Scouts run on schedules and send email notifications when criteria are met.
+- **Page Scouts** watch one public URL for meaningful changes.
+- **Beat Scouts** follow a topic or geography across relevant coverage.
+- **Social Scouts** track new and deleted posts from public profiles.
+- **Civic Scouts** follow council pages, agendas, minutes, and PDFs.
+- **Fleet Scouts** alert when watched vessels, aircraft, or satellites enter a
+  defined area.
+
+Scouts run on schedules and notify the journalist when their criteria are met.
+Information units are leads until a human verifies them; agents can organize,
+search, and draft from the material, but must preserve that editorial boundary.
 
 Page Scouts can optionally capture **tamper-evident evidence snapshots** of each
 change (MHTML + screenshot + RFC 3161 timestamp, with optional Internet Archive

@@ -188,8 +188,8 @@
 					<span class="eyebrow">Documentation</span>
 					<h1>Scoutpost for humans and AI assistants</h1>
 					<p class="lede">
-						Scoutpost, formerly coJournalist, is monitoring infrastructure for journalists. It watches websites, local
-						news, social profiles, and council agendas on schedules you define, extracts atomic
+						Scoutpost, formerly coJournalist, is monitoring infrastructure for investigative and local journalism. It watches websites, news
+						coverage, social profiles, council agendas, and watched transport activity on schedules you define, extracts atomic
 						facts, de-duplicates across sources, and hands the results to you — or to your AI
 						assistant — as a searchable knowledge base.
 					</p>
@@ -364,7 +364,13 @@
 									<td><a href="#scout-civic"><code>civic</code> — Civic Scout</a></td>
 									<td>Council agendas + promise extraction from PDFs</td>
 									<td>Council domain</td>
-									<td>20 credits</td>
+									<td>10 credits</td>
+								</tr>
+								<tr>
+									<td><a href="#scout-fleet"><code>transport</code> — Fleet Scout</a></td>
+									<td>Alerts when watched vessels, aircraft, or satellites enter an area</td>
+									<td>Named watch list + optional or required geofence</td>
+									<td>1–2 credits</td>
 								</tr>
 							</tbody>
 						</table>
@@ -377,6 +383,14 @@
 						changes fire notifications. Optional topic filter lets AI skip changes that don't match
 						your criteria. Scheduling establishes a baseline only; the inbox gets units later when
 						the page changes and those changes survive extraction + dedup.
+					</p>
+
+					<h3 id="page-archive">Page Archive</h3>
+					<p>
+						Page Scouts can optionally retain tamper-evident evidence snapshots: MHTML, a screenshot,
+						markdown, artifact hashes, and an RFC 3161 timestamp. On hosted Scoutpost, Page Archive is
+						available on Pro and Team; Wayback submission is enabled by default but can be turned off per scout.
+						Agents can list and retrieve snapshots through the CLI, MCP, or REST API.
 					</p>
 
 					<h3 id="scout-beat">Beat Scout</h3>
@@ -404,6 +418,15 @@
 						deadlines, and dollar figures — with meeting-date context. Those promises dedup into the
 						same canonical unit layer as Page Scout and Beat Scout findings, so civic hits add
 						provenance instead of spawning parallel cards.
+					</p>
+
+					<h3 id="scout-fleet">Fleet Scout</h3>
+					<p>
+						Fleet Scout monitors named vessels, aircraft, or satellites and alerts when a watched object enters
+						a defined area. It is designed for focused monitoring, not broad traffic surveillance: every scout
+						requires a watch list of up to 20 MMSIs, ICAO hexes, or NORAD IDs. Vessels and satellites require a
+						geofence; aircraft may also be watched globally. Fleet Scouts run every 3, 6, or 12 hours, or daily
+						(satellites are daily only), and are Pro-gated on hosted Scoutpost.
 					</p>
 				</section>
 
