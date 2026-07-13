@@ -1,21 +1,14 @@
 /**
- * Fleet Scout (type `transport`) live health benchmark — aircraft mode.
+ * Fleet Scout (type `transport`) live health benchmark — all production modes.
  *
- * Manual/weekly operator run on the user-authenticated product path (see
- * docs/solutions/workflow-issues/benchmark-auth-model.md). watch_ids are
- * mandatory (product decision 2026-07-04), so the benchmark first PROBES
- * adsb.lol for aircraft currently over the Dover Strait, then creates a real
- * scout watching up to 20 of those hexes within the dover-strait preset,
- * triggers Run Now twice, and audits the enter-only state machine:
+ * Each canary creates a real user-owned Scout and audits the same two-run
+ * contract: run 1 silently establishes positional state, then run 2 must not
+ * re-alert any identity already in that baseline. Inputs come from the live
+ * provider path rather than fixtures:
  *
- *   probe  — >0 aircraft over Dover (always-busy corridor); zero fails the
- *            benchmark (adsb.lol outage) before any credits are spent.
- *   run 1  — silent baseline: status success, articles_count 0, positional
- *            state rows recorded for the watched hexes,
- *            baseline_established_at stamped.
- *   run 2  — steady state: status success, and NO run-2 feed event may name
- *            an aircraft that was already baselined in run 1 (exact identity
- *            check — any re-alert of baselined traffic fails the benchmark).
+ *   aircraft  — probe adsb.lol over Dover, then watch observed ICAO hexes.
+ *   vessel    — sample AIS over Malacca, then watch newly cached MMSIs.
+ *   satellite — refresh CelesTrak GP data, then predict ISS passes.
  *
  * Usage:
  *   scripts/benchmarks/with-linked-supabase-env.sh \
@@ -32,74 +25,139 @@ import {
   getBenchCtx,
   jsonOrThrow,
   pgSelectOne,
+  purgeScoutUnits,
+  serviceFunctionFetch,
   triggerScoutRun,
   userFetch,
   waitForScoutRun,
-  purgeScoutUnits,
 } from "./_bench_shared.ts";
 
-// Far-future cron so pg_cron never fires mid-benchmark; passes the transport
-// 3h floor (single fixed minute + hour).
-const FUTURE_CRON = "0 0 1 1 *";
-const RUN_TIMEOUT_MS = 4 * 60_000;
-const PRESET_ID = "dover-strait";
-// Center/radius of the dover-strait preset bbox (50.5..51.5, 0.5..2.5) for
-// the probe query. 60 nm covers the box; well under adsb.lol's 250 nm cap.
-const DOVER_PROBE = { lat: 51.0, lon: 1.5, distNm: 60 };
-// Mirrors MAX_WATCH_IDS in supabase/functions/_shared/transport_config.ts.
-const MAX_WATCH_IDS = 20;
+export type TransportMode = "aircraft" | "vessel" | "satellite";
+
+interface TransportConfig {
+  mode: TransportMode;
+  geofence?: {
+    preset_id?: string;
+    center?: { lat: number; lon: number };
+    radius_km?: number;
+  };
+  watch_ids: string[];
+}
 
 interface CreatedScout {
   id: string;
   baseline_established_at?: string | null;
 }
 
-/** Probe adsb.lol directly for aircraft currently over Dover — these become
- * the scout's mandatory watch list, so run 1 deterministically observes
- * traffic. Zero probed aircraft = upstream outage; fail before spending. */
+export interface VesselPositionRow {
+  mmsi: string;
+  lat: number;
+  lon: number;
+  seen_at: string;
+}
+
+interface GpCacheRow {
+  norad_id: number;
+  name: string | null;
+  fetched_at: string;
+}
+
+const DORMANT_CRON = "0 0 1 1 *";
+const DAILY_CRON = "0 0 * * *";
+const RUN_TIMEOUT_MS = 4 * 60_000;
+const POLL_INTERVAL_MS = 3_000;
+const SAMPLER_TIMEOUT_MS = 90_000;
+const MAX_WATCH_IDS = 20;
+
+const DOVER_PRESET = "dover-strait";
+const DOVER_PROBE = { lat: 51.0, lon: 1.5, distNm: 60 };
+const MALACCA_PRESET = "strait-of-malacca";
+const MALACCA_BOUNDS = { minLat: 1, maxLat: 6.5, minLon: 98, maxLon: 104 };
+const BOOTSTRAP_MMSI = "563024500";
+const ISS_NORAD_ID = "25544";
+const ISS_GEOFENCE = {
+  center: { lat: 0, lon: 0 },
+  radius_km: 1500,
+};
+
+export function modeScheduleCron(mode: TransportMode): string {
+  return mode === "satellite" ? DAILY_CRON : DORMANT_CRON;
+}
+
+export function selectFreshMalaccaVessels(
+  rows: VesselPositionRow[],
+  sampledAfter: Date,
+): VesselPositionRow[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(row.mmsi) || !/^[2-7]\d{8}$/.test(row.mmsi)) return false;
+    if (new Date(row.seen_at).getTime() < sampledAfter.getTime()) return false;
+    if (
+      row.lat < MALACCA_BOUNDS.minLat || row.lat > MALACCA_BOUNDS.maxLat ||
+      row.lon < MALACCA_BOUNDS.minLon || row.lon > MALACCA_BOUNDS.maxLon
+    ) return false;
+    seen.add(row.mmsi);
+    return true;
+  }).slice(0, MAX_WATCH_IDS);
+}
+
+export function reAlertedObjectIds(
+  baselined: string[],
+  alerted: string[],
+): string[] {
+  const baseline = new Set(baselined);
+  return [...new Set(alerted.filter((id) => baseline.has(id)))];
+}
+
 async function probeDoverHexes(): Promise<string[]> {
   const res = await fetch(
     `https://api.adsb.lol/v2/lat/${DOVER_PROBE.lat}/lon/${DOVER_PROBE.lon}/dist/${DOVER_PROBE.distNm}`,
     { headers: { "Accept": "application/json" } },
   );
-  if (!res.ok) {
-    throw new Error(`adsb.lol probe responded ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`adsb.lol probe responded ${res.status}`);
   const payload = await res.json() as { ac?: { hex?: string }[] };
-  const hexes = (payload.ac ?? [])
-    .map((a) => (a.hex ?? "").trim().toLowerCase())
-    // 24-bit ICAO only; "~" TIS-B pseudo-addresses are rejected by the API.
-    .filter((h) => /^[0-9a-f]{6}$/.test(h));
-  return [...new Set(hexes)].slice(0, MAX_WATCH_IDS);
+  return [
+    ...new Set(
+      (payload.ac ?? [])
+        .map((aircraft) => (aircraft.hex ?? "").trim().toLowerCase())
+        .filter((hex) => /^[0-9a-f]{6}$/.test(hex)),
+    ),
+  ].slice(0, MAX_WATCH_IDS);
 }
 
 async function createTransportScout(
   ctx: BenchCtx,
-  watchIds: string[],
+  config: TransportConfig,
 ): Promise<string> {
   const res = await userFetch(ctx, "/scouts", {
     method: "POST",
     body: {
-      name: `bench-transport-${Date.now()}`,
+      name: `bench-transport-${config.mode}-${Date.now()}`,
       type: "transport",
-      schedule_cron: FUTURE_CRON,
-      config: {
-        mode: "aircraft",
-        geofence: { preset_id: PRESET_ID },
-        watch_ids: watchIds,
-      },
+      schedule_cron: modeScheduleCron(config.mode),
+      config,
     },
   });
   const created = await jsonOrThrow<CreatedScout>(
     res,
-    "create transport scout",
+    `create ${config.mode} transport scout`,
   );
   if (!created.id) throw new Error("scout creation returned no id");
   return created.id;
 }
 
-/** Service-role REST list. No PostgREST aggregates — count() is disabled on
- * hosted projects; plain selects with a bounded limit are always available. */
+async function updateTransportConfig(
+  ctx: BenchCtx,
+  scoutId: string,
+  config: TransportConfig,
+): Promise<void> {
+  const res = await userFetch(ctx, `/scouts/${scoutId}`, {
+    method: "PATCH",
+    body: { config },
+  });
+  await jsonOrThrow<CreatedScout>(res, `update ${config.mode} watch list`);
+}
+
 async function pgList<T>(
   ctx: BenchCtx,
   table: string,
@@ -109,10 +167,95 @@ async function pgList<T>(
     `${ctx.supabaseUrl}/rest/v1/${table}?${query}&limit=1000`,
     { headers: dataApiHeaders(ctx) },
   );
-  if (!res.ok) {
-    throw new Error(`list ${table} responded ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`list ${table} responded ${res.status}`);
   return await res.json() as T[];
+}
+
+async function triggerSampler(
+  ctx: BenchCtx,
+  body: { task: "ais" | "gp"; window_ms?: number },
+): Promise<void> {
+  const result = await serviceFunctionFetch(
+    ctx,
+    "/functions/v1/transport-sampler",
+    body,
+  );
+  if (result.status !== 202) {
+    throw new Error(
+      `transport sampler ${body.task} responded ${result.status}: ${result.text}`,
+    );
+  }
+}
+
+async function waitForFreshMalaccaVessels(
+  ctx: BenchCtx,
+  sampledAfter: Date,
+): Promise<VesselPositionRow[]> {
+  const deadline = Date.now() + SAMPLER_TIMEOUT_MS;
+  const after = encodeURIComponent(sampledAfter.toISOString());
+  while (Date.now() < deadline) {
+    const rows = await pgList<VesselPositionRow>(
+      ctx,
+      "transport_positions",
+      `select=mmsi,lat,lon,seen_at&lat=gte.${MALACCA_BOUNDS.minLat}` +
+        `&lat=lte.${MALACCA_BOUNDS.maxLat}&lon=gte.${MALACCA_BOUNDS.minLon}` +
+        `&lon=lte.${MALACCA_BOUNDS.maxLon}&seen_at=gte.${after}` +
+        "&order=seen_at.desc",
+    );
+    const selected = selectFreshMalaccaVessels(rows, sampledAfter);
+    if (selected.length > 0) return selected;
+    await delay(POLL_INTERVAL_MS);
+  }
+  throw new Error(
+    "AIS sampler wrote no fresh vessel positions in Malacca before timeout",
+  );
+}
+
+async function prepareVesselCanary(
+  ctx: BenchCtx,
+  scoutId: string,
+): Promise<TransportConfig> {
+  const sampledAfter = new Date(Date.now() - 1_000);
+  await triggerSampler(ctx, { task: "ais", window_ms: 30_000 });
+  const vessels = await waitForFreshMalaccaVessels(ctx, sampledAfter);
+  const config: TransportConfig = {
+    mode: "vessel",
+    geofence: { preset_id: MALACCA_PRESET },
+    watch_ids: vessels.map((row) => row.mmsi),
+  };
+  await updateTransportConfig(ctx, scoutId, config);
+  console.log(
+    `vessel sampler: ${vessels.length} fresh MMSI(s) over ${MALACCA_PRESET}`,
+  );
+  return config;
+}
+
+async function waitForFreshIssElement(ctx: BenchCtx): Promise<GpCacheRow> {
+  const deadline = Date.now() + SAMPLER_TIMEOUT_MS;
+  const maxAgeMs = 48 * 60 * 60_000;
+  while (Date.now() < deadline) {
+    const rows = await pgList<GpCacheRow>(
+      ctx,
+      "transport_gp_cache",
+      `select=norad_id,name,fetched_at&norad_id=eq.${ISS_NORAD_ID}`,
+    );
+    const row = rows[0];
+    if (
+      row && Date.now() - new Date(row.fetched_at).getTime() <= maxAgeMs
+    ) return row;
+    await delay(POLL_INTERVAL_MS);
+  }
+  throw new Error(
+    "GP sampler did not produce a fresh ISS element before timeout",
+  );
+}
+
+async function prepareSatelliteCanary(ctx: BenchCtx): Promise<void> {
+  await triggerSampler(ctx, { task: "gp" });
+  const iss = await waitForFreshIssElement(ctx);
+  console.log(
+    `satellite sampler: ${iss.name ?? "ISS"} GP fetched ${iss.fetched_at}`,
+  );
 }
 
 async function listBaselinedObjectIds(
@@ -124,127 +267,180 @@ async function listBaselinedObjectIds(
     "transport_scout_state",
     `scout_id=eq.${scoutId}&select=object_id`,
   );
-  return rows.map((r) => r.object_id);
+  return rows.map((row) => row.object_id);
 }
 
-/** Aircraft identities alerted by a specific run, via its feed events. The
- * worker stores the ICAO hex as entities[0] on each information_unit. */
 async function listRunAlertedIds(
   ctx: BenchCtx,
   runId: string,
 ): Promise<string[]> {
-  const occ = await pgList<{ unit_id: string }>(
+  const occurrences = await pgList<{ unit_id: string }>(
     ctx,
     "unit_occurrences",
     `scout_run_id=eq.${runId}&select=unit_id`,
   );
-  if (occ.length === 0) return [];
-  const ids = occ.map((o) => o.unit_id).join(",");
+  if (occurrences.length === 0) return [];
+  const ids = occurrences.map((occurrence) => occurrence.unit_id).join(",");
   const units = await pgList<{ entities: string[] | null }>(
     ctx,
     "information_units",
     `id=in.(${ids})&select=entities`,
   );
-  return units.flatMap((u) => u.entities?.slice(0, 1) ?? []);
+  return units.flatMap((unit) => unit.entities?.slice(0, 1) ?? []);
 }
 
-async function main() {
-  const ctx = await getBenchCtx({ userToken: true });
-  assertLiveBenchmarkAllowed(ctx.supabaseUrl);
-  if (!ctx.userToken) {
-    throw new Error("failed to acquire benchmark user token");
-  }
-  let scoutId: string | null = null;
+async function auditTwoRunBaseline(
+  ctx: BenchCtx,
+  mode: TransportMode,
+  scoutId: string,
+): Promise<string[]> {
   const failures: string[] = [];
+  const run1 = await waitForScoutRun(
+    ctx,
+    await triggerScoutRun(ctx, scoutId),
+    { timeoutMs: RUN_TIMEOUT_MS },
+  );
+  console.log(
+    `${mode} run 1: status=${run1.status} units=${run1.articles_count}`,
+  );
+  if (run1.status !== "success") {
+    failures.push(
+      `${mode} run 1 status ${run1.status}: ${run1.error_message ?? ""}`,
+    );
+  }
+  if ((run1.articles_count ?? 0) !== 0) {
+    failures.push(
+      `${mode} run 1 must be a silent baseline but created ${run1.articles_count} units`,
+    );
+  }
 
+  const baselined = await listBaselinedObjectIds(ctx, scoutId);
+  console.log(`${mode} run 1 observed ${baselined.length} object(s)`);
+  if (baselined.length === 0) {
+    failures.push(`${mode} run 1 recorded no positional state`);
+  }
+  const scout = await pgSelectOne<CreatedScout>(
+    ctx,
+    "scouts",
+    { id: scoutId },
+    "id,baseline_established_at",
+  );
+  if (!scout?.baseline_established_at) {
+    failures.push(`${mode} baseline_established_at not stamped after run 1`);
+  }
+
+  const run2 = await waitForScoutRun(
+    ctx,
+    await triggerScoutRun(ctx, scoutId),
+    { timeoutMs: RUN_TIMEOUT_MS },
+  );
+  console.log(
+    `${mode} run 2: status=${run2.status} entrants=${run2.articles_count}`,
+  );
+  if (run2.status !== "success") {
+    failures.push(
+      `${mode} run 2 status ${run2.status}: ${run2.error_message ?? ""}`,
+    );
+  }
+  const reAlerted = reAlertedObjectIds(
+    baselined,
+    await listRunAlertedIds(ctx, run2.id),
+  );
+  if (reAlerted.length > 0) {
+    failures.push(
+      `${mode} run 2 re-alerted ${reAlerted.length} baselined object(s) (` +
+        `${reAlerted.slice(0, 5).join(", ")})`,
+    );
+  }
+  return failures;
+}
+
+async function runCanary(
+  ctx: BenchCtx,
+  mode: TransportMode,
+  initialConfig: () => Promise<TransportConfig>,
+  prepare?: (ctx: BenchCtx, scoutId: string) => Promise<unknown>,
+): Promise<string[]> {
+  let scoutId: string | null = null;
   try {
-    const watchIds = await probeDoverHexes();
-    console.log(`probe: ${watchIds.length} aircraft over ${PRESET_ID}`);
-    if (watchIds.length === 0) {
-      throw new Error(
-        "probe observed zero aircraft over Dover Strait — adsb.lol outage or upstream regression",
-      );
-    }
-    scoutId = await createTransportScout(ctx, watchIds);
+    const config = await initialConfig();
+    scoutId = await createTransportScout(ctx, config);
     console.log(
-      `created transport scout ${scoutId} (aircraft, ${PRESET_ID}, watching ${watchIds.length} hexes)`,
+      `created ${mode} transport scout ${scoutId} watching ${config.watch_ids.length} object(s)`,
     );
-
-    // Run 1 — silent baseline.
-    const run1 = await waitForScoutRun(
-      ctx,
-      await triggerScoutRun(ctx, scoutId),
-      { timeoutMs: RUN_TIMEOUT_MS },
-    );
-    console.log(`run 1: status=${run1.status} units=${run1.articles_count}`);
-    if (run1.status !== "success") {
-      failures.push(`run 1 status ${run1.status}: ${run1.error_message ?? ""}`);
-    }
-    if ((run1.articles_count ?? 0) !== 0) {
-      failures.push(
-        `run 1 must be a silent baseline but created ${run1.articles_count} units`,
-      );
-    }
-    const baselined = await listBaselinedObjectIds(ctx, scoutId);
-    console.log(
-      `run 1 observed ${baselined.length} aircraft over ${PRESET_ID}`,
-    );
-    if (baselined.length === 0) {
-      failures.push(
-        "run 1 observed zero of the probed watch-list aircraft — fetch pipeline regression (probe saw them airborne seconds earlier)",
-      );
-    }
-    const scoutRow = await pgSelectOne<CreatedScout>(
-      ctx,
-      "scouts",
-      { id: scoutId },
-      "id,baseline_established_at",
-    );
-    if (!scoutRow?.baseline_established_at) {
-      failures.push("baseline_established_at not stamped after run 1");
-    }
-
-    // Run 2 — steady state: exact identity check, no baselined aircraft may
-    // re-alert. Genuinely new arrivals (hexes outside the baseline set) are
-    // legitimate and pass.
-    const baselinedSet = new Set(baselined);
-    const run2 = await waitForScoutRun(
-      ctx,
-      await triggerScoutRun(ctx, scoutId),
-      { timeoutMs: RUN_TIMEOUT_MS },
-    );
-    console.log(
-      `run 2: status=${run2.status} entrants=${run2.articles_count}`,
-    );
-    if (run2.status !== "success") {
-      failures.push(`run 2 status ${run2.status}: ${run2.error_message ?? ""}`);
-    }
-    const run2Alerted = await listRunAlertedIds(ctx, run2.id);
-    const reAlerted = run2Alerted.filter((hex) => baselinedSet.has(hex));
-    if (reAlerted.length > 0) {
-      failures.push(
-        `run 2 re-alerted ${reAlerted.length} baselined aircraft (${
-          reAlerted.slice(0, 5).join(", ")
-        }) — enter-only state machine is re-alerting`,
-      );
-    }
+    if (prepare) await prepare(ctx, scoutId);
+    return await auditTwoRunBaseline(ctx, mode, scoutId);
+  } catch (error) {
+    return [
+      `${mode} canary: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    ];
   } finally {
     if (scoutId) {
-      // Units first (cross-scout dedup poisoning — see purgeScoutUnits);
-      // state rows + runs cascade with the scout via FK.
       await purgeScoutUnits(ctx, scoutId).catch(() => {});
       await userFetch(ctx, `/scouts/${scoutId}`, { method: "DELETE" })
         .catch(() => {});
     }
   }
+}
+
+async function main() {
+  const ctx = await getBenchCtx({ userToken: true });
+  assertLiveBenchmarkAllowed(ctx.supabaseUrl);
+  if (!ctx.userToken) throw new Error("failed to acquire benchmark user token");
+
+  const failures: string[] = [];
+  failures.push(
+    ...await runCanary(ctx, "aircraft", async () => {
+      const watchIds = await probeDoverHexes();
+      console.log(`aircraft probe: ${watchIds.length} over ${DOVER_PRESET}`);
+      if (watchIds.length === 0) {
+        throw new Error("adsb.lol observed zero aircraft over Dover Strait");
+      }
+      return {
+        mode: "aircraft",
+        geofence: { preset_id: DOVER_PRESET },
+        watch_ids: watchIds,
+      };
+    }),
+  );
+
+  failures.push(
+    ...await runCanary(
+      ctx,
+      "vessel",
+      async () => ({
+        mode: "vessel",
+        geofence: { preset_id: MALACCA_PRESET },
+        watch_ids: [BOOTSTRAP_MMSI],
+      }),
+      prepareVesselCanary,
+    ),
+  );
+
+  failures.push(
+    ...await runCanary(
+      ctx,
+      "satellite",
+      async () => ({
+        mode: "satellite",
+        geofence: ISS_GEOFENCE,
+        watch_ids: [ISS_NORAD_ID],
+      }),
+      prepareSatelliteCanary,
+    ),
+  );
 
   if (failures.length > 0) {
     console.error(`\nbenchmark-transport FAILED:\n- ${failures.join("\n- ")}`);
     Deno.exit(1);
   }
-  console.log("\nbenchmark-transport PASSED");
+  console.log("\nbenchmark-transport PASSED (aircraft, vessel, satellite)");
 }
 
-if (import.meta.main) {
-  await main();
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+if (import.meta.main) await main();
