@@ -49,7 +49,7 @@ Both flows expose a source mode toggle so users can switch between niche and rel
 │           ▼                                                      │
 │  Step 2: Retrieval                                               │
 │  ├─ Exa default: /search with category, userLocation, dates      │
-│  ├─ Scrape found URLs via crawl4ai (Firecrawl AB fallback)       │
+│  ├─ Scrape URLs via Crawl4AI (Firecrawl anti-bot fallback)       │
 │  ├─ Persist beat_ab_runs metrics + Exa cost when available       │
 │  └─ Low-coverage Exa runs retry Exa deep-lite                    │
 │           │                                                      │
@@ -83,7 +83,7 @@ Both flows expose a source mode toggle so users can switch between niche and rel
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `scout-beat-execute/index.ts` | `supabase/functions/` | Beat scout entrypoint. Branches on `priority_sources`: explicit → direct scrape; empty → retrieval pipeline. Uses Exa retrieval (crawl4ai scrape), logs `beat_ab_runs`, handles the low-coverage Exa deep-lite retry, extracts units, and sends deterministic extractive digest email. |
+| `scout-beat-execute/index.ts` | `supabase/functions/` | Beat scout entrypoint. Branches on `priority_sources`: explicit → direct scrape; empty → retrieval pipeline. Uses Exa retrieval and Crawl4AI scraping, logs `beat_ab_runs`, handles the low-coverage Exa deep-lite retry, extracts units, and sends deterministic extractive digest email. |
 | `_shared/beat_pipeline.ts` | `supabase/functions/` | Public facade for Beat discovery helpers. Kept intentionally small so downstream imports stay stable during Exa migration. |
 | `_shared/exa.ts` | `supabase/functions/` | Exa `/search` client and retrieval-port helpers. Preserves `SearchHit` shape plus Exa metadata/cost for canary logging. |
 | `_shared/beat_ab_logger.ts` | `supabase/functions/` | Writes `beat_ab_runs` and computes raw/dated/final/locality/freshness metrics. |
@@ -116,13 +116,10 @@ The v2 port preserves all 8 pipeline stages with these clarifications:
 ## Deduplication Mechanisms
 
 ### Layer 1: URL Deduplication + Quality Filters
-- Firecrawl Search is the external-search boundary. `_shared/firecrawl.ts` normalizes both legacy flat results and current `web`/`news` result groups into one `SearchHit` shape with `url`, `title`, `description`, `date`, and `source`.
-- The beat pipeline sends `ignoreInvalidURLs: true` and `excludeDomains` to Firecrawl so obvious bad URLs and blocked domains are removed before local filtering.
-- Firecrawl kill-switch search uses explicit `sources: ["web"]` for both primary and discovery queries. Do not rely on Firecrawl defaults.
-- Do not add `news`, `recent-web`, or `web+news` back to the default path without rerunning the quality audit and updating this document. The 2026-05-02 audit found `news` and `recent-web` were the main sources of locality drift and one-concept topic drift, especially for non-English and civic-style beats.
-- `scrapeOptions` is not enabled during search fan-out because Firecrawl charges search plus scrape credits when search results are scraped inline; extraction remains a later, narrowed stage.
-- Simple URL-based dedup during search aggregation
-- Source dates are normalized through `_shared/atomic_extract.ts::sourcePublishedDate`: Firecrawl scrape metadata first, visible date near the top of scraped markdown second, Firecrawl search date last. This feeds extraction prompts and `information_units.occurred_at` fallback, but it is not a hard relevance gate.
+- Exa `/search` is the sole external discovery boundary. `_shared/exa.ts` returns the shared `SearchHit` shape with URL, title, description, date, and Exa metadata.
+- Search requests forward the applicable Exa category, date range, `userLocation`, `includeDomains`, and `excludeDomains`; local filters still reject unsuitable URLs and sources.
+- Low-coverage discovery retries Exa with `deep-lite` and merges URL-deduplicated results into the primary set. Firecrawl is not a search provider for Beat.
+- Source dates are normalized through `_shared/atomic_extract.ts::sourcePublishedDate`: scraper metadata first, visible date near the top of scraped markdown second, and the Exa search date last. This feeds extraction prompts and `information_units.occurred_at` fallback, but it is not a hard relevance gate.
 - **Homepage/index rejection**: bare `/`, `/blog`, `/news` etc. are dropped (`is_index_or_homepage`)
 - **Standing page rejection**: institutional/section pages with short paths and no numeric IDs (`is_likely_standing_page`) — catches gov landing pages, stats dashboards, agenda indexes
 - Removes exact duplicate URLs from multiple queries
@@ -157,6 +154,14 @@ When multiple articles cover the same story, the system picks the best one using
 - Compares against facts from previous runs (same scout)
 - Only NEW facts trigger notifications
 
+Beat extraction resolves the source title from scraper metadata first and the
+Exa search hit second. If the compressed article is longer than the 3,000
+character extraction limit and a strongly matching H1-H3 appears after the
+first 70% of that limit, the extraction window starts up to 300 characters
+before that heading. Missing, weak, or early title matches retain the normal
+prefix. This safeguard is enabled only by Beat callers; the shared extractor's
+default behavior, including Page Scout extraction, is unchanged.
+
 ## Scope Modes
 
 | Mode | Configuration | Search Behavior |
@@ -171,10 +176,10 @@ When multiple articles cover the same story, the system picks the best one using
 
 Source mode changes ranking, filtering, target count, and Exa category mapping. Exa is the retrieval port for all beat discovery — see [Retrieval Port](#retrieval-port).
 
-| Mode | Firecrawl source | Exa category | Discovery | Date Window | AI Target | Domain Cap |
-|---|---|---|---|---|---|---|
-| **niche** | web only | `personal site` | LLM-generated discovery queries | 14d (28d fallback) | 5-6 | 2/domain |
-| **reliable** | web only | `news` | Limited discovery, depending on generated query plan | 14d (28d fallback) | 6-8 | 3/domain |
+| Mode | Exa category | Discovery | Date Window | AI Target | Domain Cap |
+|---|---|---|---|---|---|
+| **niche** | `personal site` | LLM-generated discovery queries | 14d (28d fallback) | 5-6 | 2/domain |
+| **reliable** | `news` | Limited discovery, depending on generated query plan | 14d (28d fallback) | 6-8 | 3/domain |
 
 ## Retrieval Port
 
@@ -290,10 +295,10 @@ deno run --allow-env --allow-net --allow-read=. scripts/benchmarks/benchmark-bea
 deno run --allow-env --allow-net --allow-read=. scripts/benchmarks/benchmark-beat.ts --scenario ai-journalism --timeout-min 10 --verbose
 ```
 
-The default run checks six canaries (location-only, two topic-only, topic+country,
-topic+city, second topic+country) through both preview search and scheduled
-execution. It retries a canary once on likely transient infra failures such as a
-run timeout or zero-result response, but still fails hard on semantic drift.
+The default run checks the first two fixed canaries through both preview search
+and scheduled execution. Set `SCOUT_FULL_BEAT_BENCHMARK=1` to run all six.
+Each canary runs once: zero-result, timeout, provider-path, and semantic-drift
+failures remain visible instead of being hidden by a retry.
 `--scout-id` replays one existing Beat scout configuration on a temporary
 benchmark user to validate backward compatibility without touching the original scout.
 `--scenario` filters by scenario name so operators can rerun a single canary
