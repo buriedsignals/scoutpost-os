@@ -142,8 +142,8 @@ state from Supabase and enriches via the `user` Edge Function (`GET /user/me`).
   "preferred_language": "en",
   "onboarding_completed": true,
   "needs_initialization": false,
-  "upgrade_url": "https://accounts.muckrock.com/plans/70-cojournalist-pro/?source=cojournalist",
-  "team_upgrade_url": "https://accounts.muckrock.com/plans/71-cojournalist-team/?source=cojournalist",
+  "upgrade_url": "https://accounts.muckrock.com/plans/70-scoutpost-pro/?source=scoutpost",
+  "team_upgrade_url": "https://accounts.muckrock.com/plans/71-scoutpost-team/?source=scoutpost",
   "org_id": "97109cc6-e52e-41e7-adb7-834ab7c6819c",
   "team": {
     "org_id": "97109cc6-e52e-41e7-adb7-834ab7c6819c",

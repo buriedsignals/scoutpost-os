@@ -114,9 +114,9 @@ Deno.serve(async (req): Promise<Response> => {
 // ---------------------------------------------------------------------------
 
 const PRO_UPGRADE_URL =
-  "https://accounts.muckrock.com/plans/70-cojournalist-pro/?source=cojournalist";
+  "https://accounts.muckrock.com/plans/70-scoutpost-pro/?source=scoutpost";
 const TEAM_UPGRADE_URL =
-  "https://accounts.muckrock.com/plans/71-cojournalist-team/?source=cojournalist";
+  "https://accounts.muckrock.com/plans/71-scoutpost-team/?source=scoutpost";
 
 const DEFAULT_MONTHLY_CAPS: Record<"free" | "pro" | "team", number> = {
   free: 100,

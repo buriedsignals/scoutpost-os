@@ -27,6 +27,18 @@ afterEach(() => {
 });
 
 describe('pricing page', () => {
+	it('describes the current hosted plans without promising removed features', () => {
+		render(PricingPage);
+
+		expect(screen.getByText('Fleet Scout for vessels, aircraft, and satellites')).toBeInTheDocument();
+		expect(screen.getByText('Tamper-evident Page Archive snapshots')).toBeInTheDocument();
+		expect(screen.getByText('Scraped source data stored in your workspace')).toBeInTheDocument();
+		expect(screen.getByText('1,000 additional credits per seat')).toBeInTheDocument();
+		expect(screen.queryByText(/CMS export/i)).not.toBeInTheDocument();
+		expect(screen.queryByText(/shared scouts/i)).not.toBeInTheDocument();
+		expect(screen.queryByText(/daily monitors/i)).not.toBeInTheDocument();
+	});
+
 	it('sends signed-out paid-plan CTAs to the MuckRock purchase flow', () => {
 		render(PricingPage);
 

@@ -120,8 +120,10 @@ material; and working with Page Archive snapshots.
 | Fleet Scout | 1, plus 1 if natural-language criteria run | 3h, 6h, 12h, daily; satellite daily only |
 
 Hosted tiers are Free (100 credits/month), Pro (1,000), and Team (5,000 shared
-credits/month). Civic runs that do no billable work are refunded. Fleet Scout
-is Pro-gated on hosted Scoutpost, and Page Archive is Pro/Team-gated.
+credits/month plus 1,000 per seat). Civic runs that do no billable work are
+refunded. Civic Scout and Fleet Scout are Pro-gated on hosted Scoutpost, and
+Page Archive is available on Pro and Team. Team members share credits; scouts
+remain individually owned.
 
 ## Public resources
 

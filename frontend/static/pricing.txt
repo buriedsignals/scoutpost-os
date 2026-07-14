@@ -6,14 +6,21 @@ Hosted Scoutpost uses monthly credits.
 
 - **Free**: $0/month, 100 credits
 - **Pro**: $10/month, 1,000 credits
-- **Team**: $50/month, 5,000 shared credits
+- **Team**: $50/month, 5,000 shared credits, plus 1,000 credits per seat
+
+## Plan features
+
+- **Free**: Page, Beat, and Social Scouts; scheduled email alerts; scraped source data and source-linked findings stored in your workspace
+- **Pro**: Everything in Free, plus Civic Scout, Fleet Scout, and tamper-evident Page Archive snapshots
+- **Team**: Everything in Pro, with a shared newsroom credit pool and MuckRock-managed membership. Scouts remain individually owned.
 
 ## Typical run costs
 
 - **Page Scout**: 1 credit
 - **Beat Scout**: 7 credits
-- **Social Scout**: 2 credits for Instagram, X, TikTok, and LinkedIn; 15 for Facebook
-- **Civic Scout**: 10 credits in the current public docs cost table
+- **Social Scout**: 2 credits for Instagram, X, and TikTok; 7 for LinkedIn; 15 for Facebook
+- **Civic Scout**: 10 credits; refunded when a run queues no documents
+- **Fleet Scout**: 1 credit, plus 1 when natural-language criteria run
 
 Always disclose spend before triggering expensive runs, especially Civic Scouts or batches of many scouts.
 
