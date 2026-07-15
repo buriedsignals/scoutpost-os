@@ -36,7 +36,7 @@
 		width: 480px;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		padding: 1.75rem;
 		transition: border-color 150ms ease;
 		font-family: var(--font-body);
@@ -89,7 +89,7 @@
 
 	.form-panel__subtitle {
 		font-size: 0.9375rem;
-		font-weight: 300;
+		font-weight: 500;
 		color: var(--color-ink-muted);
 		margin: 0;
 		line-height: 1.55;

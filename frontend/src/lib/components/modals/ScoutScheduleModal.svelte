@@ -30,7 +30,7 @@
 	// Social Scout context (social)
 	export let profile_handle: string = '';
 	export let platform: string = 'instagram';
-	export let monitor_mode: string = 'summarize';
+	export let monitor_mode: string = 'criteria';
 	export let trackRemovals: boolean = false;
 	export let baselinePosts: Record<string, unknown>[] = [];
 
@@ -43,6 +43,7 @@
 	export let transportMode: 'aircraft' | 'vessel' | 'satellite' = 'aircraft';
 	export let transportConfig: Record<string, unknown> = {};
 	export let transportAreaLabel: string = '';
+	export let transportBaselineIds: string[] = [];
 	export let onClose: () => void = () => {};
 	export let onSuccess: (detail: { name: string; scoutType: ScoutType }) => void = () => {};
 
@@ -232,7 +233,7 @@
 		const hasTopic = !!topicInput.trim();
 		const hasLocation = !!(selectedLocation || location);
 		if (scoutType !== 'transport' && !hasTopic && !hasLocation) {
-			errorMessage = 'Add at least one topic tag or location before scheduling.';
+			errorMessage = 'Add at least one project or location before scheduling.';
 			return;
 		}
 
@@ -245,6 +246,10 @@
 		// Validation for social: need profile handle
 		if (scoutType === 'social' && !profile_handle.trim()) {
 			errorMessage = 'Profile handle is required';
+			return;
+		}
+		if (scoutType === 'social' && monitor_mode === 'criteria' && !criteria.trim()) {
+			errorMessage = 'Add criteria before scheduling this scout';
 			return;
 		}
 
@@ -291,7 +296,7 @@
 				wayback_enabled: waybackEnabled
 			});
 		} else if (scoutType === 'social') {
-			schedulePromise = apiClient.scheduleLocalScout({
+				schedulePromise = apiClient.scheduleLocalScout({
 				name: scoutName.trim(),
 				scout_type: 'social',
 				regularity,
@@ -331,7 +336,8 @@
 				day_number: 1,
 				time: computedTime,
 				monitoring: 'EMAIL',
-				config: transportConfig
+				config: transportConfig,
+				transport_baseline_ids: transportBaselineIds
 			});
 		} else {
 			schedulePromise = apiClient.scheduleLocalScout({
@@ -363,7 +369,7 @@
 
 	function handleClose() {
 		onClose();
-		if (scoutType !== 'web' && scoutType !== 'transport') scoutName = '';
+		if (scoutType !== 'web') scoutName = '';
 		errorMessage = '';
 		scheduleSuccess = false;
 		selectedLocation = null;
@@ -485,8 +491,8 @@
 							{#if scoutType === 'social' && profile_handle}
 								<div class="context-row">
 									<Users size={14} class="context-icon" />
-									<span class="context-key">{m.socialScout_handleLabel()}:</span>
-									<span class="context-value">@{profile_handle} ({platform})</span>
+									<span class="context-key">{platform === 'linkedin' ? m.socialScout_linkedinProfileLabel() : m.socialScout_handleLabel()}:</span>
+									<span class="context-value">{platform === 'linkedin' ? profile_handle : `@${profile_handle}`} ({platform})</span>
 								</div>
 							{/if}
 							{#if scoutType === 'civic' && root_domain}
@@ -570,8 +576,8 @@
 						</div>
 					{/if}
 
-					<!-- Web + transport set scoutName upstream in their view; skip here. -->
-					{#if scoutType !== 'web' && scoutType !== 'transport'}
+					<!-- Page Scout uses its name during the scraper test; other scouts name in the final step. -->
+					{#if scoutType !== 'web'}
 						<div class="form-field">
 							<label for="scout-name" class="form-label">
 								{m.scout_name()} <span class="required-star">*</span>
@@ -782,7 +788,8 @@
 		margin: 0 0 1rem 0;
 		padding: 0.5rem 0.75rem;
 		background: var(--color-secondary-soft);
-		border-left: 3px solid var(--color-secondary);
+		border: 1px solid color-mix(in oklab, var(--color-secondary) 32%, var(--color-border));
+		border-radius: var(--radius-md);
 		color: var(--color-ink);
 		font-size: 0.8125rem;
 		line-height: 1.5;
@@ -896,8 +903,9 @@
 	.error-text {
 		margin: 1rem 0 0 0;
 		padding: 0.5rem 0.75rem;
-		background: rgba(179, 62, 46, 0.08);
-		border-left: 3px solid var(--color-error);
+		background: color-mix(in oklab, var(--color-error) 10%, var(--color-card));
+		border: 1px solid color-mix(in oklab, var(--color-error) 32%, var(--color-border));
+		border-radius: var(--radius-md);
 		color: var(--color-error);
 		font-size: 0.8125rem;
 	}

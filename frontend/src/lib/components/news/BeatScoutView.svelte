@@ -686,7 +686,7 @@ EXCLUDE: Breaking news already covered in the news section, press releases witho
 	.niche-disclaimer { font-size: 0.75rem; color: var(--color-ink-subtle); margin: 0.375rem 0 0; line-height: 1.4; }
 	.scope-hint { font-size: 0.75rem; color: var(--color-ink-subtle); margin: 0.375rem 0 0; line-height: 1.4; }
 	.filtered-disclaimer { font-size: 0.75rem; color: var(--color-ink-subtle); margin: 0.75rem 0 0; line-height: 1.4; text-align: center; }
-	.error-block { padding: 0.75rem; font-size: 0.8125rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 0.5rem; margin-bottom: 1rem; }
+	.error-block { padding: 0.75rem; font-size: 0.8125rem; color: var(--color-error); background: color-mix(in oklab, var(--color-error) 10%, var(--color-card)); border: 1px solid color-mix(in oklab, var(--color-error) 32%, var(--color-border)); border-radius: var(--radius-md); margin-bottom: 1rem; }
 
 	/* Prompt Editor Section */
 	.prompt-section { margin-bottom: 1.5rem; }
@@ -752,7 +752,7 @@ EXCLUDE: Breaking news already covered in the news section, press releases witho
 	}
 
 	.prompt-textarea::placeholder { color: var(--color-ink-subtle); font-size: 0.6875rem; }
-	.excluded-domains-textarea { font-family: 'DM Sans', sans-serif; min-height: 60px; }
+	.excluded-domains-textarea { font-family: var(--font-body); min-height: 60px; }
 
 	.reset-button {
 		display: flex;
@@ -769,7 +769,7 @@ EXCLUDE: Breaking news already covered in the news section, press releases witho
 		transition: all 0.15s ease;
 	}
 
-	.reset-button:hover { background: rgba(179, 62, 46, 0.1); border-color: #fca5a5; color: var(--color-error); }
+	.reset-button:hover { background: color-mix(in oklab, var(--color-error) 10%, transparent); border-color: color-mix(in oklab, var(--color-error) 40%, var(--color-border)); color: var(--color-error); }
 
 
 	/* Empty State */

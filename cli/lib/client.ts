@@ -117,7 +117,7 @@ export function loadConfig(): ResolvedConfig {
   }
   if (!cfg.api_key && !cfg.auth_token) {
     throw new Error(
-      "No credential set. Generate an API key at https://scoutpost.ai → Agents → API → Create key, then:\n" +
+      "No credential set. Generate an API key at https://scoutpost.ai → Connect Agent → API → Create key, then:\n" +
         "  scout config set api_key=cj_xxx\n" +
         "  scout config set api_url=https://scoutpost.ai/functions/v1\n" +
         "  For hosted or raw Edge Functions, also set:\n" +

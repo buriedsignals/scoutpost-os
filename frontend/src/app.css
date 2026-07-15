@@ -1,6 +1,9 @@
-@import url("https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@600&family=Geist:wght@400;500;600&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap") layer(base);
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@500;600;700&display=swap") layer(base);
 
 @import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
 
 @theme {
   --color-primary-50: #eef2ff;
@@ -13,6 +16,33 @@
   --color-primary-700: #4338ca;
   --color-primary-800: #3730a3;
   --color-primary-900: #312e81;
+}
+
+@theme inline {
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 0.35rem);
+  --radius-md: calc(var(--radius) - 0.2rem);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.2rem);
 }
 
 /*
@@ -71,7 +101,7 @@
   font-weight: 600;
   letter-spacing: 0.01em;
   border: 1px solid var(--color-primary);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition:
     background 150ms ease,
@@ -129,7 +159,7 @@
   font-weight: 600;
   letter-spacing: 0.01em;
   border: 1px solid var(--color-border);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition:
     border-color 150ms ease,
@@ -165,7 +195,7 @@
   font-weight: 600;
   letter-spacing: 0.01em;
   border: 1px solid var(--color-primary);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition:
     background 150ms ease,
@@ -239,7 +269,7 @@
   color: var(--color-ink);
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
@@ -279,7 +309,7 @@
   color: var(--color-ink);
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
@@ -319,7 +349,7 @@
   color: var(--color-ink);
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
@@ -352,7 +382,7 @@
   text-align: left;
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   transition:
     border-color 150ms ease,
     background 150ms ease;
@@ -460,8 +490,9 @@
 	   whole app — components can reference it without redefining. */
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   justify-content: flex-start;
-  height: 100%;
+  min-height: 0;
   background: var(--color-bg);
   overflow-y: auto;
   padding: var(--space-6);
@@ -539,7 +570,7 @@
   padding: 1.5rem;
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   overflow: hidden;
 
   &::before {
@@ -663,10 +694,9 @@
   display: flex;
   gap: 1rem;
   padding: 1.25rem;
-  background: var(--color-surface-alt);
-  border: 1px solid var(--color-border);
-  border-left: 3px solid var(--color-error);
-  border-radius: 0;
+	background: var(--color-surface-alt);
+	border: 1px solid color-mix(in oklab, var(--color-error) 55%, var(--color-border));
+  border-radius: var(--radius-md);
   animation: fadeInUp 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -755,7 +785,8 @@
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(32, 26, 42, 0.65);
+  background: var(--modal-backdrop);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -890,45 +921,30 @@
 }
 
 @utility scout-shell {
-  /* ──────────────────────────────────────────────────────────
+	/* ──────────────────────────────────────────────────────────
 	   Scout display primitives — shared across ScoutCard (state 1,
 	   workspace grid) and ScoutFocus (state 2, focused detail).
-	   Both components use the same shell recipe — type-colored left
-	   stripe, mono eyebrow at top, Crimson Pro title, footer status
-	   pill + schedule chip. Size/padding differs per variant but the
-	   atoms here are shared.
+	   Both components use the same full-surface Night Watch recipe.
+	   Size/padding differs per variant but the atoms here are shared.
 	   ────────────────────────────────────────────────────────── */
   display: flex;
   flex-direction: column;
   position: relative;
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border);
-  border-left-width: 3px;
-  border-radius: 0;
+  border-radius: var(--radius-lg);
   transition:
     background 150ms ease,
-    border-color 150ms ease;
+    border-color 150ms ease,
+    box-shadow 200ms ease,
+    transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
   font-family: var(--font-body);
 
-  &.web {
-    border-left-color: var(--color-primary);
-  }
-
-  &.pulse {
-    border-left-color: var(--color-primary);
-  }
-  &.social {
-    border-left-color: var(--color-secondary);
-  }
-  &.civic {
-    border-left-color: var(--color-secondary);
-  }
-
-  &:hover {
-    background: var(--color-bg);
-    border-top-color: var(--color-border-strong);
-    border-right-color: var(--color-border-strong);
-    border-bottom-color: var(--color-border-strong);
+  &.scout-card:hover {
+    background: color-mix(in oklch, var(--color-surface-alt) 90%, var(--foreground));
+    border-color: var(--color-border-strong);
+    box-shadow: var(--shadow-card-hover);
+    transform: translateY(-2px);
   }
 
   &.demo {
@@ -936,9 +952,7 @@
     border-color: var(--color-border-strong);
   }
   &.demo:hover {
-    border-top-color: var(--color-primary);
-    border-right-color: var(--color-primary);
-    border-bottom-color: var(--color-primary);
+    border-color: var(--color-border-strong);
   }
 
   &.dimmed {
@@ -953,38 +967,24 @@
 }
 
 @utility web {
-  &.scout-shell {
-    border-left-color: var(--color-primary);
-  }
-
   &.scout-shell-eyebrow {
     color: var(--color-primary);
   }
 }
 
 @utility pulse {
-  & .scout-shell {
-    border-left-color: var(--color-primary);
-  }
-
   & .scout-shell-eyebrow {
     color: var(--color-primary);
   }
 }
 
 @utility social {
-  &.scout-shell {
-    border-left-color: var(--color-secondary);
-  }
   &.scout-shell-eyebrow {
     color: var(--color-secondary);
   }
 }
 
 @utility civic {
-  & .scout-shell {
-    border-left-color: var(--color-secondary);
-  }
   & .scout-shell-eyebrow {
     color: var(--color-secondary);
   }
@@ -994,11 +994,6 @@
   &.scout-shell {
     border-style: dashed;
     border-color: var(--color-border-strong);
-  }
-  &.scout-shell:hover {
-    border-top-color: var(--color-primary);
-    border-right-color: var(--color-primary);
-    border-bottom-color: var(--color-primary);
   }
 }
 
@@ -1255,9 +1250,9 @@
   align-items: center;
   gap: 0.375rem;
   padding: 0.25rem;
-  background: var(--color-surface-alt);
-  border: 1px solid var(--color-error);
-  border-left-width: 3px;
+	background: var(--color-surface-alt);
+	border: 1px solid var(--color-error);
+	border-radius: var(--radius-md);
   position: absolute;
   right: 0;
   white-space: nowrap;
@@ -1365,38 +1360,60 @@
 
 @layer base {
 	:root {
-		/* ──────────────────────────────────────────────────────────
-		   Palette — Plum + ochre on cream (see DESIGN.md §2)
-		   ────────────────────────────────────────────────────────── */
+		/* Night Watch semantic tokens shared by the product and public surfaces. */
+		--radius: 0.9rem;
+		--background: oklch(0.205 0.007 220);
+		--foreground: oklch(0.965 0.008 205);
+		--card: oklch(0.265 0.012 215);
+		--card-foreground: oklch(0.965 0.008 205);
+		--popover: oklch(0.305 0.015 212);
+		--popover-foreground: oklch(0.965 0.008 205);
+		--primary: oklch(0.79 0.08 78);
+		--primary-foreground: oklch(0.2 0.018 72);
+		--secondary: oklch(0.335 0.018 212);
+		--secondary-foreground: oklch(0.94 0.012 205);
+		--muted: oklch(0.31 0.014 215);
+		--muted-foreground: oklch(0.79 0.015 210);
+		--accent: oklch(0.39 0.028 205);
+		--accent-foreground: oklch(0.98 0.006 190);
+		--destructive: oklch(0.69 0.11 28);
+		--border: oklch(0.76 0.018 210 / 18%);
+		--input: oklch(0.76 0.018 210 / 22%);
+		--ring: oklch(0.78 0.045 205);
+		--modal-backdrop: oklch(0.08 0.01 215 / 72%);
+
+		/* Moonlight on graphite: calm, legible surfaces with pond-blue depth. */
 
 		/* Surfaces */
-		--color-bg:               #F5EFE3;   /* page background (warm cream) */
-		--color-surface:          #EBE4D4;   /* stone — inset panels */
-		--color-surface-alt:      #F9F4E9;   /* higher-contrast card surface */
+		--color-bg:               var(--background);
+		--color-surface:          var(--muted);
+		--color-surface-alt:      var(--card);
+		--color-surface-muted:    oklch(0.29 0.012 215);
+		--color-surface-hover:    oklch(0.37 0.022 207);
 
-		/* Primary — plum purple */
-		--color-primary:          #6B3FA0;
-		--color-primary-soft:     #E7DBF1;
-		--color-primary-deep:     #4E2C78;
+		/* Primary — warm reflected light */
+		--color-primary:          var(--primary);
+		--color-primary-soft:     oklch(0.79 0.08 78 / 14%);
+		--color-primary-deep:     oklch(0.86 0.075 78);
 
-		/* Secondary — warm ochre */
-		--color-secondary:        #C77A1D;
-		--color-secondary-soft:   #F4E7CF;
+		/* Secondary — blue-green pond reflection */
+		--color-secondary:        oklch(0.63 0.065 200);
+		--color-secondary-soft:   oklch(0.56 0.055 200 / 18%);
 
 		/* Text */
-		--color-ink:              #201A2A;
-		--color-ink-muted:        #6E6380;
-		--color-ink-subtle:       #9A8FAA;
+		--color-ink:              var(--foreground);
+		--color-ink-muted:        var(--muted-foreground);
+		--color-ink-subtle:       oklch(0.72 0.014 210);
 
 		/* Borders */
-		--color-border:           #D9D0BE;
-		--color-border-strong:    #B8AC93;
+		--color-border:           var(--border);
+		--color-border-strong:    oklch(0.78 0.025 205 / 32%);
 
 		/* Semantic */
-		--color-success:          #2F8F5F;
-		--color-warning:          #B87A1A;
-		--color-error:            #B33E2E;
-		--color-info:             #3F5EA6;
+		--color-success:          oklch(0.72 0.09 155);
+		--color-warning:          oklch(0.76 0.12 82);
+		--color-error:            var(--destructive);
+		--color-info:             oklch(0.7 0.07 230);
 
 		/* Legacy aliases — unconverted components read these.
 		   Do NOT add new usages; these exist only for the sweep. */
@@ -1411,41 +1428,35 @@
 		--color-accent-dark:      var(--color-primary-deep);
 		--color-accent-light:     var(--color-primary-soft);
 		--color-warm:             var(--color-secondary);
-		--color-warm-dark:        #9F6016;
+		--color-warm-dark:        oklch(0.7 0.085 76);
 		--color-warm-light:       var(--color-secondary-soft);
 		--color-cool:             var(--color-info);
-		--color-cool-dark:        #2F487E;
-		--color-cool-light:       #B7C4E0;
+		--color-cool-dark:        oklch(0.5 0.055 205);
+		--color-cool-light:       oklch(0.78 0.025 205);
 
-		/* ──────────────────────────────────────────────────────────
-		   Typography — Crimson Pro × Inter × JetBrains Mono
-		   ────────────────────────────────────────────────────────── */
-		--font-display: 'Crimson Pro', Georgia, serif;
-		--font-body:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-		--font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+		--font-display: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+		--font-body:    'Manrope', ui-sans-serif, system-ui, sans-serif;
+		--font-serif:   'Manrope', ui-sans-serif, system-ui, sans-serif;
+		--font-mono:    'IBM Plex Mono', ui-monospace, monospace;
 
-		/* ──────────────────────────────────────────────────────────
-		   Material — radius 0 everywhere; pills are the exception
-		   ────────────────────────────────────────────────────────── */
 		--radius-none: 0;
 		--radius-pill: 9999px;
 
-		/* Legacy radius aliases — all collapse to 0 (sharp-everywhere policy). */
-		--radius-sm: 0;
-		--radius-md: 0;
-		--radius-lg: 0;
-		--radius-xl: 0;
+		--radius-sm: 0.55rem;
+		--radius-md: 0.7rem;
+		--radius-lg: 0.9rem;
+		--radius-xl: 1.1rem;
 
 		/* Shadows — used sparsely */
-		--shadow-sm: 0 1px 2px rgba(32, 26, 42, 0.06);
-		--shadow-md: 0 2px 8px -4px rgba(32, 26, 42, 0.10);
-		--shadow-lg: 0 8px 24px -8px rgba(32, 26, 42, 0.14);
-		--shadow-xl: 0 20px 48px -16px rgba(32, 26, 42, 0.18);
-		--shadow-modal: 0 24px 48px -16px rgba(32, 26, 42, 0.24);
-		--shadow-card-hover: 0 2px 8px -4px rgba(32, 26, 42, 0.12);
+		--shadow-sm: 0 1px 2px oklch(0.08 0.01 210 / 18%);
+		--shadow-md: 0 8px 22px -12px oklch(0.08 0.015 210 / 36%);
+		--shadow-lg: 0 16px 36px -16px oklch(0.08 0.015 210 / 42%);
+		--shadow-xl: 0 24px 52px -20px oklch(0.08 0.015 210 / 48%);
+		--shadow-modal: 0 24px 56px -16px oklch(0.06 0.015 210 / 58%);
+		--shadow-card-hover: 0 14px 32px -20px oklch(0.06 0.015 210 / 58%);
 
 		/* Card tokens */
-		--card-radius: 0;
+		--card-radius: var(--radius-lg);
 		--card-padding: 1.5rem;
 		--card-border: 1px solid var(--color-border);
 		--card-shadow-hover: var(--shadow-card-hover);
@@ -1463,6 +1474,55 @@
 		--space-24: 6rem;      /* 96px */
 	}
 
+	/* Workspace aliases remain explicit so portalled and legacy components share
+	   the same semantic values without changing any layout contracts. */
+	.workspace {
+		--color-background: var(--background);
+		--color-card: var(--card);
+		--color-foreground: var(--foreground);
+		--color-muted-foreground: var(--muted-foreground);
+		--color-moonlight: oklch(0.82 0.028 205);
+		--color-pond: oklch(0.56 0.055 200);
+		--color-ring: var(--ring);
+		--color-bg: var(--background);
+		--color-surface: var(--muted);
+		--color-surface-alt: var(--card);
+		--color-surface-hover: oklch(0.37 0.022 207);
+		--color-primary: var(--primary);
+		--color-primary-soft: oklch(0.79 0.08 78 / 14%);
+		--color-primary-deep: oklch(0.7 0.085 76);
+		--color-secondary: oklch(0.56 0.055 200);
+		--color-secondary-soft: oklch(0.56 0.055 200 / 18%);
+		--color-ink: var(--foreground);
+		--color-ink-muted: var(--muted-foreground);
+		--color-ink-subtle: oklch(0.7 0.014 210);
+		--color-border: var(--border);
+		--color-border-strong: oklch(0.78 0.025 205 / 32%);
+		--color-success: oklch(0.72 0.09 155);
+		--color-warning: oklch(0.76 0.12 82);
+		--color-error: var(--destructive);
+		--color-info: oklch(0.67 0.07 230);
+		--color-warm-dark: oklch(0.7 0.085 76);
+		--color-warm-light: oklch(0.79 0.08 78 / 14%);
+		--color-cool: oklch(0.56 0.055 200);
+		--color-cool-dark: oklch(0.48 0.055 205);
+		--color-cool-light: oklch(0.78 0.025 205);
+		--font-display: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+		--font-body: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+		--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+		--radius-sm: 0.55rem;
+		--radius-md: 0.7rem;
+		--radius-lg: 0.9rem;
+		--radius-xl: 1.1rem;
+		--shadow-sm: 0 1px 2px oklch(0.08 0.01 210 / 18%);
+		--shadow-md: 0 8px 22px -12px oklch(0.08 0.015 210 / 36%);
+		--shadow-lg: 0 16px 36px -16px oklch(0.08 0.015 210 / 42%);
+		--shadow-xl: 0 24px 52px -20px oklch(0.08 0.015 210 / 48%);
+		--shadow-modal: 0 24px 56px -16px oklch(0.06 0.015 210 / 58%);
+		--shadow-card-hover: 0 14px 32px -20px oklch(0.06 0.015 210 / 58%);
+		--card-radius: var(--radius-lg);
+	}
+
 	* {
 		-webkit-font-smoothing: antialiased;
 		-moz-osx-font-smoothing: grayscale;
@@ -1472,6 +1532,11 @@
 		font-family: var(--font-body);
 		background: var(--color-bg);
 		color: var(--color-ink);
+	}
+
+	:is(button, a, input, select, textarea):focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
 	}
 
 	/* Typography scale — see DESIGN.md §3.1 */
@@ -1575,7 +1640,7 @@
 	font-weight: 500;
 	font-family: var(--font-body);
 	line-height: 1.3;
-	border-radius: 0;
+	border-radius: var(--radius-md);
 	white-space: nowrap;
 	pointer-events: none;
 	opacity: 0;

@@ -24,7 +24,7 @@
 <style>
 	.sharp-panel {
 		border: 1px solid var(--color-border);
-		border-radius: 0;
+		border-radius: var(--radius-lg);
 		background: var(--color-surface-alt);
 		color: var(--color-ink);
 	}
@@ -52,7 +52,8 @@
 	}
 
 	.sharp-panel.interactive:hover {
-		border-color: var(--color-primary);
-		color: var(--color-primary-deep);
+		border-color: var(--color-border-strong);
+		background: var(--color-surface-hover);
+		color: var(--color-ink);
 	}
 </style>

@@ -42,7 +42,7 @@
 		width: 2.25rem;
 		height: 2.25rem;
 		border: 1px solid rgba(255, 255, 255, 0.18);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		background: rgba(255, 255, 255, 0.06);
 		color: var(--color-bg);
 		cursor: pointer;
@@ -60,10 +60,10 @@
 	pre {
 		margin: 0;
 		padding: 1rem 4rem 1rem 1rem;
-		background: var(--color-ink);
-		color: var(--color-bg);
-		border: 1px solid var(--color-ink);
-		border-radius: 0;
+		background: oklch(0.18 0.01 215);
+		color: var(--color-ink);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
 		font-family: var(--font-mono);
 		font-size: 0.8125rem;
 		line-height: 1.7;

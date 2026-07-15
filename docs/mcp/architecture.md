@@ -64,7 +64,7 @@ The two functions share `MCP_STATE_SECRET` so `mcp-auth` can verify state tokens
 
 JSON-RPC `tools/list` returns the Scoutpost product surface grouped around:
 
-- Scouts — list, create, inspect, update, run, pause, resume, and delete page, beat, social, and civic scouts.
+- Scouts — list, create, inspect, update, run, pause, resume, and delete page, beat, social, civic, and Fleet scouts. `test_transport_config` is Fleet Step 1; agents pass its `baseline_ids` to `create_scout` as `transport_baseline_ids` in Step 2. New Social Scout creation defaults to criteria mode and requires criteria text unless the caller explicitly chooses summarize mode.
 - Units — list, search, inspect, verify, reject, mark used, and soft-delete information units.
 - Projects — list, create, inspect, update, and delete investigation projects.
 - Ingest — `ingest_content` for manual URL/text ingestion into a project.

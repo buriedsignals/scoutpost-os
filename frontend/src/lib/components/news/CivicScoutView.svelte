@@ -36,6 +36,7 @@
 	let testProgressMessage = '';
 	let testProgressTimer: ReturnType<typeof setInterval> | null = null;
 	let testSuccess = false;
+	let testedInputKey = '';
 	let testResult: {
 		documents_found: number;
 		sample_promises: Array<{ promise_text: string; context: string; source_url: string; source_date: string; due_date?: string; date_confidence: string; criteria_match: boolean }>;
@@ -49,6 +50,17 @@
 
 	$: canDiscover = domain.trim().length > 0;
 	$: canSchedule = selectedUrls.size > 0 && selectedUrls.size <= 2;
+	$: testInputKey = JSON.stringify({
+		domain: domain.trim().toLowerCase(),
+		urls: [...selectedUrls].sort(),
+		criteria: criteria.trim()
+	});
+	$: if (testSuccess && testedInputKey && testInputKey !== testedInputKey) {
+		testSuccess = false;
+		testResult = null;
+		showTestResults = false;
+		testedInputKey = '';
+	}
 
 	$: discoverProgressState = discoverError ? 'error' as const : 'loading' as const;
 	$: testProgressState = testError ? 'error' as const : testSuccess ? 'success' as const : 'loading' as const;
@@ -128,15 +140,28 @@
 	}
 
 	async function handleTestAndSchedule() {
+		const requestedUrls = [...selectedUrls];
+		const requestedCriteria = criteria.trim();
+		const requestedInputKey = JSON.stringify({
+			domain: domain.trim().toLowerCase(),
+			urls: [...requestedUrls].sort(),
+			criteria: requestedCriteria
+		});
 		isTesting = true;
 		testError = '';
 		testSuccess = false;
+		testedInputKey = '';
 		testResult = null;
 		showTestResults = true;
 		startTestProgress();
 
 		try {
-			const result = await apiClient.testCivic([...selectedUrls], criteria || undefined);
+			const result = await apiClient.testCivic(requestedUrls, requestedCriteria || undefined);
+			if (testInputKey !== requestedInputKey) {
+				showTestResults = false;
+				stopTestProgress();
+				return;
+			}
 			if (!result.valid) {
 				testError = result.error || m.civic_testFailed();
 				stopTestProgress();
@@ -146,10 +171,15 @@
 				documents_found: result.documents_found,
 				sample_promises: result.sample_promises,
 			};
+			testedInputKey = requestedInputKey;
 			testSuccess = true;
 			stopTestProgress();
 		} catch (err) {
-			testError = err instanceof Error ? err.message : m.civic_testFailed();
+			if (testInputKey === requestedInputKey) {
+				testError = err instanceof Error ? err.message : m.civic_testFailed();
+			} else {
+				showTestResults = false;
+			}
 			stopTestProgress();
 		} finally {
 			isTesting = false;
@@ -217,7 +247,7 @@
 							step1Icon={Search}
 							step2Enabled={hasResults && canSchedule && !isTesting}
 							step2Label={m.civic_testExtraction()}
-							step3Enabled={testSuccess}
+							step3Enabled={testSuccess && testedInputKey === testInputKey}
 							step3Label={m.pulse_scheduleScout()}
 							onStep1={handleDiscover}
 							onStep2={handleTestAndSchedule}
@@ -274,12 +304,13 @@
 					errorMessage={testError}
 					showButton={false}
 					hintText={isTesting ? 'Parsing documents and extracting promises...' : ''}
+					compact={testSuccess}
 				/>
 
 				{#if testSuccess && testResult && testResult.sample_promises.length > 0}
 					<div class="promises-preview">
 						<p class="preview-label">Extracted promises (preview)</p>
-						{#each testResult.sample_promises as promise}
+						{#each testResult.sample_promises.slice(0, 3) as promise}
 							<div class="promise-item">
 								<p class="promise-text">{promise.promise_text}</p>
 								{#if promise.due_date}
@@ -387,7 +418,7 @@
 		max-height: 400px;
 		overflow-y: auto;
 		border: 1px solid var(--color-border, #e5e7eb);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		padding: 0.375rem;
 		margin-top: 1rem;
 		background: var(--color-surface-alt);
@@ -398,7 +429,7 @@
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0.5rem 0.625rem;
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		transition: background 0.15s ease;
 		user-select: none;
@@ -409,7 +440,7 @@
 	}
 
 	.url-item--selected {
-		background: #fffbeb;
+		background: color-mix(in oklab, var(--color-warning) 10%, var(--color-card));
 	}
 
 	.url-item--selected:hover {
@@ -521,7 +552,7 @@
 		margin-top: 1rem;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border, #e5e7eb);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		padding: 1rem;
 	}
 
@@ -534,9 +565,9 @@
 
 	.promise-item {
 		padding: 0.75rem;
-		background: #fffbeb;
+		background: color-mix(in oklab, var(--color-warning) 10%, var(--color-card));
 		border: 1px solid var(--color-secondary-soft);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		margin-bottom: 0.5rem;
 	}
 

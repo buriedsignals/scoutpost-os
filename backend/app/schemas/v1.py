@@ -17,7 +17,42 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.scouts import GeocodedLocation
-from app.models.modes import RegularityType, ScoutType
+from app.models.modes import (
+    RegularityType,
+    ScoutType,
+    SocialMonitorMode,
+    SocialPlatform,
+)
+
+
+_LINKEDIN_PERSONAL_PROFILE_RE = re.compile(
+    r"^(?:https?://)?(?:www\.)?linkedin\.com/in/([^/?#]+)/?(?:[?#].*)?$",
+    re.IGNORECASE,
+)
+_LINKEDIN_COMPANY_PROFILE_RE = re.compile(
+    r"linkedin\.com/(?:company|school|showcase)/",
+    re.IGNORECASE,
+)
+_URL_LIKE_RE = re.compile(
+    r"^(?:https?://|www\.|(?:[a-z0-9-]+\.)+[a-z]{2,}/)",
+    re.IGNORECASE,
+)
+
+
+def _normalize_linkedin_profile_handle(value: str) -> str:
+    raw = value.strip()
+    if _LINKEDIN_COMPANY_PROFILE_RE.search(raw):
+        raise ValueError(
+            "LinkedIn company pages are not supported; use a personal profile URL"
+        )
+    personal_match = _LINKEDIN_PERSONAL_PROFILE_RE.fullmatch(raw)
+    if personal_match:
+        return personal_match.group(1)
+    if _URL_LIKE_RE.match(raw) or "linkedin.com/" in raw.lower():
+        raise ValueError(
+            "LinkedIn profile URLs must use linkedin.com/in/<profile>"
+        )
+    return raw.lstrip("@").strip()
 
 
 # =============================================================================
@@ -137,6 +172,25 @@ class CreateScoutRequest(BaseModel):
     # Shared optional fields
     criteria: Optional[str] = Field(None, max_length=500, description="Optional criteria to narrow AI analysis")
 
+    # Social scout fields
+    platform: Optional[SocialPlatform] = Field(
+        None, description="Social platform (required for social scouts)"
+    )
+    profile_handle: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=200,
+        description="Profile handle or LinkedIn personal /in/ URL",
+    )
+    monitor_mode: Optional[SocialMonitorMode] = Field(
+        None,
+        description="Social monitoring mode; new social scouts default to criteria",
+    )
+    track_removals: bool = Field(
+        default=False,
+        description="Report posts removed after the saved baseline",
+    )
+
     # Beat scout fields
     location: Optional[GeocodedLocation] = Field(None, description="Geo-targeted location (beat scouts)")
     topic: Optional[str] = Field(None, max_length=200, description="Topic keyword (beat scouts)")
@@ -180,6 +234,24 @@ class CreateScoutRequest(BaseModel):
         elif self.type == "beat":
             if not self.location and not self.topic:
                 raise ValueError("At least one of location or topic is required for beat scouts")
+        elif self.type == "social":
+            if not self.platform:
+                raise ValueError("platform is required for social scouts")
+            if not (self.profile_handle and self.profile_handle.strip()):
+                raise ValueError("profile_handle is required for social scouts")
+            self.monitor_mode = self.monitor_mode or "criteria"
+            if self.monitor_mode == "criteria" and not (
+                self.criteria and self.criteria.strip()
+            ):
+                raise ValueError(
+                    "criteria is required when monitor_mode is criteria"
+                )
+            if self.platform == "linkedin":
+                self.profile_handle = _normalize_linkedin_profile_handle(
+                    self.profile_handle
+                )
+            else:
+                self.profile_handle = self.profile_handle.lstrip("@").strip()
         return self
 
 # =============================================================================

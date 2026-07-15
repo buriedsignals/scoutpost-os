@@ -23,7 +23,7 @@ hosted scoutpost.ai Supabase project.
 
 ## Hosted agent setup
 
-1. Open Scoutpost and create a `cj_...` API key from the Agents API panel.
+1. Open Scoutpost, choose **Connect Agent**, then create a `cj_...` API key from the API panel.
 2. Configure the agent to use either MCP or the CLI.
 3. Verify with a read-only operation first: list scouts or list units.
 4. Do not run scouts or create scheduled monitors until the user confirms credit

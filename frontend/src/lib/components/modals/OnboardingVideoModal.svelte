@@ -89,8 +89,8 @@
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
-		background: rgba(15, 23, 42, 0.75);
-		backdrop-filter: blur(4px);
+		background: var(--modal-backdrop);
+		backdrop-filter: blur(8px);
 		z-index: 50;
 		display: flex;
 		align-items: center;
@@ -116,7 +116,7 @@
 
 	.modal-container {
 		background: var(--color-surface-alt);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2), 0 0 1px rgba(0, 0, 0, 0.1);
 		max-width: 800px;
 		width: 100%;
@@ -168,7 +168,7 @@
 	.loading-spinner {
 		width: 32px;
 		height: 32px;
-		border: 3px solid rgba(107, 63, 160, 0.3);
+		border: 3px solid color-mix(in oklab, var(--color-primary) 30%, transparent);
 		border-top-color: var(--color-primary);
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
@@ -196,7 +196,7 @@
 
 	.modal-footer {
 		padding: 1.25rem 1.5rem;
-		background: linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg) 100%);
+		background: var(--color-bg);
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
@@ -207,25 +207,25 @@
 		padding: 0.875rem 1.5rem;
 		font-size: 0.9375rem;
 		font-weight: 600;
-		color: var(--color-surface-alt);
-		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-deep) 100%);
+		color: var(--primary-foreground);
+		background: var(--color-primary);
 		border: none;
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-		font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
-		box-shadow: 0 2px 8px rgba(107, 63, 160, 0.25);
+		font-family: var(--font-body);
+		box-shadow: 0 10px 24px -14px color-mix(in oklab, var(--color-primary) 62%, transparent);
 	}
 
 	.ready-btn:hover {
-		background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--color-primary) 100%);
+		background: color-mix(in oklab, var(--color-primary) 88%, white);
 		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(107, 63, 160, 0.35);
+		box-shadow: 0 14px 28px -16px color-mix(in oklab, var(--color-primary) 72%, transparent);
 	}
 
 	.ready-btn:active {
 		transform: translateY(0);
-		box-shadow: 0 2px 6px rgba(107, 63, 160, 0.25);
+		box-shadow: var(--shadow-sm);
 	}
 
 	.skip-btn {
@@ -238,7 +238,7 @@
 		border: none;
 		cursor: pointer;
 		transition: color 0.2s ease;
-		font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+		font-family: var(--font-body);
 	}
 
 	.skip-btn:hover {

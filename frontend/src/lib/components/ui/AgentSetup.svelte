@@ -111,7 +111,7 @@
 				</div>
 				<pre><code>{recipe.configCommands.join('\n')}</code></pre>
 				<p class="block-note">
-					Need a key? Click the <strong>API</strong> button at the top of this modal, then
+					Need a key? Open <strong>Connect Agent → API keys &amp; REST</strong>, then
 					<strong>Create key</strong> — you&rsquo;ll get a <code>cj_…</code> value to paste in place of
 					the placeholder. Revoke or rotate from the same panel anytime.
 				</p>
@@ -141,16 +141,16 @@
 		</ol>
 		<div class="block">
 			<div class="block-head">
-				<span class="block-label">Remote MCP URL</span>
-				<button class="copy-btn" on:click={() => copy('url', recipe.configSnippet ?? '')}>
-					{#if copied === 'url'}
+				<span class="block-label">{recipe.configLang ? 'Configuration' : 'Remote MCP URL'}</span>
+				<button class="copy-btn" on:click={() => copy('setup', recipe.configSnippet ?? '')}>
+					{#if copied === 'setup'}
 						<Check size={13} /><span>Copied</span>
 					{:else}
-						<Copy size={13} /><span>Copy URL</span>
+						<Copy size={13} /><span>{recipe.configLang ? 'Copy config' : 'Copy URL'}</span>
 					{/if}
 				</button>
 			</div>
-			<pre><code>{recipe.configSnippet}</code></pre>
+			<pre class="lang-{recipe.configLang ?? 'text'}"><code>{recipe.configSnippet}</code></pre>
 		</div>
 	{:else if recipe.mode === 'generic' && recipe.configSnippet}
 		<div class="block">
@@ -212,42 +212,42 @@
 		align-items: flex-start;
 		gap: 0.625rem;
 		padding: 0.75rem 0.875rem;
-		background: #fff7ed;
-		border: 1px solid #fed7aa;
-		border-radius: 0;
+		background: color-mix(in oklab, var(--color-warning) 10%, var(--color-card));
+		border: 1px solid color-mix(in oklab, var(--color-warning) 34%, var(--color-border));
+		border-radius: var(--radius-md);
 	}
 	:global(.setup .warning-icon) {
-		color: #c2410c;
+		color: var(--color-warning);
 		flex-shrink: 0;
 		margin-top: 0.125rem;
 	}
 	.warning-title {
 		font-size: 0.8125rem;
 		font-weight: 600;
-		color: #9a3412;
+		color: var(--color-foreground);
 		margin: 0 0 0.1875rem 0;
 	}
 	.warning-body {
 		font-size: 0.8125rem;
-		color: #7c2d12;
+		color: var(--color-muted-foreground);
 		margin: 0;
 		line-height: 1.5;
 	}
 
 	.video-block {
 		border: 1px solid var(--color-border);
-		background: #111827;
+		background: color-mix(in oklab, var(--color-background) 88%, black);
 	}
 	.video-block video {
 		display: block;
 		width: 100%;
 		aspect-ratio: 16 / 9;
-		background: #111827;
+		background: color-mix(in oklab, var(--color-background) 88%, black);
 	}
 
 	.block {
 		border: 1px solid var(--color-border);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		overflow: hidden;
 	}
 	.block-head {
@@ -265,12 +265,12 @@
 		color: var(--color-ink);
 	}
 	.block-label .path {
-		font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		font-size: 0.75rem;
 		padding: 0.0625rem 0.3125rem;
-		background: rgba(78, 44, 120, 0.1);
-		color: var(--color-primary-deep);
-		border-radius: 0;
+		background: color-mix(in oklab, var(--color-moonlight) 12%, transparent);
+		color: var(--color-moonlight);
+		border-radius: var(--radius-md);
 		font-weight: 500;
 	}
 	.copy-btn {
@@ -283,22 +283,23 @@
 		color: var(--color-ink-muted);
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		transition: all 0.15s ease;
 	}
 	.copy-btn:hover {
-		background: #faf9ff;
-		color: #4E2C78;
-		border-color: #d4d4f7;
+		background: var(--color-surface-hover);
+		color: var(--color-foreground);
+		border-color: var(--color-border-strong);
+		transform: translateY(-1px);
 	}
 
 	pre {
 		margin: 0;
 		padding: 0.875rem 1rem;
-		background: #1c1917;
-		color: #f5f5f4;
-		font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		background: color-mix(in oklab, var(--color-background) 90%, black);
+		color: var(--color-foreground);
+		font-family: var(--font-mono);
 		font-size: 0.8125rem;
 		line-height: 1.6;
 		overflow-x: auto;
@@ -307,19 +308,19 @@
 	.block-note {
 		margin: 0;
 		padding: 0.5rem 0.875rem;
-		background: #fafafa;
+		background: var(--color-surface-alt);
 		border-top: 1px solid var(--color-border);
 		font-size: 0.75rem;
 		color: var(--color-ink-muted);
 		line-height: 1.5;
 	}
 	.block-note code {
-		font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		font-size: 0.6875rem;
 		padding: 0.0625rem 0.3125rem;
-		background: rgba(78, 44, 120, 0.1);
-		color: var(--color-primary-deep);
-		border-radius: 0;
+		background: color-mix(in oklab, var(--color-moonlight) 12%, transparent);
+		color: var(--color-moonlight);
+		border-radius: var(--radius-md);
 	}
 
 	.steps {
@@ -348,7 +349,7 @@
 		top: 1.625rem;
 		bottom: -0.5rem;
 		width: 1px;
-		background: #e5e7eb;
+		background: var(--color-border);
 		transform: translateX(-0.5px);
 	}
 	.step-num {
@@ -357,37 +358,37 @@
 		justify-content: center;
 		width: 1.5rem;
 		height: 1.5rem;
-		background: linear-gradient(135deg, #4E2C78 0%, #5b4bbd 100%);
-		color: white;
+		background: color-mix(in oklab, var(--color-pond) 72%, var(--color-card));
+		color: var(--color-foreground);
 		font-size: 0.75rem;
 		font-weight: 600;
 		border-radius: 999px;
-		box-shadow: 0 1px 2px rgba(91, 75, 189, 0.25);
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-pond) 45%, transparent);
 		font-variant-numeric: tabular-nums;
 	}
 	.step-body {
 		padding-top: 0.1875rem;
 	}
 	.step-body :global(code) {
-		font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		font-size: 0.8125rem;
 		padding: 0.0625rem 0.3125rem;
-		background: rgba(78, 44, 120, 0.1);
-		color: var(--color-primary-deep);
-		border-radius: 0;
+		background: color-mix(in oklab, var(--color-moonlight) 12%, transparent);
+		color: var(--color-moonlight);
+		border-radius: var(--radius-md);
 	}
 
 	.verify {
 		padding: 0.75rem 0.875rem;
-		background: #f0fdf4;
-		border: 1px solid #bbf7d0;
-		border-radius: 0;
+		background: color-mix(in oklab, var(--color-success) 9%, var(--color-card));
+		border: 1px solid color-mix(in oklab, var(--color-success) 30%, var(--color-border));
+		border-radius: var(--radius-md);
 	}
 	.verify-label {
 		display: block;
 		font-size: 0.75rem;
 		font-weight: 700;
-		color: #166534;
+		color: var(--color-success);
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 		margin-bottom: 0.25rem;
@@ -395,14 +396,14 @@
 	.verify p {
 		margin: 0;
 		font-size: 0.8125rem;
-		color: #166534;
+		color: var(--color-foreground);
 		line-height: 1.5;
 	}
 	.verify-steps {
 		margin: 0;
 		padding-left: 1.125rem;
 		font-size: 0.8125rem;
-		color: #166534;
+		color: var(--color-foreground);
 		line-height: 1.5;
 	}
 	.verify-steps li + li {
@@ -410,11 +411,11 @@
 	}
 	.verify em {
 		font-style: normal;
-		font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		font-size: 0.75rem;
 		padding: 0.0625rem 0.3125rem;
-		background: rgba(22, 101, 52, 0.1);
-		border-radius: 0;
+		background: color-mix(in oklab, var(--color-success) 12%, transparent);
+		border-radius: var(--radius-md);
 	}
 
 	.docs-link {
@@ -422,7 +423,7 @@
 		align-items: center;
 		gap: 0.25rem;
 		font-size: 0.8125rem;
-		color: var(--color-primary-deep);
+		color: var(--color-moonlight);
 		text-decoration: none;
 		font-weight: 500;
 	}

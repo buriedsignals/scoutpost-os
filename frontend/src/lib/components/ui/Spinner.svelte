@@ -13,9 +13,9 @@
 	class="spinner {size} {variant}" 
 	style="
 		--spinner-size: {sizeMap[size]};
-		--color-1: {variant === 'white' ? '#ffffff' : '#6B3FA0'};
-		--color-2: {variant === 'white' ? 'rgba(255, 255, 255, 0.8)' : '#4E2C78'};
-		--color-3: {variant === 'white' ? 'rgba(255, 255, 255, 0.3)' : 'rgba(107, 63, 160, 0.3)'};
+		--color-1: {variant === 'white' ? 'var(--foreground)' : 'var(--color-primary)'};
+		--color-2: {variant === 'white' ? 'color-mix(in oklab, var(--foreground) 80%, transparent)' : 'var(--color-moonlight)'};
+		--color-3: {variant === 'white' ? 'color-mix(in oklab, var(--foreground) 30%, transparent)' : 'color-mix(in oklab, var(--color-primary) 30%, transparent)'};
 	"
 >
 	<div class="spinner-ring ring-1"></div>
@@ -85,7 +85,7 @@
 		border-radius: 50%;
 		transform: translate(-50%, -50%);
 		animation: pulse 1.5s ease-in-out infinite;
-		box-shadow: 0 0 8px rgba(107, 63, 160, 0.4);
+		box-shadow: 0 0 8px color-mix(in oklab, var(--color-1) 42%, transparent);
 	}
 
 	@keyframes spin {

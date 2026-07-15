@@ -15,7 +15,7 @@
 	let url = '';
 	let scoutName = '';
 	let criteria = '';
-	let criteriaMode: 'any' | 'specific' = 'any';
+	let criteriaMode: 'any' | 'specific' = 'specific';
 	let isTestingScraper = false;
 	let testError = '';
 	let testResult: { summary: string; criteriaMet: boolean } | null = null;
@@ -154,8 +154,8 @@
 					<TogglePicker
 						bind:value={criteriaMode}
 						options={[
-							{ value: 'any', label: m.webScout_anyChange(), description: m.webScout_anyChangeHint() },
-							{ value: 'specific', label: m.webScout_specificCriteria(), description: m.webScout_specificCriteriaHint() }
+							{ value: 'specific', label: m.webScout_specificCriteria(), description: m.webScout_specificCriteriaHint() },
+							{ value: 'any', label: m.webScout_anyChange(), description: m.webScout_anyChangeHint() }
 						]}
 					/>
 
@@ -178,7 +178,7 @@
 				<!-- Step Buttons -->
 				{#if !testError}
 					<StepButtons
-						step1Disabled={isTestingScraper || !url.trim() || !scoutName.trim()}
+						step1Disabled={isTestingScraper || !url.trim() || !scoutName.trim() || (criteriaMode === 'specific' && !criteria.trim())}
 						step1Loading={isTestingScraper}
 						step1Label={m.webScout_runScraper()}
 						step1LoadingLabel={m.common_testing()}
@@ -210,6 +210,7 @@
 					errorMessage={testError}
 					showButton={false}
 					hintText={isTestingScraper ? m.webScout_scraperTestRunning() : ''}
+					compact={!!testResult}
 				/>
 			{/if}
 		</div>
@@ -229,7 +230,7 @@
 	onSuccess={() => {
 		url = '';
 		criteria = '';
-		criteriaMode = 'any';
+		criteriaMode = 'specific';
 		scoutName = '';
 		testResult = null;
 		testProgress = 0;

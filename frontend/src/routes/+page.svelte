@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { browser } from '$app/environment';
-	import { MapPin, Tag, Radio, Home, FileText } from 'lucide-svelte';
+	import { MapPin, Tag, Home, FileText } from 'lucide-svelte';
 	import FilterBar from '$lib/components/ui/FilterBar.svelte';
 	import FilterSelect from '$lib/components/ui/FilterSelect.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
@@ -26,6 +26,7 @@
 	import PreferencesModal from '$lib/components/modals/PreferencesModal.svelte';
 	import AgentsModal from '$lib/components/modals/AgentsModal.svelte';
 	import { Bot } from 'lucide-svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { getScoutCost } from '$lib/utils/scouts';
 	import { collectTopicCounts, topicMatches } from '$lib/utils/topics';
 	import {
@@ -40,7 +41,6 @@
 	} from '$lib/demo/seed';
 	import { IS_LOCAL_DEMO_MODE } from '$lib/demo/state';
 
-	let newScoutOpen = false;
 	let userMenuOpen = false;
 	let preferencesOpen = false;
 	let agentsOpen = false;
@@ -104,7 +104,6 @@
 		const viewingDemoScope = selection.scoutId === null || isDemoId(selection.scoutId);
 		if (selection.scoutId && isDemoId(selection.scoutId)) {
 			selectionStore.selectScout(null);
-			selectedScoutName = null;
 		}
 		if (activeUnit && isDemoUnit(activeUnit)) {
 			closeActiveUnit(false);
@@ -136,7 +135,6 @@
 
 	function openPanel(type: ActivePanel) {
 		activePanel = type;
-		newScoutOpen = false;
 	}
 
 	function closePanel() {
@@ -150,14 +148,12 @@
 
 	function closeMenus(event: MouseEvent) {
 		const target = event.target as HTMLElement;
-		if (!target.closest('.user-menu-wrap') && !target.closest('.new-scout-wrap')) {
+		if (!target.closest('.user-menu-wrap')) {
 			userMenuOpen = false;
-			newScoutOpen = false;
 		}
 	}
 	let selectedLocation: string | null = null;
 	let selectedTopic: string | null = null;
-	let selectedScoutName: string | null = null;
 
 	// Per-scout action state
 	let runningScoutId: string | null = null;
@@ -205,9 +201,9 @@
 
 	$: topicOptions = (() => {
 		const entries = collectTopicCounts(scoutsState.scouts);
-		if (entries.length === 0) return [{ value: '', label: 'No topics' }];
+		if (entries.length === 0) return [{ value: '', label: 'No projects' }];
 		return [
-			{ value: '', label: 'All topics' },
+			{ value: '', label: 'All projects' },
 			...entries.map(({ topic, count }) => ({ value: topic, label: topic, count }))
 		];
 	})();
@@ -215,11 +211,6 @@
 	$: dimensionFiltered = scoutsState.scouts
 		.filter((s) => !selectedLocation || locationDisplay(s.location) === selectedLocation)
 		.filter((s) => topicMatches(s.topic, selectedTopic));
-
-	$: scoutNameOptions = [
-		{ value: '', label: 'All scouts' },
-		...[...new Set(dimensionFiltered.map((s) => s.name))].sort().map((n) => ({ value: n, label: n }))
-	];
 
 	// Selected scout (focus mode) derived from selection store
 	$: focusedScout = selection.scoutId
@@ -332,7 +323,6 @@
 		unitDeleteCandidateId = null;
 		unitActionError = null;
 		selectionStore.selectScout(scout.id);
-		selectedScoutName = scout.name;
 		void unitsStore.load(scout.id);
 	}
 
@@ -340,7 +330,6 @@
 		unitDeleteCandidateId = null;
 		unitActionError = null;
 		selectionStore.selectScout(null);
-		selectedScoutName = null;
 		// In demo mode, the all-scouts inbox is the 12 seed units — the API
 		// would return empty and erase them.
 		if (demoActive) {
@@ -405,22 +394,10 @@
 	async function handleLocationChange(v: string) {
 		unitDeleteCandidateId = null;
 		selectedLocation = v || null;
-		selectedScoutName = null;
 	}
 	async function handleTopicChange(v: string) {
 		unitDeleteCandidateId = null;
 		selectedTopic = v || null;
-		selectedScoutName = null;
-	}
-	function handleScoutFilterChange(v: string) {
-		unitDeleteCandidateId = null;
-		selectedScoutName = v || null;
-		if (v) {
-			const match = scoutsState.scouts.find((s) => s.name === v);
-			if (match) handleScoutOpen(match);
-		} else {
-			handleBackToAll();
-		}
 	}
 
 	// -------- unit row interactions --------
@@ -535,46 +512,33 @@
 	<nav class="topnav">
 		<div class="topnav-left">
 			<div class="logo">
-				<span class="logo-dot"></span>
 				<span class="logo-text">Scoutpost</span>
 			</div>
-			<div class="new-scout-wrap">
-				<button
-					class="new-scout-btn"
-					on:click|stopPropagation={() => (newScoutOpen = !newScoutOpen)}
-					aria-haspopup="menu"
-					aria-expanded={newScoutOpen}
-				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-						<line x1="12" y1="5" x2="12" y2="19" />
-						<line x1="5" y1="12" x2="19" y2="12" />
-					</svg>
-					<span>New Scout</span>
-					<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-						<polyline points="6 9 12 15 18 9" />
-					</svg>
-				</button>
-				<NewScoutDropdown
-					open={newScoutOpen}
-					sidebarCollapsed={false}
-					onClose={() => (newScoutOpen = false)}
-					onSelect={openPanel}
-				/>
-			</div>
-			<button
-				class="agents-btn"
-				on:click|stopPropagation={() => { agentsApiOnly = false; agentsOpen = true; }}
-				aria-haspopup="dialog"
-			>
-				<Bot size={14} />
-				<span>Agents</span>
-			</button>
 			{#if activePanel !== 'workspace'}
 				<button class="back-to-workspace" on:click={closePanel} type="button">
 					<Home size={14} />
 					<span>Back to workspace</span>
 				</button>
 			{/if}
+		</div>
+		<div class="topnav-center" aria-label="Workspace actions">
+			<div class="new-scout-wrap">
+				<NewScoutDropdown onSelect={openPanel} />
+			</div>
+			<Button
+				variant="secondary"
+				class="connect-agent-btn h-8 cursor-pointer rounded-xl border border-[color:var(--color-secondary)]/50 bg-[color:var(--color-secondary)]/85 px-3.5 font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[color:var(--foreground)] shadow-[0_8px_22px_oklch(0.08_0.03_200/0.24)] transition-[transform,background-color,box-shadow] duration-200 hover:-translate-y-px hover:bg-[color:var(--color-secondary)] hover:shadow-[0_11px_28px_oklch(0.08_0.03_200/0.32)]"
+				onclick={() => {
+					userMenuOpen = false;
+					agentsApiOnly = false;
+					agentsOpen = true;
+				}}
+				aria-haspopup="dialog"
+				aria-label="Connect Agent"
+			>
+				<Bot size={14} />
+				<span>Connect Agent</span>
+			</Button>
 		</div>
 		<div class="topnav-right">
 			<div class="user-menu-wrap">
@@ -624,14 +588,6 @@
 			options={topicOptions}
 			value={selectedTopic || ''}
 			onChange={handleTopicChange}
-		/>
-		<div class="filter-divider"></div>
-		<FilterSelect
-			icon={Radio}
-			disabled={scoutNameOptions.length <= 1}
-			options={scoutNameOptions}
-			value={selectedScoutName || ''}
-			onChange={handleScoutFilterChange}
 		/>
 	</FilterBar>
 	{/if}
@@ -815,42 +771,47 @@
 </div>
 
 <style>
-	/* ──────────────────────────────────────────────────────────
-	   Dashboard shell + topnav — plum + ochre on cream
-	   ────────────────────────────────────────────────────────── */
+	/* Night Watch workspace shell. Geometry remains the production layout. */
 	.workspace {
 		display: flex;
 		flex-direction: column;
 		min-height: 100vh;
-		background: var(--color-bg);
+		background:
+			radial-gradient(circle at 12% 110%, oklch(0.48 0.065 195 / 15%), transparent 38%),
+			radial-gradient(circle at 82% -8%, oklch(0.72 0.035 205 / 11%), transparent 34%),
+			var(--color-bg);
 		font-family: var(--font-body);
+		font-weight: 500;
 	}
 
 	.topnav {
-		display: flex;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
 		align-items: center;
-		justify-content: space-between;
 		padding: 0.625rem 1.25rem;
 		border-bottom: 1px solid var(--color-border);
-		background: var(--color-surface-alt);
+		background: color-mix(in oklch, var(--color-surface-alt) 92%, transparent);
+		box-shadow: 0 1px 0 oklch(0.87 0.025 205 / 3%);
 	}
 
 	.topnav-left {
 		display: flex;
 		align-items: center;
-		gap: 1rem;
+		gap: 0.75rem;
+		min-width: 0;
+	}
+
+	.topnav-center {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.625rem;
+		justify-self: center;
 	}
 
 	.logo {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.logo-dot {
-		width: 0.5rem;
-		height: 0.5rem;
-		background: var(--color-primary);
 	}
 
 	.logo-text {
@@ -865,67 +826,21 @@
 		position: relative;
 	}
 
-	.new-scout-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4375rem;
-		height: 32px;
-		padding: 0 0.875rem;
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--color-bg);
-		background: var(--color-ink);
-		border: 1px solid var(--color-ink);
-		border-radius: 0;
-		cursor: pointer;
-		transition: background 150ms ease, border-color 150ms ease;
-	}
-
-	.new-scout-btn:hover {
-		background: var(--color-primary-deep);
-		border-color: var(--color-primary-deep);
-	}
-
 	.topnav-right {
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
+		justify-self: end;
 	}
 
 	.unit-action-error {
 		margin: 1rem 2rem 0;
 		padding: 0.625rem 0.75rem;
-		border: 1px solid rgba(179, 62, 46, 0.2);
-		background: rgba(179, 62, 46, 0.08);
+		border: 1px solid color-mix(in oklab, var(--color-error) 32%, var(--color-border));
+		background: color-mix(in oklab, var(--color-error) 10%, var(--color-card));
 		color: var(--color-error);
 		font-size: 0.8125rem;
-	}
-
-	.agents-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4375rem;
-		height: 32px;
-		padding: 0 0.75rem;
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--color-ink-muted);
-		background: var(--color-surface-alt);
-		border: 1px solid var(--color-border);
-		cursor: pointer;
-		transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
-	}
-
-	.agents-btn:hover {
-		color: var(--color-primary);
-		border-color: var(--color-primary);
-		background: var(--color-primary-soft);
+		border-radius: var(--radius-md);
 	}
 
 	.user-menu-wrap {
@@ -937,7 +852,7 @@
 		justify-content: center;
 		width: 32px;
 		height: 32px;
-		border-radius: 0;
+		border-radius: var(--radius-lg);
 		background: var(--color-surface);
 		border: 1px solid var(--color-border-strong);
 		font-family: var(--font-mono);
@@ -962,6 +877,7 @@
 		border: 1px solid var(--color-border);
 		box-shadow: var(--shadow-modal);
 		padding: 0.375rem;
+		border-radius: var(--radius-lg);
 		z-index: 30;
 	}
 	.user-menu-email {
@@ -988,6 +904,7 @@
 		text-align: left;
 		background: transparent;
 		border: none;
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		transition: background 150ms ease, color 150ms ease;
 	}
@@ -1001,14 +918,6 @@
 	.user-menu-danger:hover {
 		background: var(--color-surface);
 		color: var(--color-error);
-	}
-
-	.filter-divider {
-		width: 1px;
-		height: 20px;
-		background: var(--color-border);
-		margin: 0 0.25rem;
-		flex-shrink: 0;
 	}
 
 	.workspace-body {
@@ -1040,7 +949,7 @@
 		text-align: center;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
-		border-radius: 0;
+		border-radius: var(--radius-lg);
 		padding: 2.5rem 2rem;
 	}
 
@@ -1055,7 +964,7 @@
 
 	.workspace-empty-body {
 		font-size: 0.9375rem;
-		font-weight: 300;
+		font-weight: 500;
 		line-height: 1.55;
 		color: var(--color-ink-muted);
 		margin: 0 0 1rem;
@@ -1116,7 +1025,7 @@
 		margin-bottom: 0.875rem;
 		background: var(--color-secondary-soft);
 		border: 1px solid var(--color-secondary);
-		border-left-width: 3px;
+		border-radius: var(--radius-md);
 	}
 
 	.demo-banner-label {
@@ -1130,6 +1039,7 @@
 		color: var(--color-bg);
 		background: var(--color-secondary);
 		padding: 0.25rem 0.5rem;
+		border-radius: var(--radius-pill);
 	}
 
 	.demo-banner-text {
@@ -1154,7 +1064,7 @@
 		background: var(--color-surface-alt);
 		color: var(--color-ink-muted);
 		font-size: 0.875rem;
-		border-radius: 4px;
+		border-radius: var(--radius-lg);
 	}
 
 	.back-to-workspace {
@@ -1171,6 +1081,7 @@
 		color: var(--color-ink-muted);
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
 		cursor: pointer;
 		transition: border-color 150ms ease, color 150ms ease;
 	}
@@ -1182,8 +1093,50 @@
 	}
 
 	.panel-content {
+		display: flex;
+		flex-direction: column;
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
+	}
+
+	@media (max-width: 760px) {
+		.topnav {
+			padding-inline: 0.75rem;
+		}
+
+		.back-to-workspace span,
+		.topnav-right :global(.metric-pill__label) {
+			display: none;
+		}
+
+		.topnav-left,
+		.topnav-right {
+			gap: 0.375rem;
+		}
+	}
+
+	@media (max-width: 520px) {
+		.topnav-center {
+			gap: 0.375rem;
+		}
+
+		.topnav-center :global(button) {
+			width: 32px;
+			padding-inline: 0;
+		}
+
+		.topnav-center :global(button span),
+		.topnav-center :global(.new-scout-trigger svg:last-child) {
+			display: none;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.topnav-center :global(button),
+		.scouts-grid :global(button) {
+			transform: none !important;
+			transition-duration: 0.001ms !important;
+		}
 	}
 </style>

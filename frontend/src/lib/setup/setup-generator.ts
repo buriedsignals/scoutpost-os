@@ -642,7 +642,7 @@ Do not paste private API keys into ChatGPT.
 
 ## If your AI assistant supports tools
 
-Some assistants can connect directly to Scoutpost. If yours can, open Scoutpost and click Agents. That screen will show the latest setup steps for your newsroom.
+Some assistants can connect directly to Scoutpost. If yours can, open Scoutpost and click Connect Agent. That screen will show the latest setup steps for your newsroom.
 
 You can also give your assistant this prompt:
 
@@ -660,7 +660,7 @@ Then use the newsroom's own connection details:
 
 Do not connect to scoutpost.ai.
 
-If you need an API key, tell me to open Scoutpost, click Agents, open API, and create a key there. Do not ask me to paste a key into chat.
+If you need an API key, tell me to open Scoutpost, click Connect Agent, open API, and create a key there. Do not ask me to paste a key into chat.
 \`\`\`
 
 ## Prompts you can use in ChatGPT

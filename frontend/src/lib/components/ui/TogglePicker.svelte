@@ -33,6 +33,6 @@
 	.toggle-option.active { background: var(--color-primary-soft); }
 	.toggle-option .toggle-name { display: block; font-size: 0.8125rem; font-weight: 600; color: var(--color-ink-muted); }
 	.toggle-option.active .toggle-name { color: var(--color-primary-deep); }
-	.toggle-option .toggle-desc { display: block; font-size: 0.6875rem; font-weight: 300; color: var(--color-ink-subtle); text-align: center; margin-top: 3px; }
+	.toggle-option .toggle-desc { display: block; font-size: 0.6875rem; font-weight: 500; color: var(--color-ink-subtle); text-align: center; margin-top: 3px; }
 	.toggle-option.active .toggle-desc { color: var(--color-ink-muted); }
 </style>

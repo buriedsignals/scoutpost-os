@@ -464,6 +464,88 @@ class TestCreateScout:
         assert "topic" not in item
 
     @pytest.mark.asyncio
+    async def test_social_scout_infers_criteria_mode_from_criteria(
+        self,
+        schedule_service,
+        mock_scout_storage,
+        mock_scheduler,
+        mock_cron_schedule,
+    ):
+        """Current clients can omit monitor_mode when they send criteria."""
+        mock_scout_storage.create_scout.return_value = {"scraper_name": "Housing Watch"}
+        mock_scheduler.create_schedule.return_value = "arn:..."
+        body = {
+            "scout_type": "social",
+            "platform": "x",
+            "profile_handle": "citycouncil",
+            "criteria": "housing votes",
+        }
+
+        await schedule_service.create_scout(
+            "user-1", "Housing Watch", body, mock_cron_schedule
+        )
+
+        item = mock_scout_storage.create_scout.call_args[0][1]
+        assert item["monitor_mode"] == "criteria"
+        target_config = mock_scheduler.create_schedule.call_args[0][2]
+        input_json = json.loads(target_config["input"])
+        assert input_json["monitor_mode"] == "criteria"
+
+    @pytest.mark.asyncio
+    async def test_social_scout_legacy_omission_stays_summarize(
+        self,
+        schedule_service,
+        mock_scout_storage,
+        mock_scheduler,
+        mock_cron_schedule,
+    ):
+        """Raw REST callers that omit both fields keep legacy summarize semantics."""
+        mock_scout_storage.create_scout.return_value = {"scraper_name": "Council Digest"}
+        mock_scheduler.create_schedule.return_value = "arn:..."
+        body = {
+            "scout_type": "social",
+            "platform": "x",
+            "profile_handle": "citycouncil",
+        }
+
+        await schedule_service.create_scout(
+            "user-1", "Council Digest", body, mock_cron_schedule
+        )
+
+        item = mock_scout_storage.create_scout.call_args[0][1]
+        assert item["monitor_mode"] == "summarize"
+        target_config = mock_scheduler.create_schedule.call_args[0][2]
+        input_json = json.loads(target_config["input"])
+        assert input_json["monitor_mode"] == "summarize"
+
+    @pytest.mark.asyncio
+    async def test_social_scout_rejects_blank_criteria_mode(
+        self,
+        schedule_service,
+        mock_scout_storage,
+        mock_scheduler,
+        mock_cron_schedule,
+    ):
+        body = {
+            "scout_type": "social",
+            "platform": "x",
+            "profile_handle": "citycouncil",
+            "monitor_mode": "criteria",
+            "criteria": "   ",
+        }
+
+        with pytest.raises(
+            ValueError,
+            match="criteria is required when monitor_mode is criteria",
+        ):
+            await schedule_service.create_scout(
+                "user-1", "Housing Watch", body, mock_cron_schedule
+            )
+
+        mock_scout_storage.create_scout.assert_not_called()
+        mock_scheduler.create_schedule.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_web_scout_stores_topic(self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule):
         """Web scout stores topic when provided."""
         mock_scout_storage.create_scout.return_value = {"scraper_name": "Web Topic"}

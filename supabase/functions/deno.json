@@ -1,7 +1,7 @@
 {
   "lock": false,
   "tasks": {
-    "test": "deno test --allow-env --allow-read=. --allow-import _shared/ scout-transport-execute/ transport-sampler/",
-    "test:coverage": "deno test --allow-env --allow-read=. --allow-import --coverage=coverage --coverage-raw-data-only --clean _shared/ scout-transport-execute/ transport-sampler/"
+    "test": "deno test --allow-env --allow-read=. --allow-import _shared/ scout-transport-execute/ transport-sampler/ transport-test/",
+    "test:coverage": "deno test --allow-env --allow-read=. --allow-import --coverage=coverage --coverage-raw-data-only --clean _shared/ scout-transport-execute/ transport-sampler/ transport-test/"
   }
 }

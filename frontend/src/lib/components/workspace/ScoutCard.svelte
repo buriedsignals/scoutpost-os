@@ -237,7 +237,7 @@
 		align-items: flex-start;
 		gap: 0.5rem;
 		font-size: 0.8125rem;
-		font-weight: 300;
+		font-weight: 500;
 		color: var(--color-ink-muted);
 	}
 

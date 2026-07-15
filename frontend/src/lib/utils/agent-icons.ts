@@ -63,7 +63,7 @@ export const AGENTS: AgentMeta[] = [
 	},
 	{
 		slug: 'gemini-cli',
-		name: 'Gemini CLI',
+		name: 'Antigravity',
 		iconInner:
 			'<path d="M12 3L9.5 9.5 3 12l6.5 2.5L12 21l2.5-6.5L21 12l-6.5-2.5z"/>'
 	},

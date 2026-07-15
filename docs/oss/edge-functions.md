@@ -15,6 +15,7 @@ Source files: `supabase/functions/`
 | `scout-web-execute` | Page Scout execution and change detection. |
 | `scout-beat-execute` | Beat / Location Scout execution. |
 | `social-test` | Social profile validation and baseline preview. |
+| `transport-test` | Authenticated, Pro/Team Fleet live-data check that returns stable baseline IDs without creating a scout or spending credits. |
 | `social-kickoff` | Social scheduled run kickoff and Apify actor start. |
 | `apify-callback` | Apify webhook receiver for completed actor runs. |
 | `apify-reconcile` | Cron fallback for missed Apify callbacks. |
@@ -55,6 +56,7 @@ This replaces EventBridge/Lambda scheduling. Do not add new EventBridge or Lambd
 - User-facing requests use Supabase Auth JWTs or Scoutpost API keys (`cj_...`) depending on surface.
 - Internal scheduled/worker requests use the shared internal service-key boundary and Supabase service-role access where needed.
 - MCP requests use `mcp-server` with the self-hosted auth/API-key boundary.
+- Hosted Fleet live tests reuse the same Pro/Team entitlement gate as Fleet creation; self-hosted deployments with credits disabled skip that commercial gate.
 
 ## Current References
 

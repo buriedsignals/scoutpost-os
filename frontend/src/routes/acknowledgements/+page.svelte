@@ -80,7 +80,7 @@
 </div>
 
 <style>
-	/* Acknowledgements — plum + ochre on cream, matches /faq */
+	/* Acknowledgements — Night Watch surface, matches /faq */
 	.ack-page {
 		min-height: 100vh;
 		background: var(--color-bg);
@@ -168,7 +168,7 @@
 
 	.subtitle {
 		font-size: 1.0625rem;
-		font-weight: 300;
+		font-weight: 500;
 		color: var(--color-ink-muted);
 		max-width: 560px;
 		margin: 0;
@@ -204,7 +204,7 @@
 
 	.credits li {
 		font-size: 0.9375rem;
-		font-weight: 300;
+		font-weight: 500;
 		color: var(--color-ink-muted);
 		line-height: 1.7;
 	}
@@ -248,6 +248,13 @@
 
 	.footer-note a:hover {
 		border-bottom-color: var(--color-primary);
+	}
+
+	.back-button,
+	.badge,
+	.credits,
+	.credits code {
+		border-radius: var(--radius-lg);
 	}
 
 	@media (max-width: 640px) {

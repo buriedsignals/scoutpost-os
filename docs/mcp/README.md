@@ -1,6 +1,6 @@
 # MCP — Scoutpost remote MCP server
 
-Public, OAuth-protected MCP server at `https://scoutpost.ai/mcp`. MCP clients (Claude Cowork, Claude Desktop, claude.ai, Codex Desktop, Cursor, Windsurf, Gemini CLI, Goose, Hermes, Langdock) connect via Streamable HTTP, authenticate via OAuth 2.1 + RFC 7591 Dynamic Client Registration + PKCE, and call JSON-RPC tools that fan out to the rest of the platform (units search, scout management, project ingest).
+Public, OAuth-protected MCP server at `https://scoutpost.ai/mcp`. MCP clients (Claude Cowork, Claude Desktop, claude.ai, Codex Desktop, Cursor, Windsurf, Antigravity, Goose, Hermes, Langdock) connect via Streamable HTTP, authenticate via OAuth 2.1 + RFC 7591 Dynamic Client Registration + PKCE, and call JSON-RPC tools that fan out to the rest of the platform (units search, scout management, project ingest).
 
 **Spec versions:**
 - MCP Authorization spec `2025-06-18` (Streamable HTTP)
@@ -17,7 +17,7 @@ Public, OAuth-protected MCP server at `https://scoutpost.ai/mcp`. MCP clients (C
 | [`architecture.md`](architecture.md) | What's in front of what — FastAPI proxy, Supabase EF, MuckRock broker, request flow |
 | [`oauth.md`](oauth.md) | The full DCR + PKCE + magiclink + server-side-mint chain end-to-end |
 | [`endpoints.md`](endpoints.md) | Every public endpoint with `curl` probes and expected responses |
-| [`clients.md`](clients.md) | Per-client setup recipes (Cowork, Desktop, Codex Desktop, codex-cli, Cursor, Windsurf, Gemini CLI, Goose, Hermes, Langdock) |
+| [`clients.md`](clients.md) | Per-client setup recipes (Cowork, Desktop, Codex Desktop, codex-cli, Cursor, Windsurf, Antigravity, Goose, Hermes, Langdock) |
 | [`self-hosting.md`](self-hosting.md) | Required env vars, redirect-URL allowlists, domain pinning, OSS adopter checklist |
 | [`debugging.md`](debugging.md) | Configure-vs-Connect, request_id correlation, common failure modes and what each one means |
 
@@ -54,6 +54,6 @@ The whole point: the user pastes the URL, clicks Connect, and OAuth runs. No cli
 - **Claude Code** (`claude mcp add --transport http`) — opens local browser for OAuth (different surface, same server).
 - **Codex Desktop** — Streamable HTTP tab + native OAuth handshake.
 - **codex-cli** — `codex mcp login scoutpost` after a `[mcp_servers.scoutpost]` block in `~/.codex/config.toml`.
-- **Cursor / Windsurf / Gemini CLI / Goose / Hermes / Langdock** — config-file and custom-integration paths described in [`clients.md`](clients.md).
+- **Cursor / Windsurf / Antigravity / Goose / Hermes / Langdock** — config-file and custom-integration paths described in [`clients.md`](clients.md).
 
 ChatGPT is **not** supported as a self-serve target — OpenAI gates custom MCP to Business/Enterprise/Edu plans, useless for individual journalists.

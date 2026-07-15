@@ -37,7 +37,7 @@
 		justify-content: center;
 		gap: 0.5rem;
 		border: 1px solid var(--color-border);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		text-decoration: none;
 		cursor: pointer;
 		transition:
@@ -66,8 +66,9 @@
 
 	.sharp-action.surface:hover,
 	.sharp-action.surface.active {
-		border-color: var(--color-ink);
-		color: var(--color-primary-deep);
+		border-color: var(--color-border-strong);
+		background: var(--color-surface-hover);
+		color: var(--color-ink);
 	}
 
 	.sharp-action.surface.active {
@@ -75,8 +76,8 @@
 	}
 
 	.sharp-action.primary {
-		background: var(--color-ink);
-		border-color: var(--color-ink);
+		background: var(--color-primary);
+		border-color: var(--color-primary);
 		color: var(--color-bg);
 	}
 
@@ -94,7 +95,8 @@
 
 	.sharp-action.ghost:hover,
 	.sharp-action.ghost.active {
-		border-color: var(--color-primary);
-		color: var(--color-primary-deep);
+		border-color: var(--color-border-strong);
+		background: var(--color-secondary-soft);
+		color: var(--color-ink);
 	}
 </style>

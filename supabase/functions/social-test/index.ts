@@ -36,6 +36,7 @@ import { logEvent } from "../_shared/log.ts";
 import {
   buildSocialProfileUrl,
   classifyProfileProbeStatus,
+  isInvalidLinkedInProfileUrl,
   isLinkedInCompanyUrl,
   looksLikeMissingProfileError,
   normalizeSocialHandle,
@@ -114,6 +115,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
       posts_data: [],
     });
   }
+  if (platform === "linkedin" && isInvalidLinkedInProfileUrl(handle)) {
+    return jsonOk({
+      valid: false,
+      profile_url: "",
+      error:
+        "LinkedIn profile URLs must use a personal profile path (linkedin.com/in/...).",
+      post_ids: [],
+      preview_posts: [],
+      posts_data: [],
+    });
+  }
 
   const normalizedHandle = normalizeSocialHandle(platform, handle);
   const profileUrl = buildSocialProfileUrl(platform, normalizedHandle);
@@ -165,6 +177,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonOk({
       valid: true,
       profile_url: profileUrl,
+      profile_handle: normalizedHandle,
       error,
       post_ids: [],
       preview_posts: [],
@@ -214,6 +227,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonOk({
       valid: true,
       profile_url: profileUrl,
+      profile_handle: normalizedHandle,
       post_ids: postIds,
       preview_posts: previewPosts,
       posts_data: postsData,
@@ -243,6 +257,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonOk({
       valid: true,
       profile_url: profileUrl,
+      profile_handle: normalizedHandle,
       error: `Profile valid but baseline scan failed: ${msg.slice(0, 140)}`,
       post_ids: [],
       preview_posts: [],

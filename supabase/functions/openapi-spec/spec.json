@@ -148,6 +148,59 @@
         }
       }
     },
+    "/transport-test": {
+      "post": {
+        "tags": ["scouts"],
+        "summary": "Test a Fleet Scout configuration against live data and prepare a silent baseline",
+        "description": "Non-credit Step 1 for Fleet creation. Hosted Scoutpost requires Pro/Team. Pass the returned baseline_ids as transport_baseline_ids when creating the scout; an explicit empty array is a valid tested quiet baseline.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["config"],
+                "properties": {
+                  "config": { "$ref": "#/components/schemas/TransportConfig" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Live check completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["valid", "baseline_ids", "preview"],
+                  "properties": {
+                    "valid": { "type": "boolean", "const": true },
+                    "baseline_ids": { "type": "array", "maxItems": 500, "items": { "type": "string" } },
+                    "preview": {
+                      "type": "array",
+                      "maxItems": 20,
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "label"],
+                        "properties": {
+                          "id": { "type": "string" },
+                          "label": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "403": { "description": "Fleet Scout is unavailable for the caller's hosted tier" },
+          "503": { "description": "Required live transport data is unavailable or stale" }
+        }
+      }
+    },
     "/scouts/from-template": {
       "post": {
         "tags": [
@@ -1799,6 +1852,25 @@
             "nullable": true,
             "additionalProperties": true
           },
+          "platform": {
+            "type": "string",
+            "enum": ["instagram", "x", "facebook", "tiktok", "linkedin"],
+            "nullable": true
+          },
+          "profile_handle": {
+            "type": "string",
+            "nullable": true
+          },
+          "monitor_mode": {
+            "type": "string",
+            "enum": ["summarize", "criteria"],
+            "nullable": true,
+            "description": "Social scout mode. New public clients use criteria by default; legacy rows may contain null and execute with summarize semantics."
+          },
+          "track_removals": {
+            "type": "boolean",
+            "nullable": true
+          },
           "regularity": {
             "$ref": "#/components/schemas/Regularity",
             "nullable": true
@@ -1930,6 +2002,28 @@
               "type": "string"
             }
           },
+          "platform": {
+            "type": "string",
+            "enum": ["instagram", "x", "facebook", "tiktok", "linkedin"],
+            "description": "Required for social scouts."
+          },
+          "profile_handle": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Required for social scouts. For LinkedIn, provide a full personal-profile URL such as https://www.linkedin.com/in/example; other platforms accept the profile username."
+          },
+          "monitor_mode": {
+            "type": "string",
+            "enum": ["summarize", "criteria"],
+            "example": "criteria",
+            "x-client-default": "criteria",
+            "description": "New public clients should default social scouts to criteria and provide non-empty criteria text. Pass summarize explicitly to collect all substantive new posts. For backward compatibility, raw REST requests that omit both monitor_mode and criteria continue with summarize semantics."
+          },
+          "track_removals": {
+            "type": "boolean",
+            "default": false,
+            "description": "For social scouts, also report posts removed after the saved baseline."
+          },
           "archive_enabled": {
             "type": "boolean",
             "description": "Evidence archiving for Page Scouts (Pro/Team on hosted SaaS; enabling on free tier returns 403 archive_forbidden)."
@@ -1937,8 +2031,14 @@
           "wayback_enabled": {
             "type": "boolean",
             "description": "Also submit captures to the Internet Archive Wayback Machine (public). Default true; per-scout opt-out for sensitive investigations."
-          }
-          ,"config": { "$ref": "#/components/schemas/TransportConfig", "description": "Required for type transport. Fleet Scout alerts when a watched object enters this area; criteria is an optional post-entry filter." }
+          },
+          "transport_baseline_ids": {
+            "type": "array",
+            "maxItems": 500,
+            "items": { "type": "string" },
+            "description": "Transport scouts only: baseline_ids returned by POST /transport-test. Pass an explicit empty array when Step 1 found no current matches; omission preserves legacy first-run baseline behavior."
+          },
+          "config": { "$ref": "#/components/schemas/TransportConfig", "description": "Required for type transport. Fleet Scout alerts when a watched object enters this area; criteria is an optional post-entry filter." }
         }
       },
       "ScoutUpdate": {
@@ -1990,6 +2090,22 @@
             "type": "string",
             "format": "uuid"
           },
+          "platform": {
+            "type": "string",
+            "enum": ["instagram", "x", "facebook", "tiktok", "linkedin"]
+          },
+          "profile_handle": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "monitor_mode": {
+            "type": "string",
+            "enum": ["summarize", "criteria"],
+            "description": "When changing a social scout to criteria mode, also provide non-empty criteria text."
+          },
+          "track_removals": {
+            "type": "boolean"
+          },
           "archive_enabled": {
             "type": "boolean",
             "description": "Evidence archiving for Page Scouts (Pro/Team on hosted SaaS; enabling on free tier returns 403 archive_forbidden)."
@@ -2017,7 +2133,12 @@
         "required": ["center", "radius_km"],
         "properties": {
           "center": { "type": "object", "required": ["lat", "lon"], "properties": { "lat": { "type": "number", "minimum": -90, "maximum": 90 }, "lon": { "type": "number", "minimum": -180, "maximum": 180 } } },
-          "radius_km": { "type": "number", "exclusiveMinimum": 0, "maximum": 500 },
+          "radius_km": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1500,
+            "description": "Maximum 463 km for aircraft and 1,500 km for vessel/satellite; enforced according to mode."
+          },
           "display_name": { "type": "string", "maxLength": 256 },
           "maptiler_id": { "type": "string", "maxLength": 256 }
         },

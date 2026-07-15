@@ -63,7 +63,8 @@ jobs:
   # Edge Function unit tests — stack-free set only. Most per-function
   # _test.ts files are integration tests that need a running local Supabase
   # stack (supabase start + served functions) and stay out of CI; _shared/
-  # and scout-transport-execute/ are pure and must stay green here.
+  # scout-transport-execute/, transport-sampler/, and transport-test/ are pure
+  # and must stay green here.
   test-functions:
     name: Edge Function unit tests
     runs-on: ubuntu-latest
@@ -76,7 +77,7 @@ jobs:
       # the absence of --allow-net denies runtime fetch() — so a test that
       # forgets to stub fetch fails loudly instead of making a live call.
       - name: Deno unit tests (stack-free set, network-isolated)
-        run: cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ scout-transport-execute/ transport-sampler/
+        run: cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ scout-transport-execute/ transport-sampler/ transport-test/
       - name: Benchmark truth unit tests
         run: deno test --allow-import scripts/benchmarks/_bench_truth_test.ts scripts/benchmarks/benchmark-transport_test.ts
       - name: Scrape-port coverage gate (100% on new modules)

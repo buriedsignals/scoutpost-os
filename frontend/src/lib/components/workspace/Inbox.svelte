@@ -94,7 +94,7 @@
 	$: showInitialSpinner = loading && units.length === 0;
 </script>
 
-<div class="inbox-wrapper">
+<div class="inbox-wrapper" role="region" aria-label="Information unit inbox">
 	<div class="inbox-header">
 		<div class="inbox-title-row">
 			<h2 class="inbox-title">{headerTitle}</h2>
@@ -273,11 +273,12 @@
 		padding: 0.5625rem 0.75rem;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-md);
 	}
 
 	.inbox-search:focus-within {
-		border-color: var(--color-primary);
-		box-shadow: 0 0 0 3px var(--color-primary-soft);
+		border-color: var(--ring);
+		box-shadow: 0 0 0 3px oklch(0.78 0.045 205 / 12%);
 	}
 
 	.inbox-search :global(.search-icon) {
@@ -314,12 +315,13 @@
 		text-transform: uppercase;
 		cursor: pointer;
 		white-space: nowrap;
+		border-radius: var(--radius-md);
 	}
 
 	.clear-search-action:hover {
-		border-color: var(--color-primary);
-		background: var(--color-primary-soft);
-		color: var(--color-primary-deep);
+		border-color: var(--color-border-strong);
+		background: var(--color-surface);
+		color: var(--color-ink);
 	}
 
 	.search-summary-inline {
@@ -383,15 +385,15 @@
 	}
 
 	.filter-pill.needs-review.active {
-		background: var(--color-secondary-soft);
-		color: var(--color-secondary);
-		border-color: var(--color-secondary);
+		background: oklch(0.76 0.12 82 / 14%);
+		color: var(--color-warning);
+		border-color: oklch(0.76 0.12 82 / 42%);
 	}
 
 	.filter-pill.all.active {
-		background: var(--color-primary-soft);
-		color: var(--color-primary-deep);
-		border-color: var(--color-primary);
+		background: oklch(0.48 0.035 205 / 32%);
+		color: oklch(0.87 0.025 205);
+		border-color: oklch(0.78 0.025 205 / 34%);
 	}
 
 	@media (max-width: 900px) {
@@ -428,8 +430,9 @@
 		margin: 0 2rem 2rem;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
-		border-radius: 0;
+		border-radius: var(--radius-lg);
 		overflow: hidden;
+		box-shadow: 0 18px 44px -30px oklch(0.06 0.015 210 / 60%);
 	}
 
 	.list-loading {

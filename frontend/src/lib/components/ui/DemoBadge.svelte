@@ -9,12 +9,12 @@
 	.demo-badge {
 		display: inline-flex;
 		align-items: center;
-		font-weight: 800;
+		font-weight: 700;
 		letter-spacing: 0.1em;
-		color: white;
-		background: linear-gradient(135deg, #6B3FA0, #4E2C78);
-		border-radius: 0;
-		box-shadow: 0 1px 3px rgba(78, 44, 120, 0.3);
+		color: var(--color-foreground);
+		background: color-mix(in oklab, var(--color-pond) 70%, var(--color-card));
+		border-radius: var(--radius-md);
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-pond) 40%, transparent);
 		white-space: nowrap;
 		pointer-events: none;
 	}

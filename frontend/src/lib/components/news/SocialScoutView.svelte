@@ -13,7 +13,7 @@
 	// Form state
 	let platform: 'instagram' | 'x' | 'facebook' | 'tiktok' | 'linkedin' = 'instagram';
 	let handle = '';
-	let monitorMode: 'summarize' | 'criteria' = 'summarize';
+	let monitorMode: 'summarize' | 'criteria' = 'criteria';
 	let criteria = '';
 	let trackRemovals = false;
 
@@ -30,6 +30,8 @@
 	let baselinePostIds: string[] = [];
 	let previewPosts: { id: string; text: string; timestamp: string }[] = [];
 	let scanWarning = '';
+	let verifiedHandle = '';
+	let verifiedProfileKey = '';
 
 	// Schedule modal state
 	let showScheduleModal = false;
@@ -39,15 +41,29 @@
 
 	// Normalize handle: strip leading @
 	$: normalizedHandle = handle.replace(/^@/, '').trim();
-	$: canVerify = normalizedHandle.length > 0;
+	$: profileKey = `${platform}:${normalizedHandle}`;
+	$: canVerify = normalizedHandle.length > 0 && (monitorMode !== 'criteria' || criteria.trim().length > 0);
+	$: if (verifySuccess && verifiedProfileKey && profileKey !== verifiedProfileKey) {
+		verifySuccess = false;
+		baselinePosts = [];
+		baselinePostIds = [];
+		previewPosts = [];
+		verifiedHandle = '';
+		verifiedProfileKey = '';
+	}
 
 	async function handleVerifyProfile() {
+		const requestedPlatform = platform;
+		const requestedHandle = normalizedHandle;
+		const requestedProfileKey = `${requestedPlatform}:${requestedHandle}`;
 		verifyError = '';
 		verifySuccess = false;
 		scanWarning = '';
 		baselinePosts = [];
 		baselinePostIds = [];
 		previewPosts = [];
+		verifiedHandle = '';
+		verifiedProfileKey = '';
 		isVerifying = true;
 		testProgress = 5;
 		testProgressMessage = 'Connecting to platform...';
@@ -81,11 +97,16 @@
 					'Content-Type': 'application/json',
 					...(token ? { Authorization: `Bearer ${token}` } : {})
 				},
-				body: JSON.stringify({ platform, handle: normalizedHandle })
+				body: JSON.stringify({ platform: requestedPlatform, handle: requestedHandle })
 			});
 
 			if (!response.ok) {
 				const errorData = await response.json().catch(() => ({}));
+				if (profileKey !== requestedProfileKey) {
+					testProgress = 0;
+					testProgressMessage = '';
+					return;
+				}
 				verifyError = (errorData as { detail?: string }).detail || m.socialScout_verifyFailed();
 				testProgress = 100;
 				testProgressMessage = '';
@@ -95,6 +116,7 @@
 			const data = await response.json() as {
 				valid: boolean;
 				profile_url: string;
+				profile_handle?: string;
 				error?: string;
 				post_ids: string[];
 				preview_posts: { id: string; text: string; timestamp: string }[];
@@ -102,8 +124,18 @@
 			};
 
 			if (!data.valid) {
+				if (profileKey !== requestedProfileKey) {
+					testProgress = 0;
+					testProgressMessage = '';
+					return;
+				}
 				verifyError = data.error || m.socialScout_verifyFailed();
 				testProgress = 100;
+				testProgressMessage = '';
+				return;
+			}
+			if (profileKey !== requestedProfileKey) {
+				testProgress = 0;
 				testProgressMessage = '';
 				return;
 			}
@@ -112,6 +144,8 @@
 			baselinePostIds = data.post_ids || [];
 			previewPosts = data.preview_posts || [];
 			baselinePosts = data.posts_data || [];
+			verifiedHandle = data.profile_handle || requestedHandle;
+			verifiedProfileKey = requestedProfileKey;
 
 			// Check for partial success (HEAD ok but Apify failed)
 			if (data.error && data.post_ids.length === 0) {
@@ -122,8 +156,13 @@
 			testProgress = 100;
 			testProgressMessage = m.socialScout_verifySuccess({ count: String(baselinePostIds.length) });
 		} catch {
-			verifyError = m.socialScout_verifyFailed();
-			testProgress = 100;
+			if (profileKey === requestedProfileKey) {
+				verifyError = m.socialScout_verifyFailed();
+				testProgress = 100;
+			} else {
+				testProgress = 0;
+				testProgressMessage = '';
+			}
 		} finally {
 			isVerifying = false;
 			if (testProgressTimer) {
@@ -140,6 +179,8 @@
 		baselinePosts = [];
 		baselinePostIds = [];
 		previewPosts = [];
+		verifiedHandle = '';
+		verifiedProfileKey = '';
 		testProgress = 0;
 		testProgressMessage = '';
 	}
@@ -173,12 +214,14 @@
 
 				<!-- Handle Input -->
 				<div class="field-group">
-					<label for="social-handle" class="field-label">{m.socialScout_handleLabel()}</label>
+					<label for="social-handle" class="field-label">
+						{platform === 'linkedin' ? m.socialScout_linkedinUrlLabel() : m.socialScout_handleLabel()}
+					</label>
 					<input
 						id="social-handle"
 						type="text"
 						bind:value={handle}
-						placeholder={m.socialScout_handlePlaceholder()}
+						placeholder={platform === 'linkedin' ? m.socialScout_linkedinUrlPlaceholder() : m.socialScout_handlePlaceholder()}
 						class="form-input"
 					/>
 				</div>
@@ -189,8 +232,8 @@
 					<TogglePicker
 						bind:value={monitorMode}
 						options={[
-							{ value: 'summarize', label: m.socialScout_modeSummarize(), description: m.socialScout_modeSummarizeDesc() },
-							{ value: 'criteria', label: m.socialScout_modeCriteria(), description: m.socialScout_modeCriteriaDesc() }
+							{ value: 'criteria', label: m.socialScout_modeCriteria(), description: m.socialScout_modeCriteriaDesc() },
+							{ value: 'summarize', label: m.socialScout_modeSummarize(), description: m.socialScout_modeSummarizeDesc() }
 						]}
 					/>
 
@@ -226,7 +269,7 @@
 						step1Loading={isVerifying}
 						step1Label={m.socialScout_verifyButton()}
 						step1LoadingLabel={m.common_testing()}
-						step2Enabled={verifySuccess}
+						step2Enabled={verifySuccess && (monitorMode !== 'criteria' || !!criteria.trim())}
 						onStep1={handleVerifyProfile}
 						onStep2={() => showScheduleModal = true}
 					/>
@@ -249,11 +292,12 @@
 					message={testProgressMessage}
 					state={progressState}
 					successMessage={m.socialScout_verifySuccess({ count: String(baselinePostIds.length) })}
-					successDetails={'@' + normalizedHandle + ' on ' + platform}
+					successDetails={(platform === 'linkedin' ? verifiedHandle : '@' + verifiedHandle) + ' on ' + platform}
 					errorTitle={m.socialScout_verifyFailed()}
 					errorMessage={verifyError}
 					showButton={false}
 					hintText={isVerifying ? m.common_testing() : ''}
+					compact={verifySuccess}
 				/>
 
 				{#if verifySuccess && previewPosts.length > 0}
@@ -262,7 +306,7 @@
 							<p class="scan-warning">{scanWarning}</p>
 						{/if}
 						<p class="preview-label">Recent posts (baseline)</p>
-						{#each previewPosts as post}
+						{#each previewPosts.slice(0, 3) as post}
 							<div class="preview-post">
 								<span class="preview-text">{post.text || '(no caption)'}</span>
 								{#if post.timestamp}
@@ -281,7 +325,7 @@
 <ScoutScheduleModal
 	bind:open={showScheduleModal}
 	scoutType="social"
-	profile_handle={normalizedHandle}
+	profile_handle={verifiedHandle}
 	{platform}
 	monitor_mode={monitorMode}
 	criteria={monitorMode === 'criteria' ? criteria : ''}
@@ -292,7 +336,7 @@
 	onSuccess={() => {
 		handle = '';
 		criteria = '';
-		monitorMode = 'summarize';
+		monitorMode = 'criteria';
 		trackRemovals = false;
 		verifySuccess = false;
 		testProgress = 0;
@@ -300,6 +344,8 @@
 		baselinePostIds = [];
 		previewPosts = [];
 		scanWarning = '';
+		verifiedHandle = '';
+		verifiedProfileKey = '';
 		showScheduleModal = false;
 		onScheduled({ scoutType: 'social' });
 	}}
@@ -353,7 +399,7 @@
 		padding: 0.75rem;
 		background: var(--color-bg);
 		border: 1px solid var(--color-border);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 	}
 
 	.preview-label {
@@ -392,7 +438,7 @@
 		color: #9F6016;
 		margin: 0 0 0.5rem 0;
 		padding: 0.375rem 0.5rem;
-		background: #fffbeb;
-		border-radius: 0;
+		background: color-mix(in oklab, var(--color-warning) 10%, var(--color-card));
+		border-radius: var(--radius-md);
 	}
 </style>

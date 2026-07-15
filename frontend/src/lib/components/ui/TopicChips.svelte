@@ -101,7 +101,6 @@
 	<!-- Existing topic chips -->
 	{#each topicChips as chip, index}
 		<div class="topic-chip">
-			<Tag size={12} />
 			<span>{chip}</span>
 			<button type="button" class="chip-remove" on:click={() => removeTopic(index)}>
 				<X size={12} />
@@ -141,7 +140,7 @@
 			{/if}
 		</div>
 	{:else}
-		<span class="max-topics-hint">Max {MAX_TOPICS} topics</span>
+		<span class="max-topics-hint">Max {MAX_TOPICS} projects</span>
 	{/if}
 </div>
 
@@ -154,7 +153,7 @@
 		padding: 0.5rem 0.75rem;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		min-height: 2.5rem;
 		transition:
 			border-color 150ms ease,
@@ -239,7 +238,7 @@
 		margin-top: 0.25rem;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		z-index: 50;
 		max-height: 200px;
 		overflow-y: auto;

@@ -50,7 +50,7 @@ Coming soon.
 ## Configure
 
 Config lives at `~/.scoutpost/config.json`. Set an api_url and **either** an
-`api_key` (preferred — generated in the app at /api → Agents → API → Create key)
+`api_key` (preferred — generated in the app at /api → Connect Agent → API keys & REST → Create key)
 or a legacy `auth_token` JWT.
 
 ```bash
@@ -107,6 +107,14 @@ scout scouts add --name "Local climate beat" --type beat \
   --criteria "local policy decisions with budget or timeline impacts" \
   --location-json '{"displayName":"Bergen, Norway","latitude":60.39,"longitude":5.32}' \
   --source-mode niche --priority-sources examplelocal.no
+
+# Fleet Scouts: test live data first, then name and schedule with that baseline
+scout scouts test-transport --mode vessel --watch-ids 636019825 \
+  --center-lat 26.55 --center-lon 56.25 --radius-km 40
+scout scouts add --name "Hormuz vessel watch" --type transport --mode vessel \
+  --watch-ids 636019825 --center-lat 26.55 --center-lon 56.25 --radius-km 40 \
+  --baseline-ids 636019825 --regularity 6h
+# If the test returns no baseline IDs, preserve that result with --baseline-ids ''.
 scout scouts run <id>
 
 # Information units
@@ -132,14 +140,16 @@ scout snapshots url <snapshot_id> --artifact screenshot   # print a signed link 
 scout scouts update <scout_id> --archive-enabled true --wayback-enabled false
 ```
 
-Topic tags are for organization and UI filtering. Use 1-3 short comma-separated
-tags, not long instructions. Put human context in `--description` and filtering
-or notification rules in `--criteria`. A scout must have either topic tags or a
-location.
+The UI calls topic tags **Project labels**. They are for organization and UI
+filtering, and are distinct from investigation Projects / `project_id`. Use 1-3
+short comma-separated tags, not long instructions. Put human context in
+`--description` and filtering or notification rules in `--criteria`. A scout
+must have either topic tags or a location.
 
-When you create a scheduled scout (`--cron` or `--regularity` + `--time`), the
-server establishes the initial baseline before scheduling it. `scout scouts run`
-compares against that baseline and will not create the first baseline itself.
+For a Fleet Scout, run `test-transport` and pass its `baseline_ids` through
+`--baseline-ids` when creating the schedule. Other scheduled scout types
+establish their initial baseline during creation. `scout scouts run` compares
+against that baseline and will not create the first baseline itself.
 
 Run `scout <command> --help` for subcommand-specific usage.
 

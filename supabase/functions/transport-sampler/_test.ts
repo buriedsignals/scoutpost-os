@@ -10,6 +10,7 @@ import {
   toSubscriptionBoxes,
   unionBoxes,
 } from "./ais.ts";
+import { aisSubscriptionMessage } from "./sampler.ts";
 
 const fixture = JSON.parse(
   Deno.readTextFileSync(
@@ -75,6 +76,26 @@ Deno.test("coalesce drops vessels seen only via static data (no position)", () =
     },
   ];
   assertEquals(coalesceFrames(frames).length, 0);
+});
+
+Deno.test("live Fleet test narrows the global AIS subscription to watched MMSIs", () => {
+  assertEquals(
+    aisSubscriptionMessage({
+      apiKey: "test-key",
+      boxes: [[[-90, -180], [90, 180]]],
+      shipMmsi: ["636019825", "563148100"],
+    }),
+    {
+      APIKey: "test-key",
+      BoundingBoxes: [[[-90, -180], [90, 180]]],
+      FiltersShipMMSI: ["636019825", "563148100"],
+      FilterMessageTypes: [
+        "PositionReport",
+        "StandardClassBPositionReport",
+        "ShipStaticData",
+      ],
+    },
+  );
 });
 
 Deno.test("unionBoxes merges overlapping scout areas to a fixed point", () => {

@@ -143,7 +143,7 @@
 		padding: 0.5rem 0.75rem 0.5rem 0.625rem;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		font-size: 0.875rem;
 		color: var(--color-ink);
 		cursor: pointer;
@@ -153,11 +153,11 @@
 		min-width: 14rem;
 	}
 	.trigger:hover {
-		border-color: #c7bdef;
+		border-color: var(--color-border-strong);
 	}
 	.trigger[aria-expanded='true'] {
-		border-color: #4E2C78;
-		box-shadow: 0 0 0 3px rgba(78, 44, 120, 0.12);
+		border-color: var(--ring);
+		box-shadow: 0 0 0 3px oklch(0.78 0.045 205 / 12%);
 	}
 
 	.label {
@@ -195,8 +195,8 @@
 		min-width: 100%;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
-		border-radius: 0;
-		box-shadow: 0 10px 25px -10px rgba(15, 23, 42, 0.2);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-lg);
 		max-height: min(34rem, calc(100vh - 8rem));
 		overflow: hidden;
 	}
@@ -216,14 +216,14 @@
 
 	.menu-wrap::before {
 		top: 0;
-		background: linear-gradient(to bottom, var(--color-surface-alt), rgba(255, 255, 255, 0));
-		box-shadow: inset 0 10px 10px -12px rgba(15, 23, 42, 0.5);
+		background: linear-gradient(to bottom, var(--color-surface-alt), transparent);
+		box-shadow: inset 0 10px 10px -12px oklch(0.06 0.015 210 / 55%);
 	}
 
 	.menu-wrap::after {
 		bottom: 0;
-		background: linear-gradient(to top, var(--color-surface-alt), rgba(255, 255, 255, 0));
-		box-shadow: inset 0 -12px 12px -14px rgba(15, 23, 42, 0.55);
+		background: linear-gradient(to top, var(--color-surface-alt), transparent);
+		box-shadow: inset 0 -12px 12px -14px oklch(0.06 0.015 210 / 55%);
 	}
 
 	.menu-wrap.scroll-up::before,
@@ -249,7 +249,7 @@
 		padding: 0.5rem 0.625rem;
 		background: transparent;
 		border: none;
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		font-size: 0.875rem;
 		color: var(--color-ink);
 		cursor: pointer;
@@ -257,13 +257,13 @@
 	}
 
 	.item:hover {
-		background: var(--color-primary-soft);
-		color: var(--color-primary-deep);
+		background: var(--color-secondary-soft);
+		color: var(--color-ink);
 	}
 
 	.item.selected {
-		background: var(--color-primary-soft);
-		color: var(--color-primary-deep);
+		background: oklch(0.48 0.035 205 / 32%);
+		color: oklch(0.87 0.025 205);
 		font-weight: 600;
 	}
 

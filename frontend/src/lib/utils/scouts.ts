@@ -18,8 +18,8 @@ export type ScoutTypeLike = ScoutType | 'beat' | 'page' | 'location' | string;
 
 /**
  * Per-scout-type display config: the icon for the eyebrow glyph, the CSS
- * className used to wire up the left-stripe + eyebrow color ("web" and
- * "pulse" take plum; "social" and "civic" take ochre), and the human label.
+ * className used to preserve scout-type identity for component styling, and
+ * the human label. Selection is represented with a full-surface treatment.
  *
  * Single source of truth for ScoutCard, ScoutFocus, and NewScoutDropdown.
  */
@@ -36,7 +36,7 @@ export const SCOUT_TYPE_CONFIG: Record<ScoutType, ScoutTypeDisplay> = {
 	civic:  { icon: Landmark, className: 'civic',  label: 'Civic Monitor' },
 	// Registered ahead of the full Transport panel so API-created transport
 	// scouts render with the right identity instead of falling back to the
-	// Page Monitor display + editor. Borrows the 'web' stripe styling until
+	// Page Monitor display + editor. Borrows the 'web' identity class until
 	// the dedicated panel ships.
 	transport: { icon: Navigation, className: 'web', label: 'Fleet Monitor' }
 };

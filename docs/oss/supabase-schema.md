@@ -55,7 +55,7 @@ source_mode           TEXT  -- 'reliable' | 'niche' (beat only)
 excluded_domains      TEXT[]
 platform              TEXT  -- 'instagram' | 'x' | 'facebook' (social only)
 profile_handle        TEXT  -- social only
-monitor_mode          TEXT  -- 'summarize' | 'criteria' (social only)
+monitor_mode          TEXT  -- 'summarize' | 'criteria' (social only; nullable for legacy summarize compatibility)
 track_removals        BOOLEAN
 root_domain           TEXT  -- civic only
 tracked_urls          TEXT[]  -- civic only

@@ -44,7 +44,26 @@ Presence is judged by position age, not run counting, so an anchored vessel
 or loitering aircraft does not re-alert. Each object is claimed transactionally
 so concurrent runs cannot double-email. Time-based eviction re-arms a genuine
 re-entry. The first run of a scout establishes a **silent baseline** (records
-what is already inside, alerts nothing) — alerts begin on the second run.
+what is already inside, alerts nothing) for legacy/API creation that does not
+provide a tested baseline. In the UI, Step 1 checks the live IDs and prepares
+that silent baseline before Step 2 names and schedules the scout, so the first
+scheduled run can report genuine entries that happened after the test. Vessel
+tests request a current position for every watched MMSI before deciding which
+are inside the requested area, and satellite tests
+refresh an empty or stale orbit cache, so the first Fleet Scout can complete
+Step 1 on a clean deployment.
+
+The same two-step contract is public on every client surface:
+
+- REST: `POST /transport-test`, then `POST /scouts` with the returned
+  `baseline_ids` in `transport_baseline_ids`.
+- MCP: `test_transport_config`, then `create_scout` with
+  `transport_baseline_ids`.
+- CLI: `scout scouts test-transport ...`, then `scout scouts add ...
+  --baseline-ids <comma-separated-ids>`. Use `--baseline-ids ''` for a tested
+  empty baseline.
+
+Omitting `transport_baseline_ids` retains the legacy silent-first-run behavior.
 
 **Shared-infrastructure staleness never auto-deactivates a scout.** If the AIS
 sampler or the satellite GP refresh is behind, runs record a visible `skipped`

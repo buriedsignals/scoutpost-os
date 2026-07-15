@@ -87,7 +87,7 @@
 		padding: 0 1.25rem;
 		height: 53px;
 		box-sizing: border-box;
-		background: var(--color-surface-alt);
+		background: color-mix(in oklch, var(--color-surface-alt) 94%, transparent);
 		border-bottom: 1px solid var(--color-border);
 		position: relative;
 		overflow: visible;
@@ -128,6 +128,7 @@
 		height: 30px;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
 		color: var(--color-ink-muted);
 		cursor: pointer;
 		transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
@@ -162,12 +163,13 @@
 		padding: 0.375rem 0.625rem;
 		background: var(--color-bg);
 		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
 		transition: border-color 150ms ease, box-shadow 150ms ease;
 	}
 
 	.search-field:focus-within {
-		border-color: var(--color-primary);
-		box-shadow: 0 0 0 3px var(--color-primary-soft);
+		border-color: var(--ring);
+		box-shadow: 0 0 0 3px oklch(0.78 0.045 205 / 12%);
 	}
 
 	.search-field.searching {

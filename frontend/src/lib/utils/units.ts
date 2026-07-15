@@ -24,21 +24,21 @@ export function cleanUnitStatement(statement: string | null | undefined): string
  * `var(--…)` strings so they render via inline `style=` in both UnitRow
  * and UnitDrawer without duplicating the palette mapping.
  *
- * Civic / beat / pulse / location → plum. Page / web / social → ochre.
+ * Civic / beat / pulse / location → moonlight. Page / web / social → pond.
  */
 export interface UnitTypeStyle {
 	background: string;
 	color: string;
 }
 
-const PLUM_STYLE: UnitTypeStyle = {
-	background: 'var(--color-primary-soft)',
-	color: 'var(--color-primary-deep)'
+const MOONLIGHT_STYLE: UnitTypeStyle = {
+	background: 'oklch(0.87 0.025 205 / 12%)',
+	color: 'oklch(0.87 0.025 205)'
 };
 
-const OCHRE_STYLE: UnitTypeStyle = {
+const POND_STYLE: UnitTypeStyle = {
 	background: 'var(--color-secondary-soft)',
-	color: 'var(--color-secondary)'
+	color: 'oklch(0.72 0.06 200)'
 };
 
 const NEUTRAL_STYLE: UnitTypeStyle = {
@@ -47,13 +47,13 @@ const NEUTRAL_STYLE: UnitTypeStyle = {
 };
 
 const UNIT_TYPE_STYLES: Record<string, UnitTypeStyle> = {
-	CIVIC: PLUM_STYLE,
-	BEAT: PLUM_STYLE,
-	PULSE: PLUM_STYLE,
-	LOCATION: PLUM_STYLE,
-	PAGE: OCHRE_STYLE,
-	WEB: OCHRE_STYLE,
-	SOCIAL: OCHRE_STYLE
+	CIVIC: MOONLIGHT_STYLE,
+	BEAT: MOONLIGHT_STYLE,
+	PULSE: MOONLIGHT_STYLE,
+	LOCATION: MOONLIGHT_STYLE,
+	PAGE: POND_STYLE,
+	WEB: POND_STYLE,
+	SOCIAL: POND_STYLE
 };
 
 export function getUnitTypeStyle(unitType: string | null | undefined): UnitTypeStyle {

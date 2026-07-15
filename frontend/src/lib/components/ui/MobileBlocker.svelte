@@ -51,7 +51,7 @@
 	.mobile-blocker {
 		position: fixed;
 		inset: 0;
-		background: linear-gradient(135deg, #fafaf9 0%, #f5f5f4 100%);
+		background: radial-gradient(circle at 18% 86%, color-mix(in oklab, var(--color-pond) 16%, transparent), transparent 38%), var(--color-bg);
 		z-index: 9999;
 		display: flex;
 		align-items: center;
@@ -83,7 +83,7 @@
 	}
 
 	.title {
-		font-family: 'Crimson Pro', Georgia, serif;
+		font-family: var(--font-body);
 		font-size: 2.5rem;
 		font-weight: 700;
 		margin-bottom: 2rem;
@@ -92,15 +92,12 @@
 	}
 
 	.gradient-text {
-		background: linear-gradient(135deg, #6B3FA0 0%, #4E2C78 100%);
-		-webkit-background-clip: text;
-		background-clip: text;
-		-webkit-text-fill-color: transparent;
+		color: var(--color-moonlight);
 		display: inline-block;
 	}
 
 	.heading {
-		font-family: 'DM Sans', sans-serif;
+		font-family: var(--font-body);
 		font-size: 1.5rem;
 		font-weight: 600;
 		margin-bottom: 1rem;
@@ -108,7 +105,7 @@
 	}
 
 	.message {
-		font-family: 'DM Sans', sans-serif;
+		font-family: var(--font-body);
 		font-size: 1rem;
 		line-height: 1.6;
 		color: var(--color-ink-muted);
@@ -116,7 +113,7 @@
 	}
 
 	.submessage {
-		font-family: 'DM Sans', sans-serif;
+		font-family: var(--font-body);
 		font-size: 0.875rem;
 		line-height: 1.6;
 		color: var(--color-ink-subtle);

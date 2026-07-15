@@ -387,6 +387,147 @@ Deno.test("scouts: social fields persist and seed post snapshot baseline", async
   }
 });
 
+Deno.test("scouts: social patch validates criteria against merged state", async () => {
+  const user = await createTestUser();
+  let createdId: string | null = null;
+  try {
+    const createRes = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Social Patch Criteria Guard",
+        type: "social",
+        platform: "linkedin",
+        profile_handle: "satyanadella",
+        monitor_mode: "summarize",
+        topic: "technology",
+      }),
+    });
+    assertEquals(createRes.status, 201);
+    const created = await createRes.json();
+    createdId = created.id;
+
+    const missingCriteria = await fetch(
+      functionUrl("scouts", `/${created.id}`),
+      {
+        method: "PATCH",
+        headers: headers(user.token),
+        body: JSON.stringify({ monitor_mode: "criteria" }),
+      },
+    );
+    assertEquals(missingCriteria.status, 400);
+    assertMatch((await missingCriteria.json()).error, /criteria/i);
+
+    const withCriteria = await fetch(
+      functionUrl("scouts", `/${created.id}`),
+      {
+        method: "PATCH",
+        headers: headers(user.token),
+        body: JSON.stringify({
+          monitor_mode: "criteria",
+          criteria: "AI infrastructure announcements",
+        }),
+      },
+    );
+    assertEquals(withCriteria.status, 200);
+
+    const clearCriteria = await fetch(
+      functionUrl("scouts", `/${created.id}`),
+      {
+        method: "PATCH",
+        headers: headers(user.token),
+        body: JSON.stringify({ criteria: null }),
+      },
+    );
+    assertEquals(clearCriteria.status, 400);
+    assertMatch((await clearCriteria.json()).error, /criteria/i);
+  } finally {
+    if (createdId) {
+      await fetch(functionUrl("scouts", `/${createdId}`), {
+        method: "DELETE",
+        headers: headers(user.token),
+      }).then((r) => r.body?.cancel());
+    }
+    await user.cleanup();
+  }
+});
+
+Deno.test("scouts: LinkedIn accepts personal URLs and rejects other URL paths", async () => {
+  const user = await createTestUser();
+  let createdId: string | null = null;
+  try {
+    const invalidRes = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Invalid LinkedIn Path",
+        type: "social",
+        platform: "linkedin",
+        profile_handle: "https://www.linkedin.com/feed/",
+        monitor_mode: "summarize",
+        topic: "technology",
+      }),
+    });
+    assertEquals(invalidRes.status, 400);
+    assertMatch((await invalidRes.json()).error, /linkedin\.com\/in\//i);
+
+    const companyRes = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Unsupported LinkedIn Company",
+        type: "social",
+        platform: "linkedin",
+        profile_handle: "https://www.linkedin.com/company/microsoft/",
+        monitor_mode: "summarize",
+        topic: "technology",
+      }),
+    });
+    assertEquals(companyRes.status, 400);
+    assertMatch((await companyRes.json()).error, /company pages/i);
+
+    const validRes = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Valid LinkedIn Profile",
+        type: "social",
+        platform: "linkedin",
+        profile_handle: "https://www.linkedin.com/in/satyanadella/",
+        monitor_mode: "summarize",
+        topic: "technology",
+      }),
+    });
+    assertEquals(validRes.status, 201);
+    const created = await validRes.json();
+    createdId = created.id;
+    assertEquals(created.profile_handle, "satyanadella");
+
+    const patchRes = await fetch(
+      functionUrl("scouts", `/${created.id}`),
+      {
+        method: "PATCH",
+        headers: headers(user.token),
+        // Platform is intentionally omitted: update must normalize against the
+        // merged scout state, not only fields present in the partial request.
+        body: JSON.stringify({
+          profile_handle: "https://www.linkedin.com/in/sundarpichai/",
+        }),
+      },
+    );
+    assertEquals(patchRes.status, 200);
+    assertEquals((await patchRes.json()).profile_handle, "sundarpichai");
+  } finally {
+    if (createdId) {
+      await fetch(functionUrl("scouts", `/${createdId}`), {
+        method: "DELETE",
+        headers: headers(user.token),
+      }).then((r) => r.body?.cancel());
+    }
+    await user.cleanup();
+  }
+});
+
 Deno.test("scouts: civic fields persist and seed initial promises", async () => {
   const user = await createTestUser();
   try {

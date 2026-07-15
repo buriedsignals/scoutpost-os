@@ -527,6 +527,14 @@ docker run --rm -it \\
 		text-underline-offset: 3px;
 	}
 
+	.trust-panel div,
+	.primary-link,
+	.secondary-link,
+	.key-row,
+	.badge {
+		border-radius: var(--radius-lg);
+	}
+
 	a:not(.primary-link):not(.secondary-link):not(.key-row__signup) {
 		color: var(--color-primary);
 		text-underline-offset: 3px;

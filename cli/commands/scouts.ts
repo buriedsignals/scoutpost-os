@@ -13,6 +13,9 @@ function usage(): void {
       "Usage: scout scouts <subcommand>",
       "",
       "  list",
+      "  test-transport --mode aircraft|vessel|satellite --watch-ids <id,id>",
+      "                 --center-lat <n> --center-lon <n> --radius-km <n>",
+      "                 [--area-name <name>] [--categories <cat,cat>] [--criteria <text>]",
       "  add --name <name> --type <web|beat|social|civic|transport> [--url <url>]",
       "                   [--topic <tag,tag>] [--description <text>]",
       "                   [--criteria <text>] [--project <id>]",
@@ -21,14 +24,18 @@ function usage(): void {
       "                   [--location-json <json>] [--source-mode reliable|niche]",
       "                   [--priority-sources <domain,domain>]",
       "                   [--root-domain <domain>] [--tracked-urls <url,url>]",
-      "                   [--platform instagram|x|facebook|tiktok|linkedin] [--handle <handle>]",
-      "                   [--monitor-mode summarize|criteria] [--track-removals true|false]",
+      "                   [--platform instagram|x|facebook|tiktok|linkedin] [--handle <handle-or-linkedin-url>]",
+      "                   [--monitor-mode criteria|summarize] [--track-removals true|false]",
       "                   [--archive-enabled true|false] [--wayback-enabled true|false]",
       "                   [--mode aircraft|vessel|satellite]",
       "                   --center-lat <n> --center-lon <n> --radius-km <n> [--area-name <name>]",
       "                   [--watch-ids <id,id>] [--categories <cat,cat>]",
+      "                   [--baseline-ids <id,id>]",
       "",
-      "  Topic tags are short comma-separated labels, not long criteria. Use 1-3.",
+      "  --topic stores the UI's organizational Project labels. Use 1-3 short",
+      "  comma-separated labels; this is distinct from --project / project_id.",
+      "  Social scouts default to --monitor-mode criteria and require --criteria.",
+      "  Pass --monitor-mode summarize to collect all substantive new posts instead.",
       "  Beat and civic scouts support weekly or monthly schedules only.",
       "  Fleet scouts (--type transport; aircraft/vessel/satellite) support 3h/6h/12h/daily",
       "  (satellite daily only). --watch-ids is REQUIRED for every mode — the",
@@ -37,6 +44,9 @@ function usage(): void {
       "  watched object enters the circle defined by --center-lat/--center-lon/",
       "  --radius-km. --criteria is an optional filter evaluated after entry. --time",
       "  defaults to 09:00 when omitted.",
+      "  Run test-transport first, then pass its baseline_ids to add with",
+      "  --baseline-ids. Use --baseline-ids '' when the tested baseline is empty.",
+      "  Omitting the flag uses legacy first-run baseline behavior.",
       "",
       "  update <id> [--name <name>] [--topic <tag,tag>] [--description <text>]",
       "              [--criteria <text>] [--url <url>] [--cron <expr>]",
@@ -68,6 +78,7 @@ interface Scout {
 }
 
 const VALID_TYPES = ["web", "beat", "social", "civic", "transport"];
+const SOCIAL_MONITOR_MODES = ["criteria", "summarize"] as const;
 const TRANSPORT_MODES = ["aircraft", "vessel", "satellite"];
 const TRANSPORT_REGULARITIES = ["3h", "6h", "12h", "daily"];
 
@@ -77,6 +88,26 @@ function stringFlag(
 ): string | undefined {
   const value = flags[key];
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+export function resolveSocialMonitorMode(
+  requestedMode?: string,
+  criteria?: string,
+): typeof SOCIAL_MONITOR_MODES[number] {
+  const mode = requestedMode ?? "criteria";
+  if (
+    !SOCIAL_MONITOR_MODES.includes(
+      mode as typeof SOCIAL_MONITOR_MODES[number],
+    )
+  ) {
+    throw new Error("--monitor-mode must be criteria or summarize");
+  }
+  if (mode === "criteria" && !criteria?.trim()) {
+    throw new Error(
+      "--criteria is required when --monitor-mode is criteria (the social scout default)",
+    );
+  }
+  return mode as typeof SOCIAL_MONITOR_MODES[number];
 }
 
 function parseNumericFlag(
@@ -192,7 +223,9 @@ function validateSchedulePolicy(
   if (type === "transport") {
     if (transportMode === "satellite") {
       if (regularity && regularity !== "daily") {
-        console.error("satellite transport scouts support daily schedules only");
+        console.error(
+          "satellite transport scouts support daily schedules only",
+        );
         Deno.exit(1);
       }
     } else if (regularity && !TRANSPORT_REGULARITIES.includes(regularity)) {
@@ -231,7 +264,9 @@ function buildTransportConfig(
   config.geofence = {
     center: { lat, lon },
     radius_km: radius,
-    ...(stringFlag(flags, "area-name") ? { display_name: stringFlag(flags, "area-name") } : {}),
+    ...(stringFlag(flags, "area-name")
+      ? { display_name: stringFlag(flags, "area-name") }
+      : {}),
   };
   const watchIds = listFlag(flags, "watch-ids");
   if (watchIds?.length) config.watch_ids = watchIds;
@@ -283,6 +318,31 @@ export async function run(argv: string[]): Promise<void> {
       );
       return;
     }
+    case "test-transport": {
+      const mode = stringFlag(flags, "mode");
+      if (!mode || !TRANSPORT_MODES.includes(mode)) {
+        console.error(
+          `test-transport requires --mode ${TRANSPORT_MODES.join("|")}`,
+        );
+        Deno.exit(1);
+      }
+      const config = buildTransportConfig(flags);
+      const watchIds = config.watch_ids as string[] | undefined;
+      if (!watchIds?.length) {
+        console.error("test-transport requires --watch-ids");
+        Deno.exit(1);
+      }
+      if (watchIds.length > 20) {
+        console.error("--watch-ids accepts at most 20 ids per scout");
+        Deno.exit(1);
+      }
+      const result = await apiFetch<Record<string, unknown>>(
+        "/functions/v1/transport-test",
+        { method: "POST", body: JSON.stringify({ config }) },
+      );
+      printJSON(result);
+      return;
+    }
     case "add": {
       if (typeof flags.name !== "string") {
         console.error("--name is required");
@@ -319,6 +379,13 @@ export async function run(argv: string[]): Promise<void> {
       const archiveEnabled = boolFlag(flags, "archive-enabled");
       const waybackEnabled = boolFlag(flags, "wayback-enabled");
       const transportMode = stringFlag(flags, "mode");
+      const baselineFlagProvided = Object.prototype.hasOwnProperty.call(
+        flags,
+        "baseline-ids",
+      );
+      const transportBaselineIds = baselineFlagProvided
+        ? listFlag(flags, "baseline-ids") ?? []
+        : undefined;
       validateSchedulePolicy(flags.type, regularity, cron, transportMode);
 
       if (url) body.url = url;
@@ -337,7 +404,11 @@ export async function run(argv: string[]): Promise<void> {
       if (trackedUrls) body.tracked_urls = trackedUrls;
       if (platform) body.platform = platform;
       if (handle) body.profile_handle = handle;
-      if (monitorMode) body.monitor_mode = monitorMode;
+      if (flags.type === "social") {
+        body.monitor_mode = resolveSocialMonitorMode(monitorMode, criteria);
+      } else if (monitorMode) {
+        body.monitor_mode = monitorMode;
+      }
       if (trackRemovals !== undefined) body.track_removals = trackRemovals;
       if (archiveEnabled !== undefined) body.archive_enabled = archiveEnabled;
       if (waybackEnabled !== undefined) body.wayback_enabled = waybackEnabled;
@@ -364,6 +435,9 @@ export async function run(argv: string[]): Promise<void> {
           Deno.exit(1);
         }
         body.config = config;
+        if (transportBaselineIds !== undefined) {
+          body.transport_baseline_ids = transportBaselineIds;
+        }
         // criteria lives inside config for transport; drop the top-level copy.
         delete body.criteria;
         // A transport schedule needs a time anchor: the backend synthesizes the
@@ -371,6 +445,10 @@ export async function run(argv: string[]): Promise<void> {
         // = null and the scout is created INACTIVE and never runs. The UI always
         // sends 09:00 by default; match that here so a CLI create actually runs.
         if (!body.time && !cron) body.time = "09:00";
+      }
+      if (flags.type !== "transport" && transportBaselineIds !== undefined) {
+        console.error("--baseline-ids is only supported for transport scouts");
+        Deno.exit(1);
       }
       if (flags.type === "civic" && (!rootDomain || !trackedUrls?.length)) {
         console.error(

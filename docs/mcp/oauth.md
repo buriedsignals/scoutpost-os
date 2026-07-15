@@ -198,6 +198,10 @@ because clients only kick off DCR on a real HTTP 401 with a
 `WWW-Authenticate: Bearer` challenge whose `resource_metadata` points at our
 protected-resource document.
 
+Tool-schema changes such as the criteria-first Social Scout default do not
+change this OAuth boundary: `create_scout` still runs only after the same
+`requireUserOrApiKey` gate and forwards the authenticated caller downstream.
+
 The HEAD `/` probe is gated identically (Anthropic's Cowork connector card uses
 the HEAD response to decide between **Configure** and **Connect**). HEAD with a
 valid bearer returns 200 + `MCP-Protocol-Version` so post-auth clients can use

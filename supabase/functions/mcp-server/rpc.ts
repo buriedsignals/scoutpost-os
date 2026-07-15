@@ -152,6 +152,27 @@ export function mergeEntitiesBodyForMcp(
   };
 }
 
+export function createScoutBodyForMcp(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const body = { ...args };
+  if (body.type !== "social") return body;
+
+  const monitorMode = typeof body.monitor_mode === "string"
+    ? body.monitor_mode
+    : "criteria";
+  body.monitor_mode = monitorMode;
+  if (
+    monitorMode === "criteria" &&
+    (typeof body.criteria !== "string" || !body.criteria.trim())
+  ) {
+    throw new Error(
+      "criteria is required for the default social monitor_mode=criteria; pass monitor_mode=summarize to collect all substantive new posts",
+    );
+  }
+  return body;
+}
+
 // ---------------------------------------------------------------------------
 // Tools
 // ---------------------------------------------------------------------------
@@ -178,7 +199,10 @@ export const TOOLS: ToolDef[] = [
       properties: {
         limit: { type: "integer", minimum: 1, maximum: 200 },
         offset: { type: "integer", minimum: 0 },
-        type: { type: "string", enum: ["web", "beat", "social", "civic", "transport"] },
+        type: {
+          type: "string",
+          enum: ["web", "beat", "social", "civic", "transport"],
+        },
       },
     },
     handler: (_u, token, args) =>
@@ -187,15 +211,72 @@ export const TOOLS: ToolDef[] = [
       }),
   },
   {
+    name: "test_transport_config",
+    description:
+      "Step 1 for Fleet Scout creation. Test a transport config against current live data without creating a scout or spending credits. Returns baseline_ids and a compact preview. Pass those baseline_ids as transport_baseline_ids to create_scout in Step 2 so objects already present do not alert immediately. Hosted Scoutpost requires Pro/Team.",
+    inputSchema: {
+      type: "object",
+      required: ["config"],
+      properties: {
+        config: {
+          type: "object",
+          additionalProperties: false,
+          required: ["mode", "watch_ids", "geofence"],
+          properties: {
+            mode: { type: "string", enum: ["aircraft", "vessel", "satellite"] },
+            watch_ids: {
+              type: "array",
+              minItems: 1,
+              maxItems: 20,
+              items: { type: "string" },
+            },
+            geofence: {
+              type: "object",
+              required: ["center", "radius_km"],
+              properties: {
+                center: {
+                  type: "object",
+                  required: ["lat", "lon"],
+                  properties: {
+                    lat: { type: "number" },
+                    lon: { type: "number" },
+                  },
+                },
+                radius_km: {
+                  type: "number",
+                  exclusiveMinimum: 0,
+                  maximum: 1500,
+                  description:
+                    "Maximum 463 km for aircraft and 1,500 km for vessel/satellite; enforced by the server according to mode.",
+                },
+                display_name: { type: "string", maxLength: 256 },
+                maptiler_id: { type: "string", maxLength: 256 },
+              },
+            },
+            categories: { type: "array", items: { type: "string" } },
+            criteria: { type: "string" },
+          },
+        },
+      },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "POST", "transport-test", "", {
+        body: { config: args.config },
+      }),
+  },
+  {
     name: "create_scout",
     description:
-      "Create a new scout. Required: name and type (web|beat|social|civic|transport). web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle. Transport scouts (Fleet Scout) are Pro/Team on hosted Scoutpost and require config: { mode: aircraft|vessel|satellite, watch_ids, geofence: { center: {lat,lon}, radius_km, display_name?, maptiler_id? }, categories?, criteria? }. Every mode needs the circular area and alerts when a watched object enters it. criteria is optional and only filters those entry alerts; it never replaces the area. watch_ids is required (max 20); categories only narrow it. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes the baseline immediately for every scout type; Run Now compares against that baseline and never creates the first baseline. Web/Page scouts can turn on evidence archiving with archive_enabled (Pro/Team); captured snapshots are then retrievable via list_snapshots.",
+      "Create a new scout. Required: name and type (web|beat|social|civic|transport). web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle; MCP defaults them to monitor_mode=criteria, which requires criteria text. Pass monitor_mode=summarize explicitly to collect all substantive new posts. Transport scouts (Fleet Scout) are Pro/Team on hosted Scoutpost and require config: { mode: aircraft|vessel|satellite, watch_ids, geofence: { center: {lat,lon}, radius_km, display_name?, maptiler_id? }, categories?, criteria? }. Every mode needs the circular area and alerts when a watched object enters it. criteria is optional and only filters those entry alerts; it never replaces the area. watch_ids is required (max 20); categories only narrow it. Run test_transport_config first and pass its baseline_ids as transport_baseline_ids here. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes web/beat/social/civic baselines immediately; Fleet creation seeds the tested baseline when transport_baseline_ids is supplied, while omission preserves the legacy first-run baseline. Web/Page scouts can turn on evidence archiving with archive_enabled (Pro/Team); captured snapshots are then retrievable via list_snapshots.",
     inputSchema: {
       type: "object",
       required: ["name", "type"],
       properties: {
         name: { type: "string", minLength: 1, maxLength: 200 },
-        type: { type: "string", enum: ["web", "beat", "social", "civic", "transport"] },
+        type: {
+          type: "string",
+          enum: ["web", "beat", "social", "civic", "transport"],
+        },
         description: {
           type: "string",
           maxLength: 2000,
@@ -207,7 +288,7 @@ export const TOOLS: ToolDef[] = [
           type: "string",
           maxLength: 200,
           description:
-            "Required when location is omitted. Use 1-3 short comma-separated tags, e.g. 'housing, council, budget'. Do not put long descriptions here.",
+            "The organizational Project label shown in the UI, stored in the legacy topic field. Required when location is omitted. Use 1-3 short comma-separated tags, e.g. 'housing, council, budget'. This is distinct from project_id and investigation Project tools.",
         },
         url: { type: "string", format: "uri" },
         location: {
@@ -216,20 +297,60 @@ export const TOOLS: ToolDef[] = [
           description:
             "GeocodedLocation: { displayName, latitude, longitude, ... }",
         },
-        regularity: { type: "string", enum: ["daily", "weekly", "monthly", "3h", "6h", "12h"] },
+        regularity: {
+          type: "string",
+          enum: ["daily", "weekly", "monthly", "3h", "6h", "12h"],
+        },
         config: {
           type: "object",
           additionalProperties: false,
           required: ["mode", "watch_ids", "geofence"],
           properties: {
             mode: { type: "string", enum: ["aircraft", "vessel", "satellite"] },
-            watch_ids: { type: "array", minItems: 1, maxItems: 20, items: { type: "string" } },
-            geofence: { type: "object", required: ["center", "radius_km"], properties: { center: { type: "object", required: ["lat", "lon"], properties: { lat: { type: "number" }, lon: { type: "number" } } }, radius_km: { type: "number", exclusiveMinimum: 0, maximum: 500 }, display_name: { type: "string", maxLength: 256 }, maptiler_id: { type: "string", maxLength: 256 } } },
+            watch_ids: {
+              type: "array",
+              minItems: 1,
+              maxItems: 20,
+              items: { type: "string" },
+            },
+            geofence: {
+              type: "object",
+              required: ["center", "radius_km"],
+              properties: {
+                center: {
+                  type: "object",
+                  required: ["lat", "lon"],
+                  properties: {
+                    lat: { type: "number" },
+                    lon: { type: "number" },
+                  },
+                },
+                radius_km: {
+                  type: "number",
+                  exclusiveMinimum: 0,
+                  maximum: 1500,
+                  description:
+                    "Maximum 463 km for aircraft and 1,500 km for vessel/satellite; enforced by the server according to mode.",
+                },
+                display_name: { type: "string", maxLength: 256 },
+                maptiler_id: { type: "string", maxLength: 256 },
+              },
+            },
             categories: { type: "array", items: { type: "string" } },
-            criteria: { type: "string", description: "Optional post-entry filter." },
+            criteria: {
+              type: "string",
+              description: "Optional post-entry filter.",
+            },
           },
           description:
             "Transport scouts only: Fleet Scout alerts when a watched object enters geofence { center:{lat,lon}, radius_km, display_name?, maptiler_id? }. Required for every mode; criteria is optional and filters entry alerts only.",
+        },
+        transport_baseline_ids: {
+          type: "array",
+          maxItems: 500,
+          items: { type: "string" },
+          description:
+            "Transport scouts only: baseline_ids returned by test_transport_config. Pass an explicit empty array when Step 1 found no current matches; omission uses legacy first-run baseline behavior.",
         },
         schedule_cron: { type: "string", maxLength: 200 },
         day_number: { type: "integer", minimum: 0, maximum: 31 },
@@ -262,13 +383,14 @@ export const TOOLS: ToolDef[] = [
         profile_handle: {
           type: "string",
           description:
-            "Required for social scouts. Account handle or profile identifier.",
+            "Required for social scouts. Use a full personal linkedin.com/in/... URL for LinkedIn; other platforms accept the account handle.",
         },
         monitor_mode: {
           type: "string",
           enum: ["summarize", "criteria"],
+          default: "criteria",
           description:
-            "Social scout mode. Use criteria when only matching posts should create units.",
+            "Social scout mode. Defaults to criteria for MCP-created scouts, which requires non-empty criteria text. Pass summarize explicitly to collect all substantive new posts.",
         },
         track_removals: {
           type: "boolean",
@@ -327,7 +449,9 @@ export const TOOLS: ToolDef[] = [
       },
     },
     handler: (_u, token, args) =>
-      forward(token, "POST", "scouts", "", { body: args }),
+      forward(token, "POST", "scouts", "", {
+        body: createScoutBodyForMcp(args),
+      }),
   },
   {
     name: "get_scout",
@@ -354,7 +478,8 @@ export const TOOLS: ToolDef[] = [
         criteria: { type: "string" },
         topic: {
           type: "string",
-          description: "1-3 short comma-separated tags, not long criteria.",
+          description:
+            "The organizational Project label shown in the UI, stored in the legacy topic field. Use 1-3 short comma-separated tags, not long criteria. Distinct from project_id and investigation Projects.",
         },
         url: { type: "string", format: "uri" },
         config: {
@@ -363,15 +488,48 @@ export const TOOLS: ToolDef[] = [
           required: ["mode", "watch_ids", "geofence"],
           properties: {
             mode: { type: "string", enum: ["aircraft", "vessel", "satellite"] },
-            watch_ids: { type: "array", minItems: 1, maxItems: 20, items: { type: "string" } },
-            geofence: { type: "object", required: ["center", "radius_km"], properties: { center: { type: "object", required: ["lat", "lon"], properties: { lat: { type: "number" }, lon: { type: "number" } } }, radius_km: { type: "number", exclusiveMinimum: 0, maximum: 500 }, display_name: { type: "string", maxLength: 256 }, maptiler_id: { type: "string", maxLength: 256 } } },
+            watch_ids: {
+              type: "array",
+              minItems: 1,
+              maxItems: 20,
+              items: { type: "string" },
+            },
+            geofence: {
+              type: "object",
+              required: ["center", "radius_km"],
+              properties: {
+                center: {
+                  type: "object",
+                  required: ["lat", "lon"],
+                  properties: {
+                    lat: { type: "number" },
+                    lon: { type: "number" },
+                  },
+                },
+                radius_km: {
+                  type: "number",
+                  exclusiveMinimum: 0,
+                  maximum: 1500,
+                  description:
+                    "Maximum 463 km for aircraft and 1,500 km for vessel/satellite; enforced by the server according to mode.",
+                },
+                display_name: { type: "string", maxLength: 256 },
+                maptiler_id: { type: "string", maxLength: 256 },
+              },
+            },
             categories: { type: "array", items: { type: "string" } },
-            criteria: { type: "string", description: "Optional post-entry filter." },
+            criteria: {
+              type: "string",
+              description: "Optional post-entry filter.",
+            },
           },
           description:
             "Transport scouts only: full replacement with a required circle area. Fleet Scout alerts when a watched object enters it; criteria is an optional post-entry filter.",
         },
-        regularity: { type: "string", enum: ["daily", "weekly", "monthly", "3h", "6h", "12h"] },
+        regularity: {
+          type: "string",
+          enum: ["daily", "weekly", "monthly", "3h", "6h", "12h"],
+        },
         schedule_cron: { type: "string" },
         day_number: { type: "integer", minimum: 0, maximum: 31 },
         time: { type: "string", pattern: "^\\d{1,2}:\\d{2}$" },
@@ -386,6 +544,22 @@ export const TOOLS: ToolDef[] = [
         source_mode: { type: "string", enum: ["reliable", "niche"] },
         excluded_domains: { type: "array", items: { type: "string" } },
         priority_sources: { type: "array", items: { type: "string" } },
+        platform: {
+          type: "string",
+          enum: ["instagram", "x", "facebook", "tiktok", "linkedin"],
+        },
+        profile_handle: {
+          type: "string",
+          description:
+            "Use a full personal linkedin.com/in/... URL for LinkedIn; other platforms accept the account handle.",
+        },
+        monitor_mode: {
+          type: "string",
+          enum: ["summarize", "criteria"],
+          description:
+            "Social scout mode. When changing to criteria, also provide non-empty criteria text.",
+        },
+        track_removals: { type: "boolean" },
         root_domain: { type: "string" },
         tracked_urls: {
           type: "array",
@@ -492,7 +666,14 @@ export const TOOLS: ToolDef[] = [
         id: { type: "string", format: "uuid" },
         artifact: {
           type: "string",
-          enum: ["mhtml", "screenshot", "rawhtml", "markdown", "manifest", "tsr"],
+          enum: [
+            "mhtml",
+            "screenshot",
+            "rawhtml",
+            "markdown",
+            "manifest",
+            "tsr",
+          ],
         },
       },
     },

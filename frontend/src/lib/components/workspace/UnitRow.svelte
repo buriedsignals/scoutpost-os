@@ -4,6 +4,7 @@
 	import type { Unit } from '$lib/types/workspace';
 	import { isDemoUnit } from '$lib/demo/seed';
 	import DemoBadge from '$lib/components/ui/DemoBadge.svelte';
+	import * as HoverCard from '$lib/components/ui/hover-card/index.js';
 	import { cleanUnitStatement, getUnitTypeStyle } from '$lib/utils/units';
 	import { searchMatchClass, searchMatchLabel } from '$lib/utils/unit-search';
 
@@ -120,7 +121,23 @@
 		{/if}
 		{#if sourceDomain || occurredLabel || extractedLabel}
 			<span class="unit-dates">
-				{#if sourceDomain}
+				{#if sourceDomain && sourceUrl}
+					<HoverCard.Root openDelay={180} closeDelay={120}>
+						<HoverCard.Trigger
+							href={sourceUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="unit-source-link"
+							onclick={(event) => event.stopPropagation()}
+						>· {sourceDomain}</HoverCard.Trigger>
+						<HoverCard.Content align="start" sideOffset={8} class="w-72 rounded-xl bg-popover/95 p-3.5 text-popover-foreground shadow-[0_18px_48px_oklch(0.06_0.015_210/0.5)] backdrop-blur-xl">
+							<span class="source-preview-label">Source capture</span>
+							<strong>{unit.source?.title || sourceDomain}</strong>
+							<span>{sourceDomain}{#if extractedLabel} · captured {extractedLabel}{/if}</span>
+							<small>Source and capture metadata remain attached through editorial review.</small>
+						</HoverCard.Content>
+					</HoverCard.Root>
+				{:else if sourceDomain}
 					<span>· {sourceDomain}</span>
 				{/if}
 				{#if occurredLabel}
@@ -238,20 +255,19 @@
 		padding: 1rem 1.5rem;
 		border-bottom: 1px solid var(--color-border);
 		cursor: pointer;
-		transition: background 150ms ease;
+		transition: background 150ms ease, box-shadow 150ms ease;
 		position: relative;
 		background: var(--color-surface-alt);
 		font-family: var(--font-body);
 	}
 
 	.unit-row:hover {
-		background: var(--color-bg);
+		background: color-mix(in oklch, var(--color-surface-alt) 92%, var(--color-ink));
+		box-shadow: inset 0 1px oklch(0.87 0.025 205 / 4%), inset 0 -1px oklch(0.87 0.025 205 / 4%);
 	}
 
 	.unit-row.selected {
-		background: var(--color-primary-soft);
-		border-left: 3px solid var(--color-primary);
-		padding-left: calc(1.5rem - 3px);
+		background: oklch(0.48 0.035 205 / 24%);
 	}
 
 	.unit-row.verified {
@@ -302,10 +318,55 @@
 		flex-wrap: wrap;
 	}
 
+	.unit-source-link {
+		border-radius: var(--radius-sm);
+		color: oklch(0.76 0.065 200);
+		text-decoration: underline;
+		text-decoration-color: oklch(0.56 0.055 200 / 42%);
+		text-underline-offset: 3px;
+		transition: color 150ms ease, background 150ms ease;
+	}
+
+	.unit-source-link:hover {
+		background: var(--color-secondary-soft);
+		color: var(--color-ink);
+	}
+
+	:global([data-slot='hover-card-content']) strong,
+	:global([data-slot='hover-card-content']) small,
+	:global([data-slot='hover-card-content']) span {
+		display: block;
+	}
+
+	:global([data-slot='hover-card-content']) strong {
+		margin-top: 0.45rem;
+		font-size: 0.78rem;
+		font-weight: 650;
+		line-height: 1.35;
+	}
+
+	:global([data-slot='hover-card-content']) small,
+	:global([data-slot='hover-card-content']) span {
+		margin-top: 0.3rem;
+		color: var(--muted-foreground);
+		font-size: 0.68rem;
+		line-height: 1.5;
+	}
+
+	:global([data-slot='hover-card-content'] .source-preview-label) {
+		margin-top: 0;
+		color: oklch(0.76 0.065 200);
+		font-family: var(--font-mono);
+		font-size: 0.56rem;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+
 	.unit-statement {
 		font-family: var(--font-body);
 		font-size: 0.9375rem;
-		font-weight: 400;
+		font-weight: 500;
 		line-height: 1.55;
 		color: var(--color-ink);
 		margin: 0;
@@ -326,6 +387,7 @@
 		background: var(--color-surface);
 		color: var(--color-ink-muted);
 		border: 1px solid var(--color-border);
+		border-radius: var(--radius-pill);
 	}
 
 	.review-pill {
@@ -339,15 +401,15 @@
 		text-transform: uppercase;
 		padding: 0.1875rem 0.5rem;
 		border-radius: var(--radius-pill);
-		background: var(--color-secondary-soft);
-		color: var(--color-secondary);
-		border: 1px solid var(--color-secondary);
+		background: oklch(0.76 0.12 82 / 14%);
+		color: var(--color-warning);
+		border: 1px solid oklch(0.76 0.12 82 / 36%);
 		margin-left: auto;
 		white-space: nowrap;
 	}
 
 	.review-pill.verified {
-		background: rgba(47, 143, 95, 0.12);
+		background: oklch(0.72 0.09 155 / 13%);
 		color: var(--color-success);
 		border-color: var(--color-success);
 	}
@@ -367,21 +429,21 @@
 	}
 
 	.search-pill.direct {
-		background: rgba(30, 92, 179, 0.1);
-		color: var(--color-primary-deep);
-		border-color: rgba(30, 92, 179, 0.25);
+		background: oklch(0.87 0.025 205 / 11%);
+		color: oklch(0.87 0.025 205);
+		border-color: oklch(0.87 0.025 205 / 26%);
 	}
 
 	.search-pill.related {
-		background: rgba(192, 124, 25, 0.12);
-		color: #8a5a11;
-		border-color: rgba(192, 124, 25, 0.28);
+		background: var(--color-secondary-soft);
+		color: oklch(0.72 0.06 200);
+		border-color: oklch(0.56 0.055 200 / 38%);
 	}
 
 	.search-pill.loose {
-		background: rgba(179, 62, 46, 0.08);
+		background: oklch(0.69 0.11 28 / 10%);
 		color: var(--color-error);
-		border-color: rgba(179, 62, 46, 0.3);
+		border-color: oklch(0.69 0.11 28 / 32%);
 	}
 
 	.search-reason {
@@ -402,6 +464,7 @@
 		padding: 0.25rem;
 		box-shadow: var(--shadow-md);
 		gap: 0.125rem;
+		border-radius: var(--radius-md);
 	}
 
 	.unit-row:hover .unit-actions,
@@ -421,6 +484,7 @@
 		cursor: pointer;
 		transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
 		text-decoration: none;
+		border-radius: var(--radius-sm);
 	}
 
 	.unit-action-btn:disabled {
@@ -434,15 +498,15 @@
 	}
 
 	.unit-action-btn.verify:hover {
-		background: rgba(47, 143, 95, 0.12);
+		background: oklch(0.72 0.09 155 / 13%);
 		color: var(--color-success);
 		border-color: var(--color-success);
 	}
 
 	.unit-action-btn.delete:hover {
-		background: rgba(179, 62, 46, 0.08);
+		background: oklch(0.69 0.11 28 / 10%);
 		color: var(--color-error);
-		border-color: rgba(179, 62, 46, 0.3);
+		border-color: oklch(0.69 0.11 28 / 32%);
 	}
 
 	.unit-delete-confirm {
@@ -471,6 +535,7 @@
 		background: var(--color-surface-alt);
 		color: var(--color-ink-muted);
 		cursor: pointer;
+		border-radius: var(--radius-sm);
 	}
 
 	.unit-confirm-btn.cancel:hover {
@@ -479,8 +544,8 @@
 	}
 
 	.unit-confirm-btn.confirm:hover {
-		background: rgba(179, 62, 46, 0.08);
+		background: oklch(0.69 0.11 28 / 10%);
 		color: var(--color-error);
-		border-color: rgba(179, 62, 46, 0.3);
+		border-color: oklch(0.69 0.11 28 / 32%);
 	}
 </style>

@@ -301,9 +301,9 @@
 							<div>
 								<h4>Connect an AI assistant (optional)</h4>
 								<p>
-									Click the <strong>Agents</strong> button in the topbar. Pick MCP (for Claude
-									Desktop, Cursor, Goose) or API (for ChatGPT Actions, custom agents, scripts).
-									Paste the snippet into your client's config.
+									Click <strong>Connect Agent</strong> in the topbar and choose your assistant.
+									Scoutpost shows its recommended CLI or MCP path; REST keys remain under
+									<strong>API keys &amp; REST</strong>.
 								</p>
 							</div>
 						</li>
@@ -558,7 +558,7 @@
 					<h3 id="rest">REST API</h3>
 					<p>
 						Base URL: <code>https://scoutpost.ai/functions/v1</code>. Auth via a
-						<code>cj_…</code> API key (create one in the in-app <strong>Agents → API</strong> modal) sent
+						<code>cj_…</code> API key (create one from <strong>Connect Agent → API keys &amp; REST</strong> in the app) sent
 						as <code>Authorization: Bearer cj_…</code>. Full OpenAPI 3.1 spec at
 						<a href="/swagger">/swagger</a>; raw JSON at <code>/functions/v1/openapi-spec</code>.
 					</p>
@@ -593,7 +593,7 @@ scout scouts list`}
 						code={`# Install (requires Deno 2.x)
 deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts
 
-# Configure (generate a cj_... API key in the app: Agents → API → Create key)
+# Configure (generate a cj_... API key in the app: Connect Agent → API keys & REST → Create key)
 scout config set api_url=https://scoutpost.ai/functions/v1
 scout config set api_key=<cj_... API key>
 
@@ -703,7 +703,7 @@ scout units delete <unit-id>`}</code></pre>
 					<h3 id="ref-auth">Authentication</h3>
 					<p>
 						<strong>REST / CLI</strong>: <code>cj_…</code> API key in the <code>Authorization: Bearer</code>
-						header. Generate keys from <strong>Agents → API</strong> in the app — they are scoped to
+						header. Generate keys from <strong>Connect Agent → API keys &amp; REST</strong> in the app — they are scoped to
 						your account and revocable from the same modal. <strong>MCP</strong>: OAuth via the
 						connector; no manual token handling.
 					</p>
@@ -897,7 +897,7 @@ scout units delete <unit-id>`}</code></pre>
 	.toc-sub {
 		margin: 0.25rem 0 0.5rem 0;
 		padding-left: 0.75rem;
-		border-left: 1px solid rgba(0, 0, 0, 0.06);
+		border-left: 1px solid var(--color-border);
 	}
 	.toc-link {
 		display: block;
@@ -905,18 +905,18 @@ scout units delete <unit-id>`}</code></pre>
 		font-size: 0.8125rem;
 		color: var(--color-ink-muted);
 		text-decoration: none;
-		border-radius: 0;
+		border-radius: var(--radius-sm);
 		line-height: 1.4;
 		transition: background 0.12s ease, color 0.12s ease;
 	}
 	.toc-link.top { font-weight: 600; color: var(--color-ink); }
-	.toc-link:hover { background: rgba(78, 44, 120, 0.06); color: var(--color-primary-deep); }
-	.toc-link.active { color: var(--color-primary-deep); background: rgba(78, 44, 120, 0.1); }
+	.toc-link:hover { background: var(--color-secondary-soft); color: var(--color-ink); }
+	.toc-link.active { color: var(--color-ink); background: var(--color-surface-hover); }
 
 	.sidebar-foot {
 		margin-top: 1.25rem;
 		padding-top: 1rem;
-		border-top: 1px solid rgba(0, 0, 0, 0.06);
+		border-top: 1px solid var(--color-border);
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
@@ -1051,9 +1051,9 @@ scout units delete <unit-id>`}</code></pre>
 		font-family: var(--font-mono);
 		font-size: 0.8125em;
 		padding: 0.0625rem 0.375rem;
-		background: rgba(107, 63, 160, 0.08);
+		background: var(--color-primary-soft);
 		color: var(--color-primary);
-		border-radius: 0;
+		border-radius: var(--radius-sm);
 		font-weight: 500;
 	}
 
@@ -1102,7 +1102,7 @@ scout units delete <unit-id>`}</code></pre>
 		grid-template-columns: auto 1fr;
 		gap: 0.875rem;
 		padding: 1rem 0;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+		border-bottom: 1px solid var(--color-border);
 	}
 	.steps > li:last-child { border-bottom: none; }
 	.step-num {
@@ -1111,9 +1111,9 @@ scout units delete <unit-id>`}</code></pre>
 		justify-content: center;
 		width: 1.75rem;
 		height: 1.75rem;
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
-		background: rgba(107, 63, 160, 0.08);
+		background: var(--color-primary-soft);
 		color: var(--color-primary-deep);
 		font-size: 0.75rem;
 		font-weight: 700;
@@ -1123,8 +1123,8 @@ scout units delete <unit-id>`}</code></pre>
 
 	.table-wrap {
 		margin: 0.75rem 0 1.25rem 0;
-		border: 1px solid rgba(0, 0, 0, 0.06);
-		border-radius: 0;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
 		overflow: hidden;
 		background: var(--color-surface-alt);
 	}
@@ -1136,11 +1136,11 @@ scout units delete <unit-id>`}</code></pre>
 	.table-wrap th, .table-wrap td {
 		text-align: left;
 		padding: 0.625rem 0.875rem;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+		border-bottom: 1px solid var(--color-border);
 		vertical-align: top;
 	}
 	.table-wrap thead {
-		background: rgba(0, 0, 0, 0.02);
+		background: var(--color-surface);
 		font-weight: 600;
 		color: var(--color-ink);
 	}
@@ -1167,9 +1167,9 @@ scout units delete <unit-id>`}</code></pre>
 		justify-content: center;
 		width: 2rem;
 		height: 2rem;
-		border-radius: 0;
+		border-radius: var(--radius-md);
 		border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
-		background: rgba(107, 63, 160, 0.1);
+		background: var(--color-secondary-soft);
 		color: var(--color-primary-deep);
 		margin-bottom: 0.5rem;
 	}
@@ -1198,9 +1198,9 @@ scout units delete <unit-id>`}</code></pre>
 	}
 	.recipe-prompt {
 		padding: 0.75rem 0.875rem;
-		background: rgba(107, 63, 160, 0.06);
-		border-left: 3px solid var(--color-primary);
-		border-radius: 0;
+		background: var(--color-primary-soft);
+		border: 1px solid color-mix(in oklab, var(--color-primary) 28%, var(--color-border));
+		border-radius: var(--radius-md);
 		font-size: 0.875rem;
 		line-height: 1.6;
 		margin: 0;
@@ -1217,7 +1217,7 @@ scout units delete <unit-id>`}</code></pre>
 	.recipe-note {
 		margin-top: 0.875rem;
 		padding-top: 0.875rem;
-		border-top: 1px dashed rgba(0, 0, 0, 0.1);
+		border-top: 1px dashed var(--color-border-strong);
 		font-size: 0.8125rem;
 		color: var(--color-ink-muted);
 	}
@@ -1228,14 +1228,14 @@ scout units delete <unit-id>`}</code></pre>
 	}
 	.flat-list li {
 		padding: 0.375rem 0;
-		border-bottom: 1px dashed rgba(0, 0, 0, 0.06);
+		border-bottom: 1px dashed var(--color-border);
 	}
 	.flat-list li:last-child { border-bottom: none; }
 
 	.foot {
 		margin-top: 5rem;
 		padding-top: 2rem;
-		border-top: 1px solid rgba(0, 0, 0, 0.06);
+		border-top: 1px solid var(--color-border);
 		display: flex;
 		align-items: center;
 		justify-content: space-between;

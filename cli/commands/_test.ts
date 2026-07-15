@@ -21,7 +21,7 @@ import {
 } from "../lib/client.ts";
 import { VERSION } from "../lib/version.ts";
 import { run as runIngest } from "./ingest.ts";
-import { run as runScouts } from "./scouts.ts";
+import { resolveSocialMonitorMode, run as runScouts } from "./scouts.ts";
 import { run as runSnapshots } from "./snapshots.ts";
 import { run as runUser } from "./user.ts";
 
@@ -230,6 +230,32 @@ Deno.test("loadConfig — throws if api_url missing", async () => {
     writeConfigFile({ api_key: "cj_test_key" });
     assertThrows(() => loadConfig(), Error, "api_url not set");
   });
+});
+
+Deno.test("social monitor mode defaults to criteria and requires criteria text", () => {
+  assertEquals(
+    resolveSocialMonitorMode(undefined, "housing policy changes"),
+    "criteria",
+  );
+  assertThrows(
+    () => resolveSocialMonitorMode(undefined, undefined),
+    Error,
+    "--criteria is required",
+  );
+  assertThrows(
+    () => resolveSocialMonitorMode("criteria", "   "),
+    Error,
+    "--criteria is required",
+  );
+});
+
+Deno.test("social monitor mode keeps summarize as an explicit opt-out", () => {
+  assertEquals(resolveSocialMonitorMode("summarize", undefined), "summarize");
+  assertThrows(
+    () => resolveSocialMonitorMode("digest", "housing"),
+    Error,
+    "--monitor-mode must be criteria or summarize",
+  );
 });
 
 Deno.test("hosted Supabase target warning only fires inside self-host checkout", async () => {
@@ -635,6 +661,58 @@ Deno.test("scouts add — forwards topic for scheduled web scouts", async () => 
   });
 });
 
+Deno.test("scouts add — social omission sends criteria mode explicitly", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+
+    let observedBody: Record<string, unknown> | null = null;
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    globalThis.fetch =
+      ((_input: string | URL | Request, init?: RequestInit) => {
+        observedBody = JSON.parse(String(init?.body ?? "{}"));
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: "scout_social" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }) as typeof fetch;
+    console.log = () => {};
+
+    try {
+      await runScouts([
+        "add",
+        "--name",
+        "Council posts",
+        "--type",
+        "social",
+        "--platform",
+        "x",
+        "--handle",
+        "citycouncil",
+        "--topic",
+        "council",
+        "--criteria",
+        "housing votes",
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+
+    assert(observedBody !== null, "fetch was not called");
+    const body = observedBody as Record<string, unknown>;
+    assertEquals(body.type, "social");
+    assertEquals(body.monitor_mode, "criteria");
+    assertEquals(body.criteria, "housing votes");
+  });
+});
+
 Deno.test("scouts add — Fleet Scout requires a circle and folds criteria into config", async () => {
   await withTempHome(async () => {
     writeConfigFile({
@@ -699,10 +777,134 @@ Deno.test("scouts add — Fleet Scout requires a circle and folds criteria into 
     assertEquals("criteria" in body, false);
     const config = body.config as Record<string, unknown>;
     assertEquals(config.mode, "aircraft");
-    assertEquals(config.geofence, { center: { lat: 26.55, lon: 56.25 }, radius_km: 40.5, display_name: "Strait of Hormuz" });
+    assertEquals(config.geofence, {
+      center: { lat: 26.55, lon: 56.25 },
+      radius_km: 40.5,
+      display_name: "Strait of Hormuz",
+    });
     assertEquals(config.watch_ids, ["4ca123", "ae01ce"]);
     assertEquals(config.categories, ["military", "government"]);
     assertEquals(config.criteria, "military transport jets");
+  });
+});
+
+Deno.test("scouts test-transport — sends the live Step 1 config", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+
+    let observedUrl = "";
+    let observedBody: Record<string, unknown> | null = null;
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      observedUrl = String(input);
+      observedBody = JSON.parse(String(init?.body ?? "{}"));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ valid: true, baseline_ids: [], preview: [] }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    }) as typeof fetch;
+    console.log = () => {};
+
+    try {
+      await runScouts([
+        "test-transport",
+        "--mode",
+        "vessel",
+        "--watch-ids",
+        "636019825",
+        "--center-lat",
+        "26.55",
+        "--center-lon",
+        "56.25",
+        "--radius-km",
+        "40.5",
+        "--area-name",
+        "Strait of Hormuz",
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+
+    assertStringIncludes(observedUrl, "/functions/v1/transport-test");
+    assert(observedBody !== null, "fetch was not called");
+    assertEquals(observedBody, {
+      config: {
+        mode: "vessel",
+        watch_ids: ["636019825"],
+        geofence: {
+          center: { lat: 26.55, lon: 56.25 },
+          radius_km: 40.5,
+          display_name: "Strait of Hormuz",
+        },
+      },
+    });
+  });
+});
+
+Deno.test("scouts add — preserves an explicitly empty tested Fleet baseline", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+
+    let observedBody: Record<string, unknown> | null = null;
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    globalThis.fetch =
+      ((_input: string | URL | Request, init?: RequestInit) => {
+        observedBody = JSON.parse(String(init?.body ?? "{}"));
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: "scout_empty_baseline" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }) as typeof fetch;
+    console.log = () => {};
+
+    try {
+      await runScouts([
+        "add",
+        "--name",
+        "Quiet harbour",
+        "--type",
+        "transport",
+        "--mode",
+        "vessel",
+        "--watch-ids",
+        "636019825",
+        "--center-lat",
+        "26.55",
+        "--center-lon",
+        "56.25",
+        "--radius-km",
+        "40",
+        "--baseline-ids",
+        "",
+        "--regularity",
+        "6h",
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+
+    assert(observedBody !== null, "fetch was not called");
+    const body = observedBody as Record<string, unknown>;
+    assertEquals(body.transport_baseline_ids, []);
   });
 });
 
@@ -759,7 +961,10 @@ Deno.test("scouts add — Fleet Scout aircraft carries its required entry area",
     const config = body.config as Record<string, unknown>;
     assertEquals(config.mode, "aircraft");
     assertEquals(config.watch_ids, ["abc123", "def456"]);
-    assertEquals(config.geofence, { center: { lat: 47.37, lon: 8.54 }, radius_km: 25 });
+    assertEquals(config.geofence, {
+      center: { lat: 47.37, lon: 8.54 },
+      radius_km: 25,
+    });
     assertEquals(body.time, "09:00");
   });
 });
@@ -882,7 +1087,10 @@ Deno.test("scouts add — Fleet Scout satellite: watch IDs + entry area, daily s
     const config = body.config as Record<string, unknown>;
     assertEquals(config.mode, "satellite");
     assertEquals(config.watch_ids, ["25544", "48274"]);
-    assertEquals(config.geofence, { center: { lat: 26.55, lon: 56.25 }, radius_km: 40 });
+    assertEquals(config.geofence, {
+      center: { lat: 26.55, lon: 56.25 },
+      radius_km: 40,
+    });
   });
 });
 
@@ -991,7 +1199,10 @@ Deno.test("snapshots list — GETs /snapshots and prints a row per snapshot", as
       console.log = origLog;
     }
 
-    assertStringIncludes(observedUrl, "/functions/v1/snapshots?scout_id=scout-1");
+    assertStringIncludes(
+      observedUrl,
+      "/functions/v1/snapshots?scout_id=scout-1",
+    );
     assertStringIncludes(lines.join("\n"), "snap-1");
     assertStringIncludes(lines.join("\n"), "mhtml,screenshot,markdown");
   });
@@ -1018,7 +1229,8 @@ Deno.test("snapshots url — POSTs {artifact} to /:id/url and prints the signed 
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            url: "https://x.supabase.co/storage/v1/object/sign/page-snapshots/abc?token=t",
+            url:
+              "https://x.supabase.co/storage/v1/object/sign/page-snapshots/abc?token=t",
             artifact: "mhtml",
             content_type: "multipart/related",
             expires_in: 300,
@@ -1038,8 +1250,14 @@ Deno.test("snapshots url — POSTs {artifact} to /:id/url and prints the signed 
 
     assertStringIncludes(observedUrl, "/functions/v1/snapshots/snap-1/url");
     assertEquals(observedMethod, "POST");
-    assertEquals((observedBody as unknown as { artifact: string }).artifact, "mhtml");
-    assertStringIncludes(lines.join("\n"), "storage/v1/object/sign/page-snapshots");
+    assertEquals(
+      (observedBody as unknown as { artifact: string }).artifact,
+      "mhtml",
+    );
+    assertStringIncludes(
+      lines.join("\n"),
+      "storage/v1/object/sign/page-snapshots",
+    );
   });
 });
 
@@ -1077,7 +1295,14 @@ Deno.test("snapshots download — signs then writes the artifact bytes to disk",
     console.log = () => {};
 
     try {
-      await runSnapshots(["download", "snap-1", "--artifact", "mhtml", "--out", out]);
+      await runSnapshots([
+        "download",
+        "snap-1",
+        "--artifact",
+        "mhtml",
+        "--out",
+        out,
+      ]);
       const written = await Deno.readFile(out);
       assertEquals([...written], [1, 2, 3, 4]);
     } finally {
@@ -1099,15 +1324,16 @@ Deno.test("scouts add — --archive-enabled/--wayback-enabled reach the create b
     let observedBody: Record<string, unknown> | null = null;
     const origFetch = globalThis.fetch;
     const origLog = console.log;
-    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
-      observedBody = init?.body ? JSON.parse(String(init.body)) : null;
-      return Promise.resolve(
-        new Response(JSON.stringify({ id: "scout-1" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
-    }) as typeof fetch;
+    globalThis.fetch =
+      ((_input: string | URL | Request, init?: RequestInit) => {
+        observedBody = init?.body ? JSON.parse(String(init.body)) : null;
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: "scout-1" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }) as typeof fetch;
     console.log = () => {};
 
     try {

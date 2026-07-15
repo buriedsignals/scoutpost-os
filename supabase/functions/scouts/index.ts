@@ -40,6 +40,7 @@ import {
 import { logEvent } from "../_shared/log.ts";
 import { shapeScoutResponse } from "../_shared/db.ts";
 import {
+  isInvalidLinkedInProfileUrl,
   isLinkedInCompanyUrl,
   normalizeSocialHandle,
 } from "../_shared/social_profiles.ts";
@@ -53,6 +54,12 @@ import {
   type TransportConfig,
   validateTransportConfig,
 } from "../_shared/transport_config.ts";
+import {
+  buildTransportBaselineRows,
+  MAX_TRANSPORT_BASELINE_IDS,
+  validateTransportBaselineIds,
+} from "../_shared/transport_baseline.ts";
+import { assertTransportEntitled } from "../_shared/transport_entitlement.ts";
 import { doubleProbe, firecrawlScrape } from "../_shared/scrape_firecrawl.ts";
 import { scrape } from "../_shared/scrape.ts";
 import { writeCanonicalBaseline } from "../_shared/canonical_baseline.ts";
@@ -178,6 +185,8 @@ const CreateSchema = z
     archive_enabled: z.boolean().optional(),
     wayback_enabled: z.boolean().optional(),
     baseline_posts: z.array(BaselinePostSchema).max(100).optional(),
+    transport_baseline_ids: z.array(z.string().min(1).max(128))
+      .max(MAX_TRANSPORT_BASELINE_IDS).optional(),
     root_domain: z.string().min(1).max(300).optional(),
     tracked_urls: z.array(z.string().url().max(2000)).min(1).max(20).optional(),
     initial_promises: z.array(InitialPromiseSchema).max(100).optional(),
@@ -235,6 +244,16 @@ const CreateSchema = z
           message:
             "LinkedIn company pages are not supported — use a personal profile URL or handle (linkedin.com/in/...)",
         });
+      } else if (
+        v.platform === "linkedin" && v.profile_handle &&
+        isInvalidLinkedInProfileUrl(v.profile_handle)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["profile_handle"],
+          message:
+            "LinkedIn profile URLs must use a personal profile path (linkedin.com/in/...)",
+        });
       }
     }
     // Transport scouts are scoped by config.geofence / config.watch_ids,
@@ -249,12 +268,24 @@ const CreateSchema = z
     }
     if (v.type === "transport") {
       const validated = validateTransportConfig(v.config ?? {});
-      if (validated.error) {
+      if (validated.config === null) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["config"],
           message: validated.error,
         });
+      } else if (v.transport_baseline_ids) {
+        const baselineError = validateTransportBaselineIds(
+          validated.config,
+          v.transport_baseline_ids,
+        );
+        if (baselineError) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["transport_baseline_ids"],
+            message: baselineError,
+          });
+        }
       }
     } else if (v.config && Object.keys(v.config).length > 0) {
       // Keep config write-gated: only transport defines a validated shape.
@@ -262,6 +293,14 @@ const CreateSchema = z
         code: z.ZodIssueCode.custom,
         path: ["config"],
         message: "config is only supported for transport scouts",
+      });
+    }
+    if (v.type !== "transport" && v.transport_baseline_ids !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["transport_baseline_ids"],
+        message:
+          "transport_baseline_ids is only supported for transport scouts",
       });
     }
     if (v.type === "civic") {
@@ -690,6 +729,34 @@ async function stampBaseline(
   if (error) throw new Error(error.message);
 }
 
+async function seedTransportBaseline(
+  svc: ReturnType<typeof getServiceClient>,
+  scoutId: string,
+  userId: string,
+  baselineIds: string[] | undefined,
+): Promise<string | null> {
+  // `undefined` is the legacy/non-preview path: leave the scout unstamped so
+  // its first scheduled run establishes a silent baseline. An explicit empty
+  // array is a valid live-test result for a quiet area and must still stamp the
+  // baseline, otherwise the next run could silently absorb real entrants.
+  if (baselineIds === undefined) return null;
+  const observedAt = new Date().toISOString();
+  const rows = buildTransportBaselineRows(
+    scoutId,
+    userId,
+    baselineIds,
+    observedAt,
+  );
+  if (rows.length > 0) {
+    const { error } = await svc.from("transport_scout_state").insert(rows);
+    if (error) throw new Error(error.message);
+  }
+  await stampBaseline(svc, scoutId, {
+    baseline_established_at: observedAt,
+  });
+  return observedAt;
+}
+
 async function establishCivicBaseline(
   svc: ReturnType<typeof getServiceClient>,
   scout: BaselineableScout,
@@ -720,7 +787,10 @@ async function establishCivicBaseline(
   for (const url of tracked) {
     let scraped;
     try {
-      scraped = await scrape(url, { formats: ["markdown"], onlyMainContent: true });
+      scraped = await scrape(url, {
+        formats: ["markdown"],
+        onlyMainContent: true,
+      });
     } catch (e) {
       logEvent({
         level: "warn",
@@ -818,42 +888,6 @@ async function assertArchiveEntitled(
       "Evidence archiving is a Pro/Team feature — upgrade to enable snapshots for this scout.",
       403,
       "archive_forbidden",
-    );
-  }
-}
-
-/**
- * Fleet Scout is a hosted Pro/Team creation feature. This intentionally
- * mirrors the established archive gate but reads credit_accounts rather than
- * user_preferences: preferences are user-editable, while credit accounts are
- * maintained by the entitlement service and exposed read-only to users.
- * Existing Fleet scouts continue to execute; this is a create/config gate.
- */
-async function assertTransportEntitled(
-  svc: ReturnType<typeof getServiceClient>,
-  userId: string,
-): Promise<void> {
-  if (!creditsEnabled()) return;
-  const { data, error } = await svc
-    .from("credit_accounts")
-    .select("tier")
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (error) {
-    logEvent({
-      level: "warn",
-      fn: "scouts",
-      event: "transport_entitlement_tier_read_failed",
-      user_id: userId,
-      msg: error.message,
-    });
-  }
-  const tier = error ? undefined : (data as { tier?: string } | null)?.tier;
-  if (tier !== "pro" && tier !== "team") {
-    throw new ApiError(
-      "Fleet Scout is a Pro/Team feature — upgrade to alert when watched objects enter an area.",
-      403,
-      "transport_forbidden",
     );
   }
 }
@@ -1072,6 +1106,7 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
     time,
     day_number,
     baseline_posts,
+    transport_baseline_ids,
     initial_promises,
     ...rest
   } = parsed.data;
@@ -1106,7 +1141,9 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
       .select("preferred_language")
       .eq("user_id", user.id)
       .maybeSingle();
-    if (typeof prefs?.preferred_language === "string" && prefs.preferred_language) {
+    if (
+      typeof prefs?.preferred_language === "string" && prefs.preferred_language
+    ) {
       rest.preferred_language = prefs.preferred_language;
     }
   }
@@ -1156,6 +1193,18 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
       ) {
         await seedInitialPromises(svc, data.id, user.id, initial_promises);
       }
+      if (data.type === "transport") {
+        const establishedAt = await seedTransportBaseline(
+          svc,
+          data.id,
+          user.id,
+          transport_baseline_ids,
+        );
+        if (establishedAt) {
+          baselineScout.baseline_established_at = establishedAt;
+          data.baseline_established_at = establishedAt;
+        }
+      }
     } catch (e) {
       await rollbackCreatedScout(svc, data.id, user.id);
       throw e;
@@ -1197,6 +1246,15 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
         initial_promises.length > 0
       ) {
         await seedInitialPromises(svc, data.id, user.id, initial_promises);
+      }
+      if (data.type === "transport") {
+        const establishedAt = await seedTransportBaseline(
+          svc,
+          data.id,
+          user.id,
+          transport_baseline_ids,
+        );
+        if (establishedAt) data.baseline_established_at = establishedAt;
       }
     } catch (e) {
       await rollbackCreatedScout(svc, data.id, user.id);
@@ -1334,7 +1392,48 @@ async function updateScout(
     topic?: string | null;
     location?: Record<string, unknown> | null;
     config?: Record<string, unknown> | null;
+    criteria?: string | null;
+    monitor_mode?: z.infer<typeof SocialMonitorMode> | null;
+    platform?: z.infer<typeof SocialPlatform> | null;
+    profile_handle?: string | null;
   };
+  if (nextScout.type === "social") {
+    if (
+      nextScout.monitor_mode === "criteria" &&
+      !nextScout.criteria?.trim()
+    ) {
+      throw new ValidationError(
+        "criteria is required when monitor_mode is criteria",
+      );
+    }
+    if (
+      nextScout.platform === "linkedin" && nextScout.profile_handle &&
+      isLinkedInCompanyUrl(nextScout.profile_handle)
+    ) {
+      throw new ValidationError(
+        "LinkedIn company pages are not supported — use a personal profile URL or handle (linkedin.com/in/...)",
+      );
+    }
+    if (
+      nextScout.platform === "linkedin" && nextScout.profile_handle &&
+      isInvalidLinkedInProfileUrl(nextScout.profile_handle)
+    ) {
+      throw new ValidationError(
+        "LinkedIn profile URLs must use a personal profile path (linkedin.com/in/...)",
+      );
+    }
+    if (
+      nextScout.platform && nextScout.profile_handle &&
+      Object.prototype.hasOwnProperty.call(parsed.data, "profile_handle")
+    ) {
+      const normalizedHandle = normalizeSocialHandle(
+        nextScout.platform,
+        nextScout.profile_handle,
+      );
+      parsed.data.profile_handle = normalizedHandle;
+      nextScout.profile_handle = normalizedHandle;
+    }
+  }
   if (
     nextScout.type !== "transport" && !nextScout.topic?.trim() &&
     !nextScout.location

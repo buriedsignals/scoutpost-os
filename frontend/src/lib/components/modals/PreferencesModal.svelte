@@ -292,8 +292,9 @@
 	.error-text {
 		margin-top: 1rem;
 		padding: 0.5rem 0.75rem;
-		background: rgba(179, 62, 46, 0.08);
-		border-left: 3px solid var(--color-error);
+		background: color-mix(in oklab, var(--color-error) 10%, var(--color-card));
+		border: 1px solid color-mix(in oklab, var(--color-error) 32%, var(--color-border));
+		border-radius: var(--radius-md);
 		color: var(--color-error);
 		font-size: 0.8125rem;
 	}

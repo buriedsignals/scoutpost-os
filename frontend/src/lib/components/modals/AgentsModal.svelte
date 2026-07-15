@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import { X, Eye, Copy, Check, Code2, Download } from 'lucide-svelte';
+	import { X, Eye, Copy, Check, Code2 } from 'lucide-svelte';
 	import AgentSelect from '$lib/components/ui/AgentSelect.svelte';
 	import AgentSetup from '$lib/components/ui/AgentSetup.svelte';
 	import ApiView from '$lib/components/views/ApiView.svelte';
@@ -9,8 +9,8 @@
 		getSkillPrompt,
 		type InstallPath
 	} from '$lib/utils/agent-recipes';
-	import { getSupabaseProjectRef, resolveAgentTargetContext } from '$lib/utils/agent-targets';
-	import { normalizeAgentSlug, type AgentSlug } from '$lib/utils/agent-icons';
+	import { resolveAgentTargetContext } from '$lib/utils/agent-targets';
+	import { getAgent, normalizeAgentSlug, type AgentSlug } from '$lib/utils/agent-icons';
 
 	export let open = false;
 	/** Optional starting view — 'api' jumps straight to the REST panel. */
@@ -25,6 +25,7 @@
 	let agent: AgentSlug = 'claude-code';
 	let view: 'agents' | 'api' = 'agents';
 	let skillCopied = false;
+	let copyError = false;
 	let path: InstallPath = 'cli';
 	$: agentTarget = resolveAgentTargetContext({
 		deploymentTarget: import.meta.env.PUBLIC_DEPLOYMENT_TARGET,
@@ -35,17 +36,13 @@
 	});
 
 	$: agentRecipes = getAgentRecipes(agent, agentTarget);
+	$: selectedAgent = getAgent(agent);
 	$: availablePaths = agentRecipes.paths;
 	// Snap path to an available one whenever the agent changes.
 	$: if (!availablePaths.includes(path)) path = agentRecipes.default;
 	$: recipe = agentRecipes.recipes[path] ?? agentRecipes.recipes[agentRecipes.default]!;
 	$: showSetupPrompt = recipe.setupKind === 'automated-cli';
-	// Prompt adapts to the agent's skill save location for CLI setup flows.
 	$: skillPrompt = getSkillPrompt(agent, path, agentTarget);
-	$: targetProjectRef =
-		agentTarget.deploymentKind === 'supabase'
-			? getSupabaseProjectRef(import.meta.env.PUBLIC_SUPABASE_URL)
-			: null;
 
 	function close() {
 		onClose();
@@ -79,12 +76,18 @@
 		}
 	}
 
-	function copySkillPrompt() {
-		navigator.clipboard.writeText(skillPrompt);
-		skillCopied = true;
-		setTimeout(() => {
+	async function copySkillPrompt() {
+		copyError = false;
+		try {
+			await navigator.clipboard.writeText(skillPrompt);
+			skillCopied = true;
+			setTimeout(() => {
+				skillCopied = false;
+			}, 1500);
+		} catch {
 			skillCopied = false;
-		}, 1500);
+			copyError = true;
+		}
 	}
 
 	onMount(() => {
@@ -128,7 +131,7 @@
 						{#if view === 'api'}
 							REST API
 						{:else}
-							Connect your AI assistant
+							Connect an agent
 						{/if}
 					</h2>
 					<p>
@@ -136,8 +139,7 @@
 							Bearer-token REST endpoints for custom scripts, ChatGPT Actions, or any non-MCP
 							client.
 						{:else}
-							Point your agent at Scoutpost via the <code>scout</code> CLI (one binary, works
-							anywhere with a shell) or via MCP (for chat UIs without shell access).
+							Choose your assistant. We&rsquo;ll show the fastest supported setup.
 						{/if}
 					</p>
 				</div>
@@ -147,46 +149,21 @@
 			</div>
 
 			<div class="agents-body">
-				<div class="toolbar">
-					{#if view === 'agents'}
-						<AgentSelect value={agent} onChange={handleAgentChange} />
-					{:else if !apiOnly}
-						<button
-							type="button"
-							class="toolbar-btn back"
-							on:click={() => (view = 'agents')}
-						>
-							&larr; Back to agents
-						</button>
-					{/if}
-
-					<div class="toolbar-actions">
-						<a
-							href="/docs#mcp"
-							target="_blank"
-							rel="noopener"
-							class="toolbar-btn"
-							aria-label="Open MCP docs in a new tab"
-							title="How this works"
-						>
-							<Eye size={13} />
-							<span>Docs</span>
-						</a>
-						{#if !apiOnly}
+				{#if view === 'agents' || !apiOnly}
+					<div class="toolbar">
+						{#if view === 'agents'}
+							<AgentSelect value={agent} onChange={handleAgentChange} />
+						{:else}
 							<button
 								type="button"
-								class="toolbar-btn"
-								class:active={view === 'api'}
-								aria-pressed={view === 'api'}
-								on:click={() => (view = view === 'api' ? 'agents' : 'api')}
-								title="REST API reference"
+								class="toolbar-btn back"
+								on:click={() => (view = 'agents')}
 							>
-								<Code2 size={13} />
-								<span>API</span>
+								&larr; Back to agents
 							</button>
 						{/if}
 					</div>
-				</div>
+				{/if}
 
 				{#if view === 'api'}
 					<div class="api-body">
@@ -214,72 +191,57 @@
 					{/if}
 
 					{#if showSetupPrompt}
-						<!-- 1-click setup: the whole walkthrough lives in the prompt. -->
+						<!-- One primary action; manual commands stay available on demand. -->
 						<section class="skill">
 							<div class="skill-head">
-								<span class="skill-eyebrow">Step 1 · 1-click setup</span>
-								<h3>Paste this into your first message</h3>
-								<div class="target-summary">
-									<span>Active target</span>
-									<code>{agentTarget.apiBaseUrl}</code>
-									{#if targetProjectRef}
-										<small>Project ref: {targetProjectRef}</small>
-									{/if}
-								</div>
+								<span class="skill-eyebrow">Recommended · CLI</span>
+								<h3>Let {selectedAgent.name} connect itself</h3>
 								<p>
-									It tells your AI to fetch <code>skill.md</code>, install the
-									<code>scout CLI</code>, and verify the connection. The prompt tells the agent
-									to have you save a <code>cj_…</code> API key locally — click
-									<strong>API</strong> above to create one.
+									Paste one short prompt into {selectedAgent.name}. It installs <code>scout</code>,
+									keeps your API key on this computer, and checks the connection.
 								</p>
+								{#if agentTarget.deploymentKind === 'supabase'}
+									<p class="target-note">Connecting to <code>{agentTarget.appUrl}</code></p>
+								{/if}
 							</div>
-							<div class="skill-prompt">
-								<pre><code>{skillPrompt}</code></pre>
-								<button class="copy-btn" on:click={copySkillPrompt} aria-label="Copy prompt">
-									{#if skillCopied}
-										<Check size={13} /><span>Copied</span>
-									{:else}
-										<Copy size={13} /><span>Copy</span>
-									{/if}
-								</button>
-							</div>
-							<div class="skill-actions">
-								<a
-									class="skill-action"
-									href={agentTarget.skillUrl}
-									download="scoutpost-skill.md"
-									target="_blank"
-									rel="noopener"
-								>
-									<Download size={13} />
-									<span>Download skill.md</span>
-								</a>
-								<span class="skill-action-hint">
-									Prompt is dynamic per agent. <code>skill.md</code> is the same for every
-									agent — it's the product manual.
-								</span>
-							</div>
+							<button type="button" class="primary-copy" on:click={copySkillPrompt}>
+								{#if skillCopied}
+									<Check size={15} /><span>Setup prompt copied</span>
+								{:else}
+									<Copy size={15} /><span>Copy setup prompt</span>
+								{/if}
+							</button>
+							{#if copyError}
+								<div class="copy-fallback" role="alert">
+									<p>Clipboard access is blocked. Select and copy this prompt:</p>
+									<textarea readonly value={skillPrompt} on:focus={(event) => event.currentTarget.select()}></textarea>
+								</div>
+							{/if}
+							<p class="verification-line">
+								Test it: ask
+								<q>Run <code>scout scouts list</code> and tell me what I&rsquo;m monitoring.</q>
+							</p>
 						</section>
 
-						<div class="divider"></div>
+						<details class="manual-details">
+							<summary>Manual CLI setup</summary>
+							<div class="manual-content"><AgentSetup {recipe} /></div>
+						</details>
+					{:else}
+						<section class="fallback">
+							<span class="skill-eyebrow">Connect with {path.toUpperCase()}</span>
+							<AgentSetup {recipe} />
+						</section>
 					{/if}
 
-					<section class="fallback">
-						<span class="skill-eyebrow">
-							{showSetupPrompt ? 'Step 2 · Reference' : 'Manual setup'}
-						</span>
-						<p class="fallback-hint">
-							{#if showSetupPrompt}
-								The prompt above handles this automatically. These are the raw install +
-								config commands for reference, in case you or the agent want to step through
-								them manually.
-							{:else}
-								This runtime needs a manual connector or config step. Follow the steps below;
-								OAuth handles sign-in when the runtime connects to Scoutpost.
-							{/if}
-						</p>
-						<AgentSetup {recipe} />
-					</section>
+					<div class="agents-footer">
+						<a href={path === 'cli' ? '/docs#cli' : '/docs#mcp'} target="_blank" rel="noopener" class="footer-link">
+							<Eye size={13} /><span>Full connection guide</span>
+						</a>
+						<button type="button" class="footer-link api-task" on:click={() => (view = 'api')}>
+							<Code2 size={13} /><span>API keys &amp; REST</span><span aria-hidden="true">&rarr;</span>
+						</button>
+					</div>
 				{/if}
 			</div>
 		</div>
@@ -291,7 +253,8 @@
 		position: fixed;
 		inset: 0;
 		z-index: 100;
-		background: rgba(32, 26, 42, 0.65);
+		background: var(--modal-backdrop);
+		backdrop-filter: blur(8px);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -316,6 +279,7 @@
 		overflow-y: auto;
 		animation: modalPop 300ms cubic-bezier(0.4, 0, 0.2, 1);
 		font-family: var(--font-body);
+		border-radius: var(--radius-xl);
 	}
 
 	@keyframes modalPop {
@@ -343,19 +307,10 @@
 
 	.agents-header p {
 		font-size: 0.8125rem;
-		font-weight: 300;
+		font-weight: 500;
 		color: var(--color-ink-muted);
 		margin: 0;
 		line-height: 1.55;
-	}
-
-	.agents-header code {
-		font-family: var(--font-mono);
-		font-size: 0.75rem;
-		padding: 0.0625rem 0.3125rem;
-		background: var(--color-surface);
-		color: var(--color-ink);
-		border: 1px solid var(--color-border);
 	}
 
 	.icon-btn {
@@ -369,6 +324,7 @@
 		color: var(--color-ink-subtle);
 		cursor: pointer;
 		flex-shrink: 0;
+		border-radius: var(--radius-md);
 		transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
 	}
 	.icon-btn:hover {
@@ -384,15 +340,7 @@
 	.toolbar {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
 		margin-bottom: 1.25rem;
-	}
-
-	.toolbar-actions {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.375rem;
-		margin-left: auto;
 	}
 
 	.toolbar-btn {
@@ -411,25 +359,16 @@
 		text-decoration: none;
 		cursor: pointer;
 		transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+		border-radius: var(--radius-md);
 	}
 	.toolbar-btn:hover {
-		border-color: var(--color-primary);
-		color: var(--color-primary);
-	}
-	.toolbar-btn.active {
-		background: var(--color-primary-soft);
-		border-color: var(--color-primary);
-		color: var(--color-primary-deep);
+		border-color: var(--color-border-strong);
+		color: var(--color-ink);
+		background: var(--color-surface);
 	}
 	.toolbar-btn.back {
 		color: var(--color-primary);
 		font-weight: 500;
-	}
-
-	.divider {
-		height: 1px;
-		background: var(--color-border);
-		margin: 1.25rem 0;
 	}
 
 	.path-tabs {
@@ -437,6 +376,8 @@
 		gap: 0;
 		margin-bottom: 1rem;
 		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
+		overflow: hidden;
 	}
 	.path-tab {
 		display: inline-flex;
@@ -461,8 +402,8 @@
 		background: var(--color-bg);
 	}
 	.path-tab.active {
-		background: var(--color-ink);
-		color: var(--color-bg);
+		background: oklch(0.48 0.035 205 / 34%);
+		color: var(--color-ink);
 	}
 	.path-badge {
 		font-family: var(--font-mono);
@@ -474,6 +415,7 @@
 		background: var(--color-secondary-soft);
 		border: 1px solid var(--color-secondary);
 		padding: 0.0625rem 0.3125rem;
+		border-radius: var(--radius-pill);
 	}
 	.path-tab.active .path-badge {
 		color: var(--color-bg);
@@ -486,45 +428,14 @@
 		border-color: var(--color-border-strong);
 	}
 
-	.skill-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.625rem;
-		margin-top: 0.625rem;
-		flex-wrap: wrap;
-	}
-	.skill-action {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.375rem;
-		padding: 0.4375rem 0.75rem;
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--color-primary-deep);
-		background: var(--color-primary-soft);
-		border: 1px solid var(--color-primary);
-		text-decoration: none;
-		transition: background 150ms ease;
-	}
-	.skill-action:hover {
-		background: var(--color-bg);
-	}
-	.skill-action-hint {
-		font-size: 0.8125rem;
-		font-weight: 300;
-		color: var(--color-ink-muted);
-		line-height: 1.5;
-	}
-	.skill-action-hint code {
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		padding: 0.0625rem 0.3125rem;
-		background: var(--color-surface);
-		color: var(--color-ink);
-		border: 1px solid var(--color-border);
+	.skill {
+		display: grid;
+		gap: 1rem;
+		padding: 1.25rem;
+		background: linear-gradient(145deg, var(--color-surface), var(--color-surface-alt));
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-xl);
+		box-shadow: var(--shadow-md);
 	}
 
 	.skill-eyebrow {
@@ -542,14 +453,6 @@
 		margin-top: 0.25rem;
 	}
 
-	.fallback-hint {
-		font-size: 0.8125rem;
-		font-weight: 300;
-		color: var(--color-ink-muted);
-		line-height: 1.55;
-		margin: 0 0 0.875rem 0;
-	}
-
 	.skill-head h3 {
 		font-family: var(--font-display);
 		font-size: 1.125rem;
@@ -558,34 +461,9 @@
 		margin: 0 0 0.25rem 0;
 		letter-spacing: -0.01em;
 	}
-	.target-summary {
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr) auto;
-		align-items: center;
-		gap: 0.5rem;
-		margin: 0 0 0.625rem;
-		padding: 0.5rem 0.625rem;
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-	}
-	.target-summary span,
-	.target-summary small {
-		font-size: 0.6875rem;
-		font-weight: 500;
-		color: var(--color-ink-subtle);
-	}
-	.target-summary code {
-		min-width: 0;
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		color: var(--color-ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
 	.skill-head p {
 		font-size: 0.875rem;
-		font-weight: 300;
+		font-weight: 500;
 		color: var(--color-ink-muted);
 		margin: 0 0 0.625rem 0;
 		line-height: 1.55;
@@ -597,47 +475,112 @@
 		background: var(--color-surface);
 		color: var(--color-ink);
 		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+	}
+	.skill-head .target-note {
+		margin-bottom: 0;
+		font-size: 0.75rem;
+		color: var(--color-ink-subtle);
 	}
 
-	.skill-prompt {
-		position: relative;
-	}
-	.skill-prompt pre {
-		margin: 0;
-		padding: 0.875rem 1rem;
-		padding-right: 5.25rem;
-		background: var(--color-ink);
-		color: var(--color-bg);
-		font-family: var(--font-mono);
-		font-size: 0.75rem;
-		line-height: 1.55;
-		overflow-x: auto;
-		white-space: pre-wrap;
-		word-break: break-word;
-	}
-	.copy-btn {
-		position: absolute;
-		top: 0.5rem;
-		right: 0.5rem;
+	.primary-copy {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.3125rem;
-		padding: 0.3125rem 0.625rem;
-		font-family: var(--font-mono);
-		font-size: 0.625rem;
-		font-weight: 500;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
+		justify-content: center;
+		gap: 0.5rem;
+		width: fit-content;
+		min-height: 2.5rem;
+		padding: 0.625rem 1rem;
+		font: inherit;
+		font-size: 0.8125rem;
+		font-weight: 650;
 		color: var(--color-bg);
-		background: rgba(245, 239, 227, 0.12);
-		border: 1px solid rgba(245, 239, 227, 0.3);
+		background: var(--color-primary);
+		border: 1px solid var(--color-primary);
+		border-radius: var(--radius-lg);
 		cursor: pointer;
-		transition: background 150ms ease, border-color 150ms ease;
-		white-space: nowrap;
+		box-shadow: 0 8px 24px oklch(0.18 0.025 220 / 28%);
+		transition: transform 150ms ease, filter 150ms ease, box-shadow 150ms ease;
 	}
-	.copy-btn:hover {
-		background: rgba(245, 239, 227, 0.22);
-		border-color: rgba(245, 239, 227, 0.5);
+	.primary-copy:hover {
+		filter: brightness(1.08);
+		transform: translateY(-1px);
+		box-shadow: 0 10px 28px oklch(0.18 0.025 220 / 34%);
+	}
+	.primary-copy:active {
+		transform: translateY(0);
+	}
+	.copy-fallback { display: grid; gap: 0.5rem; }
+	.copy-fallback p { margin: 0; color: var(--color-warning); font-size: 0.75rem; }
+	.copy-fallback textarea { width: 100%; min-height: 8rem; resize: vertical; padding: 0.75rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-ink); font-family: var(--font-mono); font-size: 0.6875rem; line-height: 1.5; }
+
+	.verification-line {
+		margin: 0;
+		padding-top: 0.875rem;
+		border-top: 1px solid var(--color-border);
+		font-size: 0.75rem;
+		font-weight: 500;
+		line-height: 1.55;
+		color: var(--color-ink-muted);
+	}
+	.verification-line code {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		color: var(--color-ink);
+	}
+
+	.manual-details {
+		margin-top: 0.75rem;
+		border-bottom: 1px solid var(--color-border);
+	}
+	.manual-details summary {
+		width: fit-content;
+		padding: 0.625rem 0;
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--color-ink-muted);
+		cursor: pointer;
+		transition: color 150ms ease;
+	}
+	.manual-details summary:hover {
+		color: var(--color-ink);
+	}
+	.manual-content {
+		padding: 0.25rem 0 1rem;
+	}
+	:global(.manual-details .verify) {
+		display: none;
+	}
+
+	.agents-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		margin-top: 1rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--color-border);
+	}
+	.footer-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0;
+		font: inherit;
+		font-size: 0.75rem;
+		font-weight: 550;
+		color: var(--color-ink-muted);
+		background: transparent;
+		border: 0;
+		text-decoration: none;
+		cursor: pointer;
+		transition: color 150ms ease;
+	}
+	.footer-link:hover {
+		color: var(--color-ink);
+	}
+	.api-task {
+		color: var(--color-primary);
 	}
 
 	.api-body {

@@ -87,25 +87,23 @@ describe('callback props for workspace components', () => {
 			[/track a page/i, 'web'],
 			[/track a beat/i, 'pulse'],
 			[/track a profile/i, 'social'],
-			[/track a council/i, 'civic']
+			[/track a council/i, 'civic'],
+			[/track a fleet/i, 'transport']
 		];
 
 		for (const [label, expectedType] of options) {
 			const onSelect = vi.fn();
-			const onClose = vi.fn();
 
 			render(NewScoutDropdown, {
 				props: {
-					open: true,
-					onSelect,
-					onClose
+					onSelect
 				}
 			});
 
-			await fireEvent.click(screen.getByRole('button', { name: label }));
+			await fireEvent.click(screen.getByRole('button', { name: /new scout/i }));
+			await fireEvent.click(screen.getByRole('menuitem', { name: label }));
 
 			expect(onSelect).toHaveBeenCalledWith(expectedType);
-			expect(onClose).toHaveBeenCalledTimes(1);
 			cleanup();
 		}
 	});

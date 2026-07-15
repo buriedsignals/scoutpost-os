@@ -26,6 +26,11 @@ export interface SocialProfileResolution {
   attempts: SocialProfileProbeAttempt[];
 }
 
+const LINKEDIN_PERSONAL_PROFILE_RE =
+  /^(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([^/?#]+)\/?(?:[?#].*)?$/i;
+const URL_LIKE_INPUT_RE =
+  /^(?:https?:\/\/|www\.|(?:[a-z0-9-]+\.)+[a-z]{2,}\/)/i;
+
 export function normalizeSocialHandle(
   platform: SocialPlatform,
   input: string,
@@ -67,6 +72,18 @@ export function buildSocialProfileUrl(
  */
 export function isLinkedInCompanyUrl(input: string): boolean {
   return /linkedin\.com\/(?:company|school|showcase)\//i.test(input);
+}
+
+/**
+ * Bare LinkedIn slugs remain supported for API/CLI callers. Inputs that look
+ * like URLs must be canonical personal-profile URLs so they cannot be folded
+ * into a malformed `/in/https://...` target by the bare-handle fallback.
+ */
+export function isInvalidLinkedInProfileUrl(input: string): boolean {
+  const value = input.trim();
+  const looksLikeUrl = URL_LIKE_INPUT_RE.test(value) ||
+    value.toLowerCase().includes("linkedin.com/");
+  return looksLikeUrl && !LINKEDIN_PERSONAL_PROFILE_RE.test(value);
 }
 
 export function socialProfileCandidates(
@@ -212,7 +229,7 @@ function extractHandleFromUrl(
     x: /^(?:https?:\/\/)?(?:www\.)?(?:x|twitter)\.com\/([^/?#]+)/i,
     facebook: /^(?:https?:\/\/)?(?:www\.|m\.)?facebook\.com\/([^/?#]+)/i,
     tiktok: /^(?:https?:\/\/)?(?:www\.|m\.)?tiktok\.com\/@([^/?#]+)/i,
-    linkedin: /^(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i,
+    linkedin: LINKEDIN_PERSONAL_PROFILE_RE,
   };
 
   return input.match(matchers[platform])?.[1] ?? null;

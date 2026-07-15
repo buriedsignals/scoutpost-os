@@ -2,7 +2,7 @@
 
 Per-client recipes. The hosted server URL is always `https://scoutpost.ai/mcp`. Every recipe below results in OAuth-on-first-use — no `client_id`/`client_secret` paste, ever.
 
-The Agents modal in the app (`/api` → Agents) generates the same recipes dynamically per client. These docs are the canonical reference; the modal copy lives in `frontend/src/lib/utils/agent-recipes.ts`.
+The agent-connection modal in the app (`/api` → Connect Agent) generates the same recipes dynamically per client. These docs own the detailed walkthroughs and troubleshooting; deployment-specific commands and concise modal prompts live in `frontend/src/lib/utils/agent-recipes.ts`.
 
 ## Claude Cowork (claude.ai web, Claude Desktop, Cowork)
 
@@ -82,21 +82,22 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 Reference: <https://docs.windsurf.com/windsurf/cascade/mcp>.
 
-## Gemini CLI
+## Antigravity
 
-Add to `~/.gemini/settings.json`:
+Open **Settings → Customizations → MCP Servers → Add MCP server**, or add this
+to the shared `~/.gemini/config/mcp_config.json` file:
 
 ```json
 {
   "mcpServers": {
     "scoutpost": {
-      "httpUrl": "https://scoutpost.ai/mcp"
+      "serverUrl": "https://scoutpost.ai/mcp"
     }
   }
 }
 ```
 
-Reference: <https://geminicli.com/docs/tools/mcp-server/>.
+Reference: <https://antigravity.google/docs/mcp>.
 
 ## Goose
 
@@ -138,7 +139,7 @@ Paste `https://scoutpost.ai/mcp` and follow the client's OAuth prompt. Spec refe
 
 ## What about ChatGPT?
 
-Not supported as a self-serve target. OpenAI gates "developer mode" custom MCP to Business/Enterprise/Edu plans, with an admin opt-in step per workspace. That makes it useless for individual journalists; the Agents modal does not include it. Reference: <https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt-beta>.
+Not supported as a self-serve target. OpenAI gates "developer mode" custom MCP to Business/Enterprise/Edu plans, with an admin opt-in step per workspace. That makes it useless for individual journalists; the agent-connection modal does not include it. Reference: <https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt-beta>.
 
 ## Local stdio bridge (`scout-mcp`)
 

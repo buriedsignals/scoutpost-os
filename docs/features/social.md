@@ -29,6 +29,12 @@ handle surfaces as a 0-post baseline rather than a hard failure.
 | `summarize` | New posts produce an AI summary and notification. |
 | `criteria` | New posts are embedded and compared against the scout criteria; only matches create relevant units/alerts. |
 
+New UI, CLI, MCP, and documented API flows default to `criteria` and require
+non-empty criteria text. `summarize` remains an explicit opt-out for collecting
+all substantive new posts. For backward compatibility, raw REST requests that
+omit both `monitor_mode` and `criteria` retain the legacy summarize behavior;
+new clients should always send their chosen mode explicitly.
+
 Optional `track_removals` reports posts that disappear between snapshots.
 
 ## Current Runtime

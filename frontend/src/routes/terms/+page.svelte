@@ -176,7 +176,7 @@
 </div>
 
 <style>
-	/* Terms & Privacy — plum + ochre on cream */
+	/* Terms & Privacy — Night Watch surface */
 	.terms-page {
 		min-height: 100vh;
 		background: var(--color-bg);
@@ -191,7 +191,7 @@
 		font-family: var(--font-body);
 		color: var(--color-ink);
 		line-height: 1.7;
-		font-weight: 300;
+		font-weight: 500;
 	}
 
 	.back-link {
@@ -213,6 +213,11 @@
 	.back-link:hover {
 		border-color: var(--color-primary);
 		color: var(--color-primary);
+	}
+
+	.back-link,
+	.terms-content table {
+		border-radius: var(--radius-lg);
 	}
 
 	h1 {

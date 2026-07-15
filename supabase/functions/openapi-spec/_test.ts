@@ -56,6 +56,7 @@ const REQUIRED_PATHS: Array<[string, string[]]> = [
   ["/scouts/{id}/run", ["post"]],
   ["/scouts/{id}/pause", ["post"]],
   ["/scouts/{id}/resume", ["post"]],
+  ["/transport-test", ["post"]],
   ["/scouts/from-template", ["post"]],
   ["/units", ["get"]],
   ["/units/locations", ["get"]],
@@ -146,15 +147,109 @@ Deno.test("spec.json — verification workflow exposed via Unit + UnitUpdate", (
 
 Deno.test("spec.json — Scout schema enumerates all scout types", () => {
   const scoutType = doc.components.schemas.ScoutType as { enum: string[] };
-  assertEquals([...scoutType.enum].sort(), ["beat", "civic", "social", "transport", "web"]);
+  assertEquals([...scoutType.enum].sort(), [
+    "beat",
+    "civic",
+    "social",
+    "transport",
+    "web",
+  ]);
+});
+
+Deno.test("spec.json — social creation is criteria-first without hiding legacy REST fallback", () => {
+  const create = doc.components.schemas.ScoutCreate as {
+    properties: Record<string, {
+      enum?: string[];
+      description?: string;
+      "x-client-default"?: string;
+    }>;
+  };
+  for (
+    const field of [
+      "platform",
+      "profile_handle",
+      "monitor_mode",
+      "track_removals",
+    ]
+  ) {
+    assertExists(create.properties[field], `ScoutCreate missing ${field}`);
+  }
+  assertEquals(create.properties.monitor_mode.enum, ["summarize", "criteria"]);
+  assertEquals(
+    create.properties.monitor_mode["x-client-default"],
+    "criteria",
+  );
+  assertStringIncludes(
+    create.properties.monitor_mode.description ?? "",
+    "omit both monitor_mode and criteria",
+  );
+
+  const update = doc.components.schemas.ScoutUpdate as {
+    properties: Record<string, unknown>;
+  };
+  const scout = doc.components.schemas.Scout as {
+    properties: Record<string, unknown>;
+  };
+  for (
+    const field of [
+      "platform",
+      "profile_handle",
+      "monitor_mode",
+      "track_removals",
+    ]
+  ) {
+    assertExists(update.properties[field], `ScoutUpdate missing ${field}`);
+    assertExists(scout.properties[field], `Scout response missing ${field}`);
+  }
 });
 
 Deno.test("spec.json — Fleet Scout contract requires a circular entry area", () => {
-  const config = doc.components.schemas.TransportConfig as { required: string[]; properties: Record<string, unknown> };
+  const config = doc.components.schemas.TransportConfig as {
+    required: string[];
+    properties: Record<string, unknown>;
+  };
   assertEquals(config.required, ["mode", "watch_ids", "geofence"]);
   assertExists(config.properties.geofence);
-  const area = doc.components.schemas.TransportArea as { required: string[] };
+  const area = doc.components.schemas.TransportArea as {
+    required: string[];
+    properties: { radius_km: { maximum: number } };
+  };
   assertEquals(area.required, ["center", "radius_km"]);
+  assertEquals(area.properties.radius_km.maximum, 1500);
+});
+
+Deno.test("spec.json — Fleet Scout exposes the two-step tested-baseline contract", () => {
+  const create = doc.components.schemas.ScoutCreate as {
+    properties: Record<string, unknown>;
+  };
+  assertExists(create.properties.transport_baseline_ids);
+
+  const testRoute = doc.paths["/transport-test"].post as {
+    requestBody: {
+      content: { "application/json": { schema: { required: string[] } } };
+    };
+    responses: Record<string, {
+      content?: {
+        "application/json"?: {
+          schema?: {
+            required?: string[];
+            properties?: Record<string, unknown>;
+          };
+        };
+      };
+    }>;
+  };
+  assertEquals(
+    testRoute.requestBody.content["application/json"].schema.required,
+    ["config"],
+  );
+  const success = testRoute.responses["200"].content?.["application/json"]
+    ?.schema;
+  assertExists(success);
+  assertEquals(success.required, ["valid", "baseline_ids", "preview"]);
+  assertExists(success.properties?.baseline_ids);
+  assertExists(testRoute.responses["403"]);
+  assertExists(testRoute.responses["503"]);
 });
 
 Deno.test("spec.json — inbox filter parameters present on GET /units", () => {

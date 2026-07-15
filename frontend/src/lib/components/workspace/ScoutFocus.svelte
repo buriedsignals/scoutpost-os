@@ -395,7 +395,7 @@
 		color: var(--color-ink-muted);
 		font-family: var(--font-body);
 		font-size: 0.9375rem;
-		font-weight: 300;
+		font-weight: 500;
 		line-height: 1.55;
 	}
 
@@ -471,7 +471,7 @@
 		margin: 0;
 	}
 	.summary-body.error   { color: var(--color-error); }
-	.summary-body.neutral { color: var(--color-ink-muted); font-weight: 300; }
+	.summary-body.neutral { color: var(--color-ink-muted); font-weight: 500; }
 
 	.focus-footer {
 		display: flex;

@@ -3,6 +3,7 @@ import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import {
   buildSocialProfileUrl,
   classifyProfileProbeStatus,
+  isInvalidLinkedInProfileUrl,
   isLinkedInCompanyUrl,
   looksLikeMissingProfileError,
   normalizeSocialHandle,
@@ -61,8 +62,14 @@ Deno.test("normalizeSocialHandle extracts LinkedIn /in/ profile slugs", () => {
     ),
     "satyanadella",
   );
-  assertEquals(normalizeSocialHandle("linkedin", "@satyanadella"), "satyanadella");
-  assertEquals(normalizeSocialHandle("linkedin", "satyanadella"), "satyanadella");
+  assertEquals(
+    normalizeSocialHandle("linkedin", "@satyanadella"),
+    "satyanadella",
+  );
+  assertEquals(
+    normalizeSocialHandle("linkedin", "satyanadella"),
+    "satyanadella",
+  );
 });
 
 Deno.test("buildSocialProfileUrl builds LinkedIn personal profile URLs", () => {
@@ -93,6 +100,28 @@ Deno.test("isLinkedInCompanyUrl flags company/school/showcase URLs only", () => 
     false,
   );
   assertEquals(isLinkedInCompanyUrl("satyanadella"), false);
+});
+
+Deno.test("LinkedIn URL inputs must be personal /in/ profile URLs", () => {
+  assertEquals(
+    isInvalidLinkedInProfileUrl("https://www.linkedin.com/in/satyanadella/"),
+    false,
+  );
+  assertEquals(
+    isInvalidLinkedInProfileUrl("linkedin.com/in/satyanadella"),
+    false,
+  );
+  assertEquals(
+    isInvalidLinkedInProfileUrl("https://www.linkedin.com/feed/"),
+    true,
+  );
+  assertEquals(
+    isInvalidLinkedInProfileUrl(
+      "https://www.linkedin.com/in/satyanadella/posts/",
+    ),
+    true,
+  );
+  assertEquals(isInvalidLinkedInProfileUrl("satyanadella"), false);
 });
 
 Deno.test("resolveSocialProfile falls back to input handle on LinkedIn authwall", async () => {

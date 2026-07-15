@@ -105,23 +105,23 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 0.875rem 1.5rem;
-		border-bottom: 1px solid #e5e7eb;
-		background: #ffffff;
+		border-bottom: 1px solid var(--color-border);
+		background: var(--color-surface-alt);
 		font-size: 0.8125rem;
 	}
 	.topbar a {
-		color: #4b5563;
+		color: var(--color-ink-muted);
 		text-decoration: none;
 		font-weight: 500;
 	}
 	.topbar a:hover {
-		color: #4E2C78;
+		color: var(--color-primary);
 	}
 	.error {
 		padding: 1.25rem 1.5rem;
-		background: #fef2f2;
-		color: #991b1b;
-		border-bottom: 1px solid #fecaca;
+		background: color-mix(in oklab, var(--color-error) 12%, var(--color-bg));
+		color: var(--color-error);
+		border-bottom: 1px solid color-mix(in oklab, var(--color-error) 35%, var(--color-border));
 	}
 	.error p {
 		margin: 0 0 0.375rem 0;
@@ -132,9 +132,69 @@
 	}
 	.swagger-shell {
 		min-height: calc(100vh - 3rem);
-		background: #fafafa;
+		background: var(--color-bg);
 	}
-	:global(.swagger-ui .topbar) {
+	.swagger-shell :global(.swagger-ui .topbar) {
 		display: none;
+	}
+	.swagger-shell :global(.swagger-ui) {
+		color: var(--color-ink);
+		font-family: var(--font-body);
+	}
+	.swagger-shell :global(.swagger-ui .info .title),
+	.swagger-shell :global(.swagger-ui .info p),
+	.swagger-shell :global(.swagger-ui .info li),
+	.swagger-shell :global(.swagger-ui .opblock-tag),
+	.swagger-shell :global(.swagger-ui .opblock-summary-path),
+	.swagger-shell :global(.swagger-ui .opblock-description-wrapper p),
+	.swagger-shell :global(.swagger-ui .response-col_status),
+	.swagger-shell :global(.swagger-ui .responses-inner h4),
+	.swagger-shell :global(.swagger-ui .responses-inner h5),
+	.swagger-shell :global(.swagger-ui table thead tr td),
+	.swagger-shell :global(.swagger-ui table thead tr th),
+	.swagger-shell :global(.swagger-ui .model-title),
+	.swagger-shell :global(.swagger-ui .model),
+	.swagger-shell :global(.swagger-ui .parameter__name),
+	.swagger-shell :global(.swagger-ui .tab li),
+	.swagger-shell :global(.swagger-ui .btn),
+	.swagger-shell :global(.swagger-ui .servers > label),
+	.swagger-shell :global(.swagger-ui .scheme-container .schemes > .schemes-server-container > label),
+	.swagger-shell :global(.swagger-ui .markdown pre),
+	.swagger-shell :global(.swagger-ui .renderedMarkdown pre) {
+		color: var(--color-ink);
+	}
+	.swagger-shell :global(.swagger-ui .opblock-tag small),
+	.swagger-shell :global(.swagger-ui .opblock-summary-description),
+	.swagger-shell :global(.swagger-ui .parameter__type) {
+		color: var(--color-ink-muted);
+	}
+	.swagger-shell :global(.swagger-ui .scheme-container),
+	.swagger-shell :global(.swagger-ui section.models),
+	.swagger-shell :global(.swagger-ui .opblock),
+	.swagger-shell :global(.swagger-ui input),
+	.swagger-shell :global(.swagger-ui select),
+	.swagger-shell :global(.swagger-ui textarea) {
+		background: var(--color-surface-alt);
+		color: var(--color-ink);
+		border-color: var(--color-border);
+		box-shadow: none;
+	}
+	.swagger-shell :global(.swagger-ui .opblock),
+	.swagger-shell :global(.swagger-ui section.models),
+	.swagger-shell :global(.swagger-ui input),
+	.swagger-shell :global(.swagger-ui select),
+	.swagger-shell :global(.swagger-ui textarea),
+	.swagger-shell :global(.swagger-ui .btn) {
+		border-radius: var(--radius-md);
+	}
+	.swagger-shell :global(.swagger-ui .expand-operation svg),
+	.swagger-shell :global(.swagger-ui .models-control svg),
+	.swagger-shell :global(.swagger-ui .authorization__btn svg) {
+		fill: var(--color-ink-muted);
+	}
+	.swagger-shell :global(.swagger-ui .highlight-code),
+	.swagger-shell :global(.swagger-ui .microlight) {
+		background: oklch(0.18 0.01 215) !important;
+		color: var(--color-ink) !important;
 	}
 </style>

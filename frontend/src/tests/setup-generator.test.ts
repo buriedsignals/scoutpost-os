@@ -167,7 +167,8 @@ describe('setup generator', () => {
 		expect(dockerScript).toContain('SCOUTPOST_SETUP_MANIFEST');
 		expect(onboarding).toContain('https://newsroomref.supabase.co/functions/v1');
 		expect(onboarding).toContain('If you use ChatGPT in the browser');
-		expect(onboarding).toContain('click Agents');
+		expect(onboarding).toContain('click Connect Agent');
+		expect(onboarding).not.toContain('click Agents');
 		expect(onboarding).not.toContain('anon-secret');
 		expect(`${prompt}\n${docker}\n${onboarding}`).not.toContain('www.scoutpost.ai');
 	});

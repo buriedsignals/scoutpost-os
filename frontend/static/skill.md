@@ -45,13 +45,13 @@ The journalist stays responsible for verification. Your job is to help monitor, 
 Scoutpost is usually exposed to agents through one of these paths:
 
 - **CLI**: the `scout` binary on `$PATH`
-- **MCP**: the remote MCP URL shown in the app's Agents modal
-- **REST API**: the API base shown in the app's Agents -> API panel
+- **MCP**: the remote MCP URL shown in the app's **Connect Agent** dialog
+- **REST API**: the API base shown in the app's **Connect Agent** -> API panel
 
 If both CLI and MCP are available, prefer the CLI for shell-capable agents because the commands stay visible in the transcript.
 
 Do not assume a hosted scoutpost.ai endpoint. In self-hosted deployments,
-use the newsroom's own Supabase/API/MCP targets from the Agents modal or the
+use the newsroom's own Supabase/API/MCP targets from the **Connect Agent** dialog or the
 local `scout` config.
 
 ## Core workflow

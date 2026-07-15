@@ -133,6 +133,7 @@ export interface ScoutSetupRequest {
 	root_domain?: string;  // civic
 	tracked_urls?: string[];  // civic
 	initial_promises?: Array<{ promise_text: string; context: string; source_url: string; source_date: string; due_date?: string; date_confidence: string; criteria_match: boolean }>;  // civic
+	transport_baseline_ids?: string[];  // transport (baseline prepared by Step 1 test)
 }
 
 export interface ScoutSetupResponse extends MonitoringSetupResponse {

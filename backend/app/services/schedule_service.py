@@ -73,9 +73,23 @@ class ScheduleService:
             Dict with schedule_name and confirmation.
 
         Raises:
-            ValueError: If URL validation fails (web scouts).
+            ValueError: If URL validation fails (web scouts), or criteria mode
+                is selected for a social scout without criteria text.
         """
         scout_type = body.get("scout_type", "web")
+        social_monitor_mode = None
+        if scout_type == "social":
+            social_criteria = body.get("criteria")
+            has_social_criteria = (
+                isinstance(social_criteria, str) and bool(social_criteria.strip())
+            )
+            social_monitor_mode = body.get("monitor_mode") or (
+                "criteria" if has_social_criteria else "summarize"
+            )
+            if social_monitor_mode == "criteria" and not has_social_criteria:
+                raise ValueError(
+                    "criteria is required when monitor_mode is criteria"
+                )
 
         # Validate URL for web scouts (SSRF protection)
         if scout_type == "web":
@@ -120,7 +134,7 @@ class ScheduleService:
         elif scout_type == "social":
             item["platform"] = body.get("platform", "instagram")
             item["profile_handle"] = body.get("profile_handle", "")
-            item["monitor_mode"] = body.get("monitor_mode", "summarize")
+            item["monitor_mode"] = social_monitor_mode
             item["track_removals"] = body.get("track_removals", False)
             if body.get("criteria"):
                 item["criteria"] = body["criteria"]
@@ -160,7 +174,9 @@ class ScheduleService:
             "source_mode": body.get("source_mode"),
             "platform": body.get("platform"),
             "profile_handle": body.get("profile_handle"),
-            "monitor_mode": body.get("monitor_mode"),
+            "monitor_mode": social_monitor_mode
+            if scout_type == "social"
+            else body.get("monitor_mode"),
             "track_removals": body.get("track_removals", False),
             "tracked_urls": body.get("tracked_urls", []),
             "root_domain": body.get("root_domain", ""),

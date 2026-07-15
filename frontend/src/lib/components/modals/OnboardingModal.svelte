@@ -60,26 +60,26 @@
 
 {#if open}
 	<div
-		class="fixed inset-0 bg-gray-900/60 backdrop-blur-xs flex items-center justify-center z-50 px-4"
+		class="fixed inset-0 bg-[var(--modal-backdrop)] backdrop-blur-sm flex items-center justify-center z-50 px-4"
 	>
 		<form
-			class="w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 space-y-5"
+			class="w-full max-w-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-alt)] text-[color:var(--color-ink)] rounded-2xl shadow-2xl p-6 space-y-5"
 			on:submit|preventDefault={handleSubmit}
 		>
 			<div>
-				<h2 class="text-2xl font-semibold text-gray-900">{m.onboarding_title()}</h2>
-				<p class="text-gray-600 mt-1 text-sm">
+				<h2 class="text-2xl font-semibold text-[color:var(--color-ink)]">{m.onboarding_title()}</h2>
+				<p class="text-[color:var(--color-ink-muted)] mt-1 text-sm">
 					{m.onboarding_subtitle()}
 				</p>
 			</div>
 
 			<div class="space-y-1">
 				<label for="timezone-select" class="form-label">{m.onboarding_timezone()}</label>
-				<p class="text-xs text-gray-500 mb-2">
+				<p class="text-xs text-[color:var(--color-ink-muted)] mb-2">
 					{m.onboarding_timezoneHint()}
 				</p>
 				{#if detectedTimezone}
-					<p class="text-xs text-purple-600 mb-2">
+					<p class="text-xs text-[color:var(--color-primary)] mb-2">
 						{m.onboarding_detectedTimezone({ timezone: formatTz(detectedTimezone) })}
 					</p>
 				{/if}
@@ -93,7 +93,7 @@
 
 			<div class="space-y-1">
 				<label for="language-select" class="form-label">{m.onboarding_language()}</label>
-				<p class="text-xs text-gray-500 mb-2">
+				<p class="text-xs text-[color:var(--color-ink-muted)] mb-2">
 					{m.onboarding_languageHint()}
 				</p>
 				<select id="language-select" class="form-select" bind:value={selectedLanguage} required>
@@ -104,8 +104,8 @@
 			</div>
 
 			<div class="space-y-1">
-				<span class="form-label" id="location-label">{m.onboarding_location()} <span class="text-gray-400">{m.common_optional()}</span></span>
-				<p class="text-xs text-gray-500 mb-2">
+				<span class="form-label" id="location-label">{m.onboarding_location()} <span class="text-[color:var(--color-ink-subtle)]">{m.common_optional()}</span></span>
+				<p class="text-xs text-[color:var(--color-ink-muted)] mb-2">
 					{m.onboarding_locationHint()}
 				</p>
 				<LocationAutocomplete
@@ -117,7 +117,7 @@
 			</div>
 
 			{#if errorMessage}
-				<p class="text-sm text-red-600">{errorMessage}</p>
+				<p class="text-sm text-[color:var(--color-error)]">{errorMessage}</p>
 			{/if}
 
 			<button type="submit" class="btn-primary w-full" disabled={saving || !selectedTimezone}>

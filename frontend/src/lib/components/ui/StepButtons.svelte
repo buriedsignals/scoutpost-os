@@ -20,12 +20,17 @@
 	export let onStep3: () => void = () => {};
 
 	$: hasStep3 = step3Label !== '';
+	$: step3IsPrimary = hasStep3 && step3Enabled;
+	$: step2IsPrimary = step2Enabled && !step3IsPrimary;
+	$: step1IsPrimary = !step2Enabled && !step3IsPrimary;
 </script>
 
 <div class="flex flex-col gap-1.5">
 	<!-- Step 1 -->
 	<button
-		class="btn-primary w-full relative justify-center!"
+		class="w-full relative justify-center! transition-all duration-200"
+		class:btn-primary={step1IsPrimary}
+		class:btn-secondary={!step1IsPrimary}
 		on:click={onStep1}
 		disabled={step1Disabled}
 	>
@@ -47,11 +52,14 @@
 
 	<!-- Step 2 -->
 	<button
-		class="btn-secondary w-full relative justify-center! transition-all duration-300 {step2Enabled ? 'ring-2 ring-purple-500/30' : 'opacity-50'}"
+		class="w-full relative justify-center! transition-all duration-200"
+		class:btn-primary={step2IsPrimary}
+		class:btn-secondary={!step2IsPrimary}
+		class:opacity-50={!step2Enabled}
 		disabled={!step2Enabled}
 		on:click={onStep2}
 	>
-		<span class="step-badge absolute left-4" class:step-active={step2Enabled}>2</span>
+		<span class="step-badge absolute left-4" class:step-active={step2IsPrimary}>2</span>
 		<span class="flex items-center gap-2">
 			{#if !hasStep3}
 				<CalendarClock size={16} />
@@ -71,11 +79,14 @@
 
 		<!-- Step 3 -->
 		<button
-			class="btn-secondary w-full relative justify-center! transition-all duration-300 {step3Enabled ? 'ring-2 ring-purple-500/30' : 'opacity-50'}"
+			class="w-full relative justify-center! transition-all duration-200"
+			class:btn-primary={step3IsPrimary}
+			class:btn-secondary={!step3IsPrimary}
+			class:opacity-50={!step3Enabled}
 			disabled={!step3Enabled}
 			on:click={onStep3}
 		>
-			<span class="step-badge absolute left-4" class:step-active={step3Enabled}>3</span>
+			<span class="step-badge absolute left-4" class:step-active={step3IsPrimary}>3</span>
 			<span class="flex items-center gap-2">
 				{#if step3Icon}
 					<svelte:component this={step3Icon} size={16} />

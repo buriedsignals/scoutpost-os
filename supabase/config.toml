@@ -475,6 +475,9 @@ verify_jwt = false
 [functions.social-test]
 verify_jwt = false
 
+[functions.transport-test]
+verify_jwt = false
+
 # mcp-server does its own auth inside the handler — OAuth endpoints are
 # unauthenticated (metadata, register, authorize, token) and JSON-RPC calls
 # validate the supabase JWT via `requireUser`.

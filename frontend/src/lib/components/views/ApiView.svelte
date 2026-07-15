@@ -328,7 +328,7 @@ Auth: Bearer <your-api-key>`;
 	.agent-block {
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
-		border-radius: 0.5rem;
+		border-radius: var(--radius-lg);
 		overflow: hidden;
 	}
 
@@ -365,7 +365,7 @@ Auth: Bearer <your-api-key>`;
 
 	.target-summary code {
 		min-width: 0;
-		font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, monospace;
+		font-family: var(--font-mono);
 		font-size: 0.6875rem;
 		color: var(--color-ink);
 		overflow: hidden;
@@ -378,8 +378,9 @@ Auth: Bearer <your-api-key>`;
 		padding: 0.875rem;
 		font-size: 0.8125rem;
 		line-height: 1.6;
-		color: var(--color-ink);
-		font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, monospace;
+		color: var(--color-foreground);
+		background: color-mix(in oklab, var(--color-background) 90%, black);
+		font-family: var(--font-mono);
 		white-space: pre;
 		overflow-x: auto;
 	}
@@ -395,14 +396,15 @@ Auth: Bearer <your-api-key>`;
 		color: var(--color-ink-muted);
 		background: transparent;
 		border: 1px solid var(--color-border);
-		border-radius: 0.375rem;
+		border-radius: var(--radius-sm);
 		cursor: pointer;
 		transition: all 0.15s ease;
 	}
 
 	.copy-btn:hover {
-		background: var(--color-surface);
+		background: var(--color-surface-hover);
 		color: var(--color-ink);
+		transform: translateY(-1px);
 	}
 
 	/* New key banner */
@@ -410,14 +412,14 @@ Auth: Bearer <your-api-key>`;
 		display: flex;
 		gap: 0.75rem;
 		padding: 0.875rem;
-		background: linear-gradient(135deg, rgba(107, 63, 160, 0.06) 0%, rgba(78, 44, 120, 0.1) 100%);
-		border: 1px solid rgba(78, 44, 120, 0.2);
-		border-radius: 0.5rem;
+		background: color-mix(in oklab, var(--color-pond) 12%, var(--color-card));
+		border: 1px solid color-mix(in oklab, var(--color-pond) 36%, var(--color-border));
+		border-radius: var(--radius-lg);
 		margin-bottom: 0.75rem;
 	}
 
 	.new-key-banner-icon {
-		color: var(--color-primary-deep);
+		color: var(--color-moonlight);
 		flex-shrink: 0;
 		margin-top: 0.125rem;
 	}
@@ -430,7 +432,7 @@ Auth: Bearer <your-api-key>`;
 	.new-key-warning {
 		font-size: 0.8125rem;
 		font-weight: 600;
-		color: var(--color-primary-deep);
+		color: var(--color-foreground);
 		margin: 0 0 0.5rem;
 	}
 
@@ -442,11 +444,11 @@ Auth: Bearer <your-api-key>`;
 
 	.new-key-value {
 		font-size: 0.8125rem;
-		font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, monospace;
+		font-family: var(--font-mono);
 		color: var(--color-ink);
-		background: rgba(255, 255, 255, 0.6);
+		background: color-mix(in oklab, var(--color-background) 78%, black);
 		padding: 0.25rem 0.5rem;
-		border-radius: 0.25rem;
+		border-radius: var(--radius-sm);
 		flex: 1;
 		min-width: 0;
 		overflow: hidden;
@@ -466,7 +468,7 @@ Auth: Bearer <your-api-key>`;
 		padding: 0.5rem 0.75rem;
 		font-size: 0.8125rem;
 		border: 1px solid var(--color-border);
-		border-radius: 0.375rem;
+		border-radius: var(--radius-sm);
 		background: var(--color-surface-alt);
 		color: var(--color-ink);
 		outline: none;
@@ -474,8 +476,8 @@ Auth: Bearer <your-api-key>`;
 	}
 
 	.key-name-input:focus {
-		border-color: var(--color-primary-deep);
-		box-shadow: 0 0 0 2px rgba(78, 44, 120, 0.1);
+		border-color: var(--color-ring);
+		box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-ring) 18%, transparent);
 	}
 
 	.key-name-input::placeholder {
@@ -489,10 +491,10 @@ Auth: Bearer <your-api-key>`;
 		padding: 0.5rem 0.875rem;
 		font-size: 0.8125rem;
 		font-weight: 600;
-		color: var(--color-surface-alt);
-		background: linear-gradient(to right, var(--color-primary), var(--color-primary-deep));
+		color: var(--primary-foreground);
+		background: var(--color-primary);
 		border: none;
-		border-radius: 0.375rem;
+		border-radius: var(--radius-sm);
 		cursor: pointer;
 		white-space: nowrap;
 		transition: all 0.15s ease;
@@ -500,7 +502,7 @@ Auth: Bearer <your-api-key>`;
 
 	.create-key-btn:hover:not(:disabled) {
 		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(107, 63, 160, 0.3);
+		box-shadow: 0 10px 24px -14px color-mix(in oklab, var(--color-primary) 64%, transparent);
 	}
 
 	.create-key-btn:disabled {
@@ -513,7 +515,7 @@ Auth: Bearer <your-api-key>`;
 		display: flex;
 		flex-direction: column;
 		border: 1px solid var(--color-border);
-		border-radius: 0.5rem;
+		border-radius: var(--radius-lg);
 		overflow: hidden;
 	}
 
@@ -549,7 +551,7 @@ Auth: Bearer <your-api-key>`;
 
 	.key-prefix {
 		font-size: 0.75rem;
-		font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, monospace;
+		font-family: var(--font-mono);
 		color: var(--color-ink-subtle);
 		white-space: nowrap;
 	}
@@ -588,7 +590,7 @@ Auth: Bearer <your-api-key>`;
 		width: 28px;
 		height: 28px;
 		border: none;
-		border-radius: 0.25rem;
+		border-radius: var(--radius-sm);
 		background: transparent;
 		color: var(--color-ink-subtle);
 		cursor: pointer;
@@ -596,7 +598,7 @@ Auth: Bearer <your-api-key>`;
 	}
 
 	.revoke-btn:hover {
-		background: rgba(179, 62, 46, 0.08);
+		background: color-mix(in oklab, var(--color-error) 10%, transparent);
 		color: var(--color-error);
 	}
 
@@ -607,7 +609,7 @@ Auth: Bearer <your-api-key>`;
 		color: var(--color-surface-alt);
 		background: var(--color-error);
 		border: none;
-		border-radius: 0.25rem;
+		border-radius: var(--radius-sm);
 		cursor: pointer;
 		transition: background 0.15s ease;
 	}
@@ -623,7 +625,7 @@ Auth: Bearer <your-api-key>`;
 		color: var(--color-ink-muted);
 		background: transparent;
 		border: 1px solid var(--color-border);
-		border-radius: 0.25rem;
+		border-radius: var(--radius-sm);
 		cursor: pointer;
 	}
 
@@ -637,7 +639,7 @@ Auth: Bearer <your-api-key>`;
 		color: var(--color-ink-subtle);
 		font-size: 0.8125rem;
 		border: 1px dashed var(--color-border);
-		border-radius: 0.5rem;
+		border-radius: var(--radius-lg);
 	}
 
 	.keys-empty :global(.empty-icon) {
@@ -662,7 +664,7 @@ Auth: Bearer <your-api-key>`;
 		padding: 0.75rem 0.875rem;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
-		border-radius: 0.5rem;
+		border-radius: var(--radius-lg);
 		text-decoration: none;
 		color: var(--color-ink);
 		transition: all 0.15s ease;
@@ -670,7 +672,9 @@ Auth: Bearer <your-api-key>`;
 
 	.ref-link:hover {
 		border-color: var(--color-border-strong);
-		background: var(--color-bg);
+		background: var(--color-surface-hover);
+		transform: translateY(-1px);
+		box-shadow: var(--shadow-md);
 	}
 
 	.ref-link div {

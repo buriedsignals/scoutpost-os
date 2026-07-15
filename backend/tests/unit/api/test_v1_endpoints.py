@@ -322,6 +322,123 @@ class TestCreateScout:
         body = call_args.kwargs.get("body") or call_args[1].get("body") or call_args[0][2]
         assert body["provider"] == "firecrawl_plain"
 
+    def test_create_social_scout_forwards_criteria_and_normalized_linkedin_handle(
+        self, api_client
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_scout.return_value = None
+        mock_svc.create_scout.return_value = {
+            "message": "Scout created",
+            "schedule_name": "scout-linkedin",
+            "scraper_name": "LinkedIn Watch",
+        }
+
+        mock_settings = MagicMock()
+        mock_settings.environment = "production"
+
+        with patch.object(v1_module, "_get_schedule_service", return_value=mock_svc), \
+             patch("app.routers.v1.get_settings", return_value=mock_settings), \
+             patch("app.routers.v1.validate_credits", new_callable=AsyncMock) as mock_validate:
+            mock_validate.return_value = {"current_credits": 200, "required": 3}
+
+            response = api_client.post("/api/v1/scouts", json={
+                "name": "LinkedIn Watch",
+                "type": "social",
+                "schedule": {"regularity": "weekly", "time": "09:00"},
+                "platform": "linkedin",
+                "profile_handle": "https://www.linkedin.com/in/satyanadella/",
+                "monitor_mode": "criteria",
+                "criteria": "AI infrastructure announcements",
+                "topic": "technology",
+                "track_removals": True,
+            })
+
+        assert response.status_code == 201
+        call_args = mock_svc.create_scout.call_args
+        body = call_args.kwargs["body"]
+        assert body["platform"] == "linkedin"
+        assert body["profile_handle"] == "satyanadella"
+        assert body["monitor_mode"] == "criteria"
+        assert body["criteria"] == "AI infrastructure announcements"
+        assert body["topic"] == "technology"
+        assert body["track_removals"] is True
+
+    def test_create_social_scout_defaults_to_criteria_and_requires_text(
+        self, api_client
+    ):
+        response = api_client.post("/api/v1/scouts", json={
+            "name": "Missing Criteria",
+            "type": "social",
+            "schedule": {"regularity": "weekly", "time": "09:00"},
+            "platform": "linkedin",
+            "profile_handle": "satyanadella",
+            "topic": "technology",
+        })
+
+        assert response.status_code == 422
+        assert "criteria" in response.text
+
+    def test_create_social_scout_keeps_explicit_summarize_without_criteria(
+        self, api_client
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_scout.return_value = None
+        mock_svc.create_scout.return_value = {
+            "message": "Scout created",
+            "schedule_name": "scout-linkedin-digest",
+            "scraper_name": "LinkedIn Digest",
+        }
+        mock_settings = MagicMock()
+        mock_settings.environment = "production"
+
+        with patch.object(v1_module, "_get_schedule_service", return_value=mock_svc), \
+             patch("app.routers.v1.get_settings", return_value=mock_settings), \
+             patch("app.routers.v1.validate_credits", new_callable=AsyncMock):
+            response = api_client.post("/api/v1/scouts", json={
+                "name": "LinkedIn Digest",
+                "type": "social",
+                "schedule": {"regularity": "weekly", "time": "09:00"},
+                "platform": "linkedin",
+                "profile_handle": "satyanadella",
+                "monitor_mode": "summarize",
+                "topic": "technology",
+            })
+
+        assert response.status_code == 201
+        body = mock_svc.create_scout.call_args.kwargs["body"]
+        assert body["monitor_mode"] == "summarize"
+        assert "criteria" not in body
+
+    def test_create_social_scout_rejects_non_profile_linkedin_url(
+        self, api_client
+    ):
+        response = api_client.post("/api/v1/scouts", json={
+            "name": "Bad LinkedIn URL",
+            "type": "social",
+            "schedule": {"regularity": "weekly", "time": "09:00"},
+            "platform": "linkedin",
+            "profile_handle": "https://www.linkedin.com/feed/",
+            "monitor_mode": "summarize",
+            "topic": "technology",
+        })
+
+        assert response.status_code == 422
+        assert "linkedin.com/in/" in response.text
+
+    def test_create_social_scout_keeps_company_page_error(self, api_client):
+        response = api_client.post("/api/v1/scouts", json={
+            "name": "Company LinkedIn URL",
+            "type": "social",
+            "schedule": {"regularity": "weekly", "time": "09:00"},
+            "platform": "linkedin",
+            "profile_handle": "https://www.linkedin.com/company/microsoft/",
+            "monitor_mode": "summarize",
+            "topic": "technology",
+        })
+
+        assert response.status_code == 422
+        assert "company pages are not supported" in response.text
+
     def test_create_scout_duplicate_name_returns_409(self, api_client):
         mock_svc = AsyncMock()
         mock_svc.get_scout.return_value = {"name": "Existing", "scout_type": "web"}

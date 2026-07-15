@@ -5,7 +5,10 @@
 	import TogglePicker from '$lib/components/ui/TogglePicker.svelte';
 	import CriteriaInput from '$lib/components/ui/CriteriaInput.svelte';
 	import LocationAutocomplete from '$lib/components/ui/LocationAutocomplete.svelte';
+	import ProgressIndicator from '$lib/components/ui/ProgressIndicator.svelte';
+	import StepButtons from '$lib/components/ui/StepButtons.svelte';
 	import ScoutScheduleModal from '$lib/components/modals/ScoutScheduleModal.svelte';
+	import { buildApiUrl } from '$lib/config/api';
 	import type { GeocodedLocation } from '$lib/types';
 	import {
 		TRANSPORT_ID_SOURCES,
@@ -25,7 +28,6 @@
 	const MAX_RADIUS_KM = 1500;
 
 	let mode: Mode = 'aircraft';
-	let name = '';
 	let selectedLocation: GeocodedLocation | null = null;
 	let radiusKm = '100';
 	let watchIdsRaw = '';
@@ -35,6 +37,11 @@
 	let areaInvalid = false;
 	let areaControl: LocationAutocomplete;
 	let showScheduleModal = false;
+	let isTesting = false;
+	let testSuccess = false;
+	let testedConfigKey = '';
+	let baselineIds: string[] = [];
+	let preview: Array<{ id: string; label: string }> = [];
 
 	$: availableCategories = transportModeCategories(mode);
 	$: {
@@ -86,10 +93,14 @@
 	$: areaLbl = selectedLocation
 		? `${selectedLocation.displayName} · ${radiusKm || '?'} km`
 		: '';
+	$: configKey = JSON.stringify(builtConfig);
+	$: if (testSuccess && testedConfigKey && configKey !== testedConfigKey) {
+		testSuccess = false;
+		baselineIds = [];
+		preview = [];
+	}
 
 	function validate(): string {
-		if (!name.trim()) return m.transport_errorName();
-
 		const watchIds = parsedWatchIds();
 		if (watchIds.length === 0) return m.transport_errorWatchIdsRequired();
 		if (watchIds.length > TRANSPORT_MAX_WATCH_IDS) {
@@ -108,7 +119,7 @@
 		return '';
 	}
 
-	async function openSchedule() {
+	async function testFleet() {
 		error = validate();
 		areaInvalid = Boolean(error && (!selectedLocation?.coordinates || error === m.transport_errorGeofence()));
 		if (error) {
@@ -118,11 +129,51 @@
 			}
 			return;
 		}
-		showScheduleModal = true;
+		isTesting = true;
+		testSuccess = false;
+		baselineIds = [];
+		preview = [];
+		const requestedConfigKey = configKey;
+		const requestedConfig = JSON.parse(requestedConfigKey) as Record<string, unknown>;
+		try {
+			const { authStore } = await import('$lib/stores/auth');
+			const token = await authStore.getToken();
+			const response = await fetch(buildApiUrl('/transport-test'), {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					...(token ? { Authorization: `Bearer ${token}` } : {})
+				},
+				body: JSON.stringify({ config: requestedConfig })
+			});
+			const data = await response.json().catch(() => ({})) as {
+				valid?: boolean;
+				detail?: string;
+				error?: string;
+				baseline_ids?: string[];
+				preview?: Array<{ id: string; label: string }>;
+			};
+			if (!response.ok || !data.valid) {
+				throw new Error(data.detail || data.error || m.transport_testFailed());
+			}
+			if (configKey !== requestedConfigKey) {
+				error = m.transport_testChanged();
+				return;
+			}
+			baselineIds = data.baseline_ids ?? [];
+			preview = data.preview ?? [];
+			testedConfigKey = requestedConfigKey;
+			testSuccess = true;
+		} catch (cause) {
+			error = configKey === requestedConfigKey
+				? cause instanceof Error ? cause.message : m.transport_testFailed()
+				: m.transport_testChanged();
+		} finally {
+			isTesting = false;
+		}
 	}
 
 	function resetForm() {
-		name = '';
 		selectedLocation = null;
 		radiusKm = '100';
 		watchIdsRaw = '';
@@ -130,6 +181,11 @@
 		criteria = '';
 		error = '';
 		areaInvalid = false;
+		isTesting = false;
+		testSuccess = false;
+		testedConfigKey = '';
+		baselineIds = [];
+		preview = [];
 	}
 </script>
 
@@ -142,18 +198,6 @@
 				title={m.transport_panelTitle()}
 				subtitle={m.transport_trackDescription()}
 			>
-				<div class="field-group">
-					<label for="transport-name" class="field-label">{m.transport_nameLabel()}</label>
-					<input
-						id="transport-name"
-						type="text"
-						bind:value={name}
-						maxlength="30"
-						placeholder={m.transport_namePlaceholder()}
-						class="form-input"
-					/>
-				</div>
-
 				<div class="field-group">
 					<div class="field-label">{m.transport_modeLabel()}</div>
 					<TogglePicker
@@ -241,8 +285,38 @@
 					<p class="error-text" role="alert" transition:slide={{ duration: 150 }}>{error}</p>
 				{/if}
 
-				<button type="button" class="btn-primary schedule-btn" on:click={openSchedule}>{m.scout_scheduleScout()}</button>
+				<StepButtons
+					step1Disabled={isTesting}
+					step1Loading={isTesting}
+					step1Label={m.transport_testIds()}
+					step1LoadingLabel={m.common_testing()}
+					step2Enabled={testSuccess && testedConfigKey === configKey}
+					onStep1={testFleet}
+					onStep2={() => (showScheduleModal = true)}
+				/>
 			</FormPanel>
+		</div>
+		<div class="results-column">
+			{#if isTesting || testSuccess || error}
+				<ProgressIndicator
+					progress={isTesting ? 55 : 100}
+					message={m.transport_testingIds()}
+					state={testSuccess ? 'success' : error ? 'error' : 'loading'}
+					successMessage={m.transport_baselineReady()}
+					successDetails={m.transport_baselineReadyHint({ count: String(baselineIds.length) })}
+					errorTitle={m.transport_testFailed()}
+					errorMessage={error}
+					hintText={isTesting ? m.transport_testingIds() : ''}
+					compact={testSuccess}
+				/>
+				{#if testSuccess && preview.length > 0}
+					<div class="fleet-preview">
+						{#each preview.slice(0, 3) as item}
+							<span>{item.label || item.id}</span>
+						{/each}
+					</div>
+				{/if}
+			{/if}
 		</div>
 	</div>
 </div>
@@ -250,10 +324,11 @@
 <ScoutScheduleModal
 	bind:open={showScheduleModal}
 	scoutType="transport"
-	scoutName={name.trim()}
+	scoutName=""
 	transportMode={mode}
 	transportConfig={builtConfig}
 	transportAreaLabel={areaLbl}
+	transportBaselineIds={baselineIds}
 	onClose={() => (showScheduleModal = false)}
 	onSuccess={() => {
 		showScheduleModal = false;
@@ -274,6 +349,7 @@
 	.chips { display: flex; flex-wrap: wrap; gap: 0.375rem; }
 	.chip { padding: 0.3125rem 0.625rem; border: 1px solid var(--color-border); background: var(--color-surface); font-size: 0.75rem; cursor: pointer; color: var(--color-ink-muted); font-family: var(--font-body); }
 	.chip.selected { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-primary-deep); }
-	.error-text { margin: 0.5rem 0 0; padding: 0.5rem 0.75rem; background: rgba(179, 62, 46, 0.08); border-left: 3px solid var(--color-error); color: var(--color-error); font-size: 0.8125rem; }
-	.schedule-btn { width: 100%; }
+	.error-text { margin: 0.5rem 0 0; padding: 0.5rem 0.75rem; background: color-mix(in oklab, var(--color-error) 10%, var(--color-card)); border: 1px solid color-mix(in oklab, var(--color-error) 32%, var(--color-border)); border-radius: var(--radius-md); color: var(--color-error); font-size: 0.8125rem; }
+	.fleet-preview { margin-top: 0.75rem; display: grid; gap: 0.375rem; color: var(--color-ink-subtle); font-size: 0.75rem; }
+	.fleet-preview span { padding: 0.375rem 0.5rem; background: color-mix(in oklab, var(--color-surface-alt) 68%, transparent); border-radius: var(--radius-sm); }
 </style>

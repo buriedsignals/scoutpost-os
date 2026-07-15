@@ -18,7 +18,8 @@
 		min-height: 32px;
 		padding: 0.375rem 0.75rem;
 		background: var(--color-secondary-soft);
-		border: 1px solid var(--color-secondary);
+		border: 1px solid oklch(0.56 0.055 200 / 40%);
+		border-radius: var(--radius-lg);
 		white-space: nowrap;
 		box-sizing: border-box;
 	}
@@ -50,7 +51,7 @@
 		line-height: 1;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		color: var(--color-secondary);
+		color: oklch(0.76 0.065 200);
 		white-space: nowrap;
 	}
 </style>

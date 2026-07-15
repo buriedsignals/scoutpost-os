@@ -370,6 +370,15 @@ async def create_scout(
             scout_body["priority_sources"] = body.priority_sources
         if body.source_mode and body.source_mode != "niche":
             scout_body["source_mode"] = body.source_mode
+    elif body.type == "social":
+        scout_body["platform"] = body.platform
+        scout_body["profile_handle"] = body.profile_handle
+        scout_body["monitor_mode"] = body.monitor_mode
+        scout_body["track_removals"] = body.track_removals
+        if body.criteria:
+            scout_body["criteria"] = body.criteria
+        if body.topic:
+            scout_body["topic"] = body.topic
 
     # 7. Create scout via ScheduleService
     try:

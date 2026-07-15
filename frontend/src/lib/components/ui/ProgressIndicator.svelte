@@ -14,6 +14,7 @@
 	export let buttonText = 'Continue';
 	export let hintText = 'This may take a moment';
 	export let onAction: () => void = () => {};
+	export let compact = false;
 
 	function handleAction() {
 		onAction();
@@ -24,6 +25,7 @@
 	class="extraction-progress"
 	class:extraction-progress--success={state === 'success'}
 	class:extraction-progress--error={state === 'error'}
+	class:extraction-progress--compact={compact}
 >
 	{#if state === 'loading'}
 		<!-- Loading State -->
@@ -104,14 +106,27 @@
 </div>
 
 <style>
+	.extraction-progress--compact {
+		padding: 0.875rem 1rem;
+		background: color-mix(in oklab, var(--color-surface-alt) 72%, transparent);
+		border-color: color-mix(in oklab, var(--color-border) 72%, transparent);
+		opacity: 0.82;
+	}
+
+	.extraction-progress--compact::before { display: none; }
+	.extraction-progress--compact .extraction-progress__success-icon :global(svg) {
+		width: 1.125rem;
+		height: 1.125rem;
+	}
+
 	/* Success state modifiers */
 	.extraction-progress--success {
-		background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(5, 150, 105, 0.08) 100%);
-		border-color: rgba(16, 185, 129, 0.2);
+		background: color-mix(in oklab, var(--color-success) 9%, var(--color-card));
+		border-color: color-mix(in oklab, var(--color-success) 30%, var(--color-border));
 	}
 
 	.extraction-progress--success::before {
-		background: linear-gradient(90deg, #10b981, #059669);
+		background: var(--color-success);
 	}
 
 	.extraction-progress__success {
@@ -131,7 +146,7 @@
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
-		color: #059669;
+		color: var(--color-success);
 	}
 
 	.extraction-progress__success-text {
@@ -141,7 +156,7 @@
 	}
 
 	.extraction-progress__success-title {
-		font-family: 'DM Sans', sans-serif;
+		font-family: var(--font-body);
 		font-size: 0.9375rem;
 		font-weight: 600;
 		color: var(--color-success);
@@ -149,17 +164,17 @@
 
 	.extraction-progress__success-details {
 		font-size: 0.8125rem;
-		color: #047857;
+		color: var(--color-muted-foreground);
 	}
 
 	/* Error state modifiers */
 	.extraction-progress--error {
-		background: linear-gradient(135deg, rgba(239, 68, 68, 0.05) 0%, rgba(220, 38, 38, 0.08) 100%);
-		border-color: rgba(239, 68, 68, 0.2);
+		background: color-mix(in oklab, var(--color-error) 9%, var(--color-card));
+		border-color: color-mix(in oklab, var(--color-error) 30%, var(--color-border));
 	}
 
 	.extraction-progress--error::before {
-		background: linear-gradient(90deg, #ef4444, var(--color-error));
+		background: var(--color-error);
 	}
 
 	.extraction-progress__error {
@@ -189,7 +204,7 @@
 	}
 
 	.extraction-progress__error-title {
-		font-family: 'DM Sans', sans-serif;
+		font-family: var(--font-body);
 		font-size: 0.9375rem;
 		font-weight: 600;
 		color: var(--color-error);
@@ -201,10 +216,10 @@
 	}
 
 	.extraction-progress__track--error {
-		background: rgba(239, 68, 68, 0.1);
+		background: color-mix(in oklab, var(--color-error) 12%, transparent);
 	}
 
 	.extraction-progress__fill--error {
-		background: linear-gradient(90deg, #ef4444, var(--color-error));
+		background: var(--color-error);
 	}
 </style>

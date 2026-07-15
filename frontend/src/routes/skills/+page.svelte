@@ -145,7 +145,7 @@
 	}
 
 	h1 {
-		font-family: var(--font-serif);
+		font-family: var(--font-display);
 		font-size: clamp(2.5rem, 8vw, 5rem);
 		line-height: 0.95;
 		margin-bottom: 1rem;
@@ -179,7 +179,7 @@
 
 	:global(.skill-card h2),
 	.resource-head h2 {
-		font-family: var(--font-serif);
+		font-family: var(--font-display);
 		font-size: 1.45rem;
 		line-height: 1.15;
 	}

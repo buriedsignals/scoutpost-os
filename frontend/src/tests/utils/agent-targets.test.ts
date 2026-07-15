@@ -75,6 +75,23 @@ describe("agent target resolution", () => {
     );
   });
 
+  it("keeps generated setup prompts short, safe, and verifiable", () => {
+    const cliPrompt = getSetupPrompt("codex-cli", "cli");
+    const mcpPrompt = getSetupPrompt("claude-code", "mcp");
+
+    expect(cliPrompt).toContain("Never ask me to paste the key into chat");
+    expect(cliPrompt).toContain("API keys & REST");
+    expect(cliPrompt).toContain("scout scouts list");
+    expect(mcpPrompt).toContain("Use OAuth");
+    expect(mcpPrompt).toContain("Do not ask me for a JWT or API key");
+
+    for (const prompt of [cliPrompt, mcpPrompt]) {
+      expect(prompt).not.toContain("narrating each step");
+      expect(prompt).not.toContain("Summarise what Scoutpost lets you do");
+      expect(prompt).not.toContain("From now on");
+    }
+  });
+
   it("normalizes the legacy Codex selector value to Codex CLI", () => {
     expect(normalizeAgentSlug("codex")).toBe("codex-cli");
   });
@@ -86,19 +103,39 @@ describe("agent target resolution", () => {
     expect(recipe?.video?.src).toBe("/videos/claude-cowork-connect.mp4");
   });
 
-  it("uses doc-grounded MCP config for Codex, Hermes, and Gemini CLI", () => {
+  it("uses doc-grounded MCP config for Codex, Hermes, and Antigravity", () => {
     const codexMcp = getAgentRecipes("codex-mcp").recipes.mcp;
     const hermesMcp = getAgentRecipes("hermes").recipes.mcp;
-    const geminiMcp = getAgentRecipes("gemini-cli").recipes.mcp;
+    const antigravityMcp = getAgentRecipes("gemini-cli").recipes.mcp;
 
     expect(codexMcp?.configSnippet).toContain("[mcp_servers.scoutpost]");
     expect(codexMcp?.verifySteps?.join("\n")).toContain(
       "codex mcp login scoutpost",
     );
     expect(hermesMcp?.configSnippet).toContain("auth: oauth");
-    expect(geminiMcp?.command).toContain(
-      "gemini mcp add --transport http scoutpost",
+    expect(antigravityMcp?.configSnippet).toContain('"serverUrl"');
+    expect(antigravityMcp?.docsUrl).toContain("antigravity.google/docs/mcp");
+    expect(antigravityMcp?.uiSteps?.join("\n")).toContain("View raw config");
+    expect(antigravityMcp?.uiSteps?.join("\n")).toContain("authorization code");
+  });
+
+  it("uses explicit OAuth and connectivity checks in command-driven MCP recipes", () => {
+    const claude = getAgentRecipes("claude-code").recipes.mcp;
+    const goose = getAgentRecipes("goose").recipes.mcp;
+    const openclaw = getAgentRecipes("openclaw").recipes.mcp;
+
+    expect(claude?.uiSteps?.join("\n")).toContain(
+      "claude mcp login scoutpost",
     );
+    expect(goose?.uiSteps?.join("\n")).toContain(
+      "Remote Extension (Streamable HTTP)",
+    );
+    expect(goose?.docsUrl).toContain("getting-started/using-extensions.md");
+    expect(openclaw?.command).toContain('"auth":"oauth"');
+    expect(openclaw?.verifySteps?.join("\n")).toContain(
+      "openclaw mcp login scoutpost",
+    );
+    expect(openclaw?.verifySteps?.join("\n")).toContain("--probe");
   });
 
   it("keeps Langdock on the OAuth DCR MCP path", () => {

@@ -144,7 +144,7 @@
 </div>
 
 <style>
-	/* FAQ — plum + ochre on cream */
+	/* FAQ — Night Watch surface */
 	.faq-page {
 		min-height: 100vh;
 		background: var(--color-bg);
@@ -236,7 +236,7 @@
 
 	.subtitle {
 		font-size: 1.0625rem;
-		font-weight: 300;
+		font-weight: 500;
 		color: var(--color-ink-muted);
 		max-width: 560px;
 		margin: 0;
@@ -302,7 +302,7 @@
 		content: '+';
 		font-family: var(--font-mono);
 		font-size: 1.125rem;
-		font-weight: 300;
+		font-weight: 500;
 		color: var(--color-ink-subtle);
 		transition: color 150ms ease;
 	}
@@ -316,7 +316,7 @@
 		padding: 0 1.25rem 1.25rem;
 		font-family: var(--font-body);
 		font-size: 0.9375rem;
-		font-weight: 300;
+		font-weight: 500;
 		color: var(--color-ink-muted);
 		line-height: 1.7;
 	}
@@ -356,6 +356,12 @@
 		background: var(--color-surface);
 		color: var(--color-ink);
 		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+	}
+
+	.back-button,
+	.faq-item {
+		border-radius: var(--radius-lg);
 	}
 
 	.footer-note {

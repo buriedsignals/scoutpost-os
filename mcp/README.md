@@ -53,7 +53,7 @@ Or override per-launch with env vars:
 | `SCOUTPOST_API_KEY` | — | yes |
 | `SCOUTPOST_SUPABASE_ANON_KEY` | — | yes, when `api_url` is a Supabase host |
 
-Generate a `cj_…` API key from the Agents → API panel in the instance you are
+Generate a `cj_…` API key from the Connect Agent → API panel in the instance you are
 connecting to. Hosted users use [scoutpost.ai](https://www.scoutpost.ai);
 self-hosted users use their own deployed frontend.
 

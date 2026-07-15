@@ -71,6 +71,28 @@ interface SampleArgs {
   apiKey: string;
   boxes: number[][][];
   windowMs: number;
+  shipMmsi?: string[];
+}
+
+export interface AisSampleResult {
+  frames: unknown[];
+  connected: boolean;
+  errored: boolean;
+}
+
+export function aisSubscriptionMessage(
+  args: Pick<SampleArgs, "apiKey" | "boxes" | "shipMmsi">,
+): Record<string, unknown> {
+  return {
+    APIKey: args.apiKey,
+    BoundingBoxes: args.boxes,
+    ...(args.shipMmsi?.length ? { FiltersShipMMSI: args.shipMmsi } : {}),
+    FilterMessageTypes: [
+      "PositionReport",
+      "StandardClassBPositionReport",
+      "ShipStaticData",
+    ],
+  };
 }
 
 /**
@@ -79,10 +101,14 @@ interface SampleArgs {
  * parse. A hard deadline guarantees the socket closes even if the feed goes
  * quiet mid-window.
  */
-export function sampleAisWindow(args: SampleArgs): Promise<unknown[]> {
+export function sampleAisWindowWithStatus(
+  args: SampleArgs,
+): Promise<AisSampleResult> {
   return new Promise((resolve) => {
     const frames: unknown[] = [];
     let settled = false;
+    let connected = false;
+    let errored = false;
     const ws = new WebSocket(AIS_WS_URL);
 
     const finish = () => {
@@ -93,21 +119,14 @@ export function sampleAisWindow(args: SampleArgs): Promise<unknown[]> {
       } catch {
         // already closing
       }
-      resolve(frames);
+      resolve({ frames, connected, errored });
     };
 
     const deadline = setTimeout(finish, args.windowMs);
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({
-        APIKey: args.apiKey,
-        BoundingBoxes: args.boxes,
-        FilterMessageTypes: [
-          "PositionReport",
-          "StandardClassBPositionReport",
-          "ShipStaticData",
-        ],
-      }));
+      connected = true;
+      ws.send(JSON.stringify(aisSubscriptionMessage(args)));
     };
     ws.onmessage = async (ev: MessageEvent) => {
       try {
@@ -122,6 +141,7 @@ export function sampleAisWindow(args: SampleArgs): Promise<unknown[]> {
       }
     };
     ws.onerror = () => {
+      errored = true;
       logEvent({
         level: "warn",
         fn: "transport-sampler",
@@ -136,6 +156,10 @@ export function sampleAisWindow(args: SampleArgs): Promise<unknown[]> {
       finish();
     };
   });
+}
+
+export async function sampleAisWindow(args: SampleArgs): Promise<unknown[]> {
+  return (await sampleAisWindowWithStatus(args)).frames;
 }
 
 /** Batch-upsert coalesced positions by MMSI. Returns the count written. */

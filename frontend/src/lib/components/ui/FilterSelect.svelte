@@ -40,6 +40,7 @@
 		padding: 0.4375rem 1.75rem 0.4375rem 0.75rem;
 		background: var(--color-bg);
 		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
 		font-family: var(--font-body);
 		font-size: 0.8125rem;
 		font-weight: 500;
@@ -57,13 +58,13 @@
 	}
 
 	.filter-select:hover:not(.disabled) {
-		border-color: var(--color-primary);
-		background: var(--color-primary-soft);
+		border-color: var(--color-border-strong);
+		background: color-mix(in oklch, var(--color-surface) 82%, var(--color-ink));
 	}
 
 	.filter-select:focus-within {
-		border-color: var(--color-primary);
-		box-shadow: 0 0 0 3px var(--color-primary-soft);
+		border-color: var(--ring);
+		box-shadow: 0 0 0 3px oklch(0.78 0.045 205 / 12%);
 	}
 
 	.filter-select .label {

@@ -289,7 +289,7 @@
 					</span>
 					<span class="agent-pill">
 						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3L9.5 9.5 3 12l6.5 2.5L12 21l2.5-6.5L21 12l-6.5-2.5z"/></svg>
-						Gemini
+						Antigravity
 					</span>
 					<span class="agent-pill">
 						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h.01"/><path d="M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20"/><path d="m20 7 2 .5-2 .5"/><path d="M10 18v3"/><path d="M14 17.75V21"/><path d="M7 18a6 6 0 0 0 3.84-10.61"/></svg>
@@ -593,9 +593,7 @@
 </div>
 
 <style>
-	/* ──────────────────────────────────────────────────────────
-	   Landing page — plum + ochre on cream (see DESIGN.md)
-	   ────────────────────────────────────────────────────────── */
+	/* Night Watch landing surface; layout and content remain unchanged. */
 
 	.login-container {
 		min-height: 100vh;
@@ -658,9 +656,7 @@
 		}
 	}
 
-	/* ──────────────────────────────────────────────────────────
-	   Auth panel — gradient border shell (hero-tier surface)
-	   ────────────────────────────────────────────────────────── */
+	/* Auth panel */
 	.auth-panel-container {
 		width: 100%;
 		max-width: 420px;
@@ -692,16 +688,12 @@
 		transition-delay: 150ms;
 	}
 
-	/* Gradient border shell — the one "hero edge" treatment on the page */
 	.auth-shell {
 		display: block;
 		padding: 1px;
-		background: linear-gradient(
-			to bottom right,
-			rgba(107, 63, 160, 0.55),
-			var(--color-border) 45%,
-			transparent 100%
-		);
+		background: var(--color-border-strong);
+		border-radius: var(--radius-xl);
+		box-shadow: var(--shadow-xl);
 	}
 
 	.auth-card {
@@ -711,6 +703,7 @@
 		padding: 2.5rem 2rem;
 		background: var(--color-surface-alt);
 		gap: 1.25rem;
+		border-radius: calc(var(--radius-xl) - 1px);
 	}
 
 	.auth-logo {
@@ -922,7 +915,7 @@
 		padding: 0.625rem 0.875rem;
 		background: var(--color-surface);
 		border: 1px solid var(--color-error);
-		border-left-width: 3px;
+		border-radius: var(--radius-md);
 		color: var(--color-error);
 		font-size: 0.8125rem;
 		text-align: left;
@@ -996,7 +989,7 @@
 		}
 	}
 
-	/* Public Beta badge — uppercase mono + plum dot */
+	/* Public Beta badge — uppercase mono + warm status dot */
 	.badge {
 		display: inline-flex;
 		align-items: center;
@@ -1139,7 +1132,7 @@
 	.subheadline {
 		font-family: var(--font-body);
 		font-size: clamp(1.125rem, 2vw, 1.375rem);
-		font-weight: 300;
+		font-weight: 500;
 		line-height: 1.55;
 		color: var(--color-ink-muted);
 		letter-spacing: 0;
@@ -1177,9 +1170,7 @@
 		color: var(--color-primary);
 	}
 
-	/* ──────────────────────────────────────────────────────────
-	   Feature cards — hairline + cream-alt, ochre icon tile
-	   ────────────────────────────────────────────────────────── */
+	/* Feature cards */
 	.feature-list {
 		display: flex;
 		flex-direction: column;
@@ -1214,9 +1205,20 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: var(--color-secondary-soft);
-		color: var(--color-secondary);
-		border: 1px solid var(--color-secondary);
+		background: oklch(0.37 0.026 205);
+		color: oklch(0.88 0.028 202);
+		border: 1px solid oklch(0.68 0.05 202 / 48%);
+		transition:
+			background-color 150ms ease,
+			border-color 150ms ease,
+			color 150ms ease;
+	}
+
+	.feature-item:hover .feature-icon,
+	.feature-item:global(.feature-active) .feature-icon {
+		background: oklch(0.41 0.032 203);
+		color: oklch(0.95 0.015 202);
+		border-color: oklch(0.74 0.05 202 / 60%);
 	}
 
 	.feature-icon-svg {
@@ -1237,7 +1239,7 @@
 		color: var(--color-ink-muted);
 		line-height: 1.55;
 		font-size: 0.875rem;
-		font-weight: 300;
+		font-weight: 500;
 		margin: 0;
 	}
 
@@ -1291,12 +1293,6 @@
 		padding: 1.75rem;
 		background: var(--color-surface-alt);
 		border: 1px solid var(--color-border);
-		transition: border-color 150ms ease, background 150ms ease;
-	}
-
-	.promo-card:hover {
-		background: var(--color-bg);
-		border-color: var(--color-border-strong);
 	}
 
 	.promo-kicker {
@@ -1384,7 +1380,7 @@
 
 	.promo-features li {
 		font-size: 0.875rem;
-		font-weight: 300;
+		font-weight: 500;
 		line-height: 1.5;
 		color: var(--color-ink-muted);
 		padding-left: 1rem;
@@ -1552,7 +1548,7 @@
 		margin: 0;
 	}
 
-	/* Shared sharp ink/plum CTA — same height across promo cards (aligns buttons) */
+	/* Shared CTA — same height across promo cards (aligns buttons) */
 	.promo-btn-primary {
 		display: inline-flex;
 		align-items: center;
@@ -1570,13 +1566,26 @@
 		text-transform: uppercase;
 		border: 1px solid var(--color-primary);
 		cursor: pointer;
-		transition: background 150ms ease, border-color 150ms ease;
+		transition: background 150ms ease, border-color 150ms ease, color 150ms ease,
+			transform 150ms ease, box-shadow 150ms ease;
 		white-space: nowrap;
 	}
 
 	.promo-btn-primary:hover:not(:disabled) {
 		background: var(--color-primary-deep);
 		border-color: var(--color-primary-deep);
+		transform: translateY(-1px);
+		box-shadow: 0 6px 18px color-mix(in oklab, var(--color-primary) 24%, transparent);
+	}
+
+	.promo-btn-primary:focus-visible {
+		outline: 2px solid var(--color-primary-deep);
+		outline-offset: 3px;
+	}
+
+	.promo-btn-primary:active:not(:disabled) {
+		transform: translateY(0);
+		box-shadow: none;
 	}
 
 	.promo-btn-primary:disabled {
@@ -1648,7 +1657,29 @@
 	}
 
 	.footer-logo-desaturated {
-		filter: grayscale(1);
+		filter: grayscale(1) invert(1);
+	}
+
+	.badge,
+	.feature-icon,
+	.auth-input,
+	.auth-cta-link,
+	.promo-signup-form input[type='email'],
+	.promo-btn-primary,
+	.promo-link {
+		border-radius: var(--radius-md);
+	}
+
+	.feature-list > .feature-item:first-child {
+		border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+	}
+
+	.feature-list > .feature-item:last-child {
+		border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+	}
+
+	.promo-card {
+		border-radius: var(--radius-lg);
 	}
 
 	/* ──────────────────────────────────────────────────────────

@@ -45,13 +45,13 @@ The journalist stays responsible for verification. Your job is to help monitor, 
 Scoutpost is usually exposed to agents through one of these paths:
 
 - **CLI**: the `scout` binary on `$PATH`
-- **MCP**: the remote MCP URL shown in the app's Agents modal
-- **REST API**: the API base shown in the app's Agents -> API panel
+- **MCP**: the remote MCP URL shown in the app's **Connect Agent** dialog
+- **REST API**: the API base shown in the app's **Connect Agent** -> API panel
 
 If both CLI and MCP are available, prefer the CLI for shell-capable agents because the commands stay visible in the transcript.
 
 Do not assume a hosted scoutpost.ai endpoint. In self-hosted deployments,
-use the newsroom's own Supabase/API/MCP targets from the Agents modal or the
+use the newsroom's own Supabase/API/MCP targets from the **Connect Agent** dialog or the
 local `scout` config.
 
 ## Core workflow
@@ -96,8 +96,27 @@ The exact command names vary by surface, but the public contract is:
 - list a page scout's archived evidence snapshots
 - download a snapshot artifact (MHTML, screenshot, markdown, manifest, timestamp)
 - turn evidence archiving on or off for a page scout
+- test a Fleet Scout configuration against live data before creating it
 
 Use whichever surface is connected to your agent. Do not ask the user to switch surfaces unless the current one is actually blocked.
+
+## Fleet Scout creation
+
+Fleet Scouts use the same two-step boundary as the web app. Step 1 checks the
+requested IDs against current live data and returns a silent baseline. Step 2
+names and schedules the scout with that exact baseline, so objects already in
+the area do not create an immediate false alert.
+
+- CLI: run `scout scouts test-transport --mode vessel --watch-ids 636019825 --center-lat 26.55 --center-lon 56.25 --radius-km 40`, then pass the returned IDs to `scout scouts add ... --baseline-ids 636019825`. If Step 1 returns an empty list, pass `--baseline-ids ''`.
+- MCP: call `test_transport_config`, then call `create_scout` with its `baseline_ids` as `transport_baseline_ids`.
+- REST: `POST /transport-test` with `{ "config": ... }`, then include the returned `baseline_ids` as `transport_baseline_ids` in `POST /scouts`.
+
+Do not skip Step 1 in a new client. Omitting `transport_baseline_ids` preserves
+the legacy behavior where the first scheduled run silently creates a baseline.
+
+The UI calls the scout's short organizational `topic` tags **Project labels**.
+They are not the same thing as an investigation Project, `project_id`, or the
+Project-management tools.
 
 ## Page Archive (evidence snapshots)
 

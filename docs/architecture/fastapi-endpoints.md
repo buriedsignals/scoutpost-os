@@ -521,12 +521,18 @@ Full social scout execution — scrape, diff against baseline, summarize/match c
   "handle": "cityofzurich",
   "userId": "user_xxx",
   "scraperName": "Zurich IG Monitor",
-  "mode": "summarize",
-  "criteria": null,
+  "monitor_mode": "criteria",
+  "criteria": "housing policy changes and council decisions",
   "topic": null,
   "track_removals": false
 }
 ```
+
+Current public clients default Social Scouts to criteria mode and require
+criteria text. Explicit `summarize` remains supported. The residual FastAPI
+schedule adapter also preserves older callers: omitting both `monitor_mode` and
+criteria normalizes to `summarize`, while supplying criteria without a mode
+normalizes to `criteria`.
 
 **Response:**
 ```json

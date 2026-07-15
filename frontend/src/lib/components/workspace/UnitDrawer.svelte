@@ -361,6 +361,7 @@
 		padding: 0.125rem 0.4375rem;
 		text-transform: uppercase;
 		border: 1px solid currentColor;
+		border-radius: var(--radius-sm);
 	}
 
 	.scout-name {
@@ -389,7 +390,7 @@
 	}
 
 	.review-pill.verified {
-		background: rgba(47, 143, 95, 0.12);
+		background: color-mix(in oklab, var(--color-success) 12%, transparent);
 		color: var(--color-success);
 		border-color: var(--color-success);
 	}
@@ -449,6 +450,7 @@
 		color: var(--color-ink-subtle);
 		cursor: pointer;
 		flex-shrink: 0;
+		border-radius: var(--radius-sm);
 		transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
 	}
 
@@ -460,16 +462,16 @@
 
 	.drawer-tabs {
 		display: flex;
-		gap: 1.25rem;
-		padding: 0 1.25rem;
+		gap: 0.25rem;
+		padding: 0.5rem 1.25rem;
 		border-bottom: 1px solid var(--color-border);
 	}
 
 	.tab-btn {
-		padding: 0.75rem 0;
+		padding: 0.5rem 0.75rem;
 		background: transparent;
 		border: none;
-		border-bottom: 2px solid transparent;
+		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
 		font-size: 0.6875rem;
 		font-weight: 500;
@@ -477,16 +479,17 @@
 		text-transform: uppercase;
 		color: var(--color-ink-muted);
 		cursor: pointer;
-		transition: color 150ms ease, border-color 150ms ease;
+		transition: color 150ms ease, background 150ms ease, transform 150ms ease;
 	}
 
 	.tab-btn:hover {
 		color: var(--color-ink);
+		background: var(--color-surface-hover);
 	}
 
 	.tab-btn.active {
-		color: var(--color-primary);
-		border-bottom-color: var(--color-primary);
+		color: var(--color-foreground);
+		background: color-mix(in oklab, var(--color-moonlight) 13%, var(--color-card));
 	}
 
 	.drawer-body {
@@ -514,7 +517,7 @@
 
 	.prose.context {
 		color: var(--color-ink-muted);
-		font-weight: 300;
+		font-weight: 500;
 	}
 
 	.prose :global(p) {
@@ -573,7 +576,7 @@
 
 	.empty-tab {
 		font-size: 0.8125rem;
-		font-weight: 300;
+		font-weight: 500;
 		color: var(--color-ink-muted);
 		margin: 0;
 	}
@@ -593,6 +596,7 @@
 		background: var(--color-surface);
 		color: var(--color-ink);
 		border: 1px solid var(--color-border);
+		border-radius: var(--radius-pill);
 	}
 
 	.drawer-footer {
@@ -618,6 +622,7 @@
 		cursor: pointer;
 		transition: background 150ms ease, border-color 150ms ease;
 		min-height: 2.25rem;
+		border-radius: var(--radius-sm);
 	}
 
 	.footer-btn:disabled {
@@ -639,11 +644,11 @@
 	.delete-btn {
 		background: var(--color-surface-alt);
 		color: var(--color-error);
-		border: 1px solid rgba(179, 62, 46, 0.3);
+		border: 1px solid color-mix(in oklab, var(--color-error) 32%, var(--color-border));
 	}
 
 	.delete-btn:hover:not(:disabled) {
-		background: rgba(179, 62, 46, 0.08);
+		background: color-mix(in oklab, var(--color-error) 10%, transparent);
 	}
 
 	.cancel-delete-btn {

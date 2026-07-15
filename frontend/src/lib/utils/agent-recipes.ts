@@ -7,7 +7,7 @@
  *   - 'cli'  — the agent shells out to the `scout` binary. No MCP server to
  *              run; the agent inspects commands as plain shell. Preferred
  *              for shell-capable agents (Claude Code, Codex, Cursor,
- *              Windsurf, Gemini CLI, Goose, Hermes).
+ *              Windsurf, Antigravity, Goose, Hermes).
  *   - 'mcp'  — the agent connects to the remote MCP server at MCP_URL.
  *              The only option for chat UIs without shell access. The
  *              "Claude Cowork" entry covers Claude Desktop, claude.ai,
@@ -89,7 +89,7 @@ export interface Recipe {
 }
 
 export const CLI_README_URL =
-  "https://github.com/buriedsignals/scoutpost-os/blob/main/cli/README.md";
+  "https://github.com/buriedsignals/scoutpost-os/blob/master/cli/README.md";
 const CLI_DENO_INSTALL_URL =
   "https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts";
 export const MCP_URL = HOSTED_AGENT_TARGET.mcpUrl;
@@ -136,14 +136,15 @@ const sharedCliRecipe: Recipe = {
 
 const mcpRecipes: Partial<Record<AgentSlug, Recipe>> = {
   "claude-code": {
-    tagline: "One command in your terminal. OAuth opens on first use.",
+    tagline: "Add Scoutpost in your terminal, then sign in with OAuth.",
     setupKind: "manual",
     mode: "cli-command",
     command: "claude mcp add --transport http scoutpost {{MCP_URL}}",
     uiSteps: [
       "Run the command above in your terminal.",
-      "Claude Code opens your default browser to sign in. If no browser opens, run `claude mcp list` to print the auth URL and open it manually.",
-      "Approve the connection — the CLI completes the OAuth handshake automatically.",
+      "Run `claude mcp login scoutpost` to start OAuth (Claude Code 2.1.186 or later).",
+      "Approve Scoutpost in the browser, then return to Claude Code.",
+      "Run `claude mcp list`, or open `/mcp` in Claude Code, and confirm Scoutpost is connected.",
     ],
     docsUrl: "https://code.claude.com/docs/en/mcp",
     docsLabel: "Claude Code MCP docs",
@@ -240,22 +241,27 @@ url = "{{MCP_URL}}"`,
   },
 
   "gemini-cli": {
-    tagline: "Use Gemini CLI’s MCP manager to add a Streamable HTTP server.",
+    tagline: "Add Scoutpost through Antigravity’s shared MCP configuration.",
     setupKind: "manual",
-    mode: "cli-command",
-    command: "gemini mcp add --transport http scoutpost {{MCP_URL}}",
+    mode: "ui-steps",
     uiSteps: [
-      "Run the command above in your terminal. It writes to your Gemini CLI MCP settings.",
-      'If you prefer manual config, add `"httpUrl": "{{MCP_URL}}"` under `mcpServers.scoutpost` in ~/.gemini/settings.json.',
-      "Use `/mcp` or `gemini mcp list` to inspect connection status and diagnostics.",
+      "In Antigravity’s agent side panel, open `…` → MCP Servers → Manage MCP Servers → View raw config.",
+      "Add the configuration below to the global ~/.gemini/config/mcp_config.json file, or to .agents/mcp_config.json for this workspace.",
+      "Open Agent Settings (`Cmd+,` on macOS or `Ctrl+,` elsewhere) → Customizations → Authenticate.",
+      "Complete Scoutpost sign-in in the browser, copy the authorization code shown there, and paste it back into Antigravity.",
     ],
-    configSnippet: "{{MCP_URL}}",
-    docsUrl:
-      "https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md",
-    docsLabel: "Gemini CLI MCP docs",
+    configSnippet: `{
+  "mcpServers": {
+    "scoutpost": {
+      "serverUrl": "{{MCP_URL}}"
+    }
+  }
+}`,
+    configLang: "json",
+    docsUrl: "https://antigravity.google/docs/mcp",
+    docsLabel: "Antigravity MCP docs",
     verifySteps: [
-      "Run `gemini mcp list`.",
-      "Start Gemini CLI and run `/mcp` if the server does not appear connected.",
+      "Open Antigravity’s MCP manager and confirm Scoutpost is authenticated and connected.",
       'Ask: "List my Scoutpost scouts."',
     ],
   },
@@ -267,13 +273,14 @@ url = "{{MCP_URL}}"`,
     command: "goose configure",
     uiSteps: [
       "Run `goose configure` in your terminal.",
-      'Choose "Add Extension" → "Streamable HTTP".',
+      'Choose "Add Extension" → "Remote Extension (Streamable HTTP)".',
       "Name the extension `scoutpost`.",
       "Paste the URL below when prompted.",
       "Authorize in the browser window that opens.",
     ],
     configSnippet: MCP_URL,
-    docsUrl: "https://block.github.io/goose/docs/mcp/",
+    docsUrl:
+      "https://github.com/aaif-goose/goose/blob/main/documentation/docs/getting-started/using-extensions.md",
     docsLabel: "Goose MCP docs",
     verifySteps: [
       "Restart Goose or reload extensions after the browser authorization finishes.",
@@ -282,24 +289,24 @@ url = "{{MCP_URL}}"`,
   },
 
   openclaw: {
-    tagline:
-      "Experimental: save Scoutpost in OpenClaw’s MCP registry for runtimes that consume it.",
+    tagline: "Add Scoutpost to OpenClaw, then authenticate and probe it.",
     setupKind: "manual",
     warning: {
       title: "Experimental registry path",
       body:
-        "OpenClaw’s documented MCP command stores outbound server definitions and does not prove the target server is reachable immediately. Use this only if your OpenClaw runtime consumes saved MCP registry entries.",
+        "OpenClaw’s registry command only saves the definition. Complete the OAuth login and probe steps below before treating the connection as ready.",
     },
     mode: "cli-command",
     command:
-      `openclaw mcp set scoutpost '{"url":"{{MCP_URL}}","transport":"streamable-http"}'`,
+      `openclaw mcp set scoutpost '{"url":"{{MCP_URL}}","transport":"streamable-http","auth":"oauth"}'`,
     configLang: "json",
     configSnippet: `{
   "mcp": {
     "servers": {
       "scoutpost": {
         "url": "{{MCP_URL}}",
-        "transport": "streamable-http"
+        "transport": "streamable-http",
+        "auth": "oauth"
       }
     }
   }
@@ -307,8 +314,8 @@ url = "{{MCP_URL}}"`,
     docsUrl: "https://docs.openclaw.ai/cli/mcp",
     docsLabel: "OpenClaw MCP docs",
     verifySteps: [
-      "Run `openclaw mcp show scoutpost --json` to confirm the registry entry.",
-      "Verify in the specific OpenClaw runtime profile that consumes MCP registry entries; the registry command alone does not connect to the server.",
+      "Run `openclaw mcp login scoutpost` and approve Scoutpost in the browser.",
+      "Run `openclaw mcp doctor scoutpost --probe` to confirm the saved server is reachable and authenticated.",
     ],
   },
 
@@ -346,7 +353,8 @@ url = "{{MCP_URL}}"`,
       "Enable the connected Scoutpost integration for the assistant or workspace where you want to use it.",
     ],
     configSnippet: MCP_URL,
-    docsUrl: "https://docs.langdock.com/resources/integrations/mcp",
+    docsUrl:
+      "https://docs.langdock.com/en/using-langdock/guides/integrations/mcp/mcp",
     docsLabel: "Langdock MCP docs",
     verifySteps: [
       "Open a Langdock assistant or chat where the Scoutpost integration is enabled.",
@@ -453,83 +461,49 @@ export function getRecipe(
     fillRecipe(mcpRecipes[slug] ?? sharedCliRecipe, target);
 }
 
-/**
- * Per-agent skill-save location. Tells the agent where skill.md should be
- * persisted so it auto-loads in future sessions. The skill file itself
- * (SKILL_URL) is agnostic — same content for every agent.
- */
-const SKILL_LOCATIONS: Record<AgentSlug, string> = {
-  "claude-code": ".claude/skills/scoutpost.md",
-  "claude-cowork": "this Project's instructions (or your memory)",
-  "codex-cli": "AGENTS.md (or ~/.codex/AGENTS.md for global reuse)",
-  "codex-mcp": "AGENTS.md (or ~/.codex/AGENTS.md for global reuse)",
-  cursor: ".cursor/rules/scoutpost.mdc",
-  windsurf: ".windsurf/rules/scoutpost.md",
-  "gemini-cli": "GEMINI.md (or ~/.gemini/GEMINI.md for global reuse)",
-  goose: ".goosehints (or ~/.config/goose/.goosehints for global reuse)",
-  openclaw:
-    "somewhere your agent loads on startup (project rules, system prompt, or memory)",
-  hermes: "~/.hermes/skills/scoutpost.md",
-  langdock: "Langdock assistant instructions or workspace knowledge",
-  other:
-    "somewhere your agent loads on startup (project rules, system prompt, or memory)",
-};
-
 const CLI_INSTALL_LINE = `deno install -A -g -n scout ${CLI_DENO_INSTALL_URL}`;
 
 /**
- * Build a complete 1-click setup prompt that walks the agent (and user)
- * through connecting to Scoutpost end-to-end. The agent:
- *
- *   1. Fetches skill.md so it understands the product
- *   2. Installs the scout CLI (or configures MCP)
- *   3. Prompts the user for the API key and calls the right config command
- *   4. Verifies the connection
- *   5. Reports back what it can do and where it saved skill.md
- *
- * Paste this into any agent's first message and it self-configures.
+ * Build a short setup prompt that connects and verifies the selected path.
+ * Detailed client walkthroughs and troubleshooting stay in the docs.
  */
 export function getSetupPrompt(
-  slug: AgentSlug,
+  _slug: AgentSlug,
   path: InstallPath = "cli",
   target: AgentTargetContext = HOSTED_AGENT_TARGET,
 ): string {
-  const location = SKILL_LOCATIONS[slug] ?? SKILL_LOCATIONS.other;
   const selfHostedNote = target.deploymentKind === "supabase"
-    ? ` This is a self-hosted newsroom deployment; use only ${target.appUrl}, ${target.apiBaseUrl}, and ${target.mcpUrl}. Do not connect to scoutpost.ai.`
+    ? `\nThis newsroom uses ${target.appUrl}. Do not connect to scoutpost.ai.`
     : "";
 
   if (path === "mcp") {
     return [
-      `Set me up with Scoutpost.${selfHostedNote} Do this in order, narrating each step:`,
+      `Connect Scoutpost as a remote MCP server:${selfHostedNote}`,
       ``,
-      `1. Fetch ${target.skillUrl} and save it to ${location} so it auto-loads in future sessions. This is the product skill — it tells you how to drive Scoutpost.`,
-      `2. Configure the remote MCP server at ${target.mcpUrl}. If a config file edit is needed, show me the exact file path and diff before saving.`,
-      `3. The MCP server uses OAuth — when the connector prompts me to sign in, I'll approve it in the browser. Do not ask me for a JWT or API key; the OAuth flow handles auth.`,
-      `4. Verify the connection by listing my scouts. If the tool isn't available yet, tell me to reload the chat.`,
-      `5. Summarise what Scoutpost lets you do for me and suggest one concrete thing you'd use it for based on my current work.`,
+      target.mcpUrl,
+      ``,
+      `Use OAuth. Do not ask me for a JWT or API key.`,
+      `Read the Scoutpost product instructions at ${target.skillUrl}.`,
+      `Verify the connection by listing my scouts.`,
     ].join("\n");
   }
 
   return [
-    `Set me up with Scoutpost via the scout CLI.${selfHostedNote} Do this in order, narrating each step:`,
+    `Connect yourself to Scoutpost with the scout CLI.${selfHostedNote}`,
     ``,
-    `1. Fetch ${target.skillUrl} and save it to ${location} so it auto-loads in future sessions. This is the product skill — it tells you how to drive Scoutpost.`,
-    `2. Install the scout CLI by running: ${CLI_INSTALL_LINE}`,
-    `   (Requires Deno 2.x. If Deno is missing, install it first from https://deno.com/.)`,
-    `3. Tell me to generate an API key at ${target.apiKeyCreateUrl} → Agents → API → Create key (it's shown once). Do NOT ask me to paste the key into this chat — credentials in a transcript leak into logs and screenshots. Instead, have me run these commands in my own terminal so the key never enters the conversation:`,
-    `     scout config set api_url=${target.apiBaseUrl}`,
+    `1. Read the product instructions at ${target.skillUrl}.`,
+    `2. Install the CLI: ${CLI_INSTALL_LINE}`,
+    `3. Ask me to create a key at ${target.apiKeyCreateUrl} → Connect Agent → API keys & REST. Never ask me to paste the key into chat. Have me run these locally:`,
+    `   scout config set api_url=${target.apiBaseUrl}`,
     ...(target.deploymentKind === "supabase"
       ? [
-        `     scout config set supabase_anon_key=${
+        `   scout config set supabase_anon_key=${
           target.supabaseAnonKey || "<SUPABASE_ANON_KEY>"
         }`,
       ]
       : []),
-    `     scout config set api_key=cj_...   # I replace cj_... with the real key locally`,
-    `4. After I confirm I've done that, verify by running: scout --version && scout scouts list — if it returns my scouts, we're connected. The CLI reads the key from ~/.scoutpost/config.json, so you never see it.`,
-    `5. From now on, use the scout CLI to create scouts, list findings, and verify units on my behalf. Don't ask me to open the web UI when you can do it via the CLI.`,
-    `6. Summarise what Scoutpost lets you do for me and suggest one concrete thing you'd use it for based on my current work.`,
+    `   scout config set api_key=cj_...`,
+    `4. Verify with: scout scouts list`,
   ].join("\n");
 }
 

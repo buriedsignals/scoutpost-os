@@ -95,7 +95,7 @@ docs/
 - **Architecture**: `mcp/architecture.md` — proxy + EF + broker, why two layers
 - **OAuth flow**: `mcp/oauth.md` — full DCR/PKCE/magiclink/server-side-mint chain
 - **Endpoints**: `mcp/endpoints.md` — every well-known + OAuth + JSON-RPC endpoint with curl
-- **Clients**: `mcp/clients.md` — Cowork, Desktop, Codex Desktop, Cursor, Windsurf, Gemini CLI, Goose, Hermes
+- **Clients**: `mcp/clients.md` — Cowork, Desktop, Codex Desktop, Cursor, Windsurf, Antigravity, Goose, Hermes
 - **Self-hosting**: `mcp/self-hosting.md` — env vars, redirect-URL allowlists, sanity probes
 - **Debugging**: `mcp/debugging.md` — Configure-vs-Connect, request_id correlation, incident timeline
 

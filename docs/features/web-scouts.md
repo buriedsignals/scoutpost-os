@@ -10,6 +10,10 @@ Page Scouts monitor specific URLs for content changes. Users choose between two 
 - **Any Change**: Notifies on any content change (criteria is null, skips LLM analysis)
 - **Specific Criteria**: Notifies only when changes match user-defined criteria (LLM-analyzed)
 
+The current UI opens on **Specific Criteria** so journalists state what matters
+before testing the page. **Any Change** remains available as an explicit choice
+and for legacy/API requests with empty criteria.
+
 Uses Firecrawl `/scrape` as the fetch/render provider, but Page Scout change
 detection is owned locally by Scoutpost: fresh markdown is canonicalized,
 version-hashed, and compared against the latest `raw_captures` baseline.

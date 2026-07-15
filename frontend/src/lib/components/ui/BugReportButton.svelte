@@ -14,7 +14,7 @@
 	aria-label={m.bugReport_label()}
 	title={m.bugReport_label()}
 >
-	<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+	<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 		<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>
 		<path d="M9.1 9a3 3 0 0 1 5.82 1c0 2-3 3-3 3"/>
 		<path d="M12 17h.01"/>
@@ -30,11 +30,11 @@
 
 		width: 48px;
 		height: 48px;
-		border-radius: 0;
+		border-radius: var(--radius-md);
 
-		background: var(--color-ink);
-		border: 1px solid var(--color-ink);
-		color: var(--color-bg);
+		background: var(--secondary);
+		border: 1px solid var(--border);
+		color: var(--secondary-foreground);
 		box-shadow: var(--shadow-md);
 
 		display: flex;
@@ -46,8 +46,9 @@
 	}
 
 	.bug-report-button:hover {
-		background: var(--color-primary-deep);
-		border-color: var(--color-primary-deep);
+		background: var(--accent);
+		border-color: var(--ring);
+		color: var(--accent-foreground);
 	}
 
 	.bug-report-button:focus-visible {
