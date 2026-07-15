@@ -189,7 +189,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "create_scout",
     description:
-      "Create a new scout. Required: name and type (web|beat|social|civic|transport). web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle. Transport scouts (displayed as 'Fleet Scout' in the UI) require a `config` object: { mode: aircraft|vessel|satellite, watch_ids, geofence?, categories?, criteria? } — watch_ids is REQUIRED for every mode: the specific vessel MMSIs / aircraft ICAO hexes / satellite NORAD ids to track (up to 20; categories only narrow the list, they cannot replace it). Vessel and satellite scouts also need a geofence; aircraft geofence is optional. geofence is { preset_id } or { center: {lat,lon}, radius_km }. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes the baseline immediately for every scout type; Run Now compares against that baseline and never creates the first baseline. Web/Page scouts can turn on evidence archiving with archive_enabled (Pro/Team); captured snapshots are then retrievable via list_snapshots.",
+      "Create a new scout. Required: name and type (web|beat|social|civic|transport). web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle. Transport scouts (Fleet Scout) are Pro/Team on hosted Scoutpost and require config: { mode: aircraft|vessel|satellite, watch_ids, geofence: { center: {lat,lon}, radius_km, display_name?, maptiler_id? }, categories?, criteria? }. Every mode needs the circular area and alerts when a watched object enters it. criteria is optional and only filters those entry alerts; it never replaces the area. watch_ids is required (max 20); categories only narrow it. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes the baseline immediately for every scout type; Run Now compares against that baseline and never creates the first baseline. Web/Page scouts can turn on evidence archiving with archive_enabled (Pro/Team); captured snapshots are then retrievable via list_snapshots.",
     inputSchema: {
       type: "object",
       required: ["name", "type"],
@@ -219,9 +219,17 @@ export const TOOLS: ToolDef[] = [
         regularity: { type: "string", enum: ["daily", "weekly", "monthly", "3h", "6h", "12h"] },
         config: {
           type: "object",
-          additionalProperties: true,
+          additionalProperties: false,
+          required: ["mode", "watch_ids", "geofence"],
+          properties: {
+            mode: { type: "string", enum: ["aircraft", "vessel", "satellite"] },
+            watch_ids: { type: "array", minItems: 1, maxItems: 20, items: { type: "string" } },
+            geofence: { type: "object", required: ["center", "radius_km"], properties: { center: { type: "object", required: ["lat", "lon"], properties: { lat: { type: "number" }, lon: { type: "number" } } }, radius_km: { type: "number", exclusiveMinimum: 0, maximum: 500 }, display_name: { type: "string", maxLength: 256 }, maptiler_id: { type: "string", maxLength: 256 } } },
+            categories: { type: "array", items: { type: "string" } },
+            criteria: { type: "string", description: "Optional post-entry filter." },
+          },
           description:
-            "Transport scouts only: { mode: aircraft|vessel|satellite, watch_ids: string[] (REQUIRED — MMSIs/ICAO hexes/NORAD ids to track), geofence?: {preset_id}|{center:{lat,lon},radius_km}, categories?: string[] (narrows the watch list), criteria?: string }.",
+            "Transport scouts only: Fleet Scout alerts when a watched object enters geofence { center:{lat,lon}, radius_km, display_name?, maptiler_id? }. Required for every mode; criteria is optional and filters entry alerts only.",
         },
         schedule_cron: { type: "string", maxLength: 200 },
         day_number: { type: "integer", minimum: 0, maximum: 31 },
@@ -335,7 +343,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "update_scout",
     description:
-      "Patch an existing scout. All fields optional; only sent keys change. Keep topic as 1-3 short comma-separated tags; put longer context in description and filtering/notification rules in criteria. A scout must retain either location or topic (transport scouts are scoped by config instead). For transport scouts, pass a full replacement `config` object to change mode/geofence/watch_ids/categories/criteria. For web/page scouts, toggle evidence archiving with archive_enabled / wayback_enabled (archive_enabled is Pro/Team-gated).",
+      "Patch an existing scout. All fields optional; only sent keys change. Keep topic as 1-3 short comma-separated tags; put longer context in description and filtering/notification rules in criteria. A scout must retain either location or topic (transport scouts are scoped by config instead). For Fleet Scouts, pass a full replacement config with the required circle area; it alerts when watched objects enter that area, with criteria only as an optional post-entry filter. Fleet Scout configuration is Pro/Team-only on hosted Scoutpost. For web/page scouts, toggle evidence archiving with archive_enabled / wayback_enabled (archive_enabled is Pro/Team-gated).",
     inputSchema: {
       type: "object",
       required: ["id"],
@@ -351,9 +359,17 @@ export const TOOLS: ToolDef[] = [
         url: { type: "string", format: "uri" },
         config: {
           type: "object",
-          additionalProperties: true,
+          additionalProperties: false,
+          required: ["mode", "watch_ids", "geofence"],
+          properties: {
+            mode: { type: "string", enum: ["aircraft", "vessel", "satellite"] },
+            watch_ids: { type: "array", minItems: 1, maxItems: 20, items: { type: "string" } },
+            geofence: { type: "object", required: ["center", "radius_km"], properties: { center: { type: "object", required: ["lat", "lon"], properties: { lat: { type: "number" }, lon: { type: "number" } } }, radius_km: { type: "number", exclusiveMinimum: 0, maximum: 500 }, display_name: { type: "string", maxLength: 256 }, maptiler_id: { type: "string", maxLength: 256 } } },
+            categories: { type: "array", items: { type: "string" } },
+            criteria: { type: "string", description: "Optional post-entry filter." },
+          },
           description:
-            "Transport scouts only: full replacement { mode: aircraft|vessel|satellite, watch_ids: string[] (REQUIRED — MMSIs/ICAO hexes/NORAD ids to track), geofence?: {preset_id}|{center:{lat,lon},radius_km}, categories?: string[] (narrows the watch list), criteria?: string }.",
+            "Transport scouts only: full replacement with a required circle area. Fleet Scout alerts when a watched object enters it; criteria is an optional post-entry filter.",
         },
         regularity: { type: "string", enum: ["daily", "weekly", "monthly", "3h", "6h", "12h"] },
         schedule_cron: { type: "string" },

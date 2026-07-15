@@ -25,7 +25,7 @@ function usage(): void {
       "                   [--monitor-mode summarize|criteria] [--track-removals true|false]",
       "                   [--archive-enabled true|false] [--wayback-enabled true|false]",
       "                   [--mode aircraft|vessel|satellite]",
-      "                   [--geofence-preset <id> | --center-lat <n> --center-lon <n> --radius-km <n>]",
+      "                   --center-lat <n> --center-lon <n> --radius-km <n> [--area-name <name>]",
       "                   [--watch-ids <id,id>] [--categories <cat,cat>]",
       "",
       "  Topic tags are short comma-separated labels, not long criteria. Use 1-3.",
@@ -33,9 +33,9 @@ function usage(): void {
       "  Fleet scouts (--type transport; aircraft/vessel/satellite) support 3h/6h/12h/daily",
       "  (satellite daily only). --watch-ids is REQUIRED for every mode — the",
       "  specific MMSIs / ICAO hexes / NORAD ids to track, max 20 (--categories",
-      "  only narrows the list). Vessel and satellite scouts also need a geofence;",
-      "  aircraft geofence is optional. Give a geofence as --geofence-preset OR",
-      "  all of --center-lat/--center-lon/--radius-km (not both). --time",
+      "  only narrows the list). Every Fleet Scout needs an area: it alerts when a",
+      "  watched object enters the circle defined by --center-lat/--center-lon/",
+      "  --radius-km. --criteria is an optional filter evaluated after entry. --time",
       "  defaults to 09:00 when omitted.",
       "",
       "  update <id> [--name <name>] [--topic <tag,tag>] [--description <text>]",
@@ -215,7 +215,6 @@ function buildTransportConfig(
   flags: Record<string, string | boolean>,
 ): Record<string, unknown> {
   const config: Record<string, unknown> = { mode: stringFlag(flags, "mode") };
-  const preset = stringFlag(flags, "geofence-preset");
   const lat = floatFlag(flags, "center-lat");
   const lon = floatFlag(flags, "center-lon");
   const radius = floatFlag(flags, "radius-km");
@@ -223,30 +222,17 @@ function buildTransportConfig(
     radius !== undefined;
   const allCircleFlags = lat !== undefined && lon !== undefined &&
     radius !== undefined;
-  // A preset and a custom circle are mutually exclusive; silently keeping the
-  // preset would discard the user's coordinates (backend's "not both" guard
-  // never gets to fire because the circle never leaves the CLI).
-  if (preset && anyCircleFlag) {
+  if (!allCircleFlags) {
     console.error(
-      "provide either --geofence-preset or --center-lat/--center-lon/--radius-km, not both",
+      "Fleet Scouts alert when a watched object enters an area; provide --center-lat, --center-lon, and --radius-km",
     );
     Deno.exit(1);
   }
-  // A partial circle (e.g. --center-lat/--center-lon but no --radius-km) must
-  // be a hard error, not a silently dropped geofence — otherwise the scope the
-  // user asked for vanishes and, for aircraft with --watch-ids, the scout runs
-  // globally instead of over the intended area.
-  if (!preset && anyCircleFlag && !allCircleFlags) {
-    console.error(
-      "a circular geofence needs all of --center-lat, --center-lon, and --radius-km",
-    );
-    Deno.exit(1);
-  }
-  if (preset) {
-    config.geofence = { preset_id: preset };
-  } else if (allCircleFlags) {
-    config.geofence = { center: { lat, lon }, radius_km: radius };
-  }
+  config.geofence = {
+    center: { lat, lon },
+    radius_km: radius,
+    ...(stringFlag(flags, "area-name") ? { display_name: stringFlag(flags, "area-name") } : {}),
+  };
   const watchIds = listFlag(flags, "watch-ids");
   if (watchIds?.length) config.watch_ids = watchIds;
   const categories = listFlag(flags, "categories");
@@ -364,7 +350,6 @@ export async function run(argv: string[]): Promise<void> {
           Deno.exit(1);
         }
         const config = buildTransportConfig(flags);
-        const hasGeofence = Boolean(config.geofence);
         // Watch IDs are mandatory for every mode — area/category-only scouts
         // would alert on all matching traffic (product decision 2026-07-04).
         if (!config.watch_ids) {
@@ -376,12 +361,6 @@ export async function run(argv: string[]): Promise<void> {
         // Mirrors MAX_WATCH_IDS in _shared/transport_config.ts.
         if ((config.watch_ids as string[]).length > 20) {
           console.error("--watch-ids accepts at most 20 ids per scout");
-          Deno.exit(1);
-        }
-        if (transportMode !== "aircraft" && !hasGeofence) {
-          console.error(
-            `${transportMode} transport scouts require a geofence`,
-          );
           Deno.exit(1);
         }
         body.config = config;

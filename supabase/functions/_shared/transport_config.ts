@@ -56,6 +56,8 @@ const VESSEL_MMSI_RE = /^[2-7]\d{8}$/;
 // not stable airframe identity — rejected here.
 const ICAO_HEX_RE = /^[0-9a-f]{6}$/;
 const NORAD_ID_RE = /^[1-9]\d{0,8}$/;
+const DISPLAY_METADATA_RE = /^[^\u0000-\u001f\u007f]*$/;
+const MAX_DISPLAY_METADATA_LENGTH = 256;
 
 const GeofenceSchema = z.object({
   preset_id: z.string().min(1).max(100).optional(),
@@ -66,6 +68,14 @@ const GeofenceSchema = z.object({
     })
     .optional(),
   radius_km: z.number().positive().max(MAX_RADIUS_KM).optional(),
+  // MapTiler metadata is display-only. Keep it bounded and single-line so it
+  // is safe in feed statements and notification titles supplied by any client.
+  display_name: z.string().max(MAX_DISPLAY_METADATA_LENGTH)
+    .regex(DISPLAY_METADATA_RE, "must not contain control characters")
+    .optional(),
+  maptiler_id: z.string().max(MAX_DISPLAY_METADATA_LENGTH)
+    .regex(DISPLAY_METADATA_RE, "must not contain control characters")
+    .optional(),
 });
 
 export const TransportConfigSchema = z.object({
@@ -221,6 +231,13 @@ export function validateTransportConfig(
   return {
     config: {
       ...config,
+      geofence: config.geofence
+        ? {
+          ...config.geofence,
+          display_name: config.geofence.display_name?.trim() || undefined,
+          maptiler_id: config.geofence.maptiler_id?.trim() || undefined,
+        }
+        : undefined,
       watch_ids: watchIds.length > 0 ? watchIds : undefined,
       criteria: config.criteria?.trim() || undefined,
     },

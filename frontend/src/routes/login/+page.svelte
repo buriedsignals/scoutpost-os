@@ -19,15 +19,34 @@
 	let authError = '';
 	let authLoading = false;
 
-	// Buried Signals newsletter signup (Pro Membership card)
+	type NewsletterId = 'buried_signals' | 'indicator_media';
+
+	const newsletterLabels: Record<NewsletterId, string> = {
+		buried_signals: 'Buried Signals',
+		indicator_media: 'Indicator Briefing'
+	};
+
+	// Shared Buried Signals + Indicator newsletter signup (Indicator Lab card)
 	let subscribeEmail = '';
+	let selectedNewsletters: NewsletterId[] = ['buried_signals', 'indicator_media'];
 	let subscribing = false;
 	let subscribed = false;
+	let subscribedMessage = "You're subscribed.";
 	let subscribeError = '';
+
+	function toggleNewsletter(newsletter: NewsletterId) {
+		const selected = selectedNewsletters.includes(newsletter);
+		if (selected && selectedNewsletters.length === 1) return;
+
+		selectedNewsletters = selected
+			? selectedNewsletters.filter((item) => item !== newsletter)
+			: [...selectedNewsletters, newsletter];
+	}
 
 	async function handleSubscribe() {
 		const value = subscribeEmail.trim();
-		if (!value) return;
+		const newsletters = [...selectedNewsletters];
+		if (!value || newsletters.length === 0) return;
 		subscribing = true;
 		subscribeError = '';
 		try {
@@ -39,10 +58,19 @@
 					'Content-Type': 'application/json',
 					apikey: supabaseAnonKey
 				},
-				body: JSON.stringify({ email: value, newsletters: ['buried_signals'] })
+				body: JSON.stringify({ email: value, newsletters })
 			});
 			const data = await res.json().catch(() => ({}));
 			if (res.ok) {
+				const completed: NewsletterId[] = Array.isArray(data.subscribed)
+					? (data.subscribed as unknown[]).filter((item: unknown): item is NewsletterId =>
+						item === 'buried_signals' || item === 'indicator_media'
+					)
+					: newsletters;
+				const firstCompleted = completed[0] ?? newsletters[0] ?? 'buried_signals';
+				subscribedMessage = completed.length === 2
+					? "You're subscribed to both newsletters."
+					: `You're subscribed to ${newsletterLabels[firstCompleted]}.`;
 				subscribed = true;
 			} else {
 				subscribeError = data.error || data.detail || 'Something went wrong. Please try again.';
@@ -224,15 +252,15 @@
 			<img src="/logo-scoutpost.svg" alt="Scoutpost" class="headline-logo" />
 
 			<p class="tagline">
-				Let your AI monitor the
-				<span class="highlight-muted">noise</span>
+				Monitor the
+				<span class="highlight-muted">sources that matter</span>
 				and
 				<span class="highlight-accent">surface leads</span>.
 			</p>
 
 			<div class="description-block">
 				<h2 class="subheadline">
-					Connect your agent to scouts that monitor pages, social profiles, city councils, and your beat — while you <span class="highlight-accent">focus on reporting</span>.
+					Scoutpost watches pages, social profiles, civic records, news coverage, and fleet movements — then turns findings into <span class="highlight-accent">source-linked information units</span>.
 				</h2>
 
 				<a
@@ -292,8 +320,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Schedule from a chat</p>
-							<p class="feature-desc">Tell your AI what to watch — a URL, a council, a social profile, a beat. It sets up the scout.</p>
+							<p class="feature-title">Create scouts in the app or from chat</p>
+							<p class="feature-desc">Choose a page, profile, council, beat, or fleet. Run it on a schedule or on demand.</p>
 						</div>
 					</div>
 
@@ -305,8 +333,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Every story, once</p>
-							<p class="feature-desc">When the same news moves across outlets and social, we distill it to the underlying facts and surface each one a single time.</p>
+							<p class="feature-title">Source-linked, deduplicated findings</p>
+							<p class="feature-desc">Scouts extract atomic facts with timestamps and original URLs, then merge repeated coverage into one information unit.</p>
 						</div>
 					</div>
 
@@ -319,8 +347,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">A newsroom database, not a chat log</p>
-							<p class="feature-desc">Your AI queries Scoutpost by place, person, topic, or date — and hands you clean, cite-able units ready to use.</p>
+							<p class="feature-title">A searchable editorial inbox</p>
+							<p class="feature-desc">Review and search information units by scout, place, person, topic, date, or verification state.</p>
 						</div>
 					</div>
 
@@ -335,8 +363,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Works with your existing workflow</p>
-							<p class="feature-desc">Structured output your AI can turn into a briefing note, a script, or a draft — in whatever format your editor expects.</p>
+							<p class="feature-title">Works across your workflow</p>
+							<p class="feature-desc">Use the web app, MCP, REST API, or CLI to organize, export, and draft from the same monitored material.</p>
 						</div>
 					</div>
 
@@ -349,8 +377,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Your data, your keys</p>
-							<p class="feature-desc">Open source under the <a href="/faq" class="inline-link">Sustainable Use License</a>. Self-host anywhere. No vendor lock-in. Export anytime.</p>
+							<p class="feature-title">Preserve page evidence</p>
+							<p class="feature-desc">Optional evidence snapshots retain the page, screenshot, hashes, and trusted timestamp behind an important change.</p>
 						</div>
 					</div>
 
@@ -363,8 +391,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">You're still the editor</p>
-							<p class="feature-desc">Your AI flags what it's unsure about. You verify or reject. Nothing reaches print without a human stamp.</p>
+							<p class="feature-title">Human verification stays in control</p>
+							<p class="feature-desc">Unverified units remain leads. You verify or reject them before they are treated as editor-approved facts.</p>
 						</div>
 					</div>
 				</div>
@@ -383,7 +411,7 @@
 						</div>
 						<div>
 							<p class="feature-title">Pages</p>
-							<p class="feature-desc">Watch any URL for changes — meeting agendas, press rooms, FOIA portals, filings. Get pinged only when updates match your criteria.</p>
+							<p class="feature-desc">Watch any public URL for meaningful changes — meeting agendas, press rooms, FOIA portals, and filings — with optional criteria.</p>
 						</div>
 					</div>
 					<div class="feature-item">
@@ -397,7 +425,7 @@
 						</div>
 						<div>
 							<p class="feature-title">Social profiles</p>
-							<p class="feature-desc">Track Instagram, X, Facebook, TikTok, and LinkedIn — text and images. Catch deleted posts, flag newsworthy changes, sidestep the algorithmic feed.</p>
+							<p class="feature-desc">Track new and deleted posts from Instagram, X, Facebook, TikTok, and LinkedIn profiles, including text and images.</p>
 						</div>
 					</div>
 					<div class="feature-item">
@@ -414,7 +442,7 @@
 						</div>
 						<div>
 							<p class="feature-title">City councils</p>
-							<p class="feature-desc">Parse meeting minutes as they drop, extract promises with meeting-date context, and keep a running ledger of what officials said they'd do.</p>
+							<p class="feature-desc">Follow council pages, agendas, minutes, and PDFs. Extract commitments and deadlines with meeting-date context.</p>
 						</div>
 					</div>
 					<div class="feature-item">
@@ -432,7 +460,7 @@
 						</div>
 						<div>
 							<p class="feature-title">Your beat</p>
-							<p class="feature-desc">Scouts monitor locations, topics, or both — pulling from niche and reliable sources on your schedule. Surface under-reported stories and leads.</p>
+							<p class="feature-desc">Monitor a location, topic, or both across niche and established sources to surface under-reported leads.</p>
 						</div>
 					</div>
 					<div class="feature-item">
@@ -442,8 +470,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Fleets</p>
-							<p class="feature-desc">Track aircraft, vessels, and satellites by ICAO hex, MMSI, or NORAD id — get alerted when watched objects appear, enter an area, or match your criteria.</p>
+							<p class="feature-title">Fleet movements</p>
+							<p class="feature-desc">Monitor watched vessels and aircraft entering a selected area, plus predicted satellite passes. Optional criteria filter entry alerts.</p>
 						</div>
 					</div>
 				</div>
@@ -451,16 +479,49 @@
 				<div class="section-eyebrow section-eyebrow-spaced">More from Buried Signals</div>
 				<div class="promo-grid">
 					<div class="promo-card">
-						<h3 class="promo-title">Membership</h3>
-						<p class="promo-subtitle">Investigations with AI. The tools to run your own.</p>
-						<ul class="promo-features">
-							<li>Collaborative investigations — shared leads, data, and methodology</li>
-							<li>Live bootcamps, workshops, and events</li>
-							<li>Hosted Pro tier of the agent extensions — Scoutpost, Navigator, Spotlight, DataHound</li>
-							<li>Investigation methodologies and AI techniques, in depth</li>
-						</ul>
-						<div class="promo-action promo-action--stack">
+						<div class="promo-kicker">
+							<span>Indicator Lab</span>
+							<span class="promo-launch">Launching September 2026</span>
+						</div>
+						<h3 class="promo-title">Investigations with AI. The tools to run your own.</h3>
+						<p class="promo-subtitle">Indicator Lab combines the Buried Signals tool suite with a monthly investigation debrief, a practical Case Note, and office hours every two weeks.</p>
+						<a class="indicator-lab-link" href="https://buriedsignals.com/join">Explore Indicator Lab <span aria-hidden="true">→</span></a>
+
+						<div class="promo-newsletter-block">
+							{#if subscribeError}
+								<p class="promo-signup-error" role="alert">{subscribeError}</p>
+							{/if}
 							{#if !subscribed}
+								<p class="promo-newsletter-heading">Newsletters</p>
+								<div class="promo-newsletter-options" aria-label="Newsletter choices">
+									<button
+										type="button"
+										class="promo-newsletter-toggle"
+										class:promo-newsletter-toggle--selected={selectedNewsletters.includes('buried_signals')}
+										aria-pressed={selectedNewsletters.includes('buried_signals')}
+										onclick={() => toggleNewsletter('buried_signals')}
+									>
+										<span class="promo-newsletter-check" aria-hidden="true">{selectedNewsletters.includes('buried_signals') ? '✓' : ''}</span>
+										<span class="promo-newsletter-copy">
+											<span class="promo-newsletter-title">Buried Signals</span>
+											<span class="promo-newsletter-description">Monthly dispatches on investigations and the changing practice of journalism with AI in the loop.</span>
+										</span>
+									</button>
+									<button
+										type="button"
+										class="promo-newsletter-toggle"
+										class:promo-newsletter-toggle--selected={selectedNewsletters.includes('indicator_media')}
+										aria-pressed={selectedNewsletters.includes('indicator_media')}
+										onclick={() => toggleNewsletter('indicator_media')}
+									>
+										<span class="promo-newsletter-check" aria-hidden="true">{selectedNewsletters.includes('indicator_media') ? '✓' : ''}</span>
+										<span class="promo-newsletter-copy">
+											<span class="promo-newsletter-title">Indicator Briefing</span>
+											<span class="promo-newsletter-description">Weekly news, research, OSINT tools, and techniques for investigating digital deception.</span>
+										</span>
+									</button>
+								</div>
+								<p class="promo-disclaimer">1,000+ journalists already reading.</p>
 								<form class="promo-signup-form" onsubmit={(e) => { e.preventDefault(); handleSubscribe(); }}>
 									<input
 										type="email"
@@ -471,21 +532,16 @@
 										disabled={subscribing}
 									/>
 									<button type="submit" class="promo-btn-primary" disabled={subscribing}>
-										{subscribing ? 'Subscribing…' : 'Subscribe'}
+										{subscribing ? 'Subscribing…' : 'Subscribe →'}
 									</button>
 								</form>
-								{#if subscribeError}
-									<p class="promo-signup-error">{subscribeError}</p>
-								{/if}
-								<p class="promo-disclaimer">700+ journalists already reading</p>
 							{:else}
 								<p class="promo-signup-success">
 									<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
 										<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>
 									</svg>
-									<span>You're in. I'll ping you at launch.</span>
+									<span>{subscribedMessage}</span>
 								</p>
-								<p class="promo-disclaimer">Joining 700+ journalists already reading.</p>
 							{/if}
 						</div>
 					</div>
@@ -1053,18 +1109,6 @@
 		margin-right: 0.25rem;
 	}
 
-	.inline-link {
-		color: var(--color-primary);
-		text-decoration: none;
-		font-weight: 500;
-		border-bottom: 1px solid var(--color-primary-soft);
-		transition: border-color 150ms ease;
-	}
-
-	.inline-link:hover {
-		border-bottom-color: var(--color-primary);
-	}
-
 	.agent-pill {
 		display: inline-flex;
 		align-items: center;
@@ -1231,7 +1275,7 @@
 	}
 
 	/* ──────────────────────────────────────────────────────────
-	   Promo cards — Pro Membership + Consulting
+	   Promo cards — Indicator Lab + Consulting
 	   ────────────────────────────────────────────────────────── */
 	.promo-grid {
 		display: grid;
@@ -1255,9 +1299,26 @@
 		border-color: var(--color-border-strong);
 	}
 
-	/* Shared "eyebrow-within-card" label — used for both "Launching May 2026"
-	   (top of Pro card) and "Past clients" (mid-card on Consulting) so the
-	   two promo cards read structurally parallel. */
+	.promo-kicker {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 1rem;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		font-weight: 600;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--color-secondary);
+	}
+
+	.promo-launch {
+		font-weight: 500;
+		color: var(--color-ink-subtle);
+		text-align: right;
+	}
+
+	/* Supporting eyebrow label within the Consulting card. */
 	.promo-section-label-wrap {
 		margin-top: 0.25rem;
 	}
@@ -1288,6 +1349,28 @@
 		line-height: 1.5;
 		color: var(--color-ink-muted);
 		margin: 0;
+	}
+
+	.indicator-lab-link {
+		display: inline-flex;
+		align-items: center;
+		align-self: flex-start;
+		gap: 0.5rem;
+		padding-bottom: 2px;
+		border-bottom: 1px solid var(--color-border);
+		color: var(--color-ink-muted);
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		font-weight: 500;
+		letter-spacing: 0.08em;
+		text-decoration: none;
+		text-transform: uppercase;
+		transition: border-color 150ms ease, color 150ms ease;
+	}
+
+	.indicator-lab-link:hover {
+		border-color: var(--color-secondary);
+		color: var(--color-secondary);
 	}
 
 	.promo-features {
@@ -1325,12 +1408,6 @@
 		padding-top: 1rem;
 		display: flex;
 	}
-	/* Pro Membership card: email input forces a vertical stack. */
-	.promo-action--stack {
-		flex-direction: column;
-		gap: 0.625rem;
-		align-items: flex-start;
-	}
 	/* Consulting card: both CTAs sit on the same row. */
 	.promo-action--inline {
 		flex-direction: row;
@@ -1343,6 +1420,86 @@
 		display: flex;
 		gap: 0.5rem;
 		width: 100%;
+	}
+
+	.promo-newsletter-block {
+		display: grid;
+		gap: 0.75rem;
+		margin-top: auto;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--color-border);
+	}
+
+	.promo-newsletter-heading {
+		margin: 0;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		font-weight: 500;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--color-ink-subtle);
+	}
+
+	.promo-newsletter-options {
+		display: grid;
+		gap: 0.5rem;
+	}
+
+	.promo-newsletter-toggle {
+		display: grid;
+		grid-template-columns: 16px minmax(0, 1fr);
+		align-items: start;
+		gap: 0.625rem;
+		width: 100%;
+		padding: 0.75rem;
+		border: 1px solid var(--color-border);
+		background: transparent;
+		color: var(--color-ink-muted);
+		cursor: pointer;
+		text-align: left;
+		transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+	}
+
+	.promo-newsletter-toggle--selected {
+		border-color: var(--color-secondary);
+		background: color-mix(in srgb, var(--color-secondary) 8%, transparent);
+		color: var(--color-secondary);
+	}
+
+	.promo-newsletter-toggle:focus-visible {
+		outline: 2px solid var(--color-secondary);
+		outline-offset: 2px;
+	}
+
+	.promo-newsletter-check {
+		display: inline-grid;
+		width: 13px;
+		height: 13px;
+		place-items: center;
+		border: 1px solid currentColor;
+		font-size: 9px;
+		line-height: 1;
+	}
+
+	.promo-newsletter-copy {
+		display: grid;
+		gap: 0.25rem;
+	}
+
+	.promo-newsletter-title {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		font-weight: 600;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--color-ink);
+	}
+
+	.promo-newsletter-description {
+		font-size: 0.8125rem;
+		font-weight: 300;
+		line-height: 1.45;
+		color: var(--color-ink-muted);
 	}
 
 	.promo-signup-form input[type='email'] {

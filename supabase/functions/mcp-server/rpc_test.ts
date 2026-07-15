@@ -29,6 +29,16 @@ Deno.test("mcp parity: create/update_scout advertise the archive + wayback toggl
   }
 });
 
+Deno.test("mcp parity: Fleet Scout contract requires an entry area", () => {
+  for (const name of ["create_scout", "update_scout"]) {
+    const tool = TOOLS.find((t) => t.name === name);
+    assertExists(tool);
+    const config = ((tool!.inputSchema as { properties: Record<string, { required?: string[]; properties?: Record<string, unknown> }> }).properties.config);
+    assertEquals(config.required, ["mode", "watch_ids", "geofence"]);
+    assertEquals("geofence" in (config.properties ?? {}), true);
+  }
+});
+
 Deno.test("mcp parity: get_snapshot_url enumerates all six artifact kinds", () => {
   const tool = TOOLS.find((t) => t.name === "get_snapshot_url");
   assertExists(tool);

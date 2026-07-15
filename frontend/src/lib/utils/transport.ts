@@ -1,32 +1,8 @@
 /**
- * Transport Scout UI helpers — presets, per-mode categories, and the
- * per-mode schedule window. The preset list mirrors the seeded
- * transport_geofence_presets table (migration 00072); it is stable seed
- * data, so it is duplicated here rather than fetched to keep the panel simple.
+ * Transport Scout UI helpers — per-mode categories and the per-mode schedule
+ * window. New Fleet scouts use a MapTiler-selected center plus an explicit
+ * radius; legacy presets remain runtime-only in the backend.
  */
-
-export interface TransportPreset {
-	id: string;
-	name: string;
-}
-
-export const TRANSPORT_PRESETS: TransportPreset[] = [
-	{ id: 'strait-of-hormuz', name: 'Strait of Hormuz' },
-	{ id: 'bab-el-mandeb', name: 'Bab-el-Mandeb' },
-	{ id: 'suez-approaches', name: 'Suez Canal approaches' },
-	{ id: 'strait-of-malacca', name: 'Strait of Malacca' },
-	{ id: 'taiwan-strait', name: 'Taiwan Strait' },
-	{ id: 'spratly-box', name: 'Spratly Islands box' },
-	{ id: 'bosphorus', name: 'Bosphorus' },
-	{ id: 'kerch-strait', name: 'Kerch Strait' },
-	{ id: 'black-sea-grain-corridor', name: 'Black Sea grain corridor' },
-	{ id: 'dover-strait', name: 'Dover Strait' },
-	{ id: 'strait-of-gibraltar', name: 'Strait of Gibraltar' },
-	{ id: 'danish-straits', name: 'Danish Straits' },
-	{ id: 'gulf-of-finland', name: 'Gulf of Finland' },
-	{ id: 'panama-approaches', name: 'Panama Canal approaches' },
-	{ id: 'cape-of-good-hope', name: 'Cape of Good Hope corridor' }
-];
 
 export type TransportMode = 'aircraft' | 'vessel' | 'satellite';
 

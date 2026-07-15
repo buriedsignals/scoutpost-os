@@ -547,15 +547,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const kept = new Set(criteria.keptIds);
     events = candidateEvents.filter((e) => kept.has(e.objectId));
 
-    // Entrants the criteria SUPPRESSED are unclaimed so they are re-judged on
-    // a later run — a single LLM false-negative must not permanently silence a
-    // genuinely-matching object for as long as it stays in the area.
-    const suppressed = candidateEvents
-      .map((e) => e.objectId)
-      .filter((id) => !kept.has(id));
-    if (suppressed.length > 0) {
-      await unclaimEntrants(svc, scout.id, suppressed);
-    }
+    // Criteria-suppressed entrants stay claimed while they remain inside the
+    // area. Releasing them here would let a later criteria result emit an
+    // alert without a new entry event. The existing state eviction is the
+    // only re-arm mechanism for providers that do not expose an outside
+    // observation.
 
     if (events.length > 0) {
       await markRunStage(svc, runId, "insert_units");

@@ -76,7 +76,7 @@ export async function resolveGeofence(
   if (geofence.center && typeof geofence.radius_km === "number") {
     return {
       kind: "circle",
-      name: `${geofence.radius_km} km around ${
+      name: geofence.display_name || `${geofence.radius_km} km around ${
         geofence.center.lat.toFixed(2)
       }, ${geofence.center.lon.toFixed(2)}`,
       lat: geofence.center.lat,

@@ -10,6 +10,10 @@
 	export let placeholder: string = 'Search for a city or country...';
 	export let showGlobalOption: boolean = false;
 	export let isGlobal: boolean = false;
+	export let inputId: string | undefined = undefined;
+	export let required: boolean = false;
+	export let invalid: boolean = false;
+	export let describedBy: string | undefined = undefined;
 	export let onSelect: (location: GeocodedLocation) => void = () => {};
 	export let onClear: () => void = () => {};
 	export let onGlobal: () => void = () => {};
@@ -18,7 +22,9 @@
 	let suggestions: MapTilerFeature[] = [];
 	let recentLocations: GeocodedLocation[] = [];
 	let isLoading = false;
+	let searchError = false;
 	let showDropdown = false;
+	let activeOptionIndex = -1;
 	let debounceTimer: ReturnType<typeof setTimeout>;
 	let inputElement: HTMLInputElement;
 
@@ -51,11 +57,14 @@
 		if (!query || query.length < 2) {
 			suggestions = [];
 			showDropdown = false;
+			searchError = false;
+			activeOptionIndex = -1;
 			return;
 		}
 
 		isLoading = true;
 		showDropdown = true;
+		searchError = false;
 
 		try {
 			const url = new URL(`https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json`);
@@ -72,12 +81,14 @@
 		} catch (error) {
 			console.error('Geocoding error:', error);
 			suggestions = [];
+			searchError = true;
 		} finally {
 			isLoading = false;
 		}
 	}
 
 	function handleInput() {
+		activeOptionIndex = -1;
 		debounce(() => searchLocations(searchQuery), 300);
 	}
 
@@ -153,6 +164,8 @@
 		searchQuery = '';
 		suggestions = [];
 		showDropdown = false;
+		searchError = false;
+		activeOptionIndex = -1;
 		addRecentLocation(location);
 		recentLocations = getRecentLocations();
 		onSelect(location);
@@ -172,6 +185,7 @@
 		searchQuery = '';
 		suggestions = [];
 		showDropdown = false;
+		searchError = false;
 		onClear();
 	}
 
@@ -202,8 +216,50 @@
 		}
 	}
 
+	function retrySearch() {
+		void searchLocations(searchQuery);
+	}
+
+	function selectOption(index: number) {
+		if (index < filteredRecents.length) {
+			selectLocation(filteredRecents[index]);
+			return;
+		}
+		const suggestion = suggestions[index - filteredRecents.length];
+		if (suggestion) selectSuggestion(suggestion);
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		const optionCount = filteredRecents.length + suggestions.length;
+		if (event.key === 'Escape') {
+			showDropdown = false;
+			activeOptionIndex = -1;
+			return;
+		}
+		if (optionCount === 0) return;
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			showDropdown = true;
+			activeOptionIndex = (activeOptionIndex + 1 + optionCount) % optionCount;
+		}
+		if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			showDropdown = true;
+			activeOptionIndex = (activeOptionIndex - 1 + optionCount) % optionCount;
+		}
+		if (event.key === 'Enter' && activeOptionIndex >= 0) {
+			event.preventDefault();
+			selectOption(activeOptionIndex);
+		}
+	}
+
+	export function focus() {
+		inputElement?.focus();
+	}
+
 	// Reactive filtered recents based on search query
 	$: filteredRecents = getFilteredRecents();
+	$: listboxId = inputId ? `${inputId}-listbox` : 'location-autocomplete-listbox';
 
 	onMount(() => {
 		recentLocations = getRecentLocations();
@@ -237,10 +293,20 @@
 				<MapPin size={14} class="input-icon" />
 				<input
 					bind:this={inputElement}
+					id={inputId}
 					type="text"
 					bind:value={searchQuery}
 					on:input={handleInput}
 					on:focus={handleFocus}
+					on:keydown={handleKeydown}
+					role="combobox"
+					aria-autocomplete="list"
+					aria-controls={listboxId}
+					aria-expanded={showDropdown}
+					aria-activedescendant={activeOptionIndex >= 0 ? `${listboxId}-option-${activeOptionIndex}` : undefined}
+					aria-invalid={invalid}
+					aria-describedby={describedBy}
+					aria-required={required}
 					{placeholder}
 					class="search-input {showGlobalOption ? 'has-global-btn' : ''}"
 				/>
@@ -255,14 +321,18 @@
 				{/if}
 			</div>
 
-			{#if showDropdown && (suggestions.length > 0 || isLoading || filteredRecents.length > 0)}
-				<div class="suggestions-dropdown">
+			{#if showDropdown && (suggestions.length > 0 || isLoading || filteredRecents.length > 0 || searchError || searchQuery.length >= 2)}
+				<div id={listboxId} class="suggestions-dropdown" role="listbox">
 					{#if filteredRecents.length > 0}
 						<div class="section-label">{m.locationAutocomplete_recent()}</div>
-						{#each filteredRecents as recent (recent.maptilerId)}
+						{#each filteredRecents as recent, i (recent.maptilerId)}
 							<button
 								type="button"
 								class="suggestion-item"
+								class:active={activeOptionIndex === i}
+								id={`${listboxId}-option-${i}`}
+								role="option"
+								aria-selected={activeOptionIndex === i}
 								on:click={() => selectLocation(recent)}
 							>
 								<Clock size={14} />
@@ -276,16 +346,25 @@
 					{#if isLoading && suggestions.length === 0}
 						<div class="suggestion-loading">{m.locationAutocomplete_searching()}</div>
 					{:else if suggestions.length > 0}
-						{#each suggestions as suggestion (suggestion.id)}
+						{#each suggestions as suggestion, i (suggestion.id)}
 							<button
 								type="button"
 								class="suggestion-item"
+								class:active={activeOptionIndex === filteredRecents.length + i}
+								id={`${listboxId}-option-${filteredRecents.length + i}`}
+								role="option"
+								aria-selected={activeOptionIndex === filteredRecents.length + i}
 								on:click={() => selectSuggestion(suggestion)}
 							>
 								<MapPin size={14} />
 								<span>{suggestion.place_name}</span>
 							</button>
 						{/each}
+					{:else if searchError}
+						<div class="suggestion-empty" role="status">
+							{m.locationAutocomplete_searchFailed()}
+							<button type="button" class="retry-btn" on:click={retrySearch}>{m.locationAutocomplete_retry()}</button>
+						</div>
 					{:else if searchQuery.length >= 2 && filteredRecents.length === 0}
 						<div class="suggestion-empty">{m.locationAutocomplete_noLocations()}</div>
 					{/if}
@@ -409,6 +488,25 @@
 		border-color: var(--color-primary);
 		background: var(--color-surface-alt);
 		box-shadow: 0 0 0 3px var(--color-primary-soft);
+	}
+
+	.search-input[aria-invalid='true'] {
+		border-color: var(--color-error);
+	}
+
+	.suggestion-item.active {
+		background: var(--color-primary-soft);
+		color: var(--color-primary-deep);
+	}
+
+	.retry-btn {
+		margin-left: 0.5rem;
+		border: 0;
+		background: transparent;
+		color: var(--color-primary);
+		font: inherit;
+		text-decoration: underline;
+		cursor: pointer;
 	}
 
 	.search-input::placeholder {

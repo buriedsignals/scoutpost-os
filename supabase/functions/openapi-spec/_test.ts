@@ -144,9 +144,17 @@ Deno.test("spec.json — verification workflow exposed via Unit + UnitUpdate", (
   }
 });
 
-Deno.test("spec.json — Scout schema enumerates the 4 scout types", () => {
+Deno.test("spec.json — Scout schema enumerates all scout types", () => {
   const scoutType = doc.components.schemas.ScoutType as { enum: string[] };
-  assertEquals([...scoutType.enum].sort(), ["beat", "civic", "social", "web"]);
+  assertEquals([...scoutType.enum].sort(), ["beat", "civic", "social", "transport", "web"]);
+});
+
+Deno.test("spec.json — Fleet Scout contract requires a circular entry area", () => {
+  const config = doc.components.schemas.TransportConfig as { required: string[]; properties: Record<string, unknown> };
+  assertEquals(config.required, ["mode", "watch_ids", "geofence"]);
+  assertExists(config.properties.geofence);
+  const area = doc.components.schemas.TransportArea as { required: string[] };
+  assertEquals(area.required, ["center", "radius_km"]);
 });
 
 Deno.test("spec.json — inbox filter parameters present on GET /units", () => {

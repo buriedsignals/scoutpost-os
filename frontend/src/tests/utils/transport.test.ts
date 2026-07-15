@@ -3,18 +3,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-	TRANSPORT_PRESETS,
 	transportModeCategories,
 	transportRegularities
 } from '$lib/utils/transport';
 import { getScoutStatus } from '$lib/utils/scouts';
-
-describe('transport presets', () => {
-	it('exposes the 15 seeded geofence presets', () => {
-		expect(TRANSPORT_PRESETS.length).toBe(15);
-		expect(TRANSPORT_PRESETS.map((p) => p.id)).toContain('strait-of-hormuz');
-	});
-});
 
 describe('transportModeCategories', () => {
 	it('gives aircraft the watchlist categories', () => {

@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { Crosshair, Radar, Users, Landmark, Navigation } from 'lucide-svelte';
+	import { browser } from '$app/environment';
+	import { Crosshair, Radar, Users, Landmark, ShipWheel } from 'lucide-svelte';
 	import { authStore } from '$lib/stores/auth';
+	import { isHostedScoutpostHost } from '$lib/utils/agent-targets';
+	import { isFleetScoutLocked } from '$lib/utils/fleet-entitlement';
 	import * as m from '$lib/paraglide/messages';
 
 	export let open = false;
@@ -9,7 +12,12 @@
 	export let onSelect: (type: 'web' | 'pulse' | 'social' | 'civic' | 'transport') => void = () => {};
 	export let onClose: () => void = () => {};
 
-	$: isPro = import.meta.env.PUBLIC_DEPLOYMENT_TARGET === 'supabase' || ($authStore.user?.tier ?? 'free') !== 'free';
+	$: isPro = ($authStore.user?.tier ?? 'free') !== 'free';
+	$: fleetLocked = isFleetScoutLocked({
+		isHosted: browser && isHostedScoutpostHost(window.location.hostname),
+		authenticated: $authStore.authenticated,
+		tier: $authStore.user?.tier
+	});
 
 	function handleTrackPage() {
 		onSelect('web');
@@ -37,7 +45,7 @@
 	}
 
 	function handleTransportScout() {
-		if (!isPro) {
+		if (fleetLocked) {
 			onClose();
 			return; // unlimited in self-hosted
 			return;
@@ -71,13 +79,18 @@
 
 			<div class="option-divider"></div>
 
-			<button class="scout-option" on:click={handleBeatScout}>
-				<div class="option-icon">
-					<Radar size={20} />
+			<button class="scout-option scout-option--civic" class:scout-option--locked={fleetLocked} on:click={handleTransportScout}>
+				<div class="option-icon option-icon--civic" class:option-icon--locked={fleetLocked}>
+					<ShipWheel size={20} />
 				</div>
 				<div class="option-content">
-					<span class="option-title">{m.newScout_beatScoutTitle()}</span>
-					<span class="option-description">{m.newScout_beatScoutDescription()}</span>
+					<span class="option-title">
+						{m.transport_trackTitle()}
+						{#if fleetLocked}
+							<span class="pro-badge">PRO</span>
+						{/if}
+					</span>
+					<span class="option-description">{m.newScout_fleetDescription()}</span>
 				</div>
 			</button>
 
@@ -95,6 +108,18 @@
 
 			<div class="option-divider"></div>
 
+			<button class="scout-option" on:click={handleBeatScout}>
+				<div class="option-icon">
+					<Radar size={20} />
+				</div>
+				<div class="option-content">
+					<span class="option-title">{m.newScout_beatScoutTitle()}</span>
+					<span class="option-description">{m.newScout_beatScoutDescription()}</span>
+				</div>
+			</button>
+
+			<div class="option-divider"></div>
+
 			<button class="scout-option scout-option--civic" class:scout-option--locked={!isPro} on:click={handleCivicScout}>
 				<div class="option-icon option-icon--civic" class:option-icon--locked={!isPro}>
 					<Landmark size={20} />
@@ -107,23 +132,6 @@
 						{/if}
 					</span>
 					<span class="option-description">{m.civic_monitorDescription()}</span>
-				</div>
-			</button>
-
-			<div class="option-divider"></div>
-
-			<button class="scout-option scout-option--civic" class:scout-option--locked={!isPro} on:click={handleTransportScout}>
-				<div class="option-icon option-icon--civic" class:option-icon--locked={!isPro}>
-					<Navigation size={20} />
-				</div>
-				<div class="option-content">
-					<span class="option-title">
-						{m.transport_trackTitle()}
-						{#if !isPro}
-							<span class="pro-badge">PRO</span>
-						{/if}
-					</span>
-					<span class="option-description">{m.transport_trackDescription()}</span>
 				</div>
 			</button>
 		</div>

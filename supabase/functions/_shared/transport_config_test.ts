@@ -268,3 +268,44 @@ Deno.test("blank criteria is normalized away", () => {
   assertEquals(result.error, null);
   assertEquals(result.config?.criteria, undefined);
 });
+
+Deno.test("circle display metadata is normalized and bounded", () => {
+  const result = validateTransportConfig({
+    mode: "vessel",
+    geofence: {
+      center: { lat: 47.3769, lon: 8.5417 },
+      radius_km: 100,
+      display_name: "  Zurich, Switzerland  ",
+      maptiler_id: "  place.123  ",
+    },
+    watch_ids: ["636019825"],
+  });
+  assertEquals(result.error, null);
+  assertEquals(result.config?.geofence?.display_name, "Zurich, Switzerland");
+  assertEquals(result.config?.geofence?.maptiler_id, "place.123");
+});
+
+Deno.test("circle display metadata rejects control characters and overlong values", () => {
+  const base = {
+    mode: "vessel",
+    geofence: {
+      center: { lat: 47.3769, lon: 8.5417 },
+      radius_km: 100,
+    },
+    watch_ids: ["636019825"],
+  };
+
+  const newline = validateTransportConfig({
+    ...base,
+    geofence: { ...base.geofence, display_name: "Zurich\nSwitzerland" },
+  });
+  assertExists(newline.error);
+  assertStringIncludes(newline.error!, "display_name");
+
+  const overlong = validateTransportConfig({
+    ...base,
+    geofence: { ...base.geofence, maptiler_id: "x".repeat(257) },
+  });
+  assertExists(overlong.error);
+  assertStringIncludes(overlong.error!, "maptiler_id");
+});

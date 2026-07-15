@@ -53,6 +53,7 @@ export const Search = Icon;
 export const Settings = Icon;
 export const Server = Icon;
 export const ShieldCheck = Icon;
+export const ShipWheel = Icon;
 export const Sparkles = Icon;
 export const Square = Icon;
 export const Star = Icon;

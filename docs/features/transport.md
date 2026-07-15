@@ -2,8 +2,7 @@
 
 AI-adjacent physical-movement monitoring: **vessels** (AIS), **aircraft**
 (ADS-B), and **satellites** (orbital elements). A transport scout alerts
-**once** when a **tracked object enters a watched area** (or newly matches
-criteria), using the same pg_cron → `execute-scout` → worker pipeline as every
+**once** when a **tracked object enters a watched area**, using the same pg_cron → `execute-scout` → worker pipeline as every
 other scout type. Pro-gated on SaaS; ships in the OSS mirror.
 
 **Every scout must list the specific objects it tracks** — `watch_ids` (up to
@@ -16,9 +15,15 @@ decision 2026-07-04). `categories` only narrow a watch list further.
 
 | Mode | Data source | Scope | Alert |
 |------|-------------|-------|-------|
-| `aircraft` | adsb.lol (`/v2/point`, `/v2/mil`, `/v2/hex`) | watch IDs (ICAO hex) required; geofence optional | a watched aircraft appears / enters the area |
-| `vessel` | aisstream.io (shared sampler → `transport_positions`) | watch IDs (MMSIs) **and** geofence required | a watched vessel enters the area |
-| `satellite` | CelesTrak GP (OMM/JSON) → SGP4 | watch IDs (NORAD ids) **and** geofence required | predicted overflight of the area |
+| `aircraft` | adsb.lol (`/v2/point`, `/v2/mil`, `/v2/hex`) | watch IDs (ICAO hex) and a circular area required | a watched aircraft enters the area |
+| `vessel` | aisstream.io (shared sampler → `transport_positions`) | watch IDs (MMSIs) and a circular area required | a watched vessel enters the area |
+| `satellite` | CelesTrak GP (OMM/JSON) → SGP4 | watch IDs (NORAD ids) and a circular area required | predicted overflight of the area |
+
+The area is selected with the MapTiler geocoder and stored as a circle (center,
+radius, optional display name and MapTiler ID). Fleet Scout has no presets. Free-text
+`criteria` are optional: they filter alerts after an object enters the area and do not
+replace the area. On hosted Scoutpost, creating or replacing Fleet Scout configuration
+requires a Pro or Team account; OSS deployments remain ungated.
 
 Where users find IDs (linked below the watch-IDs field in the UI):
 vessels → [MarineTraffic](https://www.marinetraffic.com/), aircraft →

@@ -822,6 +822,42 @@ async function assertArchiveEntitled(
   }
 }
 
+/**
+ * Fleet Scout is a hosted Pro/Team creation feature. This intentionally
+ * mirrors the established archive gate but reads credit_accounts rather than
+ * user_preferences: preferences are user-editable, while credit accounts are
+ * maintained by the entitlement service and exposed read-only to users.
+ * Existing Fleet scouts continue to execute; this is a create/config gate.
+ */
+async function assertTransportEntitled(
+  svc: ReturnType<typeof getServiceClient>,
+  userId: string,
+): Promise<void> {
+  if (!creditsEnabled()) return;
+  const { data, error } = await svc
+    .from("credit_accounts")
+    .select("tier")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) {
+    logEvent({
+      level: "warn",
+      fn: "scouts",
+      event: "transport_entitlement_tier_read_failed",
+      user_id: userId,
+      msg: error.message,
+    });
+  }
+  const tier = error ? undefined : (data as { tier?: string } | null)?.tier;
+  if (tier !== "pro" && tier !== "team") {
+    throw new ApiError(
+      "Fleet Scout is a Pro/Team feature — upgrade to alert when watched objects enter an area.",
+      403,
+      "transport_forbidden",
+    );
+  }
+}
+
 async function ensureScheduledBaseline(
   svc: ReturnType<typeof getServiceClient>,
   scout: BaselineableScout,
@@ -1059,6 +1095,7 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
     }
     rest.config = validated.config as Record<string, unknown>;
     await ensureTransportPresetValid(getServiceClient(), validated.config);
+    await assertTransportEntitled(getServiceClient(), user.id);
   }
 
   // Default the scout's language from the owner's profile preference when the
@@ -1257,6 +1294,30 @@ async function updateScout(
   if (readErr) throw new Error(readErr.message);
   if (!current) throw new NotFoundError("scout");
 
+  // Transport criteria live in config so the executor can apply them only to
+  // newly claimed entrants. Preserve generic clients' existing --criteria
+  // PATCH shape by translating it during the compatibility window.
+  if (
+    current.type === "transport" &&
+    Object.prototype.hasOwnProperty.call(parsed.data, "criteria") &&
+    parsed.data.config === undefined
+  ) {
+    const currentConfig = current.config as Record<string, unknown> | null;
+    if (!currentConfig) {
+      throw new ValidationError("transport scout is missing config");
+    }
+    const legacyCriteria = parsed.data.criteria;
+    const translatedConfig: Record<string, unknown> = { ...currentConfig };
+    if (legacyCriteria === null) {
+      delete translatedConfig.criteria;
+    } else {
+      translatedConfig.criteria = legacyCriteria;
+    }
+    (parsed.data as { config?: Record<string, unknown> }).config =
+      translatedConfig;
+    delete (parsed.data as Record<string, unknown>).criteria;
+  }
+
   // KTD6: a free-tier SaaS user may not switch archiving on. Turning it off or
   // leaving it unchanged is always allowed (evidence is never destroyed by a
   // plan change — existing snapshots stay readable; captures just stop).
@@ -1291,6 +1352,7 @@ async function updateScout(
       // Write back the normalized form, mirroring createScout.
       (parsed.data as { config?: Record<string, unknown> }).config = validated
         .config as Record<string, unknown>;
+      await assertTransportEntitled(getServiceClient(), user.id);
     }
     await ensureTransportPresetValid(getServiceClient(), validated.config);
   } else if (

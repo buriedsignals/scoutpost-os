@@ -635,7 +635,7 @@ Deno.test("scouts add — forwards topic for scheduled web scouts", async () => 
   });
 });
 
-Deno.test("scouts add — transport aircraft: preset geofence, criteria folded into config, sub-daily schedule", async () => {
+Deno.test("scouts add — Fleet Scout requires a circle and folds criteria into config", async () => {
   await withTempHome(async () => {
     writeConfigFile({
       api_url: "https://scoutpost.ai/functions/v1",
@@ -667,8 +667,14 @@ Deno.test("scouts add — transport aircraft: preset geofence, criteria folded i
         "transport",
         "--mode",
         "aircraft",
-        "--geofence-preset",
-        "strait-of-hormuz",
+        "--center-lat",
+        "26.55",
+        "--center-lon",
+        "56.25",
+        "--radius-km",
+        "40.5",
+        "--area-name",
+        "Strait of Hormuz",
         "--watch-ids",
         "4ca123,ae01ce",
         "--categories",
@@ -693,14 +699,14 @@ Deno.test("scouts add — transport aircraft: preset geofence, criteria folded i
     assertEquals("criteria" in body, false);
     const config = body.config as Record<string, unknown>;
     assertEquals(config.mode, "aircraft");
-    assertEquals(config.geofence, { preset_id: "strait-of-hormuz" });
+    assertEquals(config.geofence, { center: { lat: 26.55, lon: 56.25 }, radius_km: 40.5, display_name: "Strait of Hormuz" });
     assertEquals(config.watch_ids, ["4ca123", "ae01ce"]);
     assertEquals(config.categories, ["military", "government"]);
     assertEquals(config.criteria, "military transport jets");
   });
 });
 
-Deno.test("scouts add — transport aircraft: watch-ids only (no geofence) is a valid global watch", async () => {
+Deno.test("scouts add — Fleet Scout aircraft carries its required entry area", async () => {
   await withTempHome(async () => {
     writeConfigFile({
       api_url: "https://scoutpost.ai/functions/v1",
@@ -734,6 +740,12 @@ Deno.test("scouts add — transport aircraft: watch-ids only (no geofence) is a 
         "aircraft",
         "--watch-ids",
         "abc123,def456",
+        "--center-lat",
+        "47.37",
+        "--center-lon",
+        "8.54",
+        "--radius-km",
+        "25",
         "--regularity",
         "12h",
       ]);
@@ -747,8 +759,7 @@ Deno.test("scouts add — transport aircraft: watch-ids only (no geofence) is a 
     const config = body.config as Record<string, unknown>;
     assertEquals(config.mode, "aircraft");
     assertEquals(config.watch_ids, ["abc123", "def456"]);
-    // No area supplied and none required for a watch-list aircraft scout.
-    assertEquals("geofence" in config, false);
+    assertEquals(config.geofence, { center: { lat: 47.37, lon: 8.54 }, radius_km: 25 });
     assertEquals(body.time, "09:00");
   });
 });
@@ -816,7 +827,7 @@ Deno.test("scouts add — transport vessel: decimal center/radius survive (no pa
   });
 });
 
-Deno.test("scouts add — transport satellite: watch_ids + preset, daily schedule", async () => {
+Deno.test("scouts add — Fleet Scout satellite: watch IDs + entry area, daily schedule", async () => {
   await withTempHome(async () => {
     writeConfigFile({
       api_url: "https://scoutpost.ai/functions/v1",
@@ -848,8 +859,12 @@ Deno.test("scouts add — transport satellite: watch_ids + preset, daily schedul
         "transport",
         "--mode",
         "satellite",
-        "--geofence-preset",
-        "strait-of-hormuz",
+        "--center-lat",
+        "26.55",
+        "--center-lon",
+        "56.25",
+        "--radius-km",
+        "40",
         "--watch-ids",
         "25544,48274",
         "--regularity",
@@ -867,7 +882,7 @@ Deno.test("scouts add — transport satellite: watch_ids + preset, daily schedul
     const config = body.config as Record<string, unknown>;
     assertEquals(config.mode, "satellite");
     assertEquals(config.watch_ids, ["25544", "48274"]);
-    assertEquals(config.geofence, { preset_id: "strait-of-hormuz" });
+    assertEquals(config.geofence, { center: { lat: 26.55, lon: 56.25 }, radius_km: 40 });
   });
 });
 
