@@ -13,6 +13,8 @@
  *   PATCH  /units/mark-used    legacy feed compatibility route
  *   POST   /units/search       semantic, keyword, or hybrid search over caller's units
  *   GET    /units/:id          fetch a single unit
+ *   GET    /units/:id/evidence owner-only exact source expressions
+ *   PATCH  /units/:id/evidence/:linkId  review an evidence relation
  *   PATCH  /units/:id          update verification/usage fields
  *   DELETE /units/:id          soft delete a unit
  *
@@ -79,6 +81,11 @@ const UpdateSchema = z.object({
   deletion_reason: z.string().max(4000).nullable().optional(),
 });
 
+const ReviewEvidenceSchema = z.object({
+  review_status: z.enum(["accepted", "rejected"]),
+  review_notes: z.string().max(4000).nullable().optional(),
+});
+
 Deno.serve(async (req): Promise<Response> => {
   const cors = handleCors(req);
   if (cors) return cors;
@@ -95,6 +102,10 @@ Deno.serve(async (req): Promise<Response> => {
   // "/units/<id>" -> "/<id>", "/units/search" -> "/search".
   const path = url.pathname.replace(/^.*\/units/, "") || "/";
   const idMatch = path.match(/^\/([0-9a-f-]{36})$/i);
+  const evidenceMatch = path.match(/^\/([0-9a-f-]{36})\/evidence$/i);
+  const reviewEvidenceMatch = path.match(
+    /^\/([0-9a-f-]{36})\/evidence\/([0-9a-f-]{36})$/i,
+  );
   const isRead = req.method === "GET" || req.method === "HEAD";
 
   try {
@@ -127,6 +138,17 @@ Deno.serve(async (req): Promise<Response> => {
     }
     if (path === "/search" && req.method === "POST") {
       return await searchUnits(req, user);
+    }
+    if (evidenceMatch && isRead) {
+      return await getUnitEvidence(user, evidenceMatch[1]);
+    }
+    if (reviewEvidenceMatch && req.method === "PATCH") {
+      return await reviewUnitEvidence(
+        req,
+        user,
+        reviewEvidenceMatch[1],
+        reviewEvidenceMatch[2],
+      );
     }
     if (idMatch && isRead) {
       return await getUnit(user, idMatch[1]);
@@ -650,7 +672,7 @@ async function runUnitSearch(
         search_rank: row.similarity ?? null,
         search_match: buildSearchMatchInfo(
           query_text,
-          shaped as Record<string, unknown>,
+          shaped as unknown as Record<string, unknown>,
           semanticSimilarity,
         ),
       };
@@ -673,6 +695,101 @@ async function getUnit(user: AuthedUser, id: string): Promise<Response> {
   if (error) throw new Error(error.message);
   if (!data) throw new NotFoundError("unit");
   return jsonOk(await shapeUnitResponse(db, data));
+}
+
+/** Evidence is deliberately owner-only in V1, even where a team can read a unit. */
+async function getUnitEvidence(
+  user: AuthedUser,
+  id: string,
+): Promise<Response> {
+  const { db } = getCallerClient(user);
+  const { data: unit, error: unitError } = await db
+    .from("information_units")
+    .select("id")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (unitError) throw new Error(unitError.message);
+  if (!unit) throw new NotFoundError("unit");
+
+  const { data: links, error: linksError } = await db
+    .from("source_expression_links")
+    .select(
+      "id, relation_kind, link_method, review_status, reviewed_at, review_notes, created_at, source_expressions(id, exact_text, start_byte, end_byte, start_line, end_line, locator_version, capture_payload_sha256, passage_sha256, language, attribution, is_direct_quote, lifecycle_status, created_at)",
+    )
+    .eq("unit_id", id)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
+  if (linksError) throw new Error(linksError.message);
+
+  const expressions = (links ?? []).map((link) => {
+    const row = link as Record<string, unknown>;
+    return {
+      link_id: row.id,
+      relation_kind: row.relation_kind,
+      link_method: row.link_method,
+      review_status: row.review_status,
+      reviewed_at: row.reviewed_at,
+      review_notes: row.review_notes,
+      expression: row.source_expressions,
+    };
+  });
+  const active = expressions.filter((item) => {
+    const expression = asRecord(item.expression);
+    return expression?.lifecycle_status === "active";
+  });
+  return jsonOk({
+    unit_id: id,
+    evidence_status: {
+      active_expression_count: active.length,
+      accepted_support_count: active.filter((item) =>
+        item.relation_kind === "supports" && item.review_status === "accepted"
+      ).length,
+      has_rejected_evidence: expressions.some((item) =>
+        item.review_status === "rejected" ||
+        asRecord(item.expression)?.lifecycle_status === "rejected"
+      ),
+    },
+    expressions,
+  });
+}
+
+async function reviewUnitEvidence(
+  req: Request,
+  user: AuthedUser,
+  unitId: string,
+  linkId: string,
+): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    throw new ValidationError("invalid JSON body");
+  }
+  const parsed = ReviewEvidenceSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new ValidationError(
+      parsed.error.issues.map((issue) => issue.message).join("; "),
+    );
+  }
+  const { db } = getCallerClient(user);
+  const { data: link, error: linkError } = await db
+    .from("source_expression_links")
+    .select("id")
+    .eq("id", linkId)
+    .eq("unit_id", unitId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (linkError) throw new Error(linkError.message);
+  if (!link) throw new NotFoundError("source expression link");
+  const { error } = await db.rpc("review_source_expression_link", {
+    p_user_id: user.id,
+    p_link_id: linkId,
+    p_review_status: parsed.data.review_status,
+    p_review_notes: parsed.data.review_notes ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return jsonOk({ id: linkId, review_status: parsed.data.review_status });
 }
 
 async function resolveScopedUnitIds(

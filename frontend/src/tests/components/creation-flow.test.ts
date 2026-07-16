@@ -41,7 +41,7 @@ describe('shared scout creation hierarchy', () => {
 	it('opens Page Scout on Specific Criteria and blocks an empty rule', async () => {
 		render(PageScoutView);
 		expect(screen.getByText('Specific Criteria')).toBeInTheDocument();
-		await fireEvent.input(screen.getByPlaceholderText('e.g. Town Hall Events'), { target: { value: 'Council agenda' } });
+		expect(screen.queryByLabelText(/scout name/i)).not.toBeInTheDocument();
 		await fireEvent.input(screen.getByPlaceholderText('https://example.com'), { target: { value: 'https://example.com' } });
 		expect(screen.getByRole('button', { name: /test scraper/i })).toBeDisabled();
 		await fireEvent.input(screen.getByPlaceholderText('Describe what to look for...'), { target: { value: 'new agenda items' } });
@@ -70,6 +70,19 @@ describe('shared scout creation hierarchy', () => {
 
 		expect(screen.getByRole('button', { name: /test source/i }).classList.contains('btn-secondary')).toBe(true);
 		expect(screen.getByRole('button', { name: /schedule scout/i }).classList.contains('btn-primary')).toBe(true);
+	});
+
+	it('collects the Page Scout name in the scheduling step', () => {
+		render(ScoutScheduleModal, {
+			props: {
+				open: true,
+				scoutType: 'web',
+				url: 'https://example.com',
+				webCriteria: 'new agenda items'
+			}
+		});
+
+		expect(screen.getByLabelText(/scout name/i)).toBeInTheDocument();
 	});
 
 	it('collects the Fleet Scout name in Step 2 and submits the tested baseline', async () => {

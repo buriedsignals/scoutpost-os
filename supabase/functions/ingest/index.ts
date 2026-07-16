@@ -42,6 +42,11 @@ import {
   sha256Hex,
   upsertCanonicalUnit,
 } from "../_shared/unit_dedup.ts";
+import {
+  findExactSourceExpression,
+  recordSourceExpression,
+  segmentSourceExpressionContent,
+} from "../_shared/source_expressions.ts";
 
 const IngestSchema = z
   .object({
@@ -85,6 +90,11 @@ const EXTRACTION_SCHEMA: Record<string, unknown> = {
           statement: { type: "string" },
           type: { type: "string", enum: ["fact", "event", "entity_update"] },
           context_excerpt: { type: "string" },
+          source_quote: {
+            type: "string",
+            description:
+              "Exact contiguous text copied character-for-character from TEXT",
+          },
           occurred_at: { type: "string", nullable: true },
           entities: { type: "array", items: { type: "string" } },
           criteria_match: {
@@ -104,6 +114,7 @@ interface ExtractedUnit {
   statement: string;
   type: "fact" | "event" | "entity_update";
   context_excerpt?: string;
+  source_quote?: string;
   occurred_at?: string | null;
   entities?: string[];
   criteria_match?: boolean | null;
@@ -294,6 +305,9 @@ async function runPipeline(
   );
   logCompressionStats("ingest", undefined, ingestStats);
   const promptText = compressedForPrompt.slice(0, PROMPT_CONTENT_MAX);
+  const evidenceWindows = segmentSourceExpressionContent(truncated);
+  const evidenceWindow = evidenceWindows[0]?.text ?? "";
+  const evidenceCoverage = evidenceWindows.length <= 1 ? "full" : "partial";
   const criteriaBlock = input.criteria?.trim()
     ? `\nCRITERIA HARD FILTER: ${input.criteria}
 Only return units that satisfy EVERY explicit criterion. If a fact only partially matches, return no unit for it.
@@ -304,13 +318,18 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
     "Extract up to 15 discrete factual statements from the following text. " +
     "For each, give a one-sentence `statement`, a `type` (fact|event|entity_update), " +
     "a `context_excerpt` (a short quoted snippet surrounding the statement), and " +
+    "a `source_quote` copied character-for-character as one contiguous passage from " +
+    "the SOURCE EVIDENCE WINDOW that supports the statement (omit it when no exact " +
+    "passage is available), and " +
     "`occurred_at` as a date in ISO 8601 if one is stated (null otherwise), and " +
     "`entities` as a list of the named people, organizations, places, or policies mentioned. " +
     "Set `criteria_match` to true when no criteria are provided. " +
     "Return JSON matching the provided schema.\n" +
     criteriaBlock +
     "\nTEXT:\n" +
-    promptText;
+    promptText +
+    "\n\nSOURCE EVIDENCE WINDOW (exact stored source text):\n" +
+    evidenceWindow;
 
   const extraction = await geminiExtract<{ units: ExtractedUnit[] }>(
     prompt,
@@ -367,6 +386,52 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
         kind: input.kind,
       },
     });
+
+    // Evidence recording is intentionally a second, best-effort operation.
+    // A model-generated quote that is not an exact substring is rejected rather
+    // than silently becoming evidence; a failed evidence insert never rolls
+    // back the canonical unit.
+    const anchor = await findExactSourceExpression(truncated, u.source_quote);
+    if (anchor.ok) {
+      try {
+        await recordSourceExpression(usageDb, {
+          userId: user.id,
+          rawCaptureId,
+          unitId: result.unitId,
+          anchor: anchor.anchor,
+          extractorVersion: "manual-ingest-v1",
+          promptVersion: "manual-ingest-source-quote-v1",
+          metadata: {
+            ingest_id: ingestId,
+            coverage: evidenceCoverage,
+            evidence_window_count: evidenceWindows.length,
+            candidate_capture_payload_sha256:
+              anchor.anchor.capturePayloadSha256,
+            candidate_passage_sha256: anchor.anchor.passageSha256,
+          },
+        });
+      } catch (error) {
+        logEvent({
+          level: "warn",
+          fn: "ingest",
+          event: "source_expression_record_failed",
+          user_id: user.id,
+          ingest_id: ingestId,
+          unit_id: result.unitId,
+          msg: error instanceof Error ? error.message : String(error),
+        });
+      }
+    } else if (u.source_quote) {
+      logEvent({
+        level: "info",
+        fn: "ingest",
+        event: "source_expression_not_recorded",
+        user_id: user.id,
+        ingest_id: ingestId,
+        unit_id: result.unitId,
+        reason: anchor.reason,
+      });
+    }
 
     if (result.createdCanonical) {
       inserted.push({

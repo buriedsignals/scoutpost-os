@@ -260,7 +260,7 @@
 
 			<div class="description-block">
 				<h2 class="subheadline">
-					Scoutpost watches pages, social profiles, civic records, news coverage, and fleet movements — then turns findings into <span class="highlight-accent">source-linked information units</span>.
+					Connect your agent to scouts that monitor pages, social profiles, city councils, vessels, and your beat — while you <span class="highlight-accent">focus on reporting</span>.
 				</h2>
 
 				<a
@@ -294,14 +294,6 @@
 					<span class="agent-pill">
 						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h.01"/><path d="M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20"/><path d="m20 7 2 .5-2 .5"/><path d="M10 18v3"/><path d="M14 17.75V21"/><path d="M7 18a6 6 0 0 0 3.84-10.61"/></svg>
 						Goose
-					</span>
-					<span class="agent-pill">
-						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18h8"/><path d="M3 22h18"/><path d="M14 22a7 7 0 1 0 0-14h-1"/><path d="M9 14h2"/><path d="M9 12a2 2 0 0 1 2-2V6l-4-4h3l1 2"/><path d="M4 4h3l1 2"/></svg>
-						OpenClaw
-					</span>
-					<span class="agent-pill">
-						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="8" x2="16" y1="14" y2="14"/><line x1="10" x2="10" y1="18" y2="18"/><line x1="14" x2="14" y1="18" y2="18"/></svg>
-						Hermes
 					</span>
 					<span class="agent-pill">
 						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M7 12h10"/></svg>
@@ -1069,7 +1061,7 @@
 		font-weight: 500;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		color: var(--color-secondary);
+		color: var(--color-primary);
 		margin: 0 0 0.5rem 0;
 	}
 
@@ -1305,7 +1297,7 @@
 		font-weight: 600;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		color: var(--color-secondary);
+		color: var(--color-primary);
 	}
 
 	.promo-launch {
@@ -1326,7 +1318,7 @@
 		font-weight: 500;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		color: var(--color-secondary);
+		color: var(--color-primary);
 	}
 
 	.promo-title {
@@ -1457,13 +1449,13 @@
 	}
 
 	.promo-newsletter-toggle--selected {
-		border-color: var(--color-secondary);
-		background: color-mix(in srgb, var(--color-secondary) 8%, transparent);
-		color: var(--color-secondary);
+		border-color: color-mix(in oklab, var(--color-primary) 58%, var(--color-border));
+		background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+		color: var(--color-primary);
 	}
 
 	.promo-newsletter-toggle:focus-visible {
-		outline: 2px solid var(--color-secondary);
+		outline: 2px solid var(--color-primary);
 		outline-offset: 2px;
 	}
 
@@ -1475,6 +1467,12 @@
 		border: 1px solid currentColor;
 		font-size: 9px;
 		line-height: 1;
+	}
+
+	.promo-newsletter-toggle--selected .promo-newsletter-check {
+		border-color: var(--color-primary);
+		background: var(--color-primary);
+		color: var(--color-bg);
 	}
 
 	.promo-newsletter-copy {
@@ -1601,14 +1599,11 @@
 		font-weight: 500;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
-		border-bottom: 1px solid var(--color-border);
-		padding-bottom: 2px;
-		transition: color 150ms ease, border-color 150ms ease;
+		transition: color 150ms ease;
 	}
 
 	.promo-link:hover {
-		color: var(--color-ink);
-		border-bottom-color: var(--color-ink);
+		color: var(--color-primary);
 	}
 
 	/* ──────────────────────────────────────────────────────────
@@ -1665,8 +1660,7 @@
 	.auth-input,
 	.auth-cta-link,
 	.promo-signup-form input[type='email'],
-	.promo-btn-primary,
-	.promo-link {
+	.promo-btn-primary {
 		border-radius: var(--radius-md);
 	}
 

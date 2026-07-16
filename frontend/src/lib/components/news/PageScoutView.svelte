@@ -13,7 +13,6 @@
 
 	// Test state
 	let url = '';
-	let scoutName = '';
 	let criteria = '';
 	let criteriaMode: 'any' | 'specific' = 'specific';
 	let isTestingScraper = false;
@@ -62,7 +61,7 @@
 		}, 800);
 
 		try {
-			const response = await webhookClient.testScraper({ url, criteria: effectiveCriteria || undefined, scraperName: scoutName.trim() });
+			const response = await webhookClient.testScraper({ url, criteria: effectiveCriteria || undefined });
 
 			if (!response.scraper_status) {
 				testError = response.summary || 'This website appears to block automated access.';
@@ -117,21 +116,6 @@
 				title={m.webScout_title()}
 				subtitle={m.webScout_scraperTestHint()}
 			>
-				<!-- Scout Name Input -->
-				<div class="field-group">
-					<label for="scout-name" class="field-label">{m.webScout_scoutName()}</label>
-					<input
-						id="scout-name"
-						type="text"
-						bind:value={scoutName}
-						maxlength="30"
-						placeholder={m.webScout_scoutNamePlaceholder()}
-						required
-						class="form-input"
-					/>
-					<p class="text-xs text-gray-500 mt-1">{m.webScout_scoutNameHint()}</p>
-				</div>
-
 				<!-- URL Input -->
 				<div class="field-group">
 					<label for="url" class="field-label">{m.webScout_websiteUrl()}</label>
@@ -178,7 +162,7 @@
 				<!-- Step Buttons -->
 				{#if !testError}
 					<StepButtons
-						step1Disabled={isTestingScraper || !url.trim() || !scoutName.trim() || (criteriaMode === 'specific' && !criteria.trim())}
+						step1Disabled={isTestingScraper || !url.trim() || (criteriaMode === 'specific' && !criteria.trim())}
 						step1Loading={isTestingScraper}
 						step1Label={m.webScout_runScraper()}
 						step1LoadingLabel={m.common_testing()}
@@ -224,14 +208,12 @@
 	url={url}
 	webCriteria={effectiveCriteria}
 	provider={detectedProvider}
-	scoutName={scoutName.trim()}
 	contentHash={contentHash}
 	onClose={() => showScheduleModal = false}
 	onSuccess={() => {
 		url = '';
 		criteria = '';
 		criteriaMode = 'specific';
-		scoutName = '';
 		testResult = null;
 		testProgress = 0;
 		detectedProvider = undefined;

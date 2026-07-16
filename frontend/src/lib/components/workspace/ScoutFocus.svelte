@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { MapPin, Tag, Calendar, Play, Trash2, ArrowLeft, X, Check, Globe, AtSign } from 'lucide-svelte';
+	import { MapPin, Tag, Calendar, Play, Trash2, X, Check, Globe, AtSign } from 'lucide-svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import DemoBadge from '$lib/components/ui/DemoBadge.svelte';
+	import WorkspaceBackButton from '$lib/components/ui/WorkspaceBackButton.svelte';
 	import {
 		getScoutTypeDisplay,
 		normalizeScoutType,
@@ -134,13 +135,9 @@
 </script>
 
 <div class="scout-focus-wrapper">
-	<button class="back-btn" on:click={handleBack}>
-		<ArrowLeft size={14} strokeWidth={2.25} />
-		<span>All scouts</span>
-		{#if totalScouts}
-			<span class="back-btn-count">{totalScouts}</span>
-		{/if}
-	</button>
+	<div class="focus-back">
+		<WorkspaceBackButton label="All scouts" count={totalScouts} onClick={handleBack} />
+	</div>
 
 	<div class="scout-shell scout-focus {cfg.className}">
 		<div class="scout-shell-eyebrow-row">
@@ -297,46 +294,8 @@
 		font-family: var(--font-body);
 	}
 
-	.back-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4375rem;
-		height: 32px;
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--color-ink-muted);
-		background: var(--color-surface-alt);
-		border: 1px solid var(--color-border);
-		cursor: pointer;
-		padding: 0 0.75rem;
+	.focus-back {
 		margin-bottom: 0.875rem;
-		transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
-	}
-	.back-btn:hover {
-		color: var(--color-primary);
-		border-color: var(--color-primary);
-		background: var(--color-primary-soft);
-	}
-	.back-btn-count {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 1.25rem;
-		padding: 0 0.375rem;
-		height: 1.125rem;
-		font-size: 0.6875rem;
-		font-weight: 500;
-		color: var(--color-ink-muted);
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		margin-left: 0.125rem;
-	}
-	.back-btn:hover .back-btn-count {
-		background: var(--color-bg);
-		color: var(--color-primary);
 	}
 
 	.scout-focus {

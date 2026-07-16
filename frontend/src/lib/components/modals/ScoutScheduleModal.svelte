@@ -369,7 +369,7 @@
 
 	function handleClose() {
 		onClose();
-		if (scoutType !== 'web') scoutName = '';
+		scoutName = '';
 		errorMessage = '';
 		scheduleSuccess = false;
 		selectedLocation = null;
@@ -576,27 +576,24 @@
 						</div>
 					{/if}
 
-					<!-- Page Scout uses its name during the scraper test; other scouts name in the final step. -->
-					{#if scoutType !== 'web'}
-						<div class="form-field">
-							<label for="scout-name" class="form-label">
-								{m.scout_name()} <span class="required-star">*</span>
-							</label>
-							<input
-								id="scout-name"
-								type="text"
-								bind:value={scoutName}
-								maxlength="30"
-								placeholder={m.scheduleSearch_scoutNamePlaceholder()}
-								required
-								class="form-input"
-							/>
-							<p class="form-helper helper-row">
-								<span>{m.scout_nameHint()}</span>
-								<span class={scoutName.length > 25 ? 'count--warn' : ''}>{scoutName.length}/30</span>
-							</p>
-						</div>
-					{/if}
+					<div class="form-field">
+						<label for="scout-name" class="form-label">
+							{m.scout_name()} <span class="required-star">*</span>
+						</label>
+						<input
+							id="scout-name"
+							type="text"
+							bind:value={scoutName}
+							maxlength="30"
+							placeholder={m.scheduleSearch_scoutNamePlaceholder()}
+							required
+							class="form-input"
+						/>
+						<p class="form-helper helper-row">
+							<span>{m.scout_nameHint()}</span>
+							<span class={scoutName.length > 25 ? 'count--warn' : ''}>{scoutName.length}/30</span>
+						</p>
+					</div>
 
 					<div class="form-field">
 						<div class="label-row">

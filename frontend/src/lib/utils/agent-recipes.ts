@@ -291,11 +291,6 @@ url = "{{MCP_URL}}"`,
   openclaw: {
     tagline: "Add Scoutpost to OpenClaw, then authenticate and probe it.",
     setupKind: "manual",
-    warning: {
-      title: "Experimental registry path",
-      body:
-        "OpenClaw’s registry command only saves the definition. Complete the OAuth login and probe steps below before treating the connection as ready.",
-    },
     mode: "cli-command",
     command:
       `openclaw mcp set scoutpost '{"url":"{{MCP_URL}}","transport":"streamable-http","auth":"oauth"}'`,

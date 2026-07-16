@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { browser } from '$app/environment';
-	import { MapPin, Tag, Home, FileText } from 'lucide-svelte';
+	import { MapPin, Tag, FileText } from 'lucide-svelte';
 	import FilterBar from '$lib/components/ui/FilterBar.svelte';
 	import FilterSelect from '$lib/components/ui/FilterSelect.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import PanelPlaceholder from '$lib/components/ui/PanelPlaceholder.svelte';
+	import WorkspaceBackButton from '$lib/components/ui/WorkspaceBackButton.svelte';
 	import ScoutCard from '$lib/components/workspace/ScoutCard.svelte';
 	import ScoutFocus from '$lib/components/workspace/ScoutFocus.svelte';
 	import Inbox from '$lib/components/workspace/Inbox.svelte';
@@ -514,12 +515,6 @@
 			<div class="logo">
 				<span class="logo-text">Scoutpost</span>
 			</div>
-			{#if activePanel !== 'workspace'}
-				<button class="back-to-workspace" on:click={closePanel} type="button">
-					<Home size={14} />
-					<span>Back to workspace</span>
-				</button>
-			{/if}
 		</div>
 		<div class="topnav-center" aria-label="Workspace actions">
 			<div class="new-scout-wrap">
@@ -597,6 +592,9 @@
 		{#if activePanel !== 'workspace'}
 			<!-- Scout creation panel (inline, reactive) -->
 			<div class="panel-content">
+				<div class="creation-back">
+					<WorkspaceBackButton label="Back" onClick={closePanel} />
+				</div>
 				{#if activePanel === 'pulse'}
 					<BeatScoutView initialMode="beat" onScheduled={handleScheduled} />
 				{:else if activePanel === 'web'}
@@ -1067,31 +1065,6 @@
 		border-radius: var(--radius-lg);
 	}
 
-	.back-to-workspace {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4375rem;
-		height: 32px;
-		padding: 0 0.75rem;
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--color-ink-muted);
-		background: var(--color-surface-alt);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-		cursor: pointer;
-		transition: border-color 150ms ease, color 150ms ease;
-	}
-
-	.back-to-workspace:hover {
-		color: var(--color-primary);
-		border-color: var(--color-primary);
-		background: var(--color-primary-soft);
-	}
-
 	.panel-content {
 		display: flex;
 		flex-direction: column;
@@ -1100,12 +1073,17 @@
 		overflow-y: auto;
 	}
 
+	.creation-back {
+		width: min(1400px, calc(100% - (var(--space-6) * 2)));
+		margin: var(--space-6) auto 0;
+		flex: 0 0 auto;
+	}
+
 	@media (max-width: 760px) {
 		.topnav {
 			padding-inline: 0.75rem;
 		}
 
-		.back-to-workspace span,
 		.topnav-right :global(.metric-pill__label) {
 			display: none;
 		}

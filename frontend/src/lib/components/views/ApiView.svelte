@@ -154,7 +154,7 @@ Auth: Bearer <your-api-key>`;
 				<div class="target-summary">
 					<span>Active API target</span>
 					<code>{apiBase}</code>
-					{#if projectRef}
+					{#if projectRef && !hostedBroker}
 						<small>Project ref: {projectRef}</small>
 					{/if}
 				</div>
@@ -598,8 +598,10 @@ Auth: Bearer <your-api-key>`;
 	}
 
 	.revoke-btn:hover {
-		background: color-mix(in oklab, var(--color-error) 10%, transparent);
+		background: color-mix(in oklab, var(--color-error) 16%, var(--color-surface-alt));
 		color: var(--color-error);
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-error) 45%, transparent);
+		transform: translateY(-1px);
 	}
 
 	.revoke-confirm-btn {
@@ -611,11 +613,13 @@ Auth: Bearer <your-api-key>`;
 		border: none;
 		border-radius: var(--radius-sm);
 		cursor: pointer;
-		transition: background 0.15s ease;
+		transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 	}
 
 	.revoke-confirm-btn:hover {
-		background: var(--color-error);
+		background: color-mix(in oklab, var(--color-error) 82%, white);
+		box-shadow: 0 4px 12px color-mix(in oklab, var(--color-error) 24%, transparent);
+		transform: translateY(-1px);
 	}
 
 	.cancel-btn {

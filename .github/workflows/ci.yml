@@ -241,6 +241,9 @@ jobs:
           cat /tmp/scout-functions-health.txt || true
           exit 1
 
+      - name: Run database regression tests
+        run: supabase test db supabase/tests
+
       - name: Run local self-host smoke
         run: |
           set -a

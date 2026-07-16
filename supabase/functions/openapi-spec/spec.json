@@ -890,6 +890,80 @@
         }
       }
     },
+    "/units/{id}/evidence": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "units"
+        ],
+        "summary": "Fetch owner-only exact source evidence for a unit",
+        "responses": {
+          "200": {
+            "description": "evidence links and exact source passages"
+          },
+          "404": {
+            "description": "unit not found or not owned by caller"
+          }
+        }
+      }
+    },
+    "/units/{id}/evidence/{linkId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/IdPath"
+        },
+        {
+          "name": "linkId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "patch": {
+        "tags": [
+          "units"
+        ],
+        "summary": "Accept or reject an evidence relation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "review_status"
+                ],
+                "properties": {
+                  "review_status": {
+                    "type": "string",
+                    "enum": [
+                      "accepted",
+                      "rejected"
+                    ]
+                  },
+                  "review_notes": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "review updated"
+          }
+        }
+      }
+    },
     "/projects": {
       "get": {
         "tags": [

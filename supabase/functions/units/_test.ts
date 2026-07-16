@@ -3,7 +3,12 @@ import {
   assertExists,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { createTestUser, functionUrl } from "../_shared/_testing.ts";
+import {
+  createTestUser,
+  functionUrl,
+  getTestingServiceRoleKey,
+  getTestingSupabaseUrl,
+} from "../_shared/_testing.ts";
 
 function headers(token: string): HeadersInit {
   return {
@@ -14,8 +19,8 @@ function headers(token: string): HeadersInit {
 
 function serviceClient() {
   return createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    getTestingSupabaseUrl(),
+    getTestingServiceRoleKey(),
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
 }
@@ -192,6 +197,82 @@ Deno.test("units: PATCH with empty body returns 400", async () => {
     await res.body?.cancel();
   } finally {
     await user.cleanup();
+  }
+});
+
+Deno.test("units: evidence is owner-only and reviewable without changing unit reads", async () => {
+  const user = await createTestUser();
+  const otherUser = await createTestUser();
+  const svc = serviceClient();
+  try {
+    const { data: unit, error: unitError } = await svc
+      .from("information_units")
+      .insert({
+        user_id: user.id,
+        statement: "The evidence endpoint preserves exact wording.",
+        type: "fact",
+      })
+      .select("id")
+      .single();
+    if (unitError) throw unitError;
+    const { data: capture, error: captureError } = await svc
+      .from("raw_captures")
+      .insert({ user_id: user.id, content_md: "Exact evidence passage." })
+      .select("id")
+      .single();
+    if (captureError) throw captureError;
+    const { error: expressionError } = await svc.rpc(
+      "record_source_expression",
+      {
+        p_user_id: user.id,
+        p_raw_capture_id: capture.id,
+        p_unit_id: unit.id,
+        p_unit_occurrence_id: null,
+        p_start_byte: 0,
+        p_end_byte: 23,
+      },
+    );
+    if (expressionError) throw expressionError;
+
+    const evidenceRes = await fetch(
+      functionUrl("units", `/${unit.id}/evidence`),
+      {
+        headers: headers(user.token),
+      },
+    );
+    assertEquals(evidenceRes.status, 200);
+    const evidence = await evidenceRes.json();
+    assertEquals(evidence.evidence_status.active_expression_count, 1);
+    assertEquals(
+      evidence.expressions[0].expression.exact_text,
+      "Exact evidence passage.",
+    );
+
+    const reviewRes = await fetch(
+      functionUrl(
+        "units",
+        `/${unit.id}/evidence/${evidence.expressions[0].link_id}`,
+      ),
+      {
+        method: "PATCH",
+        headers: headers(user.token),
+        body: JSON.stringify({
+          review_status: "accepted",
+          review_notes: "checked",
+        }),
+      },
+    );
+    assertEquals(reviewRes.status, 200);
+    await reviewRes.body?.cancel();
+
+    const otherRes = await fetch(functionUrl("units", `/${unit.id}/evidence`), {
+      headers: headers(otherUser.token),
+    });
+    assertEquals(otherRes.status, 404);
+    await otherRes.body?.cancel();
+  } finally {
+    await user.cleanup();
+    await otherUser.cleanup();
   }
 });
 

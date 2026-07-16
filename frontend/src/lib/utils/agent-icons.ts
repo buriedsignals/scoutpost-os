@@ -75,7 +75,7 @@ export const AGENTS: AgentMeta[] = [
 	},
 	{
 		slug: 'openclaw',
-		name: 'OpenClaw (experimental)',
+		name: 'OpenClaw',
 		iconInner:
 			'<path d="M6 18h8"/><path d="M3 22h18"/><path d="M14 22a7 7 0 1 0 0-14h-1"/><path d="M9 14h2"/><path d="M9 12a2 2 0 0 1 2-2V6l-4-4h3l1 2"/><path d="M4 4h3l1 2"/>'
 	},
