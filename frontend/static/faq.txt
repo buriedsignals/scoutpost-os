@@ -6,7 +6,7 @@ Scoutpost is source-available under the Sustainable Use License. Newsrooms can u
 
 ## Self-hosting
 
-Self-hosting is supported. You bring your own Supabase, Gemini, Firecrawl, Resend, Apify, and hosting setup. The public setup skill is:
+Self-hosting is supported. You bring your own Supabase, OpenRouter, Firecrawl, Resend, Apify, and hosting setup. Scoutpost routes OpenRouter AI requests to Google Vertex. The public setup skill is:
 
 - https://www.scoutpost.ai/skills/scoutpost-setup.md
 

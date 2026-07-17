@@ -91,8 +91,8 @@ Deno.test("units: search with non-JSON body returns 400", async () => {
   }
 });
 
-// Search short-circuits when the caller has zero units — no Gemini call is
-// made. This path is safe to run without GEMINI_API_KEY.
+// Search short-circuits when the caller has zero units — no OpenRouter call is
+// made. This path is safe to run without OPENROUTER_API_KEY.
 Deno.test("units: search on empty corpus returns empty items", async () => {
   const user = await createTestUser();
   try {
@@ -329,26 +329,32 @@ Deno.test("units: DELETE soft-deletes unit and hides it from default list", asyn
   }
 });
 
-// Deep semantic-search test — requires a real embedding endpoint. Skip unless
-// GEMINI_API_KEY is set in the test env.
-const geminiConfigured = Boolean(Deno.env.get("GEMINI_API_KEY"));
-const deepSearchTest = geminiConfigured ? Deno.test : Deno.test.ignore;
+// Deep semantic-search test — requires the real local embedding endpoint.
+const embeddingConfigured = Boolean(Deno.env.get("EMBEDDING_SERVICE_URL")) &&
+  Boolean(Deno.env.get("EMBEDDING_SERVICE_TOKEN"));
+const deepSearchTest = embeddingConfigured ? Deno.test : Deno.test.ignore;
 
 deepSearchTest(
-  "units: search with query_text succeeds end-to-end (requires GEMINI_API_KEY)",
+  "units: semantic search embeds the query and calls the v2 RPC",
   async () => {
     const user = await createTestUser();
+    const svc = serviceClient();
     try {
-      // We don't seed a unit here — the function still exercises the full
-      // embed -> RPC roundtrip because count > 0 is the only short-circuit
-      // and any DB presence would require complex setup. Without seeding,
-      // this path still short-circuits on empty corpus; so the assertion is
-      // identical to the empty-corpus test. Left as a placeholder so a fuller
-      // fixture can be dropped in later without moving the gate.
+      const { error: insertError } = await svc.from("information_units").insert(
+        {
+          user_id: user.id,
+          statement: "Zurich approved a new affordable housing subsidy.",
+          type: "fact",
+        },
+      );
+      if (insertError) throw insertError;
       const res = await fetch(functionUrl("units", "/search"), {
         method: "POST",
         headers: headers(user.token),
-        body: JSON.stringify({ query_text: "housing policy zurich" }),
+        body: JSON.stringify({
+          query_text: "housing policy zurich",
+          mode: "semantic",
+        }),
       });
       assertEquals(res.status, 200);
       const body = await res.json();

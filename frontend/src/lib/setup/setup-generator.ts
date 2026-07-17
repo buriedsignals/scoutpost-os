@@ -14,14 +14,16 @@ export const DOCKER_INSTALLER_IMAGE =
   "ghcr.io/buriedsignals/scoutpost-installer:latest";
 
 export interface SetupManifest {
-  version: 1;
+  version: 2;
   project: {
     name: string;
     /** Optional during first setup; final deployment/onboarding can fill it later. */
     app_url: string;
   };
   services: {
-    gemini_api_key: string;
+    openrouter_api_key: string;
+    /** Public URL when Supabase Edge runs in the cloud; Docker-internal for self-hosted. */
+    embedding_service_url: string;
     firecrawl_api_key: string;
     /**
      * Default Beat Scout retrieval port. Optional: when missing, Beat Scout
@@ -34,7 +36,6 @@ export interface SetupManifest {
     resend_api_key: string;
     resend_from_email: string;
     public_maptiler_api_key: string;
-    openrouter_api_key?: string;
   };
   auth: {
     admin_email: string;
@@ -144,8 +145,14 @@ export function validateSetupManifest(
     }
   };
 
+  if (manifest.version !== 2) {
+    errors.push("Manifest version 2 is required.");
+  }
+  if (Object.prototype.hasOwnProperty.call(manifest.services, "gemini_api_key")) {
+    errors.push("Manifest version 2 must not contain a Gemini API key.");
+  }
   require(manifest.project.name, "Project name");
-  require(manifest.services.gemini_api_key, "Gemini API key");
+  require(manifest.services.openrouter_api_key, "OpenRouter API key");
   require(manifest.services.firecrawl_api_key, "Firecrawl API key");
   require(manifest.services.apify_api_token, "Apify API token");
   require(manifest.services.resend_api_key, "Resend API key");
@@ -169,12 +176,14 @@ export function validateSetupManifest(
   }
 
   if (manifest.supabase.mode === "cloud-create") {
+    require(manifest.services.embedding_service_url, "Embedding service URL");
     require(manifest.supabase.org_id, "Supabase organization ID");
     require(manifest.supabase.region, "Supabase region");
     require(manifest.supabase.db_password, "Supabase database password");
     require(manifest.supabase.access_token, "Supabase access token");
   }
   if (manifest.supabase.mode === "cloud-existing") {
+    require(manifest.services.embedding_service_url, "Embedding service URL");
     require(manifest.supabase.project_ref, "Supabase project ref");
     require(manifest.supabase.project_url, "Supabase project URL");
     require(manifest.supabase.anon_key, "Supabase anon key");
@@ -269,7 +278,7 @@ export function buildAgentManifestPrompt(
     return [
       "Plan a newsroom-owned Scoutpost deployment from the local setup manifest.",
       "Do not ask me to paste secrets into chat.",
-      `Read ${manifestPath} from disk and validate that it is version 1. Treat that file as the only source of deployment configuration.`,
+      `Read ${manifestPath} from disk and validate that it is version 2. Treat that file as the only source of deployment configuration.`,
       `This manifest uses the manual provider path for ${providerName}. The operator's technical team owns the provider integration.`,
       "Do not run Supabase CLI commands, do not run supabase db push, and do not deploy Edge Functions unless the operator explicitly changes the manifest to the supported Supabase path.",
       "Read docs/supabase/migrations.md from the Scoutpost repository.",
@@ -287,7 +296,7 @@ export function buildAgentManifestPrompt(
   return [
     "Deploy this newsroom-owned Scoutpost instance from the local setup manifest.",
     "Do not ask me to paste secrets into chat.",
-    `Read ${manifestPath} from disk and validate that it is version 1. Treat that file as the only source of deployment secrets and configuration.`,
+    `Read ${manifestPath} from disk and validate that it is version 2. Treat that file as the only source of deployment secrets and configuration.`,
     "If scoutpost-docker-install.sh is present beside the manifest, run bash scoutpost-docker-install.sh install for initial setup, bash scoutpost-docker-install.sh doctor for validation, and bash scoutpost-docker-install.sh update for downstream maintenance PRs.",
     `Prefer the Docker installer when Docker is available: run ${DOCKER_INSTALLER_IMAGE}, mount the deployment directory or repository at /workspace, mount the manifest read-only at /config/scoutpost-setup.json, and run install.`,
     "If the prebuilt installer image is unavailable, build deploy/installer/Dockerfile from the Scoutpost repository root and use the local scoutpost-installer image instead.",

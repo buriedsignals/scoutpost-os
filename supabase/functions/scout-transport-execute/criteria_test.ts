@@ -21,10 +21,8 @@ Deno.test("empty candidate set is a no-op", async () => {
 });
 
 Deno.test("criteria fails OPEN when the LLM errors (keeps all, ok=false)", async () => {
-  // Force the Gemini path to fail: no GEMINI_API_KEY / LLM env in the test.
-  const priorKey = Deno.env.get("GEMINI_API_KEY");
+  // Force the OpenRouter path to fail: no provider key in the test.
   const priorOr = Deno.env.get("OPENROUTER_API_KEY");
-  Deno.env.delete("GEMINI_API_KEY");
   Deno.env.delete("OPENROUTER_API_KEY");
   try {
     const r = await applyCriteria("only westbound tankers", CANDS);
@@ -32,7 +30,6 @@ Deno.test("criteria fails OPEN when the LLM errors (keeps all, ok=false)", async
     assertEquals(r.keptIds, ["a", "b"]);
     assertEquals(r.ok, false);
   } finally {
-    if (priorKey) Deno.env.set("GEMINI_API_KEY", priorKey);
     if (priorOr) Deno.env.set("OPENROUTER_API_KEY", priorOr);
   }
 });

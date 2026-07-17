@@ -3,7 +3,7 @@
  *
  * Scrapes up to 20 priority sources in parallel (concurrency 5), aggregates
  * markdown, persists raw_captures per source, and extracts atomic information
- * units via Gemini structured output. Used for Beat Scouts (topic/criteria
+ * units via OpenRouter structured output. Used for Beat Scouts (topic/criteria
  * monitoring of a fixed list of reliable sources) in the v2 pipeline.
  *
  * Route:
@@ -18,7 +18,7 @@
  * Errors:
  *   - 404 if scout missing
  *   - 400 if scout has no location, criteria, or topic
- *   - 500/502 on all firecrawl/gemini failures; failed runs mark scout_runs
+ *   - 500/502 on all Firecrawl/OpenRouter failures; failed runs mark scout_runs
  *     status='error' and call increment_scout_failures (auto-pause at 3).
  */
 
@@ -37,8 +37,8 @@ import {
   resolveBeatRetrievalPort,
   shouldFallbackFromExa,
 } from "../_shared/exa.ts";
-import { isWithinRunDuplicate } from "../_shared/dedup.ts";
-import { EMBEDDING_MODEL_TAG, geminiEmbed } from "../_shared/gemini.ts";
+import { isWithinRunDuplicateWithGuards } from "../_shared/dedup.ts";
+import { embedBatch, EMBEDDING_MODEL_TAG } from "../_shared/embedding.ts";
 import {
   type CanonicalUnitType,
   deriveSourceDomain,
@@ -976,7 +976,7 @@ async function execute(
     let embedFailureCount = 0;
     let unitInsertFailureCount = 0;
     const insertedStatements: string[] = [];
-    const runEmbeddings: number[][] = [];
+    const runUnits: Array<{ statement: string; embedding: number[] }> = [];
     const baselineUnitIds = new Set<string>();
     const surfacedArticles = new Map<
       string,
@@ -1034,36 +1034,33 @@ async function execute(
         continue;
       }
 
-      for (const u of extracted.units) {
-        let embedding: number[];
-        try {
-          embedding = await geminiEmbed(u.statement, "RETRIEVAL_DOCUMENT", {
-            title: sourceTitle,
-            usage: {
-              db,
-              userId: scout.user_id as string,
-              scoutId,
-              runId,
-              functionName: "scout-beat-execute",
-              operation: "beat_embed_unit",
-            },
-          });
-        } catch (e) {
-          embedFailureCount += 1;
-          logEvent({
-            level: "warn",
-            fn: "scout-beat-execute",
-            event: "embed_failed",
-            scout_id: scoutId,
-            msg: e instanceof Error ? e.message : String(e),
-          });
-          continue;
-        }
+      let embeddings: number[][];
+      try {
+        embeddings = await embedBatch(extracted.units.map((unit) => ({
+          text: unit.statement,
+          taskType: "RETRIEVAL_DOCUMENT",
+          title: sourceTitle,
+        })));
+      } catch (e) {
+        embedFailureCount += extracted.units.length;
+        logEvent({
+          level: "warn",
+          fn: "scout-beat-execute",
+          event: "embed_batch_failed",
+          scout_id: scoutId,
+          msg: e instanceof Error ? e.message : String(e),
+        });
+        continue;
+      }
+
+      for (const [unitIndex, u] of extracted.units.entries()) {
+        const embedding = embeddings[unitIndex];
 
         // Within-run paraphrase guard first — avoids an RPC round-trip for
         // pairs that would both insert otherwise.
-        if (isWithinRunDuplicate(embedding, runEmbeddings)) continue;
-        runEmbeddings.push(embedding);
+        const candidate = { statement: u.statement, embedding };
+        if (isWithinRunDuplicateWithGuards(candidate, runUnits)) continue;
+        runUnits.push(candidate);
 
         // Prefer source metadata/search dates over extracted dates so a future
         // year mentioned in the story cannot become the publication date.

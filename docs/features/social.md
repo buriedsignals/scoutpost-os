@@ -82,9 +82,8 @@ Criteria mode runs only on new posts after ID diffing.
 
 1. Embed the criteria text as a retrieval query.
 2. Embed each new post:
-   - Instagram, TikTok, and Facebook can use multimodal Gemini embeddings when images are available.
-   - X/Twitter generally uses text-only embeddings.
-   - Every platform falls back to text-only when image download fails.
+   - All platforms use the post's text through the local EmbeddingGemma service.
+   - Image embeddings are intentionally unsupported; no runtime caller required the staged multimodal path.
 3. Compare embeddings by cosine similarity and keep matches above the configured threshold.
 
 The baseline does not store embeddings. Embeddings are execution-time data for relevance checks, not snapshot state.

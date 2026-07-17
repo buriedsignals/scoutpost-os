@@ -88,13 +88,14 @@ class SupabaseUnitStorage(UnitStoragePort):
             """
             INSERT INTO information_units (
                 user_id, scout_id, scout_type, article_id,
-                statement, type, entities, embedding,
+                statement, type, entities, embedding_v2, embedding_model_v2,
                 source_url, source_domain, source_title,
                 event_date, country, state, city, topic, dataset_id
             )
             VALUES (
                 $1::uuid, $2::uuid, $3, $4::uuid,
                 $5, $6, $7, $8::vector,
+                CASE WHEN $8 IS NULL THEN NULL ELSE 'embeddinggemma-300m-768-int8-onnx-task-prefix-v1' END,
                 $9, $10, $11,
                 $12, $13, $14, $15, $16, $17
             )
@@ -115,7 +116,7 @@ class SupabaseUnitStorage(UnitStoragePort):
         filters = filters or {}
 
         # Build WHERE clause dynamically
-        conditions = ["user_id = $1::uuid", "embedding IS NOT NULL"]
+        conditions = ["user_id = $1::uuid", "embedding_v2 IS NOT NULL"]
         params: list = [user_id]
         idx = 2
 
@@ -144,10 +145,10 @@ class SupabaseUnitStorage(UnitStoragePort):
                    statement, type, entities, source_url, source_domain,
                    source_title, event_date, country, state, city, topic,
                    used_in_article, created_at,
-                   1 - (embedding <=> {embedding_param}::vector) AS similarity
+                   1 - (embedding_v2 <=> {embedding_param}::vector) AS similarity
             FROM information_units
             WHERE {where_clause}
-            ORDER BY embedding <=> {embedding_param}::vector
+            ORDER BY embedding_v2 <=> {embedding_param}::vector
             LIMIT {limit_param}
             """,
             *params,

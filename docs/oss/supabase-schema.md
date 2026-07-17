@@ -103,8 +103,8 @@ scout_id      UUID → scouts(id) ON DELETE CASCADE
 user_id       UUID → auth.users(id)
 scout_type    TEXT
 summary_text  TEXT NOT NULL  -- 1-sentence summary for display
-embedding     vector(1536)   -- for cosine dedup (see Indexes)
-embedding_model TEXT         -- version tag for the stored summary embedding
+embedding_v2  vector(768)    -- EmbeddingGemma shadow space for cosine dedup
+embedding_model_v2 TEXT      -- exact local model/runtime tag
 content_hash  TEXT           -- for web scout baseline dedup
 is_duplicate  BOOLEAN
 metadata      JSONB
@@ -112,9 +112,12 @@ completed_at  TIMESTAMPTZ NOT NULL
 expires_at    TIMESTAMPTZ  -- NOW() + 90 days (TTL)
 ```
 
-The `vector(1536)` dimension matches `gemini-embedding-2-preview` with MRL truncation.
-If you use a different embedding model, update the dimension in `00002_tables.sql` and
-the HNSW indexes in `00003_indexes.sql`.
+The active shadow space is `vector(768)` from the pinned local EmbeddingGemma
+INT8 ONNX runtime. Its tag is
+`embeddinggemma-300m-768-int8-onnx-task-prefix-v1`. The legacy `embedding`
+column remains temporarily for rollback and is never compared with the shadow
+space. Model, dimension, task-prefix contract, and HNSW indexes migrate as one
+unit; existing vectors are backfilled, never relabeled.
 
 ### `post_snapshots`
 
@@ -182,7 +185,7 @@ article_id      UUID  -- groups units from the same article
 statement       TEXT NOT NULL  -- the atomic fact
 type            TEXT  -- 'fact' | 'event' | 'entity_update'
 entities        TEXT[]
-embedding       vector(1536)
+embedding_v2    vector(768)
 source_url      TEXT
 source_domain   TEXT
 source_title    TEXT

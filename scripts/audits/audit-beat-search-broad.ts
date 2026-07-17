@@ -2,12 +2,12 @@
  * Broad Beat Scout search audit.
  *
  * Runs Firecrawl /search permutations across representative topic/location
- * beats, optionally adds LLM-translated country queries, asks Gemini for a
+ * beats, optionally adds LLM-translated country queries, asks OpenRouter for a
  * quality verdict per result set, and writes a markdown report.
  *
  * Required env:
  *   FIRECRAWL_API_KEY
- *   GEMINI_API_KEY
+ *   OPENROUTER_API_KEY
  *
  * Example:
  *   deno run --allow-env --allow-net --allow-write=scripts/reports \
@@ -19,7 +19,7 @@ import {
   firecrawlSearch,
 } from "../../supabase/functions/_shared/scrape_firecrawl.ts";
 import type { FirecrawlSearchOptions, SearchHit } from "../../supabase/functions/_shared/scrape_types.ts";
-import { geminiExtract } from "../../supabase/functions/_shared/gemini.ts";
+import { openRouterExtract } from "../../supabase/functions/_shared/openrouter.ts";
 
 type Source = "web" | "news";
 type Verdict = "pass" | "warn" | "fail";
@@ -76,7 +76,7 @@ async function extractWithRetry<T>(
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      return await geminiExtract<T>(prompt, schema, opts);
+      return await openRouterExtract<T>(prompt, schema, opts);
     } catch (error) {
       lastError = error;
       await sleep(1000 * attempt);
@@ -532,7 +532,7 @@ function renderMarkdown(results: RunResult[], startedAt: string): string {
 
 const { out, limit, includeTranslation } = parseArgs();
 if (!Deno.env.get("FIRECRAWL_API_KEY")) throw new Error("Missing FIRECRAWL_API_KEY");
-if (!Deno.env.get("GEMINI_API_KEY")) throw new Error("Missing GEMINI_API_KEY");
+if (!Deno.env.get("OPENROUTER_API_KEY")) throw new Error("Missing OPENROUTER_API_KEY");
 
 const startedAt = new Date().toISOString();
 const scenarios: Scenario[] = [...SCENARIOS];

@@ -23,7 +23,7 @@
  *   1. Shared Beat discovery pipeline (query generation, search, recency,
  *      dedup, AI relevance filter).
  *   2. Parallel scrape up to 8 selected hits for markdown.
- *   3. Gemini structured extraction → `articles` with { title, url, source,
+ *   3. OpenRouter structured extraction → `articles` with { title, url, source,
  *      summary, date?, verified:true } filtered against criteria.
  *
  * Nothing is persisted; no credit decrement (preview only). The authoritative
@@ -39,7 +39,7 @@ import { logEvent } from "../_shared/log.ts";
 import { scrape } from "../_shared/scrape.ts";
 import { exaSearch, shouldFallbackFromExa } from "../_shared/exa.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
-import { geminiExtract } from "../_shared/gemini.ts";
+import { openRouterExtract } from "../_shared/openrouter.ts";
 import {
   type BeatCategory,
   type BeatHit,
@@ -460,7 +460,7 @@ async function runSearch(
     );
   }
 
-  // 5. Gemini extraction.
+  // 5. OpenRouter extraction.
   const locationInstructions = buildLocationFilterInstructions(input.location);
   const parsedLocation = parseBeatLocation(input.location);
   const locationMatcher = buildBeatLocationMatcher(parsedLocation);
@@ -494,7 +494,7 @@ async function runSearch(
     filtered_out?: number;
   };
   try {
-    extraction = await geminiExtract(prompt, ARTICLES_SCHEMA);
+    extraction = await openRouterExtract(prompt, ARTICLES_SCHEMA);
   } catch (e) {
     logEvent({
       level: "warn",

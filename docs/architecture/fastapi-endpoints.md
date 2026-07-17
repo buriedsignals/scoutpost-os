@@ -1514,10 +1514,17 @@ All endpoints return valid JSON responses, never raw HTTP exceptions.
 | Variable | Description |
 |----------|-------------|
 | `INTERNAL_SERVICE_KEY` | Key for Lambda authentication |
-| `OPENROUTER_API_KEY` | LLM access via OpenRouter |
+| `OPENROUTER_API_KEY` | Single runtime AI key; OpenRouter routes only to Google Vertex with per-request ZDR/data-collection/cache controls |
+| `LLM_MODEL` | Full `google/...` OpenRouter model ID compatible with the pinned Google Vertex route; default `google/gemini-2.5-flash-lite` |
+| `EMBEDDING_SERVICE_URL` | Internal local EmbeddingGemma service URL |
+| `EMBEDDING_SERVICE_TOKEN` | Generated bearer token for the embedding service |
 | `FIRECRAWL_API_KEY` | Web search/scrape API |
 | `RESEND_API_KEY` | Email notifications |
 | `AWS_API_BASE_URL` | AWS API Gateway URL |
+
+Embedding requests use the deployment-owned EmbeddingGemma service with 768
+dimensions. Structured extraction follows Scoutpost → OpenRouter → Google
+Vertex; returned usage/provider metadata feeds operator usage records.
 
 ---
 

@@ -8,7 +8,7 @@ llama.cpp server, Ollama, vLLM, etc.).
 Usage:
     cd backend
 
-    # Gemini (default — uses GEMINI_API_KEY):
+    # OpenRouter/Google Vertex ZDR route (default — uses OPENROUTER_API_KEY):
     python3 scripts/benchmark_extraction.py
 
     # Local llama.cpp server (Qwen3.6-27B GGUF):
@@ -23,10 +23,8 @@ Usage:
         --endpoint http://localhost:11434/v1/chat/completions \
         --model qwen3.6:27b
 
-    # OpenRouter:
-    python3 scripts/benchmark_extraction.py \
-        --provider openrouter \
-        --model qwen/qwen3-14b
+    # OpenRouter mode intentionally accepts only Google models because the
+    # benchmark uses the same Google Vertex ZDR route as production.
 
     # Compare two models side-by-side (runs both, prints diff):
     python3 scripts/benchmark_extraction.py \
@@ -175,8 +173,9 @@ async def call_gemini(client: httpx.AsyncClient, model_id: str, sys_prompt: str,
     t0 = time.time()
     try:
         resp = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={api_key}",
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent",
             json=body,
+            headers={"x-goog-api-key": api_key},
             timeout=90.0,
         )
     except httpx.TimeoutException:
@@ -193,10 +192,14 @@ async def call_gemini(client: httpx.AsyncClient, model_id: str, sys_prompt: str,
 
 
 async def call_openai_compat(client: httpx.AsyncClient, endpoint: str, model_id: str,
-                              sys_prompt: str, usr_prompt: str, api_key: str = "") -> dict:
+                              sys_prompt: str, usr_prompt: str, api_key: str = "",
+                              *, extra_body: dict | None = None,
+                              extra_headers: dict | None = None) -> dict:
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    if extra_headers:
+        headers.update(extra_headers)
 
     body = {
         "model": model_id,
@@ -208,6 +211,8 @@ async def call_openai_compat(client: httpx.AsyncClient, endpoint: str, model_id:
         "temperature": 0.1,
         "response_format": {"type": "json_object"},
     }
+    if extra_body:
+        body.update(extra_body)
 
     t0 = time.time()
     try:
@@ -228,6 +233,12 @@ async def call_openai_compat(client: httpx.AsyncClient, endpoint: str, model_id:
 
 async def call_openrouter(client: httpx.AsyncClient, model_id: str,
                            sys_prompt: str, usr_prompt: str) -> dict:
+    if not model_id.startswith("google/"):
+        return {
+            "error": "OpenRouter benchmark models must use the google/ namespace",
+            "elapsed": 0,
+            "ttft": 0,
+        }
     api_key = os.getenv("OPENROUTER_API_KEY", "")
     if not api_key:
         return {"error": "OPENROUTER_API_KEY not set", "elapsed": 0, "ttft": 0}
@@ -235,6 +246,14 @@ async def call_openrouter(client: httpx.AsyncClient, model_id: str,
         client,
         "https://openrouter.ai/api/v1/chat/completions",
         model_id, sys_prompt, usr_prompt, api_key,
+        extra_body={
+            "provider": {
+                "only": ["google-vertex"],
+                "zdr": True,
+                "data_collection": "deny",
+            }
+        },
+        extra_headers={"X-OpenRouter-Cache": "false"},
     )
 
 
@@ -548,8 +567,8 @@ def print_comparison(a: BenchmarkResult, b: BenchmarkResult) -> None:
 
 async def main():
     parser = argparse.ArgumentParser(description="Benchmark LLM extraction quality")
-    parser.add_argument("--provider", default="gemini", choices=["gemini", "openrouter", "local"])
-    parser.add_argument("--model", default="gemini-2.5-flash-lite")
+    parser.add_argument("--provider", default="openrouter", choices=["gemini", "openrouter", "local"])
+    parser.add_argument("--model", default="google/gemini-2.5-flash-lite")
     parser.add_argument("--endpoint", default="http://localhost:8080/v1/chat/completions")
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--limit", type=int, default=0, help="Limit to first N samples (0 = all)")

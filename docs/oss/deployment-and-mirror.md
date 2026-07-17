@@ -76,13 +76,11 @@ services:
       - key: SUPABASE_JWT_SECRET
         sync: false
 
-      # LLM — Gemini models use direct API, others route to OpenRouter
-      - key: GEMINI_API_KEY
+      # AI — all runtime inference routes through OpenRouter to Google Vertex
+      - key: OPENROUTER_API_KEY
         sync: false
       - key: LLM_MODEL
-        value: gemini-2.5-flash-lite
-      - key: OPENROUTER_API_KEY
-        sync: false  # optional — only needed for non-Gemini models
+        value: google/gemini-2.5-flash-lite
 
       # Web scraping
       - key: FIRECRAWL_API_KEY
@@ -183,12 +181,9 @@ SITE_URL=http://localhost:3000
 # Internal URL used by backend to reach Supabase services
 SUPABASE_URL=http://kong:8000
 
-# --- LLM ---
-# Gemini models use direct API; others route to OpenRouter
-GEMINI_API_KEY=
-LLM_MODEL=gemini-2.5-flash-lite
-# Optional: only needed for non-Gemini models
+# --- AI ---
 OPENROUTER_API_KEY=
+LLM_MODEL=google/gemini-2.5-flash-lite
 
 # --- Web Scraping ---
 FIRECRAWL_API_KEY=
@@ -339,9 +334,8 @@ services:
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash-lite}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-google/gemini-2.5-flash-lite}
       FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY}
       RESEND_API_KEY: ${RESEND_API_KEY}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-scouts@newsroom.org}
@@ -663,12 +657,28 @@ Before starting either path, you need API keys for external services:
 
 | Service | Purpose | Get it at |
 |---------|---------|-----------|
-| **Gemini** | LLM + embeddings (required) | [aistudio.google.com](https://aistudio.google.com) |
+| **OpenRouter** | Google Vertex extraction + scanned-PDF fallback (required) | [openrouter.ai](https://openrouter.ai) |
 | **Firecrawl** | Web scraping (required) | [firecrawl.dev](https://www.firecrawl.dev) |
 | **Resend** | Email notifications (required) | [resend.com](https://resend.com) |
 | **Apify** | Social media scraping (required for Social Scout) | [apify.com](https://www.apify.com) |
 | **MapTiler** | Geocoding/location scouts | [maptiler.com](https://www.maptiler.com) |
-| **OpenRouter** | Alternative LLMs (optional) | [openrouter.ai](https://openrouter.ai) |
+
+Scoutpost asks for one external AI key. It uses
+`google/gemini-2.5-flash-lite` for extraction. Those requests route
+Scoutpost → OpenRouter → Google Vertex and enforce
+`only: ["google-vertex"]`, ZDR, denied provider data collection, and
+`X-OpenRouter-Cache: false`. Disable OpenRouter account logging and data sharing
+as defense in depth. OpenRouter is an additional processor, so this setup
+simplifies billing and credentials rather than reducing processors.
+
+Embeddings do not use OpenRouter. The included authenticated
+`embedding-service` runs the pinned INT8 ONNX EmbeddingGemma build and returns
+normalized 768-dimensional vectors. Setup generates its internal bearer token.
+
+The current Flash-Lite model has a separately tracked retirement date of
+2026-10-16. Replace it through a model-lifecycle change with its own
+compatibility verification; do not treat this provider-routing cutover as a
+model migration.
 
 ---
 
@@ -722,7 +732,7 @@ supabase secrets set INTERNAL_SERVICE_KEY=your-service-key --project-ref YOUR_PR
    - `SUPABASE_SERVICE_KEY`: Service role key
    - `SUPABASE_ANON_KEY`: Anon key
    - `SUPABASE_JWT_SECRET`: JWT secret
-   - `GEMINI_API_KEY`, `FIRECRAWL_API_KEY`, `RESEND_API_KEY`, `APIFY_API_TOKEN`
+   - `OPENROUTER_API_KEY`, `FIRECRAWL_API_KEY`, `RESEND_API_KEY`, `APIFY_API_TOKEN`
    - `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY` (for frontend)
    - `PUBLIC_MAPTILER_API_KEY`
 

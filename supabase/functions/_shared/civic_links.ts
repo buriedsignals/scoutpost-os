@@ -1,5 +1,5 @@
 import { scrape } from "./scrape.ts";
-import { geminiExtract } from "./gemini.ts";
+import { openRouterExtract } from "./openrouter.ts";
 
 export const CIVIC_DENYLIST_EXTENSIONS = [
   ".css",
@@ -307,7 +307,7 @@ export async function classifyCivicMeetingUrls(
     `Links:\n${numbered}`;
 
   try {
-    const extraction = await geminiExtract<{ meeting_urls: number[] }>(
+    const extraction = await openRouterExtract<{ meeting_urls: number[] }>(
       prompt,
       MEETING_URL_SCHEMA,
     );
@@ -343,7 +343,8 @@ export function isEmptyQueryStubUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     const params = [...parsed.searchParams];
-    return params.length > 0 && params.every(([, value]) => value.trim() === "");
+    return params.length > 0 &&
+      params.every(([, value]) => value.trim() === "");
   } catch {
     return false;
   }
@@ -381,7 +382,9 @@ export function isCivicRecordDetailUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     for (const [name, value] of parsed.searchParams) {
-      if (CIVIC_RECORD_ID_PARAMS.has(name.toLowerCase()) && value.trim() !== "") {
+      if (
+        CIVIC_RECORD_ID_PARAMS.has(name.toLowerCase()) && value.trim() !== ""
+      ) {
         return true;
       }
     }
@@ -402,7 +405,7 @@ export function filterCivicDiscoveryCandidates<T extends { url: string }>(
       if (path.endsWith(".pdf")) return false;
       if (path.startsWith("/pdf/")) return false;
       // Reject empty-query template stubs regardless of how they were
-      // surfaced (deterministic ranker OR Gemini ranking merged in).
+      // surfaced (deterministic ranker or OpenRouter ranking merged in).
       if (isEmptyQueryStubUrl(candidate.url)) return false;
       if (isCivicRecordDetailUrl(candidate.url)) return false;
       return true;

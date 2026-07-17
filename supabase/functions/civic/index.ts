@@ -14,7 +14,7 @@
  *                                  criteria_match }],
  *              error?: string }
  *
- * `discover` — Firecrawl /map on the root domain, then Gemini ranks up to
+ * `discover` — Firecrawl /map on the root domain, then OpenRouter ranks up to
  * 5 candidate INDEX pages likely to list meeting protocols. Discovery
  * explicitly prefers listing pages like `/urversammlung/protokoll` over
  * direct `/pdf/...` document URLs.
@@ -40,7 +40,7 @@ import {
   rankCivicDiscoveryUrls,
 } from "../_shared/civic_links.ts";
 import { previewCivicTrackedUrls } from "../_shared/civic_preview.ts";
-import { geminiExtract } from "../_shared/gemini.ts";
+import { openRouterExtract } from "../_shared/openrouter.ts";
 
 // ---------------------------------------------------------------------------
 // Discover
@@ -190,7 +190,7 @@ async function discover(req: Request, user: AuthedUser): Promise<Response> {
 
   let extraction: { candidates: Candidate[] };
   try {
-    extraction = await geminiExtract(prompt, DISCOVER_SCHEMA);
+    extraction = await openRouterExtract(prompt, DISCOVER_SCHEMA);
   } catch (e) {
     logEvent({
       level: "warn",

@@ -51,24 +51,27 @@ Deno.test("ingest: short text body returns 400", async () => {
   }
 });
 
-// Full happy-path test requires live GEMINI + FIRECRAWL credentials plus
-// network access. We cannot reliably stub them in this unit-test harness,
-// so the test is registered as an ignored placeholder and only runs when
-// both keys are present in the environment.
-const hasLiveKeys = !!Deno.env.get("GEMINI_API_KEY") &&
-  !!Deno.env.get("FIRECRAWL_API_KEY");
+// Full happy-path test requires live extraction, scraping, and local embedding
+// services plus network access. We cannot reliably stub them in this
+// integration harness, so only run when every dependency is configured.
+const hasLiveKeys = !!Deno.env.get("OPENROUTER_API_KEY") &&
+  !!Deno.env.get("FIRECRAWL_API_KEY") &&
+  !!Deno.env.get("EMBEDDING_SERVICE_URL") &&
+  !!Deno.env.get("EMBEDDING_SERVICE_TOKEN");
 
 Deno.test(
-  { name: "ingest: happy path extracts units (live keys required)", ignore: !hasLiveKeys },
+  {
+    name: "ingest: happy path extracts units (live keys required)",
+    ignore: !hasLiveKeys,
+  },
   async () => {
     const user = await createTestUser();
     try {
-      const text = (
+      const text =
         "The Zurich city council voted on 12 March 2025 to approve " +
         "a new affordable housing subsidy targeting low-income families. " +
         "Mayor Corine Mauch said the scheme will cost 40 million francs " +
-        "annually and aims to create 2,000 new subsidised units by 2030."
-      );
+        "annually and aims to create 2,000 new subsidised units by 2030.";
       const res = await fetch(functionUrl("ingest"), {
         method: "POST",
         headers: headers(user.token),

@@ -3,12 +3,12 @@
  *
  * Runs ONLY over the small, already-state-diffed entrant set (not the whole
  * candidate list), so one batched LLM call per run keeps cost bounded. Uses
- * the same Gemini path as the beat pipeline. Fails OPEN: if the LLM errors,
+ * the same OpenRouter path as the beat pipeline. Fails OPEN: if the LLM errors,
  * every entrant is kept and the run records criteria_status = error, so a
  * transient LLM outage never silently suppresses alerts.
  */
 
-import { geminiExtract } from "../_shared/gemini.ts";
+import { openRouterExtract } from "../_shared/openrouter.ts";
 import { logEvent } from "../_shared/log.ts";
 
 export interface CriteriaCandidate {
@@ -73,7 +73,7 @@ export async function applyCriteria(
     return { keptIds: allIds, ok: true };
   }
   try {
-    const out = await geminiExtract<
+    const out = await openRouterExtract<
       { matches: Array<{ object_id: string; matches: boolean }> }
     >(buildPrompt(criteria, candidates), RESULT_SCHEMA);
     const verdict = new Map(

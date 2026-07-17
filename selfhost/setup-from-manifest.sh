@@ -29,10 +29,13 @@ need git
 need openssl
 
 VERSION="$(jqv '.version')"
-if [ "$VERSION" != "1" ]; then
-  echo "Unsupported manifest version: ${VERSION:-<missing>}" >&2
-  exit 1
-fi
+case "$VERSION" in
+  1|2) ;;
+  *)
+    echo "Unsupported manifest version: ${VERSION:-<missing>}. Expected version 2 (or version 1 with services.openrouter_api_key for compatibility)." >&2
+    exit 1
+    ;;
+esac
 
 PROJECT_NAME="$(jqv '.project.name')"
 APP_URL="$(jq -r '(.project.app_url // .frontend.production_url // "")' "$MANIFEST" | sed 's:/*$::')"
@@ -43,7 +46,8 @@ FRONTEND_PROVIDER="$(jqv '.frontend.provider')"
 ADMIN_EMAIL="$(jqv '.auth.admin_email')"
 SIGNUP_DOMAINS="$(jq -r '.auth.signup_allowed_domains // [] | map(select(. != "")) | join(",")' "$MANIFEST")"
 
-GEMINI_API_KEY="$(jqv '.services.gemini_api_key')"
+OPENROUTER_API_KEY="$(jqv '.services.openrouter_api_key')"
+EMBEDDING_SERVICE_URL="$(jqv '.services.embedding_service_url' | sed 's:/*$::')"
 FIRECRAWL_API_KEY="$(jqv '.services.firecrawl_api_key')"
 EXA_API_KEY="$(jqv '.services.exa_api_key')"
 APIFY_API_TOKEN="$(jqv '.services.apify_api_token')"
@@ -52,6 +56,19 @@ RESEND_FROM_EMAIL="$(jqv '.services.resend_from_email')"
 PUBLIC_MAPTILER_API_KEY="$(jqv '.services.public_maptiler_api_key')"
 CUSTOM_MCP_URL="$(jqv '.agents.custom_mcp_url' | sed 's:/*$::')"
 RENDER_DEPLOY_HOOK="$(jqv '.options.render_deploy_hook')"
+EMBEDDING_SERVICE_TOKEN="$(openssl rand -hex 32)"
+
+if [ "$VERSION" = "1" ] && [ -z "$OPENROUTER_API_KEY" ]; then
+  echo "Manifest version 1 is Gemini-only and cannot configure the current Scoutpost runtime." >&2
+  echo "Add services.openrouter_api_key (or generate a version 2 manifest) and rerun setup; GEMINI_API_KEY is no longer used." >&2
+  exit 1
+fi
+
+if [ "$VERSION" = "2" ] && jq -e '.services | has("gemini_api_key")' "$MANIFEST" >/dev/null; then
+  echo "Manifest version 2 must not contain services.gemini_api_key." >&2
+  echo "Remove that deprecated field and keep services.openrouter_api_key as the single AI credential." >&2
+  exit 1
+fi
 
 case "$DATA_PLATFORM_PROVIDER" in
   supabase|manual) ;;
@@ -61,7 +78,7 @@ case "$DATA_PLATFORM_PROVIDER" in
     ;;
 esac
 
-for required in PROJECT_NAME FRONTEND_PROVIDER ADMIN_EMAIL SIGNUP_DOMAINS GEMINI_API_KEY FIRECRAWL_API_KEY APIFY_API_TOKEN RESEND_API_KEY RESEND_FROM_EMAIL PUBLIC_MAPTILER_API_KEY; do
+for required in PROJECT_NAME FRONTEND_PROVIDER ADMIN_EMAIL SIGNUP_DOMAINS OPENROUTER_API_KEY FIRECRAWL_API_KEY APIFY_API_TOKEN RESEND_API_KEY RESEND_FROM_EMAIL PUBLIC_MAPTILER_API_KEY; do
   if [ -z "${!required:-}" ]; then
     echo "Manifest missing required value: $required" >&2
     exit 1
@@ -71,6 +88,15 @@ done
 if [ "$DATA_PLATFORM_PROVIDER" = "supabase" ] && [ -z "$SUPABASE_MODE" ]; then
   echo "Manifest missing required value: SUPABASE_MODE" >&2
   exit 1
+fi
+
+if [ "$DATA_PLATFORM_PROVIDER" = "supabase" ]; then
+  if [ "$SUPABASE_MODE" = "self-hosted" ] && [ -z "$EMBEDDING_SERVICE_URL" ]; then
+    EMBEDDING_SERVICE_URL="http://embedding-service:8080"
+  elif [ "$SUPABASE_MODE" != "self-hosted" ] && [ -z "$EMBEDDING_SERVICE_URL" ]; then
+    echo "Cloud Supabase requires services.embedding_service_url to be a publicly reachable EmbeddingGemma service." >&2
+    exit 1
+  fi
 fi
 
 if [ ! -d "supabase/functions" ] || [ ! -d "frontend" ]; then
@@ -295,9 +321,15 @@ resolve_supabase() {
     $SUPABASE_CLI link --project-ref "$SUPABASE_PROJECT_REF"
     $SUPABASE_CLI config push || warn "supabase config push failed; verify Auth hooks in the dashboard."
     $SUPABASE_CLI db push
-    $SUPABASE_CLI functions deploy --all
   elif [ "$SUPABASE_MODE" = "self-hosted" ]; then
     warn "No project ref supplied for self-hosted Supabase; skipping CLI link/db push/functions deploy."
+  fi
+}
+
+deploy_edge_functions() {
+  if [ -n "${SUPABASE_PROJECT_REF:-}" ]; then
+    log "Deploy Edge Functions"
+    $SUPABASE_CLI functions deploy --all
   fi
 }
 
@@ -336,7 +368,9 @@ set_supabase_secrets() {
   $SUPABASE_CLI secrets set \
     "ADMIN_EMAILS=${ADMIN_EMAIL}" \
     "INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY}" \
-    "GEMINI_API_KEY=${GEMINI_API_KEY}" \
+    "OPENROUTER_API_KEY=${OPENROUTER_API_KEY}" \
+    "EMBEDDING_SERVICE_URL=${EMBEDDING_SERVICE_URL}" \
+    "EMBEDDING_SERVICE_TOKEN=${EMBEDDING_SERVICE_TOKEN}" \
     "FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}" \
     "APIFY_API_TOKEN=${APIFY_API_TOKEN}" \
     "RESEND_API_KEY=${RESEND_API_KEY}" \
@@ -381,8 +415,10 @@ SUPABASE_URL=${SUPABASE_URL}
 SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
 SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
 SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-}
-GEMINI_API_KEY=${GEMINI_API_KEY}
-LLM_MODEL=gemini-2.5-flash-lite
+OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+LLM_MODEL=google/gemini-2.5-flash-lite
+EMBEDDING_SERVICE_URL=${EMBEDDING_SERVICE_URL}
+EMBEDDING_SERVICE_TOKEN=${EMBEDDING_SERVICE_TOKEN}
 FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
 EXA_API_KEY=${EXA_API_KEY}
 RESEND_API_KEY=${RESEND_API_KEY}
@@ -461,9 +497,10 @@ fi
 
 install_node_tooling
 resolve_supabase
-seed_signup_allowlist
 set_supabase_secrets
+seed_signup_allowlist
 seed_vault_secrets
+deploy_edge_functions
 write_env_files
 build_frontend
 install_sync_workflow

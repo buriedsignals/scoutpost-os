@@ -8,7 +8,7 @@
  * journalistically relevant content.
  *
  * Plug-and-play: callers pass raw markdown through compressContext() before
- * sending it to geminiExtract. Each rule has keep/strip patterns and
+ * sending it to openRouterExtract. Each rule has keep/strip patterns and
  * boundary parameters mirroring TACO's rule structure.
  */
 

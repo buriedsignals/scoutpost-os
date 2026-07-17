@@ -16,7 +16,7 @@ Scoutpost self-hosting uses this stack:
 | Database         | Supabase Postgres       | Scouts, findings, users, audit records                 |
 | Scheduling       | Supabase/Postgres cron  | Recurring scout runs                                   |
 | Auth             | Supabase Auth           | Newsroom user accounts and domain allowlist            |
-| AI extraction    | Gemini 2.5 Flash-Lite   | Summaries, structured extraction, classification       |
+| AI extraction    | OpenRouter → Google Vertex | Gemini summaries, structured extraction, classification |
 | Web scraping     | Firecrawl               | Page/civic source fetching and change detection        |
 | Beat retrieval   | Exa                     | Beat Scout search port (Exa-only; no Firecrawl fallback) |
 | Social scraping  | Apify                   | Social scout actor runs                                |
@@ -51,7 +51,7 @@ Before running install, collect:
 - Supabase Cloud access token for managed Supabase installs
 - Supabase project ref, URL, anon key, service role key, and JWT secret for an
   existing Supabase project
-- Gemini API key
+- OpenRouter API key (single runtime AI credential)
 - Firecrawl API key
 - Exa API key (Beat Scout retrieval port — Beat search is Exa-only, so Beat
   Scout runs fail without it; not needed if you do not use Beat Scout)
@@ -68,6 +68,12 @@ Before running install, collect:
     submission. Set both or neither.
   - `PUBLIC_APP_URL` — your deployment's app origin; already required for auth, and
     reused for the "View archived snapshot" email deep link (see `docs/features/page-archive.md`)
+
+The default extraction model ID is `google/gemini-2.5-flash-lite`. OpenRouter
+requests require the Google Vertex route with ZDR, deny provider data
+collection, and disable response caching. Text embeddings run in the included
+EmbeddingGemma service at 768 dimensions; its bearer token is generated during
+setup and is not an external API credential.
 
 For Supabase Cloud, the manifest field `supabase.access_token` is used as
 `SUPABASE_ACCESS_TOKEN`. Docker should not start browser-based Supabase login.

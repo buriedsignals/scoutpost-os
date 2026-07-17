@@ -32,7 +32,10 @@ import {
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
 import { firecrawlScrape } from "../_shared/scrape_firecrawl.ts";
-import { scrapePrimaryPageResilient, scrapeProvider } from "../_shared/scrape.ts";
+import {
+  scrapePrimaryPageResilient,
+  scrapeProvider,
+} from "../_shared/scrape.ts";
 import { hashChangeStatusForUrl } from "../_shared/canonical_baseline.ts";
 import type {
   ChangeTrackingResult,
@@ -46,7 +49,7 @@ import {
   snapshotDiagnostics,
 } from "../_shared/snapshot_capture.ts";
 import { applyTrustLayer, scoutWaybackEnabled } from "../_shared/trust.ts";
-import { EMBEDDING_MODEL_TAG, geminiEmbed } from "../_shared/gemini.ts";
+import { embedBatch, EMBEDDING_MODEL_TAG } from "../_shared/embedding.ts";
 import {
   extractAtomicUnits,
   type ExtractedUnit,
@@ -58,7 +61,7 @@ import {
   isFactCheckEnabled,
   loadFactCheckConfig,
 } from "../_shared/fact_check.ts";
-import { isWithinRunDuplicate } from "../_shared/dedup.ts";
+import { isWithinRunDuplicateWithGuards } from "../_shared/dedup.ts";
 import { shouldSendPageScoutAlert } from "../_shared/page_scout_notifications.ts";
 import {
   filterSubpageUrls,
@@ -578,7 +581,9 @@ async function runPipeline(
     scrapeStrategy = plain.scrape_strategy;
     scrapeWarning = plain.scrape_warning;
     servedBy = plain.served_by;
-    changeStatus = await hashChangeStatusForUrl(svc, scout.id, markdown, { fn: "scout-web-execute" });
+    changeStatus = await hashChangeStatusForUrl(svc, scout.id, markdown, {
+      fn: "scout-web-execute",
+    });
   } else {
     try {
       const ct = await scrapePrimaryPageResilient({
@@ -620,7 +625,9 @@ async function runPipeline(
       scrapeStrategy = `plain_${plain.scrape_strategy}`;
       scrapeWarning = plain.scrape_warning;
       servedBy = plain.served_by;
-      changeStatus = await hashChangeStatusForUrl(svc, scout.id, markdown, { fn: "scout-web-execute" });
+      changeStatus = await hashChangeStatusForUrl(svc, scout.id, markdown, {
+        fn: "scout-web-execute",
+      });
     }
   }
 
@@ -1479,7 +1486,30 @@ async function insertExtractedUnits(
     };
   }
 
-  const runEmbeddings: number[][] = [];
+  const eligibleUnits = units.filter((unit) =>
+    unit && typeof unit.statement === "string" && unit.statement.trim() &&
+    ["fact", "event", "entity_update"].includes(unit.type)
+  );
+  let embeddings: Array<number[] | null>;
+  try {
+    embeddings = await embedBatch(eligibleUnits.map((unit) => ({
+      text: unit.statement,
+      taskType: "RETRIEVAL_DOCUMENT",
+      title: sourceTitle,
+    })));
+  } catch (e) {
+    logEvent({
+      level: "warn",
+      fn: "scout-web-execute",
+      event: "embed_batch_failed",
+      scout_id: scout.id,
+      run_id: runId,
+      msg: e instanceof Error ? e.message : String(e),
+    });
+    embeddings = eligibleUnits.map(() => null);
+  }
+
+  const runUnits: Array<{ statement: string; embedding: number[] }> = [];
   let inserted = 0;
   let mergedExisting = 0;
   const insertedStatements: string[] = [];
@@ -1488,40 +1518,16 @@ async function insertExtractedUnits(
   let firstMatchedTitle: string | null = null;
   let firstMatchedSummary: string | null = null;
 
-  for (const u of units) {
-    if (!u || typeof u.statement !== "string" || !u.statement.trim()) continue;
-    if (!["fact", "event", "entity_update"].includes(u.type)) continue;
-
-    let embedding: number[] | null = null;
-    try {
-      embedding = await geminiEmbed(u.statement, "RETRIEVAL_DOCUMENT", {
-        title: sourceTitle,
-        usage: {
-          db: svc,
-          userId: scout.user_id,
-          scoutId: scout.id,
-          runId,
-          functionName: "scout-web-execute",
-          operation: "web_embed_unit",
-        },
-      });
-    } catch (e) {
-      logEvent({
-        level: "warn",
-        fn: "scout-web-execute",
-        event: "embed_failed",
-        scout_id: scout.id,
-        run_id: runId,
-        msg: e instanceof Error ? e.message : String(e),
-      });
-    }
+  for (const [index, u] of eligibleUnits.entries()) {
+    const embedding = embeddings[index];
     const unitType = u.type as CanonicalUnitType;
 
     // Within-run paraphrase guard: drop units that are near-duplicates of an
     // already-kept unit in *this* extraction batch.
     if (embedding) {
-      if (isWithinRunDuplicate(embedding, runEmbeddings)) continue;
-      runEmbeddings.push(embedding);
+      const candidate = { statement: u.statement, embedding };
+      if (isWithinRunDuplicateWithGuards(candidate, runUnits)) continue;
+      runUnits.push(candidate);
     }
 
     // Fact-check via Abstain-R1 (no-op when endpoint not configured).
@@ -1591,6 +1597,5 @@ async function insertExtractedUnits(
     firstMatchedSummary,
   };
 }
-
 
 // normalizeDate moved to ../_shared/date_utils.ts (imported at the top).

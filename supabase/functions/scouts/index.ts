@@ -63,7 +63,7 @@ import { assertTransportEntitled } from "../_shared/transport_entitlement.ts";
 import { doubleProbe, firecrawlScrape } from "../_shared/scrape_firecrawl.ts";
 import { scrape } from "../_shared/scrape.ts";
 import { writeCanonicalBaseline } from "../_shared/canonical_baseline.ts";
-import { geminiExtract } from "../_shared/gemini.ts";
+import { openRouterExtract } from "../_shared/openrouter.ts";
 import { compressContext } from "../_shared/taco_compress.ts";
 import {
   captureWebBaselineSnapshot,
@@ -1960,7 +1960,7 @@ async function testScout(
 
   let extraction: TestExtraction;
   try {
-    extraction = await geminiExtract<TestExtraction>(
+    extraction = await openRouterExtract<TestExtraction>(
       prompt,
       TEST_EXTRACTION_SCHEMA,
     );

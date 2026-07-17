@@ -2,7 +2,7 @@
  * ingest Edge Function — manual content ingestion pipeline.
  *
  * Accepts a URL or raw text, fetches/stores the content as a raw_capture,
- * then extracts atomic information_units via Gemini with embeddings.
+ * then extracts atomic information_units through OpenRouter with embeddings.
  *
  * Route:
  *   POST /ingest
@@ -27,11 +27,8 @@ import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
 import { scrape } from "../_shared/scrape.ts";
-import {
-  EMBEDDING_MODEL_TAG,
-  geminiEmbed,
-  geminiExtract,
-} from "../_shared/gemini.ts";
+import { EMBEDDING_MODEL_TAG, embedText } from "../_shared/embedding.ts";
+import { openRouterExtract } from "../_shared/openrouter.ts";
 import {
   compressContext,
   logCompressionStats,
@@ -299,7 +296,7 @@ async function runPipeline(
   if (capErr) throw new Error(capErr.message);
   const rawCaptureId = capture.id as string;
 
-  // 4. Extract units via Gemini (TACO-compressed).
+  // 4. Extract units through OpenRouter (TACO-compressed).
   const { text: compressedForPrompt, stats: ingestStats } = compressContext(
     truncated,
   );
@@ -331,7 +328,7 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
     "\n\nSOURCE EVIDENCE WINDOW (exact stored source text):\n" +
     evidenceWindow;
 
-  const extraction = await geminiExtract<{ units: ExtractedUnit[] }>(
+  const extraction = await openRouterExtract<{ units: ExtractedUnit[] }>(
     prompt,
     EXTRACTION_SCHEMA,
     {
@@ -353,15 +350,8 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
     if (input.criteria?.trim() && u.criteria_match === false) continue;
     if (!["fact", "event", "entity_update"].includes(u.type)) continue;
 
-    const embedding = await geminiEmbed(u.statement, "RETRIEVAL_DOCUMENT", {
+    const embedding = await embedText(u.statement, "RETRIEVAL_DOCUMENT", {
       title: sourceTitle,
-      usage: {
-        db: usageDb,
-        userId: user.id,
-        functionName: "ingest",
-        operation: "ingest_embed_unit",
-        metadata: { ingest_id: ingestId },
-      },
     });
     const unitType = u.type as CanonicalUnitType;
     const result = await upsertCanonicalUnit(db, {

@@ -24,8 +24,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from .config import Settings, load_settings
-from .gemini_pdf import GEMINI_INLINE_MAX_BYTES, GeminiParseError, transcribe_pdf
 from .mapping import crawl_failure_detail, map_crawl_result
+from .openrouter_pdf import (
+    OPENROUTER_INLINE_MAX_BYTES,
+    OpenRouterParseError,
+    transcribe_pdf,
+)
 from .pdfparse import (
     NeedsOcrError,
     NotAPdfError,
@@ -170,18 +174,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         assert_http_url(body.url)
         cfg: Settings = request.app.state.settings
 
-        # Low-yield (scanned / thin) PDFs fall back to Gemini native-PDF
-        # transcription when a key is configured (U3d). Absent key → the
-        # density guard 422s as before.
+        # parse_pdf_url always tries pdftotext first. Only a low-yield result
+        # falls back to Google Vertex native-PDF transcription through
+        # OpenRouter. Absent key → the density guard returns needs_ocr.
         transcribe = None
-        if cfg.gemini_api_key:
+        if cfg.openrouter_api_key:
             async def transcribe(pdf_bytes: bytes) -> str:
                 return await transcribe_pdf(
                     request.app.state.http_client,
                     pdf_bytes,
-                    api_key=cfg.gemini_api_key,
-                    model=cfg.gemini_model,
-                    timeout_s=cfg.gemini_timeout_s,
+                    api_key=cfg.openrouter_api_key,
+                    model=cfg.openrouter_model,
+                    timeout_s=cfg.openrouter_timeout_s,
                 )
 
         try:
@@ -192,7 +196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 max_bytes=cfg.parse_max_pdf_bytes,
                 min_chars_per_page=cfg.parse_min_chars_per_page,
                 transcribe=transcribe,
-                transcribe_max_bytes=GEMINI_INLINE_MAX_BYTES,
+                transcribe_max_bytes=OPENROUTER_INLINE_MAX_BYTES,
             )
         except NeedsOcrError as e:
             raise HTTPException(
@@ -207,7 +211,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail={"error": "private_address"})
         except PdfTimeoutError as e:
             raise HTTPException(status_code=504, detail=e.detail)
-        except GeminiParseError as e:
+        except OpenRouterParseError as e:
             # Fallback transcription itself failed → treat as an upstream 502.
             raise HTTPException(status_code=502, detail=e.detail)
         except PdfDownloadError as e:

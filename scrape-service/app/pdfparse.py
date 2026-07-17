@@ -201,22 +201,22 @@ async def parse_pdf_url(
     pages = count_pages_from_text(text)
     chars = len(text.strip())
     if chars < min_chars_per_page * pages:
-        # Low yield (scanned / thin): if a Gemini transcriber is wired, use it
-        # instead of failing. Non-deterministic, so only for docs pdftotext
+        # Low yield (scanned / thin): if an OpenRouter transcriber is wired,
+        # use it instead of failing. Non-deterministic, so only for PDFs pdftotext
         # can't read — the deterministic path stays primary elsewhere (U3d).
-        # A PDF too large for Gemini's inline request limit CANNOT be
+        # A PDF too large for the proven inline request limit CANNOT be
         # transcribed this way; skip the fallback and surface needs_ocr rather
-        # than firing a request that Gemini would reject with a 4xx.
+        # than firing an OpenRouter request that would be rejected with a 4xx.
         too_large_for_inline = (
             transcribe_max_bytes is not None and len(pdf_bytes) > transcribe_max_bytes
         )
         if transcribe is not None and not too_large_for_inline:
-            gem_text = await transcribe(pdf_bytes)
+            transcribed_text = await transcribe(pdf_bytes)
             return ParsedPdf(
-                text=gem_text,
+                text=transcribed_text,
                 pages=pages,
-                chars=len(gem_text.strip()),
-                parser="gemini",
+                chars=len(transcribed_text.strip()),
+                parser="openrouter",
             )
         raise NeedsOcrError(pages=pages, chars=chars)
     return ParsedPdf(text=text, pages=pages, chars=chars, parser="pdftotext")

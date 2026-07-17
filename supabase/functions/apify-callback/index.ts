@@ -30,11 +30,8 @@ import {
 } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { requireServiceKey } from "../_shared/auth.ts";
-import {
-  EMBEDDING_MODEL_TAG,
-  geminiEmbed,
-  geminiExtract,
-} from "../_shared/gemini.ts";
+import { EMBEDDING_MODEL_TAG, embedText } from "../_shared/embedding.ts";
+import { openRouterExtract } from "../_shared/openrouter.ts";
 import type { CanonicalUnitType } from "../_shared/unit_dedup.ts";
 import {
   NotificationSendResult,
@@ -743,7 +740,7 @@ async function processSucceededRun(
       continue;
     }
 
-    // Criteria path: Gemini structured extraction.
+    // Criteria path: structured extraction through OpenRouter.
     let extracted: ExtractedUnit[] = [];
     const threshold = socialCriteriaThreshold(
       scout.platform ?? queueRow.platform,
@@ -759,7 +756,7 @@ async function processSucceededRun(
         "For each match, give a one-sentence `statement`, a `type` " +
         "(fact|event|entity_update), and a short `context_excerpt`. " +
         "If no statement matches, return an empty array.\n\nPOST:\n" + text;
-      const result = await geminiExtract<{ units: ExtractedUnit[] }>(
+      const result = await openRouterExtract<{ units: ExtractedUnit[] }>(
         prompt,
         EXTRACTION_SCHEMA,
         {
@@ -778,7 +775,7 @@ async function processSucceededRun(
       logEvent({
         level: "warn",
         fn: "apify-callback",
-        event: "gemini_failed",
+        event: "openrouter_failed",
         scout_id: scout.id,
         msg: e instanceof Error ? e.message : String(e),
       });
@@ -856,18 +853,10 @@ async function insertUnit(
   // Embedding is best-effort; if it fails we still insert the unit without one.
   let embedding: number[] | null = null;
   try {
-    embedding = await geminiEmbed(unit.statement, "RETRIEVAL_DOCUMENT", {
+    embedding = await embedText(unit.statement, "RETRIEVAL_DOCUMENT", {
       title: typeof post.id === "string"
         ? `${platform} post ${post.id}`
         : `${platform} post`,
-      usage: {
-        db: svc,
-        userId,
-        scoutId: scout.id,
-        runId: queueRow.scout_run_id,
-        functionName: "apify-callback",
-        operation: "social_embed_unit",
-      },
     });
   } catch (e) {
     logEvent({

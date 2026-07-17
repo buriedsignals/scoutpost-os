@@ -106,22 +106,25 @@ Deno.test("reflections: delete of unknown id returns 404", async () => {
   }
 });
 
-const hasGemini = !!Deno.env.get("GEMINI_API_KEY");
-const semanticSearchTest = hasGemini ? Deno.test : Deno.test.ignore;
+const hasOpenRouter = !!Deno.env.get("OPENROUTER_API_KEY");
+const semanticSearchTest = hasOpenRouter ? Deno.test : Deno.test.ignore;
 
-semanticSearchTest("reflections: semantic search returns items array", async () => {
-  const user = await createTestUser();
-  try {
-    const res = await fetch(functionUrl("reflections", "/search"), {
-      method: "POST",
-      headers: headers(user.token),
-      body: JSON.stringify({ query_text: "housing rent prices" }),
-    });
-    assertEquals(res.status, 200);
-    const body = await res.json();
-    assertEquals(Array.isArray(body.items), true);
-    assertEquals(body.items.length, 0);
-  } finally {
-    await user.cleanup();
-  }
-});
+semanticSearchTest(
+  "reflections: semantic search returns items array",
+  async () => {
+    const user = await createTestUser();
+    try {
+      const res = await fetch(functionUrl("reflections", "/search"), {
+        method: "POST",
+        headers: headers(user.token),
+        body: JSON.stringify({ query_text: "housing rent prices" }),
+      });
+      assertEquals(res.status, 200);
+      const body = await res.json();
+      assertEquals(Array.isArray(body.items), true);
+      assertEquals(body.items.length, 0);
+    } finally {
+      await user.cleanup();
+    }
+  },
+);

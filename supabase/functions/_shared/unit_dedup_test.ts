@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { EMBEDDING_MODEL_TAG } from "./gemini.ts";
+import { EMBEDDING_MODEL_TAG } from "./embedding.ts";
 import {
   deriveSourceDomain,
   normalizeEntityList,
@@ -40,6 +40,7 @@ Deno.test("upsertCanonicalUnit forwards the new embedding model tag", async () =
   let payload: Record<string, unknown> = {};
   const db = {
     rpc(name: string, args: Record<string, unknown>) {
+      assertEquals(name, "upsert_canonical_unit_v2");
       payload = args;
       return Promise.resolve({
         data: [{

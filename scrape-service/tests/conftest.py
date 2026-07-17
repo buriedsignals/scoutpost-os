@@ -116,9 +116,9 @@ def make_settings(**overrides) -> Settings:
         parse_download_timeout_s=5.0,
         parse_max_pdf_bytes=50 * 1024 * 1024,
         parse_min_chars_per_page=100,
-        gemini_api_key=None,
-        gemini_model="gemini-2.5-flash-lite",
-        gemini_timeout_s=90.0,
+        openrouter_api_key=None,
+        openrouter_model="google/gemini-2.5-flash-lite",
+        openrouter_timeout_s=90.0,
         block_private_addresses=True,
     )
     base.update(overrides)

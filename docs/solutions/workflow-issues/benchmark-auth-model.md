@@ -46,7 +46,7 @@ Benchmarks only answer the operational question they are designed to ask. If a s
 Keeping the categories separate also clarifies secret ownership:
 
 - GitHub weekly Scout health needs benchmark Supabase target/auth secrets.
-- Provider secrets such as Firecrawl, Gemini, Exa, and Apify belong in deployed Supabase Edge Function secrets.
+- Provider secrets such as Firecrawl, OpenRouter, Exa, and Apify belong in deployed Supabase Edge Function secrets.
 - `INTERNAL_SERVICE_KEY` is needed only for the optional internal worker smoke against remote service-only functions.
 
 ## When to Apply

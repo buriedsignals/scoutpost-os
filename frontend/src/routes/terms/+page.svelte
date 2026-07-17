@@ -12,7 +12,7 @@
 		<a href="/" class="back-link">&larr; Back to Scoutpost</a>
 
 		<h1>Terms of Use & Privacy Policy</h1>
-		<p class="updated">Last updated: May 7, 2026</p>
+		<p class="updated">Last updated: July 17, 2026</p>
 
 		<section>
 			<h2>What Scoutpost Is</h2>
@@ -113,14 +113,20 @@
 				</thead>
 				<tbody>
 					<tr><td>Supabase</td><td>Authentication, database, edge functions</td><td>Account identity and stored application data</td></tr>
-					<tr><td>Google Gemini</td><td>AI extraction & filtering</td><td>Article text, search queries</td></tr>
-					<tr><td>OpenRouter</td><td>Fallback AI provider</td><td>Same as Gemini</td></tr>
+					<tr><td>OpenRouter</td><td>AI gateway and billing intermediary</td><td>Article text, search queries, images used for relevance, and low-yield/scanned PDFs</td></tr>
+					<tr><td>Google Vertex</td><td>Upstream Gemini model inference</td><td>The same AI inputs routed by OpenRouter</td></tr>
 					<tr><td>Firecrawl</td><td>Web scraping</td><td>URLs you provide</td></tr>
 					<tr><td>Apify</td><td>Social media scraping</td><td>Social handles you provide</td></tr>
-<tr><td>Resend</td><td>Email delivery</td><td>Your email (per-send), notification content</td></tr>
+					<tr><td>Resend</td><td>Email delivery</td><td>Your email (per-send), notification content</td></tr>
 					<tr><td>MapTiler</td><td>Geocoding</td><td>Location names</td></tr>
 				</tbody>
 			</table>
+			<p>
+				AI requests therefore follow Scoutpost &rarr; OpenRouter &rarr; Google Vertex. OpenRouter remains a processor; routing through it does not reduce the processor chain. Scoutpost restricts each request to Google Vertex, requests zero-data-retention routing, denies provider data collection, and disables OpenRouter response caching. Account-level logging and data-sharing settings provide additional protection.
+			</p>
+			<p>
+				PDF text extraction normally runs locally with Poppler. Only low-yield or scanned PDFs are sent through the AI route for native Google PDF processing; Scoutpost forces the native PDF engine and does not use OpenRouter's Mistral or Cloudflare parsing options.
+			</p>
 		</section>
 
 		<section>

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "./supabase.ts";
-import { EMBEDDING_MODEL_TAG } from "./gemini.ts";
+import { EMBEDDING_MODEL_TAG } from "./embedding.ts";
 
 export type CanonicalUnitType = "fact" | "event" | "entity_update" | "promise";
 export type CanonicalSourceType =
@@ -177,7 +177,7 @@ export async function upsertCanonicalUnit(
     p_abstain_reason: input.abstainReason ?? null,
   };
 
-  const { data, error } = await db.rpc("upsert_canonical_unit", payload);
+  const { data, error } = await db.rpc("upsert_canonical_unit_v2", payload);
   if (error) throw new Error(error.message);
 
   const row = Array.isArray(data) ? data[0] : data;

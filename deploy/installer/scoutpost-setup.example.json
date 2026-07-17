@@ -1,11 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "project": {
     "name": "scoutpost-newsroom",
     "app_url": "https://newsroom.example.com"
   },
   "services": {
-    "gemini_api_key": "replace-me",
+    "openrouter_api_key": "replace-me",
+    "embedding_service_url": "https://your-embedding-service.example.com",
     "firecrawl_api_key": "replace-me",
     "exa_api_key": "replace-me",
     "apify_api_token": "replace-me",

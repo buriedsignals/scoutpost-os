@@ -3,7 +3,7 @@
  *
  * Runs against the configured Supabase project in SUPABASE_URL.
  * The happy-path test is gated on SCOUT_LIVE_PROVIDER_TESTS=1 plus live keys
- * (FIRECRAWL + GEMINI); without them only auth and idle-queue paths run.
+ * (Firecrawl + OpenRouter); without them only auth and idle-queue paths run.
  */
 
 import {
@@ -84,7 +84,7 @@ Deno.test(
 
 const liveProviderTests = Deno.env.get("SCOUT_LIVE_PROVIDER_TESTS") === "1";
 const hasLiveKeys = liveProviderTests &&
-  !!Deno.env.get("GEMINI_API_KEY") &&
+  !!Deno.env.get("OPENROUTER_API_KEY") &&
   !!Deno.env.get("FIRECRAWL_API_KEY");
 
 Deno.test(

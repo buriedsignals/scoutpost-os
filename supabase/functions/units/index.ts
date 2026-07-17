@@ -44,7 +44,7 @@ import {
 import { NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { shapeUnitResponse } from "../_shared/db.ts";
-import { geminiEmbed } from "../_shared/gemini.ts";
+import { embedText } from "../_shared/embedding.ts";
 import type { SupabaseClient } from "../_shared/supabase.ts";
 import {
   buildSearchMatchInfo,
@@ -602,7 +602,7 @@ async function runUnitSearch(
   let embedding: number[] | null = null;
   if (searchMode !== "keyword") {
     try {
-      embedding = await geminiEmbed(query_text, "RETRIEVAL_QUERY");
+      embedding = await embedText(query_text, "RETRIEVAL_QUERY");
     } catch (e) {
       if (searchMode === "semantic") throw e;
       logEvent({
@@ -616,7 +616,7 @@ async function runUnitSearch(
   }
 
   const svc = getServiceClient();
-  const { data, error } = await svc.rpc("semantic_search_units", {
+  const { data, error } = await svc.rpc("semantic_search_units_v2", {
     p_embedding: searchMode === "keyword" ? null : embedding,
     p_user_id: user.id,
     p_project_id: project_id ?? null,

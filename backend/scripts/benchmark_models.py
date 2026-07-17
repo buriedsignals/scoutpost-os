@@ -39,9 +39,9 @@ MODELS = {
         "provider": "gemini",
         "model_id": "gemini-2.5-flash-lite",
     },
-    "qwen3.5-flash (current)": {
+    "gemini-2.5-flash-lite (OpenRouter Vertex ZDR)": {
         "provider": "openrouter",
-        "model_id": "qwen/qwen3.5-flash-02-23",
+        "model_id": "google/gemini-2.5-flash-lite",
     },
 }
 
@@ -66,6 +66,12 @@ async def call_openrouter(client, model_id, messages, max_tokens=500, temperatur
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
+        "provider": {
+            "only": ["google-vertex"],
+            "zdr": True,
+            "data_collection": "deny",
+            "require_parameters": True,
+        },
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
@@ -77,6 +83,7 @@ async def call_openrouter(client, model_id, messages, max_tokens=500, temperatur
             "Authorization": f"Bearer {settings.openrouter_api_key}",
             "HTTP-Referer": "https://www.scoutpost.ai",
             "X-Title": "coJournalist",
+            "X-OpenRouter-Cache": "false",
             "Content-Type": "application/json",
         },
         json=payload,
@@ -106,7 +113,9 @@ async def call_gemini(client, model_id, messages, max_tokens=500, temperature=0.
     response = await client.post(
         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         headers={
-            "Authorization": f"Bearer {settings.gemini_api_key}",
+            # This comparison-only benchmark intentionally remains capable of
+            # direct-Google probes without making GEMINI_API_KEY runtime config.
+            "Authorization": f"Bearer {os.getenv('GEMINI_API_KEY', '')}",
             "Content-Type": "application/json",
         },
         json=payload,

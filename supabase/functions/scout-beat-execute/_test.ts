@@ -3,7 +3,7 @@
  *
  * Runs against the configured Supabase project in SUPABASE_URL.
  * Live-API tests are gated on SCOUT_LIVE_PROVIDER_TESTS=1 +
- * FIRECRAWL_API_KEY + GEMINI_API_KEY + service auth.
+ * FIRECRAWL_API_KEY + OPENROUTER_API_KEY + service auth.
  */
 
 import {
@@ -20,11 +20,11 @@ import {
 const SERVICE_KEY = Deno.env.get("INTERNAL_SERVICE_KEY") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const FIRECRAWL_KEY = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
-const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const LIVE_PROVIDER_TESTS = Deno.env.get("SCOUT_LIVE_PROVIDER_TESTS") === "1";
 const hasServiceAuth = Boolean(SERVICE_ROLE_KEY || SERVICE_KEY);
 const liveKeys = Boolean(
-  LIVE_PROVIDER_TESTS && hasServiceAuth && FIRECRAWL_KEY && GEMINI_KEY,
+  LIVE_PROVIDER_TESTS && hasServiceAuth && FIRECRAWL_KEY && OPENROUTER_KEY,
 );
 
 function svcHeaders(): HeadersInit {
@@ -121,7 +121,7 @@ Deno.test("scout-beat-execute: 404 when scout missing", async () => {
 
 Deno.test({
   name:
-    "scout-beat-execute: happy path scrapes + extracts (live firecrawl+gemini)",
+    "scout-beat-execute: happy path scrapes + extracts (live firecrawl+openrouter)",
   ignore: !liveKeys,
   fn: async () => {
     const user = await createTestUser();

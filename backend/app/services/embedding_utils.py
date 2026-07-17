@@ -1,17 +1,17 @@
-"""
-Shared embedding utilities.
+"""Shared client and vector utilities for local EmbeddingGemma inference.
 
-PURPOSE: Centralized embedding generation via Gemini Embedding API,
-similarity comparison, and DynamoDB-compatible compression/decompression.
-
-DEPENDS ON: config (GEMINI_API_KEY), http_client (connection pooling)
-USED BY: services/feed_search_service.py, adapters/supabase/execution_storage.py
+The embedding model runs in Scoutpost's authenticated embedding service. The
+service applies task prefixes and returns one pinned 768-dimensional model
+space; this module validates that contract before vectors reach storage.
 """
+
 import base64
 import logging
+import math
 import struct
 from typing import List, Optional
 
+import httpx
 import numpy as np
 
 from app.config import settings
@@ -19,35 +19,20 @@ from app.services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
-GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
-GEMINI_MODEL = "gemini-embedding-2-preview"
-EMBEDDING_DIMENSIONS = 1536
-EMBEDDING_MODEL_TAG = "gemini-embedding-2-preview-task-prefix-v1"
+EMBEDDING_DIMENSIONS = 768
+EMBEDDING_MODEL_TAG = "embeddinggemma-300m-768-int8-onnx-task-prefix-v1"
 
 
-def _apply_task_prefix(
-    text: str,
-    task_type: str,
-    title: Optional[str] = None,
-) -> str:
-    """Apply Gemini Embedding 2 task-prefix formatting to text."""
-    cleaned_text = text or ""
-    if task_type == "RETRIEVAL_DOCUMENT":
-        cleaned_title = (title or "").strip() or "none"
-        return f"title: {cleaned_title} | text: {cleaned_text}"
+class EmbeddingError(RuntimeError):
+    """A secret-safe embedding configuration, transport, or response error."""
 
-    prefixes = {
-        "SEMANTIC_SIMILARITY": "task: sentence similarity | query: ",
-        "RETRIEVAL_QUERY": "task: search result | query: ",
-        "CLASSIFICATION": "task: classification | query: ",
-        "CLUSTERING": "task: clustering | query: ",
-    }
-    prefix = prefixes.get(task_type, "task: sentence similarity | query: ")
-    return f"{prefix}{cleaned_text}"
+
+class _EmbeddingProviderError(EmbeddingError):
+    """An HTTP error that existing batch callers may treat as best effort."""
 
 
 def normalize_embedding(values: list[float]) -> list[float]:
-    """Normalize embedding to unit length. Required for MRL truncation at < 3072 dims."""
+    """Normalize an embedding to unit length as a storage-boundary safeguard."""
     arr = np.array(values, dtype=np.float32)
     norm = np.linalg.norm(arr)
     if norm == 0:
@@ -55,59 +40,95 @@ def normalize_embedding(values: list[float]) -> list[float]:
     return (arr / norm).tolist()
 
 
+def _service_configuration() -> tuple[str, str]:
+    url = settings.embedding_service_url.strip().rstrip("/")
+    token = settings.embedding_service_token.strip()
+    if not url:
+        raise EmbeddingError("EMBEDDING_SERVICE_URL not configured")
+    if not token:
+        raise EmbeddingError("EMBEDDING_SERVICE_TOKEN not configured")
+    return url, token
+
+
+async def _request_embeddings(inputs: list[dict[str, object]]) -> list[list[float]]:
+    url, token = _service_configuration()
+    client = await get_http_client()
+    try:
+        response = await client.post(
+            f"{url}/embed",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json={"inputs": inputs},
+        )
+    except httpx.HTTPError:
+        logger.error("Embedding service transport failed")
+        raise _EmbeddingProviderError("Embedding service request failed") from None
+    if response.status_code != 200:
+        logger.error("Embedding service failed with status %s", response.status_code)
+        raise _EmbeddingProviderError(
+            f"Embedding service failed with status {response.status_code}"
+        )
+
+    try:
+        body = response.json()
+    except (TypeError, ValueError):
+        raise EmbeddingError("Embedding service returned malformed JSON") from None
+
+    if (
+        not isinstance(body, dict)
+        or body.get("model") != EMBEDDING_MODEL_TAG
+        or body.get("dimensions") != EMBEDDING_DIMENSIONS
+    ):
+        raise EmbeddingError("Embedding service model contract mismatch")
+    data = body.get("data")
+    if not isinstance(data, list) or len(data) != len(inputs):
+        raise EmbeddingError("Embedding service returned an unexpected embedding count")
+
+    ordered: list[Optional[list[float]]] = [None] * len(inputs)
+    for item in data:
+        if not isinstance(item, dict):
+            raise EmbeddingError("Embedding service returned an invalid item")
+        index = item.get("index")
+        if (
+            type(index) is not int
+            or index < 0
+            or index >= len(inputs)
+            or ordered[index] is not None
+        ):
+            raise EmbeddingError("Embedding service returned an invalid index")
+        vector = item.get("embedding")
+        if (
+            not isinstance(vector, list)
+            or len(vector) != EMBEDDING_DIMENSIONS
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in vector
+            )
+        ):
+            raise EmbeddingError("Embedding service returned an invalid vector")
+        normalized = normalize_embedding([float(value) for value in vector])
+        if not all(math.isfinite(value) for value in normalized):
+            raise EmbeddingError("Embedding service returned an invalid vector")
+        ordered[index] = normalized
+
+    if any(vector is None for vector in ordered):
+        raise EmbeddingError("Embedding service omitted an input index")
+    return [vector for vector in ordered if vector is not None]
+
+
 async def generate_embedding(
     text: str,
     task_type: str = "SEMANTIC_SIMILARITY",
     title: Optional[str] = None,
 ) -> List[float]:
-    """Generate embedding for a single text via Gemini Embedding API."""
-    client = await get_http_client()
-    response = await client.post(
-        f"{GEMINI_BASE_URL}/models/{GEMINI_MODEL}:embedContent?key={settings.gemini_api_key}",
-        json={
-            "model": f"models/{GEMINI_MODEL}",
-            "content": {"parts": [{"text": _apply_task_prefix(text, task_type, title)}]},
-            "outputDimensionality": EMBEDDING_DIMENSIONS,
-        },
+    values = await _request_embeddings(
+        [{"text": text, "task_type": task_type, "title": title}]
     )
-    if response.status_code == 200:
-        values = response.json()["embedding"]["values"]
-        return normalize_embedding(values)
-    logger.error(f"Gemini embedding failed: {response.text}")
-    raise Exception(f"Embedding failed: {response.text}")
-
-
-async def generate_embedding_multimodal(
-    text: Optional[str] = None,
-    image_bytes: Optional[bytes] = None,
-    mime_type: str = "image/jpeg",
-    task_type: str = "SEMANTIC_SIMILARITY",
-    title: Optional[str] = None,
-) -> List[float]:
-    """Generate embedding for mixed text + image content via Gemini."""
-    parts = []
-    if text:
-        parts.append({"text": _apply_task_prefix(text, task_type, title)})
-    if image_bytes:
-        b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
-        parts.append({"inline_data": {"mime_type": mime_type, "data": b64}})
-    if not parts:
-        raise ValueError("At least one of text or image_bytes must be provided")
-
-    client = await get_http_client()
-    response = await client.post(
-        f"{GEMINI_BASE_URL}/models/{GEMINI_MODEL}:embedContent?key={settings.gemini_api_key}",
-        json={
-            "model": f"models/{GEMINI_MODEL}",
-            "content": {"parts": parts},
-            "outputDimensionality": EMBEDDING_DIMENSIONS,
-        },
-    )
-    if response.status_code == 200:
-        values = response.json()["embedding"]["values"]
-        return normalize_embedding(values)
-    logger.error(f"Gemini multimodal embedding failed: {response.text}")
-    raise Exception(f"Multimodal embedding failed: {response.text}")
+    return values[0]
 
 
 async def generate_embeddings_batch(
@@ -115,33 +136,21 @@ async def generate_embeddings_batch(
     task_type: str = "SEMANTIC_SIMILARITY",
     titles: Optional[List[Optional[str]]] = None,
 ) -> List[List[float]]:
-    """Generate embeddings for multiple texts in a single Gemini batch call."""
     if not texts:
         return []
     if titles is not None and len(titles) != len(texts):
         raise ValueError("titles must be the same length as texts")
-
-    embed_requests = [
+    inputs = [
         {
-            "model": f"models/{GEMINI_MODEL}",
-            "content": {"parts": [{"text": _apply_task_prefix(
-                t, task_type, titles[i] if titles is not None else None
-            )}]},
-            "outputDimensionality": EMBEDDING_DIMENSIONS,
+            "text": text,
+            "task_type": task_type,
+            "title": titles[index] if titles is not None else None,
         }
-        for i, t in enumerate(texts)
+        for index, text in enumerate(texts)
     ]
-
-    client = await get_http_client()
-    response = await client.post(
-        f"{GEMINI_BASE_URL}/models/{GEMINI_MODEL}:batchEmbedContents?key={settings.gemini_api_key}",
-        json={"requests": embed_requests},
-    )
-    if response.status_code == 200:
-        data = response.json()
-        return [normalize_embedding(e["values"]) for e in data["embeddings"]]
-    else:
-        logger.error(f"Gemini batch embeddings error: {response.status_code} - {response.text}")
+    try:
+        return await _request_embeddings(inputs)
+    except _EmbeddingProviderError:
         return []
 
 
@@ -155,21 +164,12 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 def compress_embedding(embedding: list[float]) -> str:
-    """Compress embedding float array to base64 string (4x storage reduction).
-
-    Format: struct-packed 32-bit floats, base64-encoded. Stored in DynamoDB
-    as 'summary_embedding_compressed'. Changing this format breaks all
-    existing stored embeddings.
-    """
+    """Compress an embedding to the existing base64-encoded float32 format."""
     packed = struct.pack(f"{len(embedding)}f", *embedding)
     return base64.b64encode(packed).decode()
 
 
 def decompress_embedding(compressed: str) -> list[float]:
-    """Decompress base64 string back to embedding float array.
-
-    Inverse of compress_embedding(). The float count is inferred from
-    byte length (each float = 4 bytes).
-    """
+    """Decompress the existing base64-encoded float32 embedding format."""
     packed = base64.b64decode(compressed)
     return list(struct.unpack(f"{len(packed) // 4}f", packed))

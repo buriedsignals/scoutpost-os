@@ -7,7 +7,7 @@ Self-hosted replacement for Firecrawl scrape + PDF parse
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `POST /scrape` `{url, timeout_ms?}` | Bearer | Playwright render → `ScrapeResult` JSON (KTD2 mapping, server-side) |
-| `POST /parse` `{url}` | Bearer | PDF → deterministic text via `pdftotext -layout` (`parser:"pdftotext"`). Low-yield/scanned docs fall back to Gemini native-PDF transcription when `GEMINI_API_KEY` is set (`parser:"gemini"`), else `422 {error:"needs_ocr"}` |
+| `POST /parse` `{url}` | Bearer | PDF → deterministic text via `pdftotext -layout` (`parser:"pdftotext"`). Low-yield/scanned docs fall back to Google Vertex native-PDF transcription through OpenRouter when `OPENROUTER_API_KEY` is set (`parser:"openrouter"`), else `422 {error:"needs_ocr"}` |
 | `GET /health` | none | `{status, browser: warm\|cold}` — Render health checks cannot send headers |
 
 Error taxonomy (mirrors `_shared/scrape.ts`): upstream failure → 502,
@@ -21,8 +21,13 @@ timeout → 504, scanned PDF → 422, oversized → 413, non-PDF → 415, bad to
 - `SCRAPE_BROWSER_POOL_SIZE` (2) · `SCRAPE_DEFAULT_TIMEOUT_MS` (25000) ·
   `PARSE_DOWNLOAD_TIMEOUT_S` (15) · `PARSE_MAX_PDF_BYTES` (50MiB) ·
   `PARSE_MIN_CHARS_PER_PAGE` (100) · `PORT` (8080)
-- `GEMINI_API_KEY` (optional) enables the low-yield PDF fallback ·
-  `PARSE_GEMINI_MODEL` (`gemini-2.5-flash-lite`) · `PARSE_GEMINI_TIMEOUT_S` (90).
+- `OPENROUTER_API_KEY` (optional) enables the low-yield PDF fallback ·
+  `PARSE_OPENROUTER_MODEL` (`google/gemini-2.5-flash-lite`) ·
+  `PARSE_OPENROUTER_TIMEOUT_S` (90). Every fallback request pins
+  `google-vertex`, requires ZDR, denies data collection, disables OpenRouter
+  response caching, and forces the native PDF parser. PDFs over the temporary
+  conservative 4 MiB inline cap return `needs_ocr` pending the live boundary
+  probe; the service never switches to a non-native parser.
   Scope: catches scanned/thin PDFs the density guard flags. It does NOT
   auto-detect font-encoding degradation on text-rich PDFs (e.g. a report where
   pdftotext extracts plenty but mangles some words) — those stay on pdftotext.

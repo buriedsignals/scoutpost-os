@@ -906,7 +906,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "ingest_content",
     description:
-      "Ingest a URL or raw text into the knowledge base. Creates a raw_capture row and extracts atomic information_units via Gemini.",
+      "Ingest a URL or raw text into the knowledge base. Creates a raw_capture row and extracts atomic information_units with Gemini through OpenRouter's Google Vertex route.",
     inputSchema: {
       type: "object",
       required: ["kind"],

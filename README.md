@@ -51,7 +51,7 @@ endpoints. See [`docs/features/page-archive.md`](docs/features/page-archive.md).
 - **Scout runtime**: Supabase Edge Functions + pg_cron (post-2026-04-22 cutover)
 - **Database**: Supabase Postgres with pgvector + HNSW for hybrid search
 - **Auth**: MuckRock OAuth 2.0 (SaaS) / Supabase Auth (OSS / self-hosted)
-- **AI**: Gemini 2.5 Flash-Lite (default) + OpenRouter (fallback) + Firecrawl
+- **AI**: Google Gemini models through OpenRouter's Google Vertex route + Firecrawl
 - **Hosting**: Render (Docker) for the FastAPI service; Supabase for EFs + DB
 
 ## Quick Start
@@ -84,6 +84,20 @@ cd cli && deno task run --help
 Copy `.env.example` to `.env` and fill in the values. See
 `docs/architecture/api-surface.md` for the current set of
 load-bearing variables.
+
+Scoutpost uses one external AI credential: `OPENROUTER_API_KEY`. Structured
+extraction uses `google/gemini-2.5-flash-lite`; every such request pins
+`google-vertex`, requires ZDR, denies provider data collection, and sends
+`X-OpenRouter-Cache: false`. Text embeddings stay inside the deployment through
+the bearer-authenticated `embedding-service`, which runs the pinned INT8 ONNX
+build of EmbeddingGemma and emits normalized 768-dimensional vectors. Its token
+is generated internal service auth, not another external API key.
+
+PDF parsing stays local-first: Poppler `pdftotext -layout` is the deterministic
+primary parser. Only low-yield or scanned PDFs use Google's native PDF handling
+through OpenRouter. That request forces the `native` PDF engine, so OpenRouter
+does not invoke Mistral, Cloudflare, or another parser; when the constrained
+route is unavailable the document returns `needs_ocr`.
 
 ## Deployment
 

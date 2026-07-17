@@ -2,7 +2,7 @@
 Shared HTTP clients with connection pooling.
 
 PURPOSE: Two client pools with different connection reuse strategies:
-- Default client: Keepalive ON for Firecrawl, Gemini, Resend, and other
+- Default client: Keepalive ON for the embedding service, Firecrawl, Resend, and other
   APIs that make many sequential calls to the same host.
 - LLM client: Keepalive OFF for OpenRouter LLM calls. Prevents HTTP/1.1
   connection contention when concurrent LLM requests (e.g. news +
@@ -11,10 +11,6 @@ PURPOSE: Two client pools with different connection reuse strategies:
 
 DEPENDS ON: (stdlib + httpx only — no app imports)
 USED BY: services/embedding_utils.py, main.py (shutdown hook)
-NOTE: get_llm_client() has no current consumers after the openrouter/
-scout_service removal — kept for now so future LLM work can reuse the
-keepalive-off policy without rediscovering it. Delete if still unused in
-a future sweep.
 
 CRITICAL: Do not create standalone httpx.AsyncClient instances in services.
 Always use get_http_client() or get_llm_client() and ensure proper shutdown.
@@ -33,7 +29,8 @@ _llm_client: Optional[httpx.AsyncClient] = None
 
 async def get_http_client() -> httpx.AsyncClient:
     """
-    Get shared HTTP client for general API calls (Firecrawl, Gemini, Resend).
+    Get shared HTTP client for general API calls (Firecrawl, Resend, and other
+    non-LLM services).
 
     Keepalive enabled — these services make many sequential calls to the
     same hosts and benefit from connection reuse.

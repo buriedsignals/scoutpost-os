@@ -221,7 +221,7 @@ AI-powered local news monitoring platform. Users create "scouts" that monitor we
 | Database | Supabase Postgres |
 | Scheduling | Supabase `pg_cron` |
 | Auth | MuckRock OAuth broker -> Supabase Auth JWT (SaaS) / Supabase Auth (OSS, Bearer JWT) |
-| AI | Gemini 2.5 Flash-Lite (default LLM, direct API), OpenRouter (fallback), Firecrawl (web search) |
+| AI | Gemini models through OpenRouter, pinned to Google Vertex with ZDR; Firecrawl (web search) |
 | Email | Resend |
 | Maps | MapTiler (geocoding) |
 
@@ -469,13 +469,20 @@ dependency manifest before chasing them.
 - `MUCKROCK_CLIENT_SECRET` - MuckRock OAuth client secret
 - `SESSION_SECRET` - HMAC signing key for OAuth/MCP broker state; legacy session JWT fallback only
 - `OAUTH_REDIRECT_BASE` - Public URL the browser sees (needed behind proxy, e.g. `http://localhost:5173`)
-- `OPENROUTER_API_KEY` - AI access
-- `LLM_MODEL` - LLM model identifier (default: `gemini-2.5-flash-lite`). Gemini models route to Google AI direct API; others route to OpenRouter.
-- `GEMINI_API_KEY` - Gemini API key (LLM + multimodal embeddings)
+- `OPENROUTER_API_KEY` - single external AI credential for structured extraction and exceptional scanned-PDF fallback. Runtime flow is Scoutpost → OpenRouter → Google Vertex.
+- `LLM_MODEL` - full OpenRouter model identifier (default: `google/gemini-2.5-flash-lite`).
+- `EMBEDDING_SERVICE_URL` / `EMBEDDING_SERVICE_TOKEN` - internal bearer-authenticated EmbeddingGemma service. It emits the pinned 768-dimensional INT8 ONNX model space and does not use an external embedding API.
 - `FIRECRAWL_API_KEY` - Web scraping
 - `APIFY_API_TOKEN` - Apify API token (social media scraping)
 - `RESEND_API_KEY` - Email notifications
 - `INTERNAL_SERVICE_KEY` - internal Edge Function service auth
+
+All OpenRouter requests restrict routing to `only: ["google-vertex"]`, require
+ZDR, deny provider data collection, and send `X-OpenRouter-Cache: false`.
+Account-level OpenRouter logging/data-sharing controls are defense in depth.
+Provider usage is recorded as OpenRouter usage with the upstream route metadata
+when returned. Track the separately documented Gemini 2.5 Flash-Lite retirement
+date of 2026-10-16; changing models is a distinct lifecycle change.
 
 ### Frontend (Build-time)
 - `PUBLIC_MAPTILER_API_KEY` - Geocoding

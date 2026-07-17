@@ -125,7 +125,7 @@ do not silently migrate.
 
 - Page Scout Firecrawl calls are client-side bounded; fresh scrapes abort if
   Firecrawl stalls.
-- Gemini extraction and embedding calls are also bounded so a provider stall cannot leave the run row in `running` indefinitely.
+- OpenRouter extraction and local embedding-service calls are bounded so a provider stall cannot leave the run row in `running` indefinitely.
 - Listing-page Phase B subpage-follow runs under a total wall-clock budget and per-subpage scrape cap instead of unbounded sequential fetches.
 
 ## Preview vs Scheduled Mode

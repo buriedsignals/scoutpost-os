@@ -16,10 +16,11 @@ import {
 
 function manifest(overrides: Partial<SetupManifest> = {}): SetupManifest {
 	const base: SetupManifest = {
-		version: 1,
+		version: 2,
 		project: { name: 'test-newsroom', app_url: 'https://newsroom.example.com' },
 		services: {
-			gemini_api_key: 'gemini-secret',
+			openrouter_api_key: 'openrouter-secret',
+			embedding_service_url: 'https://embedding.example.com',
 			firecrawl_api_key: 'firecrawl-secret',
 			exa_api_key: 'exa-secret',
 			apify_api_token: 'apify-secret',
@@ -72,6 +73,39 @@ describe('setup generator', () => {
 		expect(validateSetupManifest(data).errors).toContain('MapTiler API key is required.');
 	});
 
+	it('requires the single OpenRouter AI credential', () => {
+		const data = manifest({
+			services: { ...manifest().services, openrouter_api_key: '' }
+		});
+
+		expect(validateSetupManifest(data).errors).toContain('OpenRouter API key is required.');
+	});
+
+	it('requires a public embedding service URL for cloud Supabase', () => {
+		const data = manifest({
+			services: { ...manifest().services, embedding_service_url: '' }
+		});
+
+		expect(validateSetupManifest(data).errors).toContain('Embedding service URL is required.');
+	});
+
+	it('requires manifest version 2', () => {
+		const data = manifest();
+		(data as { version: number }).version = 1;
+
+		expect(validateSetupManifest(data).errors).toContain('Manifest version 2 is required.');
+	});
+
+	it('rejects the removed Gemini field in a v2 manifest', () => {
+		const data = manifest();
+		(data.services as SetupManifest['services'] & { gemini_api_key: string }).gemini_api_key =
+			'legacy-direct-key';
+
+		expect(validateSetupManifest(data).errors).toContain(
+			'Manifest version 2 must not contain a Gemini API key.'
+		);
+	});
+
 	it('normalizes signup domains', () => {
 		expect(normalizeDomains('Example.COM\n@newsroom.org, https://bad.example/path')).toEqual([
 			'example.com',
@@ -110,11 +144,23 @@ describe('setup generator', () => {
 	it('redacts secrets in previews', () => {
 		const redacted = redactSetupManifest(manifest());
 
-		expect(redacted.services.gemini_api_key).toBe('gemi…redacted');
+		expect(redacted.services.openrouter_api_key).toBe('open…redacted');
 		expect(redacted.services.exa_api_key).toBe('exa-…redacted');
 		expect(redacted.supabase.access_token).toBe('sbp-…redacted');
-		expect(JSON.stringify(redacted)).not.toContain('gemini-secret');
+		expect(JSON.stringify(redacted)).not.toContain('openrouter-secret');
 		expect(JSON.stringify(redacted)).not.toContain('exa-secret');
+	});
+
+	it('generates a v2 manifest with one AI key', () => {
+		const data = manifest();
+		const generated = JSON.parse(JSON.stringify(data));
+
+		expect(generated.version).toBe(2);
+		expect(generated.services.openrouter_api_key).toBe('openrouter-secret');
+		expect(generated.services).not.toHaveProperty('gemini_api_key');
+		expect(Object.keys(generated.services).filter((key) => /(?:gemini|openrouter)_api_key/.test(key))).toEqual([
+			'openrouter_api_key'
+		]);
 	});
 
 	it('treats exa_api_key as optional — missing Exa key is not a validation error', () => {

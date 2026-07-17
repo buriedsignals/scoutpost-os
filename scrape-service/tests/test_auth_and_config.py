@@ -62,9 +62,9 @@ def test_load_settings_reads_values():
             "PARSE_DOWNLOAD_TIMEOUT_S": "7.5",
             "PARSE_MAX_PDF_BYTES": "1024",
             "PARSE_MIN_CHARS_PER_PAGE": "42",
-            "GEMINI_API_KEY": "g-key",
-            "PARSE_GEMINI_MODEL": "gemini-2.5-pro",
-            "PARSE_GEMINI_TIMEOUT_S": "45",
+            "OPENROUTER_API_KEY": "or-key",
+            "PARSE_OPENROUTER_MODEL": "google/gemini-2.5-pro",
+            "PARSE_OPENROUTER_TIMEOUT_S": "45",
         }
     )
     assert settings.token == TEST_TOKEN
@@ -73,15 +73,16 @@ def test_load_settings_reads_values():
     assert settings.parse_download_timeout_s == 7.5
     assert settings.parse_max_pdf_bytes == 1024
     assert settings.parse_min_chars_per_page == 42
-    assert settings.gemini_api_key == "g-key"
-    assert settings.gemini_model == "gemini-2.5-pro"
-    assert settings.gemini_timeout_s == 45.0
+    assert settings.openrouter_api_key == "or-key"
+    assert settings.openrouter_model == "google/gemini-2.5-pro"
+    assert settings.openrouter_timeout_s == 45.0
 
 
-def test_load_settings_gemini_defaults_off():
+def test_load_settings_openrouter_defaults_off():
     settings = load_settings(env={"SCRAPE_SERVICE_TOKEN": TEST_TOKEN})
-    assert settings.gemini_api_key is None
-    assert settings.gemini_model == "gemini-2.5-flash-lite"
+    assert settings.openrouter_api_key is None
+    assert settings.openrouter_model == "google/gemini-2.5-flash-lite"
+    assert settings.openrouter_timeout_s == 90.0
 
 
 def test_create_app_loads_settings_from_env(monkeypatch):

@@ -90,7 +90,8 @@
 						<p>You bring your own API keys and hosting:</p>
 						<ul>
 							<li><strong>Supabase</strong> — managed (supabase.com) or self-hosted via Docker</li>
-							<li><strong>Gemini API key</strong> — for AI analysis and embeddings</li>
+							<li><strong>OpenRouter API key</strong> — for Google Vertex AI analysis and scanned-PDF fallback</li>
+							<li><strong>EmbeddingGemma</strong> — included local text embeddings; no external API key</li>
 							<li><strong>Firecrawl API key</strong> — for web scraping and search</li>
 							<li><strong>Resend API key</strong> — for email notifications</li>
 							<li><strong>Apify API token</strong> — for social media monitoring</li>
@@ -109,7 +110,7 @@
 				<details class="faq-item">
 					<summary class="faq-question">Does self-hosting cost anything?</summary>
 					<div class="faq-answer">
-						<p><strong>Nothing to us.</strong> Scoutpost itself is free to self-host under the Sustainable Use License. Your only costs are the third-party services you connect (Supabase, Gemini, Firecrawl, Resend, Apify) and whatever hosting you choose for the frontend.</p>
+							<p><strong>Nothing to us.</strong> Scoutpost itself is free to self-host under the Sustainable Use License. Your only costs are the third-party services you connect (Supabase, OpenRouter with Google Vertex upstream, Firecrawl, Resend, Apify) and whatever hosting you choose for the frontend.</p>
 					</div>
 				</details>
 			</section>

@@ -1,353 +1,236 @@
-"""
-Tests for embedding_utils.
+"""Contract tests for the local EmbeddingGemma client and vector utilities."""
 
-Verifies:
-1. Embedding compression/decompression roundtrip
-2. Cosine similarity calculation
-3. normalize_embedding
-4. generate_embedding (Gemini API format)
-5. generate_embedding_multimodal
-"""
 import base64
+import math
 from unittest.mock import AsyncMock, MagicMock
 
-import numpy as np
+import httpx
 import pytest
 
+import app.services.embedding_utils as embedding_utils
+from app.config import settings
 from app.services.embedding_utils import (
-    cosine_similarity,
+    EMBEDDING_DIMENSIONS,
+    EMBEDDING_MODEL_TAG,
+    EmbeddingError,
     compress_embedding,
+    cosine_similarity,
     decompress_embedding,
-    normalize_embedding,
     generate_embedding,
-    generate_embedding_multimodal,
     generate_embeddings_batch,
+    normalize_embedding,
 )
 
 
+VECTOR_A = [1.0] + [0.0] * (EMBEDDING_DIMENSIONS - 1)
+VECTOR_B = [0.0, 1.0] + [0.0] * (EMBEDDING_DIMENSIONS - 2)
+
+
+def _response(*items: tuple[int, list[float]], status_code: int = 200) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.text = "upstream body must stay private"
+    response.json.return_value = {
+        "model": EMBEDDING_MODEL_TAG,
+        "dimensions": EMBEDDING_DIMENSIONS,
+        "data": [
+            {"index": index, "embedding": vector} for index, vector in items
+        ],
+    }
+    return response
+
+
+def _install_client(monkeypatch: pytest.MonkeyPatch, response: MagicMock) -> AsyncMock:
+    client = AsyncMock()
+    client.post = AsyncMock(return_value=response)
+    monkeypatch.setattr(
+        embedding_utils,
+        "get_http_client",
+        AsyncMock(return_value=client),
+    )
+    return client
+
+
+def _configure_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "embedding_service_url", "https://embed.internal/")
+    monkeypatch.setattr(settings, "embedding_service_token", "internal-token")
+
+
+class TestEmbeddingConstants:
+    def test_model_and_storage_tag_describe_exact_local_model_space(self):
+        assert EMBEDDING_DIMENSIONS == 768
+        assert EMBEDDING_MODEL_TAG == (
+            "embeddinggemma-300m-768-int8-onnx-task-prefix-v1"
+        )
+
+    def test_runtime_settings_do_not_expose_direct_gemini_key(self):
+        assert not hasattr(settings, "gemini_api_key")
+
+
 class TestEmbeddingCompression:
-    """Test embedding compress/decompress roundtrip."""
-
-    def test_roundtrip(self):
+    def test_roundtrip_preserves_existing_float32_format(self):
         original = [0.1, 0.2, 0.3, -0.5, 1.0]
-        compressed = compress_embedding(original)
-        decompressed = decompress_embedding(compressed)
+        decompressed = decompress_embedding(compress_embedding(original))
         assert len(decompressed) == len(original)
-        for a, b in zip(original, decompressed):
-            assert abs(a - b) < 1e-6
+        for expected, actual in zip(original, decompressed):
+            assert abs(expected - actual) < 1e-6
 
-    def test_compressed_is_base64(self):
-        compressed = compress_embedding([0.1, 0.2])
-        # Should be valid base64
-        base64.b64decode(compressed)
+    def test_compressed_value_is_base64(self):
+        base64.b64decode(compress_embedding([0.1, 0.2]))
 
 
 class TestCosineSimilarity:
-    """Test cosine similarity calculation."""
-
     def test_identical_vectors(self):
-        v = [1.0, 2.0, 3.0]
-        assert abs(cosine_similarity(v, v) - 1.0) < 1e-6
+        vector = [1.0, 2.0, 3.0]
+        assert abs(cosine_similarity(vector, vector) - 1.0) < 1e-6
 
-    def test_orthogonal_vectors(self):
-        a = [1.0, 0.0]
-        b = [0.0, 1.0]
-        assert abs(cosine_similarity(a, b)) < 1e-6
-
-    def test_zero_vector(self):
+    def test_orthogonal_and_zero_vectors(self):
+        assert abs(cosine_similarity([1.0, 0.0], [0.0, 1.0])) < 1e-6
         assert cosine_similarity([0.0, 0.0], [1.0, 2.0]) == 0.0
 
 
 class TestNormalizeEmbedding:
-    """Test normalize_embedding function."""
-
-    def test_unit_vector_unchanged(self):
-        # A vector already at unit length should remain at unit length
-        v = [1.0, 0.0, 0.0]
-        result = normalize_embedding(v)
-        norm = sum(x * x for x in result) ** 0.5
-        assert abs(norm - 1.0) < 1e-6
-
-    def test_normalizes_to_unit_length(self):
-        v = [3.0, 4.0]  # norm = 5.0
-        result = normalize_embedding(v)
-        norm = sum(x * x for x in result) ** 0.5
-        assert abs(norm - 1.0) < 1e-6
-
-    def test_zero_vector_returned_unchanged(self):
-        v = [0.0, 0.0, 0.0]
-        result = normalize_embedding(v)
-        assert result == v
-
-    def test_returns_list_of_floats(self):
-        v = [1.0, 2.0, 3.0]
-        result = normalize_embedding(v)
-        assert isinstance(result, list)
-        assert all(isinstance(x, float) for x in result)
-
-    def test_normalized_vectors_cosine_similarity_one(self):
-        v = [1.0, 2.0, 3.0]
-        norm_v = normalize_embedding(v)
-        # Cosine similarity of normalized vector with itself should be 1
-        assert abs(cosine_similarity(norm_v, norm_v) - 1.0) < 1e-6
+    def test_normalizes_to_unit_length_and_preserves_zero_vector(self):
+        result = normalize_embedding([3.0, 4.0])
+        assert math.isclose(sum(value * value for value in result), 1.0, abs_tol=1e-6)
+        assert normalize_embedding([0.0, 0.0]) == [0.0, 0.0]
 
 
 class TestGenerateEmbedding:
-    """Test generate_embedding function with mocked HTTP client."""
-
     @pytest.mark.asyncio
-    async def test_returns_normalized_embedding_on_success(self):
-        """generate_embedding should return normalized floats from Gemini response."""
-        mock_values = [0.1, 0.2, 0.3]
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "embedding": {"values": mock_values}
+    async def test_single_request_uses_authenticated_local_contract(self, monkeypatch):
+        _configure_service(monkeypatch)
+        client = _install_client(monkeypatch, _response((0, VECTOR_A)))
+
+        result = await generate_embedding(
+            "body text", "RETRIEVAL_DOCUMENT", title="Council Minutes"
+        )
+
+        assert result == VECTOR_A
+        assert client.post.call_args.args == ("https://embed.internal/embed",)
+        assert client.post.call_args.kwargs["headers"] == {
+            "Authorization": "Bearer internal-token",
+            "Content-Type": "application/json",
+        }
+        assert client.post.call_args.kwargs["json"] == {
+            "inputs": [
+                {
+                    "text": "body text",
+                    "task_type": "RETRIEVAL_DOCUMENT",
+                    "title": "Council Minutes",
+                }
+            ]
         }
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_get_client = AsyncMock(return_value=mock_client)
-
-        import app.services.embedding_utils as eu
-        original = eu.get_http_client
-        eu.get_http_client = mock_get_client
-
-        try:
-            result = await generate_embedding("test text", "SEMANTIC_SIMILARITY")
-            assert isinstance(result, list)
-            assert len(result) == 3
-            # Result should be normalized
-            norm = sum(x * x for x in result) ** 0.5
-            assert abs(norm - 1.0) < 1e-6
-        finally:
-            eu.get_http_client = original
+    @pytest.mark.asyncio
+    async def test_response_is_normalized_after_shape_validation(self, monkeypatch):
+        _configure_service(monkeypatch)
+        vector = [3.0, 4.0] + [0.0] * (EMBEDDING_DIMENSIONS - 2)
+        _install_client(monkeypatch, _response((0, vector)))
+        result = await generate_embedding("normalize me")
+        assert math.isclose(sum(value * value for value in result), 1.0, abs_tol=1e-6)
 
     @pytest.mark.asyncio
-    async def test_raises_on_non_200(self):
-        """generate_embedding should raise an exception on non-200 response."""
-        mock_response = MagicMock()
-        mock_response.status_code = 401
-        mock_response.text = "Unauthorized"
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_get_client = AsyncMock(return_value=mock_client)
-
-        import app.services.embedding_utils as eu
-        original = eu.get_http_client
-        eu.get_http_client = mock_get_client
-
-        try:
-            with pytest.raises(Exception, match="Embedding failed"):
-                await generate_embedding("test text")
-        finally:
-            eu.get_http_client = original
+    @pytest.mark.parametrize(
+        "vector",
+        [
+            [1.0] * (EMBEDDING_DIMENSIONS - 1),
+            [float("nan")] + [0.0] * (EMBEDDING_DIMENSIONS - 1),
+            [True] + [0.0] * (EMBEDDING_DIMENSIONS - 1),
+        ],
+    )
+    async def test_rejects_invalid_vector_shape(self, monkeypatch, vector):
+        _configure_service(monkeypatch)
+        _install_client(monkeypatch, _response((0, vector)))
+        with pytest.raises(EmbeddingError, match="invalid vector"):
+            await generate_embedding("test")
 
     @pytest.mark.asyncio
-    async def test_applies_query_prefix_in_request(self):
-        """generate_embedding should encode retrieval intent in the text payload."""
-        mock_values = [1.0, 0.0]
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"embedding": {"values": mock_values}}
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_get_client = AsyncMock(return_value=mock_client)
-
-        import app.services.embedding_utils as eu
-        original = eu.get_http_client
-        eu.get_http_client = mock_get_client
-
-        try:
-            await generate_embedding("hello", "RETRIEVAL_QUERY")
-            call_kwargs = mock_client.post.call_args
-            payload = call_kwargs[1]["json"]
-            assert payload["content"]["parts"][0]["text"] == "task: search result | query: hello"
-            assert "taskType" not in payload
-        finally:
-            eu.get_http_client = original
+    async def test_missing_configuration_fails_before_acquiring_client(self, monkeypatch):
+        monkeypatch.setattr(settings, "embedding_service_url", "")
+        monkeypatch.setattr(settings, "embedding_service_token", "")
+        get_client = AsyncMock()
+        monkeypatch.setattr(embedding_utils, "get_http_client", get_client)
+        with pytest.raises(EmbeddingError, match="EMBEDDING_SERVICE_URL"):
+            await generate_embedding("test")
+        get_client.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_applies_document_title_prefix_in_request(self):
-        """RETRIEVAL_DOCUMENT should include title metadata in the text payload."""
-        mock_values = [1.0, 0.0]
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"embedding": {"values": mock_values}}
+    async def test_errors_do_not_expose_content_or_token(self, monkeypatch, caplog):
+        _configure_service(monkeypatch)
+        response = _response(status_code=401)
+        response.text = "private prompt and internal-token"
+        _install_client(monkeypatch, response)
+        with pytest.raises(EmbeddingError) as error:
+            await generate_embedding("private prompt")
+        combined = f"{error.value} {caplog.text}"
+        assert "status 401" in combined
+        assert response.text not in combined
+        assert "internal-token" not in combined
+        assert "private prompt" not in combined
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_get_client = AsyncMock(return_value=mock_client)
-
-        import app.services.embedding_utils as eu
-        original = eu.get_http_client
-        eu.get_http_client = mock_get_client
-
-        try:
-            await generate_embedding("body text", "RETRIEVAL_DOCUMENT", title="Council Minutes")
-            call_kwargs = mock_client.post.call_args
-            payload = call_kwargs[1]["json"]
-            assert payload["content"]["parts"][0]["text"] == (
-                "title: Council Minutes | text: body text"
+    @pytest.mark.asyncio
+    async def test_transport_and_malformed_json_errors_are_safe(self, monkeypatch):
+        _configure_service(monkeypatch)
+        client = AsyncMock()
+        client.post = AsyncMock(
+            side_effect=httpx.RequestError(
+                "request contained internal-token",
+                request=httpx.Request("POST", "https://embed.internal/embed"),
             )
-            assert "taskType" not in payload
-        finally:
-            eu.get_http_client = original
+        )
+        monkeypatch.setattr(
+            embedding_utils, "get_http_client", AsyncMock(return_value=client)
+        )
+        with pytest.raises(EmbeddingError, match="Embedding service request failed"):
+            await generate_embedding("private prompt")
 
-
-class TestGenerateEmbeddingMultimodal:
-    """Test generate_embedding_multimodal function."""
-
-    @pytest.mark.asyncio
-    async def test_text_only_succeeds(self):
-        """Multimodal embedding with text only should succeed."""
-        mock_values = [0.5, 0.5]
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"embedding": {"values": mock_values}}
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_get_client = AsyncMock(return_value=mock_client)
-
-        import app.services.embedding_utils as eu
-        original = eu.get_http_client
-        eu.get_http_client = mock_get_client
-
-        try:
-            result = await generate_embedding_multimodal(text="hello world")
-            assert isinstance(result, list)
-            assert len(result) == 2
-        finally:
-            eu.get_http_client = original
-
-    @pytest.mark.asyncio
-    async def test_image_only_succeeds(self):
-        """Multimodal embedding with image bytes only should succeed."""
-        mock_values = [0.3, 0.7]
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"embedding": {"values": mock_values}}
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_get_client = AsyncMock(return_value=mock_client)
-
-        import app.services.embedding_utils as eu
-        original = eu.get_http_client
-        eu.get_http_client = mock_get_client
-
-        try:
-            result = await generate_embedding_multimodal(image_bytes=b"\xff\xd8\xff")
-            assert isinstance(result, list)
-            assert len(result) == 2
-        finally:
-            eu.get_http_client = original
-
-    @pytest.mark.asyncio
-    async def test_raises_when_no_input(self):
-        """Should raise ValueError if neither text nor image_bytes is provided."""
-        with pytest.raises(ValueError, match="At least one of text or image_bytes"):
-            await generate_embedding_multimodal()
-
-    @pytest.mark.asyncio
-    async def test_image_encoded_as_base64_in_request(self):
-        """Image bytes should be base64-encoded in the request payload."""
-        mock_values = [0.1, 0.9]
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"embedding": {"values": mock_values}}
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_get_client = AsyncMock(return_value=mock_client)
-
-        import app.services.embedding_utils as eu
-        original = eu.get_http_client
-        eu.get_http_client = mock_get_client
-
-        image_data = b"\xff\xd8\xff\xe0"
-        expected_b64 = base64.standard_b64encode(image_data).decode("utf-8")
-
-        try:
-            await generate_embedding_multimodal(image_bytes=image_data, mime_type="image/jpeg")
-            call_kwargs = mock_client.post.call_args
-            payload = call_kwargs[1]["json"]
-            parts = payload["content"]["parts"]
-            inline_part = next(p for p in parts if "inline_data" in p)
-            assert inline_part["inline_data"]["data"] == expected_b64
-            assert inline_part["inline_data"]["mime_type"] == "image/jpeg"
-        finally:
-            eu.get_http_client = original
-
-    @pytest.mark.asyncio
-    async def test_text_prefix_applied_when_text_present(self):
-        """Multimodal embedding should prefix the text part when text is present."""
-        mock_values = [0.1, 0.9]
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"embedding": {"values": mock_values}}
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_get_client = AsyncMock(return_value=mock_client)
-
-        import app.services.embedding_utils as eu
-        original = eu.get_http_client
-        eu.get_http_client = mock_get_client
-
-        try:
-            await generate_embedding_multimodal(
-                text="caption",
-                image_bytes=b"\xff\xd8\xff",
-                task_type="RETRIEVAL_DOCUMENT",
-                title="Weekly digest",
-            )
-            call_kwargs = mock_client.post.call_args
-            payload = call_kwargs[1]["json"]
-            text_part = next(p for p in payload["content"]["parts"] if "text" in p)
-            assert text_part["text"] == "title: Weekly digest | text: caption"
-            assert "taskType" not in payload
-        finally:
-            eu.get_http_client = original
+        malformed = _response((0, VECTOR_A))
+        malformed.json.side_effect = ValueError("private parser detail")
+        _install_client(monkeypatch, malformed)
+        with pytest.raises(EmbeddingError, match="malformed JSON") as error:
+            await generate_embedding("test")
+        assert "private parser detail" not in str(error.value)
 
 
 class TestGenerateEmbeddingsBatch:
-    """Test batch embedding request formatting."""
+    @pytest.mark.asyncio
+    async def test_empty_batch_does_not_call_service(self, monkeypatch):
+        get_client = AsyncMock()
+        monkeypatch.setattr(embedding_utils, "get_http_client", get_client)
+        assert await generate_embeddings_batch([]) == []
+        get_client.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_batch_applies_titles_for_retrieval_documents(self):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "embeddings": [{"values": [1.0, 0.0]}, {"values": [0.0, 1.0]}]
+    async def test_batch_preserves_raw_inputs_and_response_order(self, monkeypatch):
+        _configure_service(monkeypatch)
+        client = _install_client(monkeypatch, _response((1, VECTOR_B), (0, VECTOR_A)))
+        result = await generate_embeddings_batch(
+            ["alpha", "beta"], "RETRIEVAL_DOCUMENT", titles=["Title A", None]
+        )
+        assert result == [VECTOR_A, VECTOR_B]
+        assert client.post.call_args.kwargs["json"] == {
+            "inputs": [
+                {
+                    "text": "alpha",
+                    "task_type": "RETRIEVAL_DOCUMENT",
+                    "title": "Title A",
+                },
+                {
+                    "text": "beta",
+                    "task_type": "RETRIEVAL_DOCUMENT",
+                    "title": None,
+                },
+            ]
         }
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_get_client = AsyncMock(return_value=mock_client)
-
-        import app.services.embedding_utils as eu
-        original = eu.get_http_client
-        eu.get_http_client = mock_get_client
-
-        try:
-            await generate_embeddings_batch(
-                ["alpha", "beta"],
-                "RETRIEVAL_DOCUMENT",
-                titles=["Title A", None],
-            )
-            payload = mock_client.post.call_args[1]["json"]
-            requests = payload["requests"]
-            assert requests[0]["content"]["parts"][0]["text"] == "title: Title A | text: alpha"
-            assert requests[1]["content"]["parts"][0]["text"] == "title: none | text: beta"
-            assert all("taskType" not in request for request in requests)
-        finally:
-            eu.get_http_client = original
+    @pytest.mark.asyncio
+    async def test_titles_length_must_match_inputs(self):
+        with pytest.raises(ValueError, match="titles must be the same length"):
+            await generate_embeddings_batch(["alpha"], titles=["one", "two"])
 
     @pytest.mark.asyncio
-    async def test_batch_raises_when_titles_length_mismatches(self):
-        with pytest.raises(ValueError, match="titles must be the same length as texts"):
-            await generate_embeddings_batch(["alpha"], titles=["one", "two"])
+    async def test_http_failure_preserves_best_effort_empty_batch(self, monkeypatch):
+        _configure_service(monkeypatch)
+        _install_client(monkeypatch, _response(status_code=529))
+        assert await generate_embeddings_batch(["alpha"]) == []

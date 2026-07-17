@@ -50,6 +50,9 @@ class TestStoreExecution:
         assert result["summary_text"] == "Test summary"
         assert result["is_duplicate"] is False
         mock_pool.fetchrow.assert_called_once()
+        assert mock_pool.fetchrow.await_args.args[6] == (
+            "embeddinggemma-300m-768-int8-onnx-task-prefix-v1"
+        )
 
 
 class TestGetRecentExecutions:

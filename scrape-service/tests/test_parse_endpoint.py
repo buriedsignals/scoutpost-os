@@ -108,53 +108,82 @@ def test_parse_connection_error_maps_to_502(client):
     assert "connection refused" in res.json()["detail"]
 
 
-# ---- Gemini native-PDF fallback (U3d) -------------------------------------
+# ---- OpenRouter/Google Vertex native-PDF fallback --------------------------
 
-def gemini_handler(gemini_status=200, gemini_text="# Transcribed\n\nScanned page text."):
-    """Mock transport answering both the PDF download and the Gemini endpoint."""
+def openrouter_handler(
+    openrouter_status=200,
+    openrouter_text="# Transcribed\n\nScanned page text.",
+):
+    """Mock transport answering both the PDF download and OpenRouter."""
     def handler(request: httpx.Request) -> httpx.Response:
-        if "generativelanguage" in request.url.host:
-            if gemini_status >= 400:
-                return httpx.Response(gemini_status, json={"error": "boom"})
+        if request.url.host == "openrouter.ai":
+            if openrouter_status >= 400:
+                return httpx.Response(openrouter_status, json={"error": "boom"})
             return httpx.Response(
                 200,
-                json={"candidates": [{"content": {"parts": [{"text": gemini_text}]}}]},
+                json={
+                    "choices": [
+                        {
+                            "message": {"content": openrouter_text},
+                            "finish_reason": "stop",
+                        }
+                    ]
+                },
             )
         # the scanned PDF: valid PDF, no extractable text
         return httpx.Response(200, content=EMPTY_PDF)
     return handler
 
 
-def test_parse_gemini_fallback_on_scanned_pdf(app):
+def test_parse_openrouter_native_fallback_on_scanned_pdf(app):
     from app.main import create_app
     from tests.conftest import make_settings
 
-    app = create_app(make_settings(gemini_api_key="g-key"))
-    app.state.http_client = mock_http_client(gemini_handler())
+    app = create_app(make_settings(openrouter_api_key="or-key"))
+    app.state.http_client = mock_http_client(openrouter_handler())
     res = TestClient(app).post(
         "/parse", json={"url": "https://council.example/scanned.pdf"}, headers=auth_headers()
     )
     assert res.status_code == 200
     body = res.json()
-    assert body["parser"] == "gemini"
+    assert body["parser"] == "openrouter"
     assert "Transcribed" in body["markdown"]
 
 
-def test_parse_gemini_fallback_failure_maps_to_502(app):
+def test_parse_keeps_pdftotext_primary_when_openrouter_key_present():
     from app.main import create_app
     from tests.conftest import make_settings
 
-    app = create_app(make_settings(gemini_api_key="g-key"))
-    app.state.http_client = mock_http_client(gemini_handler(gemini_status=500))
+    def text_pdf_only(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "council.example"
+        return httpx.Response(200, content=TEXT_PDF)
+
+    app = create_app(make_settings(openrouter_api_key="or-key"))
+    app.state.http_client = mock_http_client(text_pdf_only)
+    res = TestClient(app).post(
+        "/parse", json={"url": "https://council.example/minutes.pdf"}, headers=auth_headers()
+    )
+    assert res.status_code == 200
+    assert res.json()["parser"] == "pdftotext"
+
+
+def test_parse_openrouter_fallback_failure_maps_to_502(app):
+    from app.main import create_app
+    from tests.conftest import make_settings
+
+    app = create_app(make_settings(openrouter_api_key="or-key"))
+    app.state.http_client = mock_http_client(
+        openrouter_handler(openrouter_status=500)
+    )
     res = TestClient(app).post(
         "/parse", json={"url": "https://council.example/scanned.pdf"}, headers=auth_headers()
     )
     assert res.status_code == 502
-    assert "gemini transcribe failed" in res.json()["detail"]
+    assert "openrouter transcribe failed" in res.json()["detail"]
 
 
-def test_parse_scanned_still_422_without_gemini_key(client):
-    # default `client` fixture has no gemini key → density guard 422s
+def test_parse_scanned_still_422_without_openrouter_key(client):
+    # Default client has no OpenRouter key, so the density guard remains 422.
     res = client.post(
         "/parse", json={"url": "https://council.example/scanned.pdf"}, headers=auth_headers()
     )
@@ -275,9 +304,9 @@ def test_parse_redirect_without_location_maps_to_502(app):
     assert "redirect without Location" in res.json()["detail"]
 
 
-async def test_parse_pdf_url_skips_gemini_when_over_inline_limit():
-    # A scanned PDF larger than Gemini's inline request limit must NOT be sent
-    # to Gemini (it would 4xx) — skip the fallback and surface needs_ocr.
+async def test_parse_pdf_url_skips_openrouter_when_over_inline_limit():
+    # A scanned PDF larger than the proven inline limit must not be sent to
+    # OpenRouter; it surfaces needs_ocr without selecting another PDF parser.
     called = False
 
     async def transcribe(pdf_bytes: bytes) -> str:
@@ -299,7 +328,7 @@ async def test_parse_pdf_url_skips_gemini_when_over_inline_limit():
     assert called is False
 
 
-async def test_parse_pdf_url_uses_gemini_when_under_inline_limit():
+async def test_parse_pdf_url_uses_openrouter_when_under_inline_limit():
     called = False
 
     async def transcribe(pdf_bytes: bytes) -> str:
@@ -318,7 +347,7 @@ async def test_parse_pdf_url_uses_gemini_when_under_inline_limit():
         transcribe_max_bytes=50 * 1024 * 1024,
     )
     assert called is True
-    assert parsed.parser == "gemini"
+    assert parsed.parser == "openrouter"
 
 
 def test_parse_unresolvable_host_maps_to_502(client, monkeypatch):

@@ -18,12 +18,12 @@ class Settings:
     parse_download_timeout_s: float
     parse_max_pdf_bytes: int
     parse_min_chars_per_page: int
-    # Gemini native-PDF fallback for low-yield (scanned / thin) PDFs. When the
-    # density guard trips and a key is present, /parse transcribes via Gemini
-    # instead of returning needs_ocr. Absent key → density guard still 422s.
-    gemini_api_key: str | None
-    gemini_model: str
-    gemini_timeout_s: float
+    # OpenRouter/Google Vertex native-PDF fallback for low-yield PDFs. When the
+    # density guard trips and a key is present, /parse transcribes through the
+    # pinned ZDR route. Absent key → density guard still returns needs_ocr.
+    openrouter_api_key: str | None
+    openrouter_model: str
+    openrouter_timeout_s: float
     # SSRF guard: reject /scrape targets whose host resolves to a
     # loopback/private/link-local/metadata address. On by default (hosted SaaS
     # only ever scrapes public URLs, and snapshot capture now durably STORES the
@@ -50,8 +50,10 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         parse_download_timeout_s=float(e.get("PARSE_DOWNLOAD_TIMEOUT_S", "15")),
         parse_max_pdf_bytes=int(e.get("PARSE_MAX_PDF_BYTES", str(50 * 1024 * 1024))),
         parse_min_chars_per_page=int(e.get("PARSE_MIN_CHARS_PER_PAGE", "100")),
-        gemini_api_key=e.get("GEMINI_API_KEY") or None,
-        gemini_model=e.get("PARSE_GEMINI_MODEL", "gemini-2.5-flash-lite"),
-        gemini_timeout_s=float(e.get("PARSE_GEMINI_TIMEOUT_S", "90")),
+        openrouter_api_key=e.get("OPENROUTER_API_KEY") or None,
+        openrouter_model=e.get(
+            "PARSE_OPENROUTER_MODEL", "google/gemini-2.5-flash-lite"
+        ),
+        openrouter_timeout_s=float(e.get("PARSE_OPENROUTER_TIMEOUT_S", "90")),
         block_private_addresses=e.get("SCRAPE_ALLOW_PRIVATE_ADDRESSES") != "1",
     )

@@ -58,6 +58,24 @@ This replaces EventBridge/Lambda scheduling. Do not add new EventBridge or Lambd
 - MCP requests use `mcp-server` with the self-hosted auth/API-key boundary.
 - Hosted Fleet live tests reuse the same Pro/Team entitlement gate as Fleet creation; self-hosted deployments with credits disabled skip that commercial gate.
 
+## AI transport and PDF boundary
+
+Structured extraction uses the single external `OPENROUTER_API_KEY` and defaults
+to `google/gemini-2.5-flash-lite`; any `LLM_MODEL` override must remain in the
+`google/...` namespace. Every OpenRouter request pins `google-vertex`, requires
+ZDR, denies provider data collection, and sends `X-OpenRouter-Cache: false`.
+Structured output additionally requires provider parameter support.
+
+Text embedding calls use `EMBEDDING_SERVICE_URL` and the generated
+`EMBEDDING_SERVICE_TOKEN`. The internal service runs EmbeddingGemma locally and
+returns the pinned 768-dimensional model space.
+
+PDF parsing is local-first and is not an Edge LLM workflow: the scrape service
+runs Poppler `pdftotext -layout` first. Only a low-yield/scanned PDF may use
+Google native-PDF processing through the same constrained OpenRouter route; it
+forces the native parser and returns `needs_ocr` rather than selecting Mistral,
+Cloudflare, or another parser when that route is unavailable.
+
 ## Current References
 
 - `docs/supabase/edge-functions.md`

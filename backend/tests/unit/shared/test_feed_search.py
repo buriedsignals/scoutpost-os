@@ -202,6 +202,20 @@ class TestSearchSemanticTopic:
             assert len(result["units"]) == 1
             assert result["units"][0]["topic"] == "Climate"
 
+    @pytest.mark.asyncio
+    async def test_embedding_failure_preserves_empty_semantic_search_response(self):
+        service, mock_storage = _make_service()
+
+        with patch(
+            "app.services.feed_search_service.generate_embedding",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("provider unavailable"),
+        ):
+            result = await service.search_semantic("user_123", "climate")
+
+        assert result == {"units": [], "count": 0, "query": "climate"}
+        mock_storage.search_units.assert_not_awaited()
+
 
 class TestGetAllUnusedUnitsTopic:
     """Verify get_all_unused_units() delegates to storage."""

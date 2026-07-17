@@ -14,7 +14,7 @@
  *   FIRECRAWL_API_KEY
  *
  * Optional env:
- *   GEMINI_API_KEY  enables translated country query variants
+ *   OPENROUTER_API_KEY  enables translated country query variants
  *
  * Example:
  *   deno run --allow-env --allow-net scripts/audits/audit-beat-firecrawl-permutations.ts
@@ -24,7 +24,7 @@ import {
   firecrawlSearch,
 } from "../../supabase/functions/_shared/scrape_firecrawl.ts";
 import type { FirecrawlSearchOptions, SearchHit } from "../../supabase/functions/_shared/scrape_types.ts";
-import { geminiExtract } from "../../supabase/functions/_shared/gemini.ts";
+import { openRouterExtract } from "../../supabase/functions/_shared/openrouter.ts";
 
 type Source = "web" | "news";
 
@@ -195,7 +195,7 @@ function auditHit(
 async function translatedScenario(
   scenario: Scenario,
 ): Promise<Scenario | null> {
-  if (!scenario.country || !scenario.lang || !Deno.env.get("GEMINI_API_KEY")) {
+  if (!scenario.country || !scenario.lang || !Deno.env.get("OPENROUTER_API_KEY")) {
     return null;
   }
   const prompt = `Adapt this search query for local news search in ${
@@ -210,7 +210,7 @@ Rules:
 - Keep the country/location in the query.
 - Return one concise search query, no operators, no quotes.`;
 
-  const result = await geminiExtract<TranslationResult>(
+  const result = await openRouterExtract<TranslationResult>(
     prompt,
     {
       type: "object",

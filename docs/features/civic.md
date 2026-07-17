@@ -53,7 +53,7 @@ civic-extract-worker
   -> claim_civic_queue_item() with FOR UPDATE SKIP LOCKED
   -> parse PDF/HTML via Firecrawl
   -> store raw_capture with 30-day expiry
-  -> extract promise JSON with Gemini
+  -> extract promise JSON with openRouterExtract (Google Gemini on Vertex)
   -> upsert canonical information_units / unit_occurrences
   -> upsert promises linked to unit_id
   -> append processed_pdf_urls only after successful extraction
@@ -65,7 +65,10 @@ The queue is deliberately asynchronous. A scheduled run may finish by enqueueing
 
 - Discovery should prefer official listing/archive pages over direct PDF URLs.
 - Civic document parsing supports both PDF and HTML.
-- Firecrawl PDF parsing uses `parsers: [{ type: "pdf", mode: "fast" }]` for embedded-text PDFs and avoids unnecessary OCR.
+- The self-hosted parse path uses Poppler `pdftotext -layout` first. Only
+  low-yield/scanned PDFs use Google's native PDF processing through OpenRouter;
+  the native engine is forced so Mistral/Cloudflare parsing is never selected,
+  otherwise the parser returns `needs_ocr`.
 - Worker attempts are capped at 3. The failsafe resets stale `processing` rows after 30 minutes and eventually marks terminal failures.
 - `scouts.processed_pdf_urls` is capped at 100 and is updated only after a successful extraction, so failed documents remain retryable.
 

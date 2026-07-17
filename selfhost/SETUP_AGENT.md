@@ -15,7 +15,7 @@ FastAPI is optional. Treat it as an add-on only if the user explicitly wants the
 ## Required Inputs
 
 Collect these before you start:
-- `GEMINI_API_KEY`
+- `OPENROUTER_API_KEY`
 - `FIRECRAWL_API_KEY`
 - `RESEND_API_KEY`
 - `RESEND_FROM_EMAIL`
@@ -47,24 +47,19 @@ git checkout master
 - `deploy/docker/docker-compose.yml`
 - `deploy/render/render.yaml`
 
-3. Run Supabase migrations:
+3. Link the Supabase project:
 
 ```bash
 supabase link --project-ref <project-ref>
-supabase db push
 ```
 
-4. Deploy Edge Functions:
-
-```bash
-supabase functions deploy --all
-```
-
-5. Set the function secrets:
+4. Set and verify function secrets before activating new functions:
 
 ```bash
 supabase secrets set \
-  GEMINI_API_KEY=... \
+  OPENROUTER_API_KEY=... \
+  EMBEDDING_SERVICE_URL=https://your-public-embedding-service \
+  EMBEDDING_SERVICE_TOKEN=... \
   FIRECRAWL_API_KEY=... \
   RESEND_API_KEY=... \
   RESEND_FROM_EMAIL=... \
@@ -72,6 +67,12 @@ supabase secrets set \
   PUBLIC_MAPTILER_API_KEY=... \
   ADMIN_EMAILS=... \
   INTERNAL_SERVICE_KEY=...
+```
+
+5. Run Supabase migrations:
+
+```bash
+supabase db push
 ```
 
 6. Seed the signup allowlist created by the migrations:
@@ -83,15 +84,23 @@ selfhost/adopt-signup-allowlist.sh \
   --project-ref <project-ref>
 ```
 
-7. Write the project `.env` with the Supabase and frontend values:
+7. Deploy Edge Functions only after their secrets and database are ready:
+
+```bash
+supabase functions deploy --all
+```
+
+8. Write the project `.env` with the Supabase and frontend values:
 - `DEPLOYMENT_TARGET=supabase`
+- `OPENROUTER_API_KEY=<OPENROUTER_API_KEY>`
+- `LLM_MODEL=google/gemini-2.5-flash-lite`
 - `PUBLIC_DEPLOYMENT_TARGET=supabase`
 - `PUBLIC_SUPABASE_URL=<SUPABASE_URL>`
 - `PUBLIC_SUPABASE_ANON_KEY=<SUPABASE_ANON_KEY>`
 - `PUBLIC_MAPTILER_API_KEY=<PUBLIC_MAPTILER_API_KEY>`
 - optional: `PUBLIC_SELF_HOST_LOGIN_NOTE=Use your @example.org newsroom email.`
 
-8. Build and deploy the frontend:
+9. Build and deploy the frontend:
 
 ```bash
 cd frontend
@@ -99,9 +108,9 @@ npm ci
 npm run build
 ```
 
-9. If the user wants the optional Python API add-on, deploy `backend/` separately or use `deploy/render/render.yaml`.
+10. If the user wants the optional Python API add-on, deploy `backend/` separately or use `deploy/render/render.yaml`.
 
-10. Install the upstream sync workflow by default:
+11. Install the upstream sync workflow by default:
 
 ```bash
 mkdir -p .github/workflows
@@ -126,6 +135,14 @@ run `supabase db push` or deploy functions automatically.
 - Do not assume same-origin `/api` is required.
 - Do not use any license-key flow; the setup is public.
 - Do not use `main` for the public OSS repo. Use `master`.
+- Before production traffic, enable OpenRouter ZDR/account privacy controls,
+  disable prompt/response logging and data sharing, and constrain the key to
+  Scoutpost's expected usage. Runtime requests pin `google-vertex`, require
+  ZDR, deny provider data collection, and disable OpenRouter response caching.
+- Treat OpenRouter and Google Vertex as separate processors in disclosures;
+  the routing change reduces runtime credentials, not processor count.
+- Keep `LLM_MODEL` in the `google/...` namespace. The runtime rejects models
+  that cannot use the pinned Google Vertex route.
 - Install the sync workflow by default and push it to `origin master`.
 - Do not ask the user to paste secrets into AI chat. Prefer the generated
   `scoutpost-setup.json` manifest and `selfhost/setup-from-manifest.sh`.

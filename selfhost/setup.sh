@@ -162,8 +162,8 @@ collect_api_keys() {
     echo "  -- Required --"
     echo ""
 
-    echo "  Gemini (LLM + embeddings): https://aistudio.google.com"
-    prompt_required GEMINI_API_KEY "Gemini API key"
+    echo "  OpenRouter (Google Vertex extraction + scanned-PDF fallback): https://openrouter.ai/keys"
+    prompt_required OPENROUTER_API_KEY "OpenRouter API key"
 
     echo ""
     echo "  Firecrawl (web scraping): https://www.firecrawl.dev"
@@ -187,7 +187,11 @@ collect_api_keys() {
     echo ""
     prompt_optional RESEND_FROM_EMAIL "Notification sender email" "scouts@newsroom.org"
 
-    prompt_optional LLM_MODEL "LLM model" "gemini-2.5-flash-lite"
+    prompt_optional LLM_MODEL "LLM model" "google/gemini-2.5-flash-lite"
+    case "$LLM_MODEL" in
+        google/*) ;;
+        *) die "LLM_MODEL must use the google/ namespace because Scoutpost pins Google Vertex." ;;
+    esac
 
     echo ""
     echo "  -- Signup controls --"
@@ -245,6 +249,8 @@ setup_supabase_managed() {
 
     echo ""
     prompt_required SUPABASE_PROJECT_REF "Supabase project ref (from URL, e.g., abcdefghij)"
+    prompt_required EMBEDDING_SERVICE_URL "Public EmbeddingGemma service URL"
+    EMBEDDING_SERVICE_URL="${EMBEDDING_SERVICE_URL%/}"
 
     # Link the Supabase CLI to the project
     log_info "Linking Supabase CLI to project..."
@@ -256,6 +262,20 @@ setup_supabase_managed() {
     $SUPABASE_CLI db execute --sql "CREATE EXTENSION IF NOT EXISTS \"pg_cron\";"
     $SUPABASE_CLI db execute --sql "CREATE EXTENSION IF NOT EXISTS \"pg_net\";"
     log_success "Extensions enabled"
+
+    # Provision credentials before activating any OpenRouter-only function.
+    $SUPABASE_CLI secrets set \
+        "INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY}" \
+        "OPENROUTER_API_KEY=${OPENROUTER_API_KEY}" \
+        "EMBEDDING_SERVICE_URL=${EMBEDDING_SERVICE_URL}" \
+        "EMBEDDING_SERVICE_TOKEN=${EMBEDDING_SERVICE_TOKEN}" \
+        "FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}" \
+        "RESEND_API_KEY=${RESEND_API_KEY}" \
+        "RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL}" \
+        "APIFY_API_TOKEN=${APIFY_API_TOKEN}" \
+        "PUBLIC_MAPTILER_API_KEY=${PUBLIC_MAPTILER_API_KEY}" \
+        "ADMIN_EMAILS=${ADMIN_EMAILS}"
+    log_success "Edge Function secrets provisioned"
 
     # Run migrations
     log_info "Running database migrations..."
@@ -281,17 +301,6 @@ setup_supabase_managed() {
     # Deploy Edge Functions
     log_info "Deploying Edge Functions..."
     $SUPABASE_CLI functions deploy --all
-
-    # Set the shared secrets the Edge Functions need.
-    $SUPABASE_CLI secrets set \
-        "INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY}" \
-        "GEMINI_API_KEY=${GEMINI_API_KEY}" \
-        "FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}" \
-        "RESEND_API_KEY=${RESEND_API_KEY}" \
-        "RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL}" \
-        "APIFY_API_TOKEN=${APIFY_API_TOKEN}" \
-        "PUBLIC_MAPTILER_API_KEY=${PUBLIC_MAPTILER_API_KEY}" \
-        "ADMIN_EMAILS=${ADMIN_EMAILS}"
     log_success "Edge Functions deployed"
 
     log_info "Seeding Supabase Vault secrets..."
@@ -318,6 +327,7 @@ setup_supabase_selfhosted() {
     prompt_required SUPABASE_SERVICE_KEY "Supabase service role key"
     prompt_required SUPABASE_JWT_SECRET "Supabase JWT secret"
     prompt_required POSTGRES_PASSWORD "PostgreSQL password"
+    EMBEDDING_SERVICE_URL="http://embedding-service:8080"
 
     # Run migrations directly against the database
     log_info "Running database migrations..."
@@ -340,7 +350,8 @@ setup_supabase_selfhosted() {
 
 generate_service_key() {
     INTERNAL_SERVICE_KEY=$(openssl rand -hex 32)
-    log_success "Generated internal service key"
+    EMBEDDING_SERVICE_TOKEN=$(openssl rand -hex 32)
+    log_success "Generated internal service keys"
 }
 
 # ---------------------------------------------------------------------------
@@ -366,8 +377,10 @@ SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
 SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
 
 # LLM
-GEMINI_API_KEY=${GEMINI_API_KEY}
+OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
 LLM_MODEL=${LLM_MODEL}
+EMBEDDING_SERVICE_URL=${EMBEDDING_SERVICE_URL}
+EMBEDDING_SERVICE_TOKEN=${EMBEDDING_SERVICE_TOKEN}
 
 # Web scraping
 FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}

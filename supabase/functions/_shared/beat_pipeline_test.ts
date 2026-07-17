@@ -8,6 +8,7 @@ import {
   addLocationNewsSeedQueries,
   aiFilterResults,
   buildGenerateQueriesPrompt,
+  dedupeByEmbedding,
   ensureBeatLocationSearchLabel,
   getRecencyConfig,
   runSearches,
@@ -111,6 +112,95 @@ Deno.test("reliable location news keeps only a small undated fallback", () => {
   const recency = getRecencyConfig("location", "news", "reliable");
   assertEquals(recency.max_undated_news, 2);
   assertEquals(recency.max_undated_discovery, 2);
+});
+
+Deno.test("dedupeByEmbedding sends one ordered local embedding batch", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<Record<string, unknown>> = [];
+  const first = [1, ...new Array(767).fill(0)];
+  const second = [0, 1, ...new Array(766).fill(0)];
+  try {
+    globalThis.fetch = (async (_input, init) => {
+      const body = (init as { body?: BodyInit | null } | undefined)?.body;
+      requests.push(JSON.parse(String(body)));
+      return new Response(
+        JSON.stringify({
+          model: "embeddinggemma-300m-768-int8-onnx-task-prefix-v1",
+          dimensions: 768,
+          data: [
+            { index: 1, embedding: second },
+            { index: 0, embedding: first },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+    Deno.env.set("EMBEDDING_SERVICE_URL", "https://embedding.internal");
+    Deno.env.set("EMBEDDING_SERVICE_TOKEN", "test-key");
+
+    const hits = await dedupeByEmbedding([
+      { title: "First", description: "Alpha", url: "https://a.example/1" },
+      { title: "Second", description: "Beta", url: "https://b.example/2" },
+    ], { threshold: 0.9 });
+
+    assertEquals(requests.length, 1);
+    assertEquals(requests[0].inputs, [
+      {
+        text: "First. Alpha",
+        task_type: "SEMANTIC_SIMILARITY",
+        title: null,
+      },
+      {
+        text: "Second. Beta",
+        task_type: "SEMANTIC_SIMILARITY",
+        title: null,
+      },
+    ]);
+    assertEquals(hits.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Deno.env.delete("EMBEDDING_SERVICE_URL");
+    Deno.env.delete("EMBEDDING_SERVICE_TOKEN");
+  }
+});
+
+Deno.test("dedupeByEmbedding preserves hits when the batch provider fails", async () => {
+  const originalFetch = globalThis.fetch;
+  const hits = [
+    { title: "First", description: "Alpha", url: "https://a.example/1" },
+    { title: "Second", description: "Beta", url: "https://b.example/2" },
+  ];
+  try {
+    globalThis.fetch = (async () =>
+      new Response("upstream error", { status: 503 })) as typeof fetch;
+    Deno.env.set("EMBEDDING_SERVICE_URL", "https://embedding.internal");
+    Deno.env.set("EMBEDDING_SERVICE_TOKEN", "test-key");
+
+    assertEquals(await dedupeByEmbedding(hits, { threshold: 0.9 }), hits);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Deno.env.delete("EMBEDDING_SERVICE_URL");
+    Deno.env.delete("EMBEDDING_SERVICE_TOKEN");
+  }
+});
+
+Deno.test("dedupeByEmbedding preserves hits when embedding service is not configured", async () => {
+  const originalUrl = Deno.env.get("EMBEDDING_SERVICE_URL");
+  const originalToken = Deno.env.get("EMBEDDING_SERVICE_TOKEN");
+  const hits = [
+    { title: "First", description: "Alpha", url: "https://a.example/1" },
+    { title: "Second", description: "Beta", url: "https://b.example/2" },
+  ];
+  try {
+    Deno.env.delete("EMBEDDING_SERVICE_URL");
+    Deno.env.delete("EMBEDDING_SERVICE_TOKEN");
+    assertEquals(await dedupeByEmbedding(hits, { threshold: 0.9 }), hits);
+  } finally {
+    if (originalUrl) Deno.env.set("EMBEDDING_SERVICE_URL", originalUrl);
+    else Deno.env.delete("EMBEDDING_SERVICE_URL");
+    if (originalToken) Deno.env.set("EMBEDDING_SERVICE_TOKEN", originalToken);
+    else Deno.env.delete("EMBEDDING_SERVICE_TOKEN");
+  }
 });
 
 Deno.test("runSearches uses explicit web-only Firecrawl search by default", async () => {
@@ -297,12 +387,12 @@ Deno.test("aiFilterResults backfills global topic floor only with topical candid
       Promise.resolve(
         new Response(
           JSON.stringify({
-            candidates: [{ content: { parts: [{ text: '{"keep":[0]}' }] } }],
+            choices: [{ message: { content: '{"keep":[0]}' } }],
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       )) as typeof fetch;
-    Deno.env.set("GEMINI_API_KEY", "test-key");
+    Deno.env.set("OPENROUTER_API_KEY", "test-key");
 
     const hits = await aiFilterResults(
       [
@@ -339,7 +429,7 @@ Deno.test("aiFilterResults backfills global topic floor only with topical candid
     ]);
   } finally {
     globalThis.fetch = originalFetch;
-    Deno.env.delete("GEMINI_API_KEY");
+    Deno.env.delete("OPENROUTER_API_KEY");
   }
 });
 
@@ -350,14 +440,12 @@ Deno.test("aiFilterResults rejects AI-only drift for AI journalism topic", async
       Promise.resolve(
         new Response(
           JSON.stringify({
-            candidates: [{
-              content: { parts: [{ text: '{"keep":[0,1,2]}' }] },
-            }],
+            choices: [{ message: { content: '{"keep":[0,1,2]}' } }],
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       )) as typeof fetch;
-    Deno.env.set("GEMINI_API_KEY", "test-key");
+    Deno.env.set("OPENROUTER_API_KEY", "test-key");
 
     const hits = await aiFilterResults(
       [
@@ -393,19 +481,19 @@ Deno.test("aiFilterResults rejects AI-only drift for AI journalism topic", async
     ]);
   } finally {
     globalThis.fetch = originalFetch;
-    Deno.env.delete("GEMINI_API_KEY");
+    Deno.env.delete("OPENROUTER_API_KEY");
   }
 });
 
 Deno.test("aiFilterResults fails closed for location scouts when the filter errors", async () => {
   const originalFetch = globalThis.fetch;
   try {
-    // Gemini outage: non-OK response makes geminiExtract throw.
+    // OpenRouter outage: non-OK response makes openRouterExtract throw.
     globalThis.fetch = (() =>
       Promise.resolve(
         new Response("upstream error", { status: 500 }),
       )) as typeof fetch;
-    Deno.env.set("GEMINI_API_KEY", "test-key");
+    Deno.env.set("OPENROUTER_API_KEY", "test-key");
 
     const hits = await aiFilterResults(
       [
@@ -436,7 +524,7 @@ Deno.test("aiFilterResults fails closed for location scouts when the filter erro
     ]);
   } finally {
     globalThis.fetch = originalFetch;
-    Deno.env.delete("GEMINI_API_KEY");
+    Deno.env.delete("OPENROUTER_API_KEY");
   }
 });
 

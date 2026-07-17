@@ -25,7 +25,7 @@ import {
   jsonPaginated,
 } from "../_shared/responses.ts";
 import { NotFoundError, ValidationError } from "../_shared/errors.ts";
-import { EMBEDDING_MODEL_TAG, geminiEmbed } from "../_shared/gemini.ts";
+import { EMBEDDING_MODEL_TAG, embedText } from "../_shared/embedding.ts";
 import { logEvent } from "../_shared/log.ts";
 
 const UuidArray = z.array(z.string().uuid()).optional();
@@ -158,17 +158,17 @@ async function createReflection(
     metadata: parsed.data.metadata ?? {},
   };
 
-  // Embed content if GEMINI_API_KEY is configured. On failure or absence,
+  // Embed content if the local service is configured. On failure or absence,
   // log a warning and insert without embedding so the reflection is still
   // stored (semantic search simply skips rows with NULL embedding).
-  if (Deno.env.get("GEMINI_API_KEY")) {
+  if (Deno.env.get("EMBEDDING_SERVICE_URL")) {
     try {
-      const embedding = await geminiEmbed(
+      const embedding = await embedText(
         parsed.data.content,
         "RETRIEVAL_DOCUMENT",
       );
-      row.embedding = embedding;
-      row.embedding_model = EMBEDDING_MODEL_TAG;
+      row.embedding_v2 = embedding;
+      row.embedding_model_v2 = EMBEDDING_MODEL_TAG;
     } catch (e) {
       logEvent({
         level: "warn",
@@ -184,7 +184,8 @@ async function createReflection(
       fn: "reflections",
       event: "embed_skipped",
       user_id: user.id,
-      msg: "GEMINI_API_KEY not set; inserting reflection without embedding",
+      msg:
+        "EMBEDDING_SERVICE_URL not set; inserting reflection without embedding",
     });
   }
 
@@ -237,13 +238,13 @@ async function searchReflections(
     );
   }
 
-  const embedding = await geminiEmbed(
+  const embedding = await embedText(
     parsed.data.query_text,
     "RETRIEVAL_QUERY",
   );
 
   const svc = getServiceClient();
-  const { data, error } = await svc.rpc("semantic_search_reflections", {
+  const { data, error } = await svc.rpc("semantic_search_reflections_v2", {
     p_embedding: embedding,
     p_user_id: user.id,
     p_project_id: parsed.data.project_id ?? null,

@@ -66,9 +66,9 @@ async function parseViaService(
 ): Promise<DocParseResult | typeof NOT_A_PDF> {
   const { url: base, token } = serviceConfig();
   const timeoutMs = opts.timeoutMs ?? 120_000;
-  // The /parse path can run download → pdftotext → Gemini native-PDF fallback
-  // server-side (up to ~135s on a large scanned doc). The client fuse must
-  // outlast that, or the fallback the service is doing gets abandoned right
+  // The /parse path can run download → pdftotext → native Google PDF fallback
+  // through OpenRouter server-side (up to ~135s on a large scanned doc). The
+  // client fuse must outlast that, or the service fallback gets abandoned just
   // before it returns. pg_cron civic parsing is not latency-sensitive.
   const abortAfterMs = opts.abortAfterMs ?? 210_000;
 

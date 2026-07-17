@@ -300,6 +300,138 @@ Deno.test("manifest setup uses Supabase access token instead of browser login", 
   assertNotIncludes(script, "$SUPABASE_CLI login", "setup script");
 });
 
+Deno.test("manifest v1 requires an OpenRouter key with an actionable upgrade error", async () => {
+  const tmp = await Deno.makeTempDir();
+  const manifest = `${tmp}/scoutpost-setup.json`;
+  await Deno.writeTextFile(
+    manifest,
+    JSON.stringify({
+      version: 1,
+      services: { gemini_api_key: "legacy-direct-key" },
+    }),
+  );
+
+  const result = await run("bash", [manifestSetupScript, manifest], tmp);
+
+  assert(result.code !== 0, "Gemini-only v1 manifest should fail");
+  assertIncludes(
+    result.stderr,
+    "Manifest version 1 is Gemini-only",
+    "setup stderr",
+  );
+  assertIncludes(result.stderr, "services.openrouter_api_key", "setup stderr");
+  assertIncludes(result.stderr, "version 2 manifest", "setup stderr");
+});
+
+Deno.test("manifest v2 rejects the removed Gemini field", async () => {
+  const tmp = await Deno.makeTempDir();
+  const manifest = `${tmp}/scoutpost-setup.json`;
+  await Deno.writeTextFile(
+    manifest,
+    JSON.stringify({
+      version: 2,
+      services: {
+        openrouter_api_key: "openrouter-secret",
+        gemini_api_key: "legacy-direct-key",
+      },
+    }),
+  );
+
+  const result = await run("bash", [manifestSetupScript, manifest], tmp);
+
+  assert(result.code !== 0, "v2 manifest with Gemini field should fail");
+  assertIncludes(
+    result.stderr,
+    "version 2 must not contain services.gemini_api_key",
+    "setup stderr",
+  );
+  assertIncludes(result.stderr, "single AI credential", "setup stderr");
+});
+
+Deno.test("example v2 manifest contains exactly one AI key", async () => {
+  const example = JSON.parse(
+    await Deno.readTextFile(
+      `${repoRoot}/deploy/installer/scoutpost-setup.example.json`,
+    ),
+  );
+  const aiKeys = Object.keys(example.services).filter((key) =>
+    /(?:gemini|openrouter)_api_key/.test(key)
+  );
+
+  assert(example.version === 2, "example manifest should use version 2");
+  assert(
+    aiKeys.length === 1,
+    `expected one AI key, found: ${aiKeys.join(", ")}`,
+  );
+  assert(
+    aiKeys[0] === "openrouter_api_key",
+    "OpenRouter should be the only AI key",
+  );
+});
+
+Deno.test("runtime setup wiring uses one OpenRouter key and full model IDs", async () => {
+  const paths = [
+    ".env.example",
+    "docker-compose.yml",
+    "render.yaml",
+    "deploy/docker/.env.example",
+    "deploy/docker/docker-compose.yml",
+    "deploy/render/render.yaml",
+    "selfhost/setup.sh",
+  ];
+
+  for (const path of paths) {
+    const content = await Deno.readTextFile(`${repoRoot}/${path}`);
+    assertIncludes(content, "OPENROUTER_API_KEY", path);
+    assertNotIncludes(content, "GEMINI_API_KEY", path);
+  }
+
+  const modelFiles = [
+    ".env.example",
+    "docker-compose.yml",
+    "deploy/docker/.env.example",
+    "deploy/docker/docker-compose.yml",
+    "deploy/render/render.yaml",
+    "selfhost/setup.sh",
+  ];
+  for (const path of modelFiles) {
+    const content = await Deno.readTextFile(`${repoRoot}/${path}`);
+    assertIncludes(content, "google/gemini-2.5-flash-lite", path);
+  }
+});
+
+Deno.test("setup provisions Edge secrets before deploying functions", async () => {
+  const manifestScript = await Deno.readTextFile(manifestSetupScript);
+  const manifestCalls = manifestScript.slice(
+    manifestScript.lastIndexOf("\ninstall_node_tooling\n"),
+  );
+  assert(
+    manifestCalls.indexOf("\nset_supabase_secrets\n") <
+      manifestCalls.indexOf("\ndeploy_edge_functions\n"),
+    "manifest setup must set secrets before function deployment",
+  );
+
+  const interactiveScript = await Deno.readTextFile(
+    `${repoRoot}/selfhost/setup.sh`,
+  );
+  const setupStart = interactiveScript.indexOf("setup_supabase_managed() {");
+  const setupEnd = interactiveScript.indexOf(
+    "setup_supabase_selfhosted() {",
+    setupStart,
+  );
+  const managedSetup = interactiveScript.slice(setupStart, setupEnd);
+  assert(
+    managedSetup.indexOf("$SUPABASE_CLI secrets set") <
+      managedSetup.indexOf("$SUPABASE_CLI functions deploy --all"),
+    "interactive setup must set secrets before function deployment",
+  );
+  assertIncludes(
+    interactiveScript,
+    "LLM_MODEL must use the google/ namespace",
+    "interactive setup",
+  );
+});
+
 Deno.test("manifest setup manual provider writes porting packet without Supabase execution", async () => {
   const tmp = await Deno.makeTempDir();
   await Deno.mkdir(`${tmp}/frontend`, { recursive: true });
@@ -312,7 +444,7 @@ Deno.test("manifest setup manual provider writes porting packet without Supabase
       app_url: "https://newsroom.example.com",
     },
     services: {
-      gemini_api_key: "gemini-secret",
+      openrouter_api_key: "openrouter-secret",
       firecrawl_api_key: "firecrawl-secret",
       apify_api_token: "apify-secret",
       resend_api_key: "resend-secret",

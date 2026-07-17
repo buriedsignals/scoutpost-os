@@ -4,7 +4,7 @@
  * Triggered by pg_cron every 2 minutes with empty body `{}`. The function
  * claims one queue row via claim_civic_queue_item (SKIP LOCKED), scrapes
  * the source URL through Firecrawl, extracts promises/commitments via
- * Gemini (JSON-schema-constrained), persists a raw_capture plus N
+ * OpenRouter (JSON-schema-constrained), persists a raw_capture plus N
  * promise rows, and marks the queue row done.
  *
  * On any failure the queue row is updated status='failed' with
@@ -24,11 +24,8 @@ import { logEvent } from "../_shared/log.ts";
 import { classifyCivicQueueFailure } from "../_shared/civic_queue_state.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
 import { NeedsOcrError, parseDocument } from "../_shared/docparse.ts";
-import {
-  EMBEDDING_MODEL_TAG,
-  geminiEmbed,
-  geminiExtract,
-} from "../_shared/gemini.ts";
+import { EMBEDDING_MODEL_TAG, embedText } from "../_shared/embedding.ts";
+import { openRouterExtract } from "../_shared/openrouter.ts";
 import { languageName } from "../_shared/atomic_extract.ts";
 import {
   compressContext,
@@ -274,10 +271,10 @@ async function processItem(
   if (row.scout_run_id) {
     await markRunStage(svc, row.scout_run_id, "scrape");
   }
-  // Note on the Gemini fallback (U3d): a scanned PDF parsed via Gemini yields
-  // non-deterministic text, but civic-execute suppresses re-enqueueing already-
-  // processed URLs (scouts.processed_pdf_urls), so each doc is parsed once —
-  // no content_sha256 churn across runs.
+  // The native Google PDF fallback through OpenRouter yields non-deterministic
+  // text, but civic-execute suppresses re-enqueueing already-processed URLs
+  // (scouts.processed_pdf_urls), so each doc is parsed once and does not cause
+  // content_sha256 churn across runs.
   let scraped;
   try {
     scraped = await parseDocument(row.source_url);
@@ -291,7 +288,9 @@ async function processItem(
     throw e;
   }
   const markdown = (scraped.markdown ?? "").slice(0, RAW_CONTENT_MAX);
-  if (!markdown.trim()) throw new Error("document parse returned empty markdown");
+  if (!markdown.trim()) {
+    throw new Error("document parse returned empty markdown");
+  }
 
   const contentHash = await sha256Hex(markdown);
   const sourceDomain = deriveSourceDomain(row.source_url);
@@ -322,8 +321,8 @@ async function processItem(
   if (capErr) throw new Error(capErr.message);
   const rawCaptureId = capture.id as string;
 
-  // 4. Gemini extract promises (language-forced, 5W1H style — mirrors prod
-  //    civic pipeline. Criteria is passed as filter data so Gemini only
+  // 4. Extract promises (language-forced, 5W1H style — mirrors prod
+  //    civic pipeline. Criteria is passed as filter data so the model only
   //    surfaces promises relevant to the scout's beat, and the system
   //    instruction forces the scout's preferred_language in the output.)
   const { text: compressedMarkdown, stats: civicStats } = compressContext(
@@ -371,7 +370,7 @@ Set criteria_match=false for any promise that fails or only partially satisfies 
   if (row.scout_run_id) {
     await markRunStage(svc, row.scout_run_id, "extract");
   }
-  const extraction = await geminiExtract<{ promises: ExtractedPromise[] }>(
+  const extraction = await openRouterExtract<{ promises: ExtractedPromise[] }>(
     userPrompt,
     EXTRACTION_SCHEMA,
     {
@@ -415,16 +414,8 @@ Set criteria_match=false for any promise that fails or only partially satisfies 
     }
     let embedding: number[] | null = null;
     try {
-      embedding = await geminiEmbed(p.promise_text, "RETRIEVAL_DOCUMENT", {
+      embedding = await embedText(p.promise_text, "RETRIEVAL_DOCUMENT", {
         title: scraped.title ?? null,
-        usage: {
-          db: svc,
-          userId,
-          scoutId: row.scout_id,
-          runId: row.scout_run_id,
-          functionName: "civic-extract-worker",
-          operation: "civic_embed_promise",
-        },
       });
     } catch (e) {
       logEvent({

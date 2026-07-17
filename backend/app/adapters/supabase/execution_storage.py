@@ -1,6 +1,6 @@
 """Supabase implementation of ExecutionStoragePort.
 
-Uses asyncpg for storage. Embeddings are stored as native pgvector vector(1536) columns.
+Uses asyncpg for storage. Embeddings are stored in the 768d shadow column.
 Duplicate detection that previously lived in ExecutionDeduplicationService (deleted
 post-cutover) now runs inside Supabase Edge Functions; this adapter exposes
 get_recent_embeddings() for that purpose.
@@ -50,7 +50,7 @@ class SupabaseExecutionStorage(ExecutionStoragePort):
             """
             INSERT INTO execution_records (
                 user_id, scout_id, scout_type, summary_text,
-                embedding, embedding_model, content_hash, is_duplicate,
+                embedding_v2, embedding_model_v2, content_hash, is_duplicate,
                 metadata, completed_at
             )
             VALUES (
@@ -95,11 +95,11 @@ class SupabaseExecutionStorage(ExecutionStoragePort):
         await self._ensure_pool()
         rows = await self.pool.fetch(
             """
-            SELECT id, summary_text, embedding, completed_at
+            SELECT id, summary_text, embedding_v2 AS embedding, completed_at
             FROM execution_records
             WHERE user_id = $1::uuid
                 AND scout_id = (SELECT id FROM scouts WHERE user_id = $1::uuid AND name = $2)
-                AND embedding IS NOT NULL
+                AND embedding_v2 IS NOT NULL
             ORDER BY completed_at DESC
             LIMIT $3
             """,

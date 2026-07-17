@@ -19,7 +19,8 @@ Required API keys:
 
 | Service | Purpose | Required |
 | --- | --- | --- |
-| Gemini | LLM + embeddings | Yes |
+| OpenRouter | Google Vertex extraction + scanned-PDF fallback | Yes |
+| EmbeddingGemma | Local text embeddings (included service; no API key) | Included |
 | Firecrawl | Web scraping/search | Yes |
 | Resend | Email notifications | Yes |
 | Apify | Social media scraping | Yes |
@@ -57,17 +58,18 @@ supabase link --project-ref YOUR_PROJECT_REF
 supabase db push
 ```
 
-### 4. Deploy Edge Functions
+### 4. Provision secrets, then deploy Edge Functions
 
-```bash
-supabase functions deploy --all
-```
-
-Set the secrets used by your functions:
+Set and verify the secrets before activating functions that require the new
+OpenRouter credential or the local embedding service. Deploy
+`embedding-service/` first, generate one bearer token, and use the same URL and
+token in the service and Supabase:
 
 ```bash
 supabase secrets set \
-  GEMINI_API_KEY=... \
+  OPENROUTER_API_KEY=... \
+  EMBEDDING_SERVICE_URL=https://your-embedding-service \
+  EMBEDDING_SERVICE_TOKEN=... \
   FIRECRAWL_API_KEY=... \
   RESEND_API_KEY=... \
   RESEND_FROM_EMAIL=... \
@@ -75,6 +77,12 @@ supabase secrets set \
   PUBLIC_MAPTILER_API_KEY=... \
   ADMIN_EMAILS=... \
   INTERNAL_SERVICE_KEY=...
+```
+
+Only after the secret command succeeds:
+
+```bash
+supabase functions deploy --all
 ```
 
 ### 5. Configure the frontend
@@ -88,8 +96,10 @@ SUPABASE_URL=...
 SUPABASE_SERVICE_KEY=...
 SUPABASE_ANON_KEY=...
 SUPABASE_JWT_SECRET=...
-GEMINI_API_KEY=...
-LLM_MODEL=gemini-2.5-flash-lite
+OPENROUTER_API_KEY=...
+LLM_MODEL=google/gemini-2.5-flash-lite
+EMBEDDING_SERVICE_URL=https://your-embedding-service
+EMBEDDING_SERVICE_TOKEN=...
 FIRECRAWL_API_KEY=...
 RESEND_API_KEY=...
 RESEND_FROM_EMAIL=...
@@ -165,9 +175,18 @@ After reviewing and merging an upstream sync PR, run:
 
 ```bash
 selfhost/selfhost-doctor.sh
+supabase secrets set "OPENROUTER_API_KEY=$OPENROUTER_API_KEY"
 supabase db push
 supabase functions deploy --all
 ```
+
+For the EmbeddingGemma cutover, do not activate the new Edge Functions until
+the exact pinned INT8 benchmark passes. Apply migration 00082, run the initial
+shadow backfill, pause schedules and ingest, drain active workers, run the final
+delta, and require zero null or incorrectly tagged shadow vectors. Then deploy
+the Edge Functions and resume traffic. The OpenRouter and embedding-service
+secrets must already be present before the new functions become active. The
+full verification and rollback procedure is in `docs/supabase/migrations.md`.
 
 ## Optional FastAPI Add-on
 

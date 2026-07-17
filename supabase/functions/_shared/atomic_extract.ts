@@ -4,7 +4,7 @@
  *
  * Why this file exists:
  *   The original migration extracted units from a concatenated multi-source
- *   markdown blob in ONE Gemini call. That lost per-source attribution (all
+ *   markdown blob in one model call. That lost per-source attribution (all
  *   units got stamped with the first source) and never forced target
  *   language. Audit runs against prod surfaced four quality regressions:
  *   language FAIL, source_diversity violation, 95% undated ratio, and
@@ -17,7 +17,7 @@
  *   - accurate source_url / source_title / source_domain per unit
  */
 
-import { geminiExtract, type GeminiUsageContext } from "./gemini.ts";
+import { type AiUsageContext, openRouterExtract } from "./openrouter.ts";
 import type { ScrapeResult } from "./scrape_types.ts";
 import { logEvent } from "./log.ts";
 import { compressContext, logCompressionStats } from "./taco_compress.ts";
@@ -219,20 +219,20 @@ export interface ExtractSourceInput {
   language: string;
   /**
    * Criteria to bias extraction toward relevant content.
-   * Passed to the user prompt, NOT the system prompt, so Gemini treats it
+   * Passed to the user prompt, not the system prompt, so the model treats it
    * as data to filter against, not instructions to follow.
    */
   criteria?: string | null;
   /** Max units per article. Prod uses 3 for search-based, 8 for web pages. */
   maxUnits?: number;
-  /** Max content characters passed to Gemini. Prod: 3000 beat / 6000 web. */
+  /** Max content characters passed to the model. Prod: 3000 beat / 6000 web. */
   contentLimit?: number;
   /** Shift a late extraction window to a strongly matching article heading. */
   anchorToTitle?: boolean;
-  /** Optional Gemini request timeout override for this extraction call. */
+  /** Optional OpenRouter timeout override for this extraction call. */
   timeoutMs?: number;
   /** Optional context for actual provider-token usage accounting. */
-  usage?: GeminiUsageContext;
+  usage?: AiUsageContext;
 }
 
 /**
@@ -293,7 +293,7 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
     `Extract 1-${maxUnits} atomic units. If the article lacks concrete facts, return an empty list.`;
 
   try {
-    const result = await geminiExtract<ExtractionResult>(
+    const result = await openRouterExtract<ExtractionResult>(
       userPrompt,
       EXTRACTION_SCHEMA,
       { systemInstruction: systemPrompt(langName), timeoutMs, usage },

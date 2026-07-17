@@ -17,16 +17,13 @@
  * invoke the pipeline twice with different `category` values.
  */
 
-import {
-  geminiEmbed,
-  geminiExtract,
-  type GeminiUsageContext,
-} from "./gemini.ts";
+import { type AiUsageContext, openRouterExtract } from "./openrouter.ts";
+import { embedBatch } from "./embedding.ts";
 import { firecrawlSearch } from "./scrape_firecrawl.ts";
 import type { SearchHit } from "./scrape_types.ts";
 import { exaSearchWithMetadata } from "./exa.ts";
 import { logEvent } from "./log.ts";
-import { cosineSimilarity } from "./dedup.ts";
+import { cosineSimilarity, hasStructuredConflict } from "./dedup.ts";
 import { buildBeatCriteriaRule } from "./beat_criteria.ts";
 import { compressContext, logCompressionStats } from "./taco_compress.ts";
 import { buildBeatLocationSearchLabel } from "./beat_location.ts";
@@ -189,7 +186,7 @@ export interface GenerateOpts {
   criteria?: string | null;
   category: BeatCategory;
   numQueries?: number;
-  usage?: GeminiUsageContext;
+  usage?: AiUsageContext;
 }
 
 export interface GenerateQueriesPrompt {
@@ -319,7 +316,7 @@ export async function generateQueries(
   });
 
   try {
-    const res = await geminiExtract<BeatQueryPlan>(prompt, QUERY_SCHEMA, {
+    const res = await openRouterExtract<BeatQueryPlan>(prompt, QUERY_SCHEMA, {
       systemInstruction,
       usage: opts.usage
         ? {
@@ -716,7 +713,7 @@ export interface BeatDiscoveryOpts {
   excludedDomains?: string[];
   retrievalPort?: "firecrawl" | "exa";
   exaType?: "auto" | "deep-lite";
-  usage?: GeminiUsageContext;
+  usage?: AiUsageContext;
 }
 
 export interface BeatDiscoveryResult {
@@ -923,7 +920,7 @@ export async function discoverBeatHits(
     ? 0.85
     : opts.scope === "location"
     ? 0.82
-    : 0.80;
+    : 0.82;
   const tld = countryTld(opts.countryCode ?? null);
   hits = await dedupeByEmbedding(hits, {
     threshold,
@@ -1157,7 +1154,7 @@ export interface DedupeOpts {
   threshold: number;
   primaryLanguage?: string | null;
   localTlds?: string[];
-  usage?: GeminiUsageContext;
+  usage?: AiUsageContext;
 }
 
 /**
@@ -1223,12 +1220,11 @@ export async function dedupeByEmbedding(
   );
   let embeddings: number[][];
   try {
-    embeddings = await Promise.all(
-      texts.map((t) =>
-        geminiEmbed(t || " ", "SEMANTIC_SIMILARITY", {
-          usage: opts.usage,
-        })
-      ),
+    embeddings = await embedBatch(
+      texts.map((text) => ({
+        text: text || " ",
+        taskType: "SEMANTIC_SIMILARITY",
+      })),
     );
   } catch (e) {
     logEvent({
@@ -1260,7 +1256,10 @@ export async function dedupeByEmbedding(
     const cluster = [i];
     for (let j = i + 1; j < hits.length; j++) {
       if (used[j]) continue;
-      if (cosineSimilarity(embeddings[i], embeddings[j]) >= opts.threshold) {
+      if (
+        !hasStructuredConflict(texts[i], texts[j]) &&
+        cosineSimilarity(embeddings[i], embeddings[j]) >= opts.threshold
+      ) {
         cluster.push(j);
         used[j] = true;
       }
@@ -1306,7 +1305,7 @@ export interface AiFilterOpts {
   localizedQuery?: string | null;
   excludedDomains?: string[];
   maxResults: number;
-  usage?: GeminiUsageContext;
+  usage?: AiUsageContext;
 }
 
 const AI_FILTER_SCHEMA = {
@@ -1649,7 +1648,7 @@ export async function aiFilterResults(
     : "You are a ruthless topic editor. Drop irrelevant content, vendor marketing, evergreen explainers, and press releases. Output only JSON.";
 
   try {
-    const res = await geminiExtract<{ keep: number[] }>(
+    const res = await openRouterExtract<{ keep: number[] }>(
       prompt,
       AI_FILTER_SCHEMA,
       {
@@ -1700,7 +1699,7 @@ export async function aiFilterResults(
     });
     // Fail CLOSED. A relevance-filter outage must never ship LLM-unfiltered
     // candidates to the digest — that is the 2026-07 regression where a single
-    // Gemini error dumped every raw Exa hit (e.g. a Russian semiconductor story
+    // Provider errors used to dump every raw Exa hit (for example, a Russian semiconductor story
     // into an English housing beat). Degrade to a deterministic relevance
     // backstop instead of pass-through: location scouts keep only candidates
     // that mention the place; topic scouts keep only topic-signal matches.

@@ -1,6 +1,6 @@
 import { discoverCivicDocumentsFromTrackedPages } from "./civic_links.ts";
 import { parseDocument } from "./docparse.ts";
-import { geminiExtract } from "./gemini.ts";
+import { openRouterExtract } from "./openrouter.ts";
 import { compressContext } from "./taco_compress.ts";
 
 const PREVIEW_MARKDOWN_MAX = 15_000;
@@ -60,9 +60,12 @@ export async function previewCivicTrackedUrls(
   criteria?: string,
   opts: { maxDocs?: number; maxPromisesPerDocument?: number } = {},
 ): Promise<CivicPreviewBundle> {
-  const { documentUrls } = await discoverCivicDocumentsFromTrackedPages(trackedUrls, {
-    maxDocs: opts.maxDocs ?? 5,
-  });
+  const { documentUrls } = await discoverCivicDocumentsFromTrackedPages(
+    trackedUrls,
+    {
+      maxDocs: opts.maxDocs ?? 5,
+    },
+  );
 
   const documents: CivicPreviewDocument[] = [];
   const maxPromisesPerDocument = Math.max(1, opts.maxPromisesPerDocument ?? 10);
@@ -77,30 +80,37 @@ export async function previewCivicTrackedUrls(
       continue;
     }
 
-    const { text: markdown } = compressContext((scraped.markdown ?? "").slice(0, PREVIEW_MARKDOWN_MAX));
+    const { text: markdown } = compressContext(
+      (scraped.markdown ?? "").slice(0, PREVIEW_MARKDOWN_MAX),
+    );
     if (!markdown.trim()) continue;
 
     const prompt = buildPreviewPrompt(markdown, documentUrl, criteria);
     let extraction: { promises: ExtractedPreviewPromise[] };
     try {
-      extraction = await geminiExtract(prompt, PREVIEW_EXTRACTION_SCHEMA);
+      extraction = await openRouterExtract(prompt, PREVIEW_EXTRACTION_SCHEMA);
     } catch {
       continue;
     }
 
     const sourceDateFromUrl = extractDateFromUrl(documentUrl);
-    const promises = (Array.isArray(extraction.promises) ? extraction.promises : [])
-      .filter((promise) => promise && typeof promise.promise_text === "string" && promise.promise_text.trim())
-      .slice(0, maxPromisesPerDocument)
-      .map((promise): CivicPreviewPromise => ({
-        promise_text: promise.promise_text.trim(),
-        context: promise.context ?? "",
-        source_url: documentUrl,
-        source_date: normalizeDate(promise.source_date) ?? sourceDateFromUrl,
-        due_date: normalizeDate(promise.due_date) ?? undefined,
-        date_confidence: normalizeConfidence(promise.date_confidence) ?? "low",
-        criteria_match: true,
-      }));
+    const promises =
+      (Array.isArray(extraction.promises) ? extraction.promises : [])
+        .filter((promise) =>
+          promise && typeof promise.promise_text === "string" &&
+          promise.promise_text.trim()
+        )
+        .slice(0, maxPromisesPerDocument)
+        .map((promise): CivicPreviewPromise => ({
+          promise_text: promise.promise_text.trim(),
+          context: promise.context ?? "",
+          source_url: documentUrl,
+          source_date: normalizeDate(promise.source_date) ?? sourceDateFromUrl,
+          due_date: normalizeDate(promise.due_date) ?? undefined,
+          date_confidence: normalizeConfidence(promise.date_confidence) ??
+            "low",
+          criteria_match: true,
+        }));
 
     documents.push({
       source_url: documentUrl,
@@ -173,9 +183,13 @@ function normalizeDate(value: string | null | undefined): string | null {
   return parsed.toISOString().slice(0, 10);
 }
 
-function normalizeConfidence(value: string | null | undefined): "high" | "medium" | "low" | null {
+function normalizeConfidence(
+  value: string | null | undefined,
+): "high" | "medium" | "low" | null {
   if (!value) return null;
   const lowered = value.trim().toLowerCase();
-  if (lowered === "high" || lowered === "medium" || lowered === "low") return lowered;
+  if (lowered === "high" || lowered === "medium" || lowered === "low") {
+    return lowered;
+  }
   return null;
 }

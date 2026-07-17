@@ -82,7 +82,9 @@ services:
       SUPABASE_DB_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       VERIFY_JWT: "false"
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      EMBEDDING_SERVICE_URL: http://embedding-service:8080
+      EMBEDDING_SERVICE_TOKEN: ${EMBEDDING_SERVICE_TOKEN:-local-embedding-token}
       # Self-hosted scrape service (SCRAPING-MIGRATION-PRD U6) — the Firecrawl
       # replacement. Default stays firecrawl: several call sites (web-scout
       # baseline, civic link-harvest, Beat direct scrapes) still call Firecrawl
@@ -113,10 +115,19 @@ services:
       dockerfile: Dockerfile
     environment:
       SCRAPE_SERVICE_TOKEN: ${SCRAPE_SERVICE_TOKEN:-local-scrape-token}
-      # Optional: enables the Gemini native-PDF fallback for scanned/thin PDFs.
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # Google Vertex native-PDF fallback through OpenRouter.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       PORT: "8080"
     shm_size: 1gb
+    restart: unless-stopped
+
+  embedding-service:
+    build:
+      context: ../../embedding-service
+      dockerfile: Dockerfile
+    environment:
+      EMBEDDING_SERVICE_TOKEN: ${EMBEDDING_SERVICE_TOKEN:-local-embedding-token}
+      PORT: "8080"
     restart: unless-stopped
 
   kong:
@@ -162,9 +173,10 @@ services:
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash-lite}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      EMBEDDING_SERVICE_URL: http://embedding-service:8080
+      EMBEDDING_SERVICE_TOKEN: ${EMBEDDING_SERVICE_TOKEN:-local-embedding-token}
+      LLM_MODEL: ${LLM_MODEL:-google/gemini-2.5-flash-lite}
       EXA_API_KEY: ${EXA_API_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-scouts@newsroom.org}

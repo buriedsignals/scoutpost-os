@@ -22,6 +22,7 @@ describe('setup page', () => {
 			expect.stringContaining('scoutpost-setup.example.json')
 		);
 		expect(screen.queryByLabelText(/gemini api key/i)).not.toBeInTheDocument();
+		expect(screen.getByText(/OpenRouter API key/i)).toBeInTheDocument();
 		expect(screen.queryByLabelText(/supabase access token/i)).not.toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /download docker installer/i })).not.toBeInTheDocument();
 		expect(screen.queryByText(/shell fallback/i)).not.toBeInTheDocument();
@@ -31,7 +32,8 @@ describe('setup page', () => {
 		render(SetupPage);
 
 		// Each required key is named in the manifest checklist.
-		expect(screen.getByText(/Gemini API key/i)).toBeInTheDocument();
+		expect(screen.getByText(/OpenRouter API key/i)).toBeInTheDocument();
+		expect(screen.queryByText(/Gemini API key/i)).not.toBeInTheDocument();
 		expect(screen.getByText(/Firecrawl API key/i)).toBeInTheDocument();
 		expect(screen.getByText(/Apify API token/i)).toBeInTheDocument();
 		expect(screen.getByText(/Resend API key/i)).toBeInTheDocument();

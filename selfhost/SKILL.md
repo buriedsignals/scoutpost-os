@@ -47,7 +47,7 @@ The user needs:
 
 - **Supabase account** — managed cloud at supabase.com, or self-hosted via
   Docker.
-- **API keys** for Gemini, Firecrawl, Resend, Apify, and MapTiler (all
+- **API keys** for OpenRouter, Firecrawl, Resend, Apify, and MapTiler (all
   required).
 - **Signup controls** — one admin email and the newsroom email domains allowed
   to create accounts. Setup seeds a Supabase before-user-created Auth hook.

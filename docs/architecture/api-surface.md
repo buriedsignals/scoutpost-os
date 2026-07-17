@@ -20,7 +20,7 @@ Auth: Bearer JWT (Supabase auth) **or** Bearer `cj_…` API key plus
 
 | Function | Purpose | Status |
 |---|---|---|
-| `_shared/` | Internal helpers (auth, db, firecrawl, gemini, notifications) | Live (not an endpoint) |
+| `_shared/` | Internal helpers (auth, db, firecrawl, OpenRouter, notifications) | Live (not an endpoint) |
 | `api-keys` | CRUD for `cj_…` API keys (per-user, max 5) | Live (PR #71) |
 | `apify-callback` | Apify webhook target — completes social runs | Live |
 | `apify-reconcile` | Periodic backfill for stuck Apify jobs | Live (cron) |
@@ -121,12 +121,20 @@ Still required:
 - `SUPABASE_JWT_SECRET` — residual FastAPI HS256 JWT verification in `adapters/supabase/auth.py`; ES256 tokens verify via Supabase JWKS
 - `SUPABASE_ANON_KEY` — used by frontend bundle; not actively read by backend (could be removed but harmless)
 - `MUCKROCK_CLIENT_ID`, `MUCKROCK_CLIENT_SECRET`, `SESSION_SECRET` — MuckRock auth broker and HMAC state signing
-- `OPENROUTER_API_KEY`, `LLM_MODEL`, `GEMINI_API_KEY` — LLM
+- `OPENROUTER_API_KEY` — external key for extraction and scanned-PDF fallback through OpenRouter to Google Vertex
+- `EMBEDDING_SERVICE_URL` / `EMBEDDING_SERVICE_TOKEN` — internal authenticated EmbeddingGemma service
+- `LLM_MODEL` — full `google/...` OpenRouter model ID compatible with the pinned Google Vertex route; defaults to `google/gemini-2.5-flash-lite`
 - `FIRECRAWL_API_KEY` — web scraping
 - `APIFY_API_TOKEN` — social scraping
 - `RESEND_API_KEY` — notifications
 - `INTERNAL_SERVICE_KEY` — Lambda → FastAPI auth (legacy; still used by adapters)
 - `LINEAR_API_KEY` — feedback router
+
+The local embedding model emits 768-dimensional vectors with tag
+`embeddinggemma-300m-768-int8-onnx-task-prefix-v1`. Every OpenRouter request restricts the provider to
+`google-vertex`, requires ZDR, denies provider data collection, and sends
+`X-OpenRouter-Cache: false`. OpenRouter remains a processor in front of Google
+Vertex; account-level logging/data-sharing settings are defense in depth.
 
 Safe to delete (no current importer):
 

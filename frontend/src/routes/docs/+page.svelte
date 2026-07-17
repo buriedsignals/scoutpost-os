@@ -414,7 +414,7 @@
 					<h3 id="scout-civic">Civic Scout</h3>
 					<p>
 						Give it a council domain. Civic Scout discovers meeting pages, downloads agendas and
-						minutes (often PDFs), has Gemini extract <strong>promises</strong> — commitments,
+							minutes (often PDFs), has Gemini via OpenRouter's Google Vertex route extract <strong>promises</strong> — commitments,
 						deadlines, and dollar figures — with meeting-date context. Those promises dedup into the
 						same canonical unit layer as Page Scout and Beat Scout findings, so civic hits add
 						provenance instead of spawning parallel cards.
@@ -441,7 +441,7 @@
 						decision become one unit with six <code>source_url</code>s. Units carry fields for the
 						event date (<code>occurred_at</code>), when the scout found it (<code>extracted_at</code>),
 						who verified it (<code>verified_by</code>), and free-form tags. Units are embedded
-						with Gemini multimodal embeddings and stored in pgvector for semantic search.
+						locally with EmbeddingGemma and stored in pgvector for semantic search.
 					</p>
 
 					<h3 id="entities">Entities</h3>

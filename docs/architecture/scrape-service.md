@@ -2,15 +2,16 @@
 
 The `scrape-service/` container replaces Firecrawl for the whole platform
 (SCRAPING-MIGRATION-PRD). It runs the **Crawl4AI** library (Playwright browser
-rendering) for HTML → markdown and **poppler `pdftotext`** for PDF → text, with
-an optional **Gemini native-PDF** fallback for scanned/thin documents. The
+rendering) for HTML → markdown and Poppler **`pdftotext -layout`** for
+deterministic PDF → text, with an optional **Google native-PDF through
+OpenRouter** fallback for scanned/thin documents. The
 Supabase edge functions call it over HTTP through the scrape port
 (`_shared/scrape.ts`, `_shared/docparse.ts`).
 
 | Endpoint | Purpose |
 |---|---|
 | `POST /scrape` `{url, timeout_ms?}` | Browser render → `ScrapeResult` JSON |
-| `POST /parse` `{url}` | PDF → text (`parser:"pdftotext"`), low-yield → Gemini (`parser:"gemini"`), else `422 needs_ocr` |
+| `POST /parse` `{url}` | PDF → text (`parser:"pdftotext"`), low-yield → Google native PDF through OpenRouter (`parser:"openrouter"`), else `422 needs_ocr` |
 | `GET /health` | unauthenticated liveness (Render/compose health checks) |
 
 All non-health endpoints require `Authorization: Bearer <SCRAPE_SERVICE_TOKEN>`.
@@ -26,9 +27,11 @@ plan, Frankfurt, `dockerfilePath: ./scrape-service/Dockerfile`). To bring it up:
 2. **Token** — generate a strong token and set it on the Render service:
    `openssl rand -base64 32` → Render dashboard → `scoutpost-scrape` →
    Environment → `SCRAPE_SERVICE_TOKEN`.
-3. **Gemini fallback (optional)** — set `GEMINI_API_KEY` on the service to
-   enable scanned-PDF transcription; omit it to have scanned PDFs return
-   `needs_ocr`.
+3. **Native-PDF fallback (optional)** — set `OPENROUTER_API_KEY` on the
+   service to enable scanned-PDF transcription with
+   `google/gemini-2.5-flash-lite` through Google Vertex; omit it to have
+   scanned PDFs return `needs_ocr`. The request forces OpenRouter's `native`
+   PDF engine, so it does not invoke Mistral, Cloudflare, or another parser.
 4. **Wire the edge functions** — mirror the URL + token into Supabase function
    secrets (the functions read these, not Render):
    ```
@@ -40,6 +43,17 @@ plan, Frankfurt, `dockerfilePath: ./scrape-service/Dockerfile`). To bring it up:
 5. **Verify** — authenticated `POST /scrape` and `/parse` round-trips from
    outside the VPC; unauthenticated requests must return 401; `/docs` and
    `/openapi.json` must return 404 (disabled).
+
+The PDF fallback follows the same AI policy as the rest of Scoutpost:
+`only: ["google-vertex"]`, ZDR required, provider data collection denied, and
+`X-OpenRouter-Cache: false`. If that constrained route or the proven inline
+PDF boundary is unavailable, the service returns `needs_ocr`; it does not
+silently change providers or parsers. OpenRouter remains a processor between
+Scoutpost and Google Vertex.
+
+See OpenRouter's official [PDF input](https://openrouter.ai/docs/guides/overview/multimodal/pdfs)
+and [provider-routing](https://openrouter.ai/docs/guides/routing/provider-selection)
+documentation for the wire contract and parser selection behavior.
 
 ## Cutover (U7)
 

@@ -2,7 +2,7 @@
  * Tests for scout-web-execute worker.
  *
  * Auth is service-role-only; a user JWT must be rejected. The happy-path test
- * requires SCOUT_LIVE_PROVIDER_TESTS=1 plus live Firecrawl + Gemini keys and
+ * requires SCOUT_LIVE_PROVIDER_TESTS=1 plus live Firecrawl + OpenRouter keys and
  * is skipped otherwise.
  */
 
@@ -78,12 +78,12 @@ Deno.test("scout-web-execute: X-Service-Key reaches scout lookup", async () => {
 const liveProviderTests = Deno.env.get("SCOUT_LIVE_PROVIDER_TESTS") === "1";
 const hasLiveKeys = liveProviderTests &&
   !!Deno.env.get("FIRECRAWL_API_KEY") &&
-  !!Deno.env.get("GEMINI_API_KEY");
+  !!Deno.env.get("OPENROUTER_API_KEY");
 
 Deno.test(
   {
     name:
-      "scout-web-execute: happy path (live Firecrawl + Gemini keys required)",
+      "scout-web-execute: happy path (live Firecrawl + OpenRouter keys required)",
     ignore: !hasLiveKeys,
   },
   async () => {
