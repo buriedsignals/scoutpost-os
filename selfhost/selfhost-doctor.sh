@@ -263,7 +263,7 @@ printf "  selfhost/selfhost-doctor.sh\n"
 printf "  git merge upstream/master\n"
 printf "  # review local migrations and auth-hook changes before applying database updates\n"
 printf "  supabase db push\n"
-printf "  supabase functions deploy --all\n"
+printf "  supabase functions deploy\n"
 
 if [ "$BLOCKERS" -gt 0 ]; then
   printf "\nFound %s blocker(s). Resolve them before merging or deploying upstream changes.\n" "$BLOCKERS"

@@ -211,7 +211,7 @@ INTERNAL_SERVICE_KEY=change-me-generate-with-openssl-rand-hex-32
 # Usage:
 #   1. Copy .env.example to .env and fill in all values
 #   2. Run: docker compose up -d
-#   3. Run migrations: docker compose exec db psql -U postgres -f /migrations/001_initial.sql
+#   3. Confirm the one-shot migrations service completed successfully
 #   4. Open http://localhost:3000
 #
 # Architecture:
@@ -671,9 +671,9 @@ Scoutpost → OpenRouter → Google Vertex and enforce
 as defense in depth. OpenRouter is an additional processor, so this setup
 simplifies billing and credentials rather than reducing processors.
 
-Embeddings do not use OpenRouter. The included authenticated
-`embedding-service` runs the pinned INT8 ONNX EmbeddingGemma build and returns
-normalized 768-dimensional vectors. Setup generates its internal bearer token.
+Embeddings use `google/gemini-embedding-001` through OpenRouter's constrained
+Google Vertex ZDR route and request 768-dimensional vectors. The same
+`OPENROUTER_API_KEY` covers extraction and embeddings.
 
 The current Flash-Lite model has a separately tracked retirement date of
 2026-10-16. Replace it through a model-lifecycle change with its own
@@ -700,25 +700,30 @@ CREATE EXTENSION IF NOT EXISTS "pg_net";
 
 ### 1.2 Run Migrations
 
-In the Supabase SQL Editor, run each migration file from `supabase/migrations/` in order. The files are numbered sequentially (e.g., `001_initial.sql`, `002_indexes.sql`).
+In the Supabase SQL Editor, run each migration file from
+`supabase/migrations/` in order. The files are numbered sequentially (for
+example, `00001_extensions.sql`, `00002_tables.sql`).
 
 Alternatively, use the Supabase CLI:
 
 ```bash
-supabase db push --project-ref YOUR_PROJECT_REF
+supabase link --project-ref YOUR_PROJECT_REF
+supabase db push
 ```
 
 ### 1.3 Deploy Edge Functions
 
-```bash
-supabase functions deploy execute-scout --project-ref YOUR_PROJECT_REF
-supabase functions deploy manage-schedule --project-ref YOUR_PROJECT_REF
-```
-
-Set the Edge Function secrets:
+Set all required Edge Function secrets before deploying AI-enabled functions:
 
 ```bash
-supabase secrets set INTERNAL_SERVICE_KEY=your-service-key --project-ref YOUR_PROJECT_REF
+supabase secrets set \
+  INTERNAL_SERVICE_KEY=your-service-key \
+  OPENROUTER_API_KEY=your-openrouter-key \
+  FIRECRAWL_API_KEY=your-firecrawl-key \
+  RESEND_API_KEY=your-resend-key \
+  APIFY_API_TOKEN=your-apify-token \
+  --project-ref YOUR_PROJECT_REF
+supabase functions deploy --project-ref YOUR_PROJECT_REF
 ```
 
 ### 1.4 Deploy to Render
@@ -787,22 +792,26 @@ Add the generated keys to `.env` as `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_KE
 docker compose up -d
 ```
 
-Wait for all services to be healthy:
+Wait for the application services to be healthy and the one-shot migration
+runner to finish:
 
 ```bash
 docker compose ps
+docker compose logs migrations
 ```
 
-All services should show `Up` status.
+The `migrations` service should exit with status 0 after reporting that all
+Scoutpost migrations are applied.
 
-### 2.4 Run Migrations
+### 2.4 Apply Migrations After an Update
 
 ```bash
-docker compose exec db psql -U postgres -d postgres \
-  -f /docker-entrypoint-initdb.d/001_initial.sql
+docker compose run --rm migrations
+docker compose restart edge-functions backend
 ```
 
-Repeat for each migration file in sequence.
+The runner applies every pending numbered migration in order and uses the
+Supabase CLI migration-history table, so already-applied files are skipped.
 
 ### 2.5 Verify
 

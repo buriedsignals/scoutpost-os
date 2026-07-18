@@ -90,8 +90,7 @@
 						<p>You bring your own API keys and hosting:</p>
 						<ul>
 							<li><strong>Supabase</strong> — managed (supabase.com) or self-hosted via Docker</li>
-							<li><strong>OpenRouter API key</strong> — for Google Vertex AI analysis and scanned-PDF fallback</li>
-							<li><strong>EmbeddingGemma</strong> — included local text embeddings; no external API key</li>
+							<li><strong>OpenRouter API key</strong> — for Google Vertex AI analysis, scanned-PDF fallback, and 768-dimensional Gemini embeddings</li>
 							<li><strong>Firecrawl API key</strong> — for web scraping and search</li>
 							<li><strong>Resend API key</strong> — for email notifications</li>
 							<li><strong>Apify API token</strong> — for social media monitoring</li>

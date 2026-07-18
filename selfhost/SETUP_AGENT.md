@@ -58,8 +58,6 @@ supabase link --project-ref <project-ref>
 ```bash
 supabase secrets set \
   OPENROUTER_API_KEY=... \
-  EMBEDDING_SERVICE_URL=https://your-public-embedding-service \
-  EMBEDDING_SERVICE_TOKEN=... \
   FIRECRAWL_API_KEY=... \
   RESEND_API_KEY=... \
   RESEND_FROM_EMAIL=... \
@@ -87,7 +85,7 @@ selfhost/adopt-signup-allowlist.sh \
 7. Deploy Edge Functions only after their secrets and database are ready:
 
 ```bash
-supabase functions deploy --all
+supabase functions deploy
 ```
 
 8. Write the project `.env` with the Supabase and frontend values:

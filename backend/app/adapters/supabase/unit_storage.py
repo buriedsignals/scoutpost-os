@@ -17,6 +17,7 @@ from typing import Optional
 from app.adapters.supabase.connection import get_pool
 from app.adapters.supabase.utils import row_to_dict
 from app.ports.storage import UnitStoragePort
+from app.services.embedding_utils import EMBEDDING_MODEL_TAG
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ class SupabaseUnitStorage(UnitStoragePort):
                 unit["type"],
                 unit.get("entities"),
                 embedding_str,
+                EMBEDDING_MODEL_TAG if embedding_str else None,
                 unit.get("source_url"),
                 unit.get("source_domain"),
                 unit.get("source_title"),
@@ -95,9 +97,9 @@ class SupabaseUnitStorage(UnitStoragePort):
             VALUES (
                 $1::uuid, $2::uuid, $3, $4::uuid,
                 $5, $6, $7, $8::vector,
-                CASE WHEN $8 IS NULL THEN NULL ELSE 'embeddinggemma-300m-768-int8-onnx-task-prefix-v1' END,
-                $9, $10, $11,
-                $12, $13, $14, $15, $16, $17
+                $9,
+                $10, $11, $12,
+                $13, $14, $15, $16, $17, $18
             )
             """,
             records,
@@ -116,9 +118,13 @@ class SupabaseUnitStorage(UnitStoragePort):
         filters = filters or {}
 
         # Build WHERE clause dynamically
-        conditions = ["user_id = $1::uuid", "embedding_v2 IS NOT NULL"]
-        params: list = [user_id]
-        idx = 2
+        conditions = [
+            "user_id = $1::uuid",
+            "embedding_v2 IS NOT NULL",
+            "embedding_model_v2 = $2",
+        ]
+        params: list = [user_id, EMBEDDING_MODEL_TAG]
+        idx = 3
 
         if "topic" in filters:
             conditions.append(f"topic = ${idx}")

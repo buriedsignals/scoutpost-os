@@ -440,8 +440,8 @@
 						for SRP road paving with a Q4 2026 target" is one unit. Six articles reporting that
 						decision become one unit with six <code>source_url</code>s. Units carry fields for the
 						event date (<code>occurred_at</code>), when the scout found it (<code>extracted_at</code>),
-						who verified it (<code>verified_by</code>), and free-form tags. Units are embedded
-						locally with EmbeddingGemma and stored in pgvector for semantic search.
+						who verified it (<code>verified_by</code>), and free-form tags. Units use
+						768-dimensional Gemini embeddings through OpenRouter's ZDR route and are stored in pgvector for semantic search.
 					</p>
 
 					<h3 id="entities">Entities</h3>

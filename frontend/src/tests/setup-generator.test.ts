@@ -20,7 +20,6 @@ function manifest(overrides: Partial<SetupManifest> = {}): SetupManifest {
 		project: { name: 'test-newsroom', app_url: 'https://newsroom.example.com' },
 		services: {
 			openrouter_api_key: 'openrouter-secret',
-			embedding_service_url: 'https://embedding.example.com',
 			firecrawl_api_key: 'firecrawl-secret',
 			exa_api_key: 'exa-secret',
 			apify_api_token: 'apify-secret',
@@ -79,14 +78,6 @@ describe('setup generator', () => {
 		});
 
 		expect(validateSetupManifest(data).errors).toContain('OpenRouter API key is required.');
-	});
-
-	it('requires a public embedding service URL for cloud Supabase', () => {
-		const data = manifest({
-			services: { ...manifest().services, embedding_service_url: '' }
-		});
-
-		expect(validateSetupManifest(data).errors).toContain('Embedding service URL is required.');
 	});
 
 	it('requires manifest version 2', () => {

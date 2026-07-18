@@ -158,10 +158,10 @@ async function createReflection(
     metadata: parsed.data.metadata ?? {},
   };
 
-  // Embed content if the local service is configured. On failure or absence,
+  // Embed content if OpenRouter is configured. On failure or absence,
   // log a warning and insert without embedding so the reflection is still
   // stored (semantic search simply skips rows with NULL embedding).
-  if (Deno.env.get("EMBEDDING_SERVICE_URL")) {
+  if (Deno.env.get("OPENROUTER_API_KEY")) {
     try {
       const embedding = await embedText(
         parsed.data.content,
@@ -184,8 +184,7 @@ async function createReflection(
       fn: "reflections",
       event: "embed_skipped",
       user_id: user.id,
-      msg:
-        "EMBEDDING_SERVICE_URL not set; inserting reflection without embedding",
+      msg: "OPENROUTER_API_KEY not set; inserting reflection without embedding",
     });
   }
 
@@ -246,6 +245,7 @@ async function searchReflections(
   const svc = getServiceClient();
   const { data, error } = await svc.rpc("semantic_search_reflections_v2", {
     p_embedding: embedding,
+    p_embedding_model: EMBEDDING_MODEL_TAG,
     p_user_id: user.id,
     p_project_id: parsed.data.project_id ?? null,
     p_limit: parsed.data.limit ?? 20,

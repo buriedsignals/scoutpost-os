@@ -27,6 +27,7 @@ const doctorScript = `${repoRoot}/selfhost/selfhost-doctor.sh`;
 const manifestSetupScript = `${repoRoot}/selfhost/setup-from-manifest.sh`;
 const adoptScript = `${repoRoot}/selfhost/adopt-signup-allowlist.sh`;
 const workflowPath = `${repoRoot}/selfhost/sync-upstream.yml`;
+const dockerMigrationScript = `${repoRoot}/deploy/docker/run-app-migrations.sh`;
 const hostedSupabaseRef = "gfmdziplticfoak" + "hrfpt";
 
 async function run(
@@ -422,14 +423,148 @@ Deno.test("setup provisions Edge secrets before deploying functions", async () =
   const managedSetup = interactiveScript.slice(setupStart, setupEnd);
   assert(
     managedSetup.indexOf("$SUPABASE_CLI secrets set") <
-      managedSetup.indexOf("$SUPABASE_CLI functions deploy --all"),
+      managedSetup.indexOf("$SUPABASE_CLI functions deploy"),
     "interactive setup must set secrets before function deployment",
+  );
+  assertNotIncludes(
+    managedSetup,
+    "functions deploy --all",
+    "interactive setup",
   );
   assertIncludes(
     interactiveScript,
     "LLM_MODEL must use the google/ namespace",
     "interactive setup",
   );
+});
+
+Deno.test("setup guidance uses the supported deploy-all function syntax", async () => {
+  const paths = [
+    "deploy/SETUP.md",
+    "docs/oss/self-hosting-automation.md",
+    "selfhost/SETUP_AGENT.md",
+    "selfhost/SKILL.md",
+    "selfhost/selfhost-doctor.sh",
+    "selfhost/setup-from-manifest.sh",
+    "selfhost/setup.sh",
+    "selfhost/upstream-maintenance-codex-prompt.txt",
+  ];
+
+  for (const path of paths) {
+    const content = await Deno.readTextFile(`${repoRoot}/${path}`);
+    assertNotIncludes(content, "functions deploy --all", path);
+    assertIncludes(content, "functions deploy", path);
+  }
+});
+
+Deno.test("Docker migration runner applies every migration once in order", async () => {
+  const compose = await Deno.readTextFile(
+    `${repoRoot}/deploy/docker/docker-compose.yml`,
+  );
+  assertIncludes(
+    compose,
+    "./run-app-migrations.sh:/run-app-migrations.sh:ro",
+    "Docker Compose",
+  );
+  assertIncludes(
+    compose,
+    "condition: service_completed_successfully",
+    "Docker Compose",
+  );
+  assertNotIncludes(
+    compose,
+    "/migrations/00002_tables.sql /migrations/00003_indexes.sql",
+    "Docker Compose",
+  );
+
+  const tmp = await Deno.makeTempDir();
+  const migrations = `${tmp}/migrations`;
+  const state = `${tmp}/state`;
+  const logPath = `${tmp}/psql.log`;
+  const fakePsql = `${tmp}/psql`;
+  await Deno.mkdir(migrations);
+  await Deno.mkdir(state);
+  for (
+    const name of [
+      "00001_first.sql",
+      "00002_second.sql",
+      "00010_last.sql",
+    ]
+  ) {
+    await Deno.writeTextFile(`${migrations}/${name}`, "SELECT 1;\n");
+  }
+  await Deno.writeTextFile(
+    fakePsql,
+    `#!/bin/sh
+set -eu
+input="$(cat)"
+printf '%s\\n%s\\n' "$*" "$input" >> "$PSQL_LOG"
+version=""
+for arg in "$@"; do
+  case "$arg" in
+    version=*) version="\${arg#version=}" ;;
+  esac
+done
+case "$* $input" in
+  *"to_regclass('auth.users')"*) printf 't\\n' ;;
+  *"SELECT EXISTS"*)
+    if [ -f "$PSQL_STATE_DIR/$version" ]; then printf 't\\n'; else printf 'f\\n'; fi
+    ;;
+  *"INSERT INTO supabase_migrations.schema_migrations"*)
+    touch "$PSQL_STATE_DIR/$version"
+    ;;
+esac
+`,
+  );
+  await Deno.chmod(fakePsql, 0o755);
+
+  const env = {
+    MIGRATIONS_DIR: migrations,
+    PSQL_BIN: fakePsql,
+    PSQL_LOG: logPath,
+    PSQL_STATE_DIR: state,
+    MIGRATION_WAIT_SECONDS: "0",
+    POSTGRES_PASSWORD: "test-password",
+  };
+  const first = await new Deno.Command("bash", {
+    args: [dockerMigrationScript],
+    cwd: repoRoot,
+    env,
+    stdout: "piped",
+    stderr: "piped",
+  }).output();
+  assert(first.code === 0, new TextDecoder().decode(first.stderr));
+  const firstStdout = new TextDecoder().decode(first.stdout);
+  assertIncludes(firstStdout, "Applying 00001_first.sql", "first run");
+  assertIncludes(firstStdout, "Applying 00002_second.sql", "first run");
+  assertIncludes(firstStdout, "Applying 00010_last.sql", "first run");
+
+  const second = await new Deno.Command("bash", {
+    args: [dockerMigrationScript],
+    cwd: repoRoot,
+    env,
+    stdout: "piped",
+    stderr: "piped",
+  }).output();
+  assert(second.code === 0, new TextDecoder().decode(second.stderr));
+  const secondStdout = new TextDecoder().decode(second.stdout);
+  assertIncludes(secondStdout, "Skipping 00001_first.sql", "second run");
+  assertIncludes(secondStdout, "Skipping 00002_second.sql", "second run");
+  assertIncludes(secondStdout, "Skipping 00010_last.sql", "second run");
+
+  const psqlLog = await Deno.readTextFile(logPath);
+  for (
+    const name of [
+      "00001_first.sql",
+      "00002_second.sql",
+      "00010_last.sql",
+    ]
+  ) {
+    const applied = psqlLog.split("\n").filter((line) =>
+      line.includes(`-f ${migrations}/${name}`)
+    );
+    assert(applied.length === 1, `${name} should be applied exactly once`);
+  }
 });
 
 Deno.test("manifest setup manual provider writes porting packet without Supabase execution", async () => {

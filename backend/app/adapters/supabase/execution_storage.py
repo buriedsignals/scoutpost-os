@@ -100,10 +100,11 @@ class SupabaseExecutionStorage(ExecutionStoragePort):
             WHERE user_id = $1::uuid
                 AND scout_id = (SELECT id FROM scouts WHERE user_id = $1::uuid AND name = $2)
                 AND embedding_v2 IS NOT NULL
+                AND embedding_model_v2 = $3
             ORDER BY completed_at DESC
-            LIMIT $3
+            LIMIT $4
             """,
-            user_id, scout_name, limit,
+            user_id, scout_name, EMBEDDING_MODEL_TAG, limit,
         )
         return [row_to_dict(row) for row in rows]
 

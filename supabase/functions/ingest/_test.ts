@@ -56,8 +56,7 @@ Deno.test("ingest: short text body returns 400", async () => {
 // integration harness, so only run when every dependency is configured.
 const hasLiveKeys = !!Deno.env.get("OPENROUTER_API_KEY") &&
   !!Deno.env.get("FIRECRAWL_API_KEY") &&
-  !!Deno.env.get("EMBEDDING_SERVICE_URL") &&
-  !!Deno.env.get("EMBEDDING_SERVICE_TOKEN");
+  !!Deno.env.get("OPENROUTER_API_KEY");
 
 Deno.test(
   {

@@ -82,7 +82,7 @@ Criteria mode runs only on new posts after ID diffing.
 
 1. Embed the criteria text as a retrieval query.
 2. Embed each new post:
-   - All platforms use the post's text through the local EmbeddingGemma service.
+   - All platforms use the post's text through the OpenRouter Google Vertex ZDR embedding route.
    - Image embeddings are intentionally unsupported; no runtime caller required the staged multimodal path.
 3. Compare embeddings by cosine similarity and keep matches above the configured threshold.
 

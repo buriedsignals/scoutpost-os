@@ -25,7 +25,7 @@ class TestStoreExecution:
     @pytest.mark.asyncio
     async def test_stores_execution_record(self, storage, mock_pool):
         exec_id = uuid.uuid4()
-        embedding = [0.1] * 1536
+        embedding = [0.1] * 768
         mock_pool.fetchrow = AsyncMock(return_value={
             "id": exec_id,
             "scout_id": uuid.uuid4(),
@@ -51,7 +51,7 @@ class TestStoreExecution:
         assert result["is_duplicate"] is False
         mock_pool.fetchrow.assert_called_once()
         assert mock_pool.fetchrow.await_args.args[6] == (
-            "embeddinggemma-300m-768-int8-onnx-task-prefix-v1"
+            "openrouter-google-gemini-embedding-001-768-zdr-v1"
         )
 
 
@@ -74,7 +74,7 @@ class TestGetRecentEmbeddings:
             {
                 "id": uuid.uuid4(),
                 "summary_text": "Summary 1",
-                "embedding": [0.1] * 1536,
+                "embedding": [0.1] * 768,
                 "completed_at": datetime.now(timezone.utc),
             },
         ])
@@ -82,6 +82,14 @@ class TestGetRecentEmbeddings:
         result = await storage.get_recent_embeddings("user-1", "my-scout", limit=20)
         assert len(result) == 1
         assert "embedding" in result[0]
+        query, user_id, scout_name, model_tag, limit = mock_pool.fetch.await_args.args
+        assert "embedding_model_v2 = $3" in query
+        assert (user_id, scout_name, model_tag, limit) == (
+            "user-1",
+            "my-scout",
+            "openrouter-google-gemini-embedding-001-768-zdr-v1",
+            20,
+        )
 
 
 class TestDeleteExecutionsForScout:

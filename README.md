@@ -86,12 +86,10 @@ Copy `.env.example` to `.env` and fill in the values. See
 load-bearing variables.
 
 Scoutpost uses one external AI credential: `OPENROUTER_API_KEY`. Structured
-extraction uses `google/gemini-2.5-flash-lite`; every such request pins
-`google-vertex`, requires ZDR, denies provider data collection, and sends
-`X-OpenRouter-Cache: false`. Text embeddings stay inside the deployment through
-the bearer-authenticated `embedding-service`, which runs the pinned INT8 ONNX
-build of EmbeddingGemma and emits normalized 768-dimensional vectors. Its token
-is generated internal service auth, not another external API key.
+extraction uses `google/gemini-2.5-flash-lite`, and text embeddings use
+`google/gemini-embedding-001` with `dimensions: 768`. Every request pins
+`google-vertex`, requires ZDR, denies provider data collection, disables
+fallbacks, and sends `X-OpenRouter-Cache: false`.
 
 PDF parsing stays local-first: Poppler `pdftotext -layout` is the deterministic
 primary parser. Only low-yield or scanned PDFs use Google's native PDF handling

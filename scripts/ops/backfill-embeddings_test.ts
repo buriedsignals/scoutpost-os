@@ -4,18 +4,28 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   embeddingInput,
-  parseDryRun,
+  parseAction,
   TARGET_DIMENSIONS,
   TARGET_TAG,
-  validateEmbeddingResponse,
 } from "./backfill-embeddings.ts";
 
-Deno.test("backfill defaults to dry-run", () => {
-  assertEquals(parseDryRun(undefined), true);
-  assertEquals(parseDryRun("false"), false);
+Deno.test("backfill defaults to read-only inventory", () => {
+  assertEquals(parseAction(undefined), "inventory");
+  assertEquals(parseAction("stage"), "stage");
+  assertEquals(parseAction("apply"), "apply");
 });
 
-Deno.test("backfill builds table-specific document inputs", () => {
+Deno.test("backfill rejects an unknown action", async () => {
+  await assertRejects(
+    async () => parseAction("overwrite"),
+    Error,
+    "inventory, stage, or apply",
+  );
+});
+
+Deno.test("backfill builds typed 768d OpenRouter document inputs", () => {
+  assertEquals(TARGET_DIMENSIONS, 768);
+  assertEquals(TARGET_TAG.includes("openrouter-google-gemini"), true);
   assertEquals(
     embeddingInput("information_units", {
       id: "1",
@@ -24,35 +34,8 @@ Deno.test("backfill builds table-specific document inputs", () => {
     }),
     {
       text: "Council approved the budget",
-      task_type: "RETRIEVAL_DOCUMENT",
+      taskType: "RETRIEVAL_DOCUMENT",
       title: "Minutes",
     },
-  );
-});
-
-Deno.test("backfill validates the exact 768d model contract and response order", () => {
-  const a = new Array(TARGET_DIMENSIONS).fill(1);
-  const b = new Array(TARGET_DIMENSIONS).fill(2);
-  assertEquals(
-    validateEmbeddingResponse({
-      model: TARGET_TAG,
-      dimensions: TARGET_DIMENSIONS,
-      data: [{ index: 1, embedding: b }, { index: 0, embedding: a }],
-    }, 2),
-    [a, b],
-  );
-});
-
-Deno.test("backfill rejects a mixed or malformed model space", async () => {
-  await assertRejects(
-    async () => {
-      validateEmbeddingResponse({
-        model: "old-model",
-        dimensions: 1536,
-        data: [],
-      }, 1);
-    },
-    Error,
-    "contract mismatch",
   );
 });

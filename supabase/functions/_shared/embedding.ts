@@ -1,13 +1,22 @@
-/** Authenticated client for Scoutpost's self-hosted EmbeddingGemma service. */
+/** OpenRouter Gemini embedding client with a pinned 768d ZDR model space. */
 
 import { ApiError } from "./errors.ts";
+import { logEvent } from "./log.ts";
 
+const OPENROUTER_EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings";
+export const OPENROUTER_EMBEDDING_MODEL = "google/gemini-embedding-001";
 export const EMBEDDING_DIMENSIONS = 768;
 export const EMBEDDING_MODEL_TAG =
-  "embeddinggemma-300m-768-int8-onnx-task-prefix-v1";
+  "openrouter-google-gemini-embedding-001-768-zdr-v1";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_BATCH_SIZE = 32;
+const PROVIDER_POLICY = {
+  only: ["google-vertex"],
+  allow_fallbacks: false,
+  zdr: true,
+  data_collection: "deny",
+} as const;
 
 export type EmbeddingTaskType =
   | "SEMANTIC_SIMILARITY"
@@ -27,14 +36,43 @@ export interface EmbeddingOptions {
   abortAfterMs?: number;
 }
 
-function requiredEnv(name: string): string {
-  const value = Deno.env.get(name)?.trim();
-  if (!value) throw new ApiError(`${name} not configured`, 500);
+function openRouterApiKey(): string {
+  const value = Deno.env.get("OPENROUTER_API_KEY")?.trim();
+  if (!value) throw new ApiError("OPENROUTER_API_KEY not configured", 500);
   return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function inputType(taskType: EmbeddingTaskType): string {
+  const types: Record<EmbeddingTaskType, string> = {
+    SEMANTIC_SIMILARITY: "semantic_similarity",
+    RETRIEVAL_DOCUMENT: "search_document",
+    RETRIEVAL_QUERY: "search_query",
+    CLASSIFICATION: "classification",
+    CLUSTERING: "clustering",
+  };
+  return types[taskType];
+}
+
+function formatInput(input: EmbeddingInput): string {
+  if ((input.taskType ?? "SEMANTIC_SIMILARITY") !== "RETRIEVAL_DOCUMENT") {
+    return input.text;
+  }
+  const title = input.title?.trim();
+  return title ? `title: ${title} | text: ${input.text}` : input.text;
+}
+
+function normalizeVector(vector: number[]): number[] {
+  const magnitude = Math.sqrt(
+    vector.reduce((sum, value) => sum + value * value, 0),
+  );
+  if (!Number.isFinite(magnitude) || magnitude === 0) {
+    throw new ApiError("OpenRouter embedding returned a zero vector", 502);
+  }
+  return vector.map((value) => value / magnitude);
 }
 
 export async function embedText(
@@ -56,64 +94,76 @@ export async function embedBatch(
 ): Promise<number[][]> {
   if (inputs.length === 0) return [];
   const vectors: number[][] = [];
-  for (let start = 0; start < inputs.length; start += MAX_BATCH_SIZE) {
+  let start = 0;
+  while (start < inputs.length) {
+    const taskType = inputs[start].taskType ?? "SEMANTIC_SIMILARITY";
+    let end = start + 1;
+    while (
+      end < inputs.length && end - start < MAX_BATCH_SIZE &&
+      (inputs[end].taskType ?? "SEMANTIC_SIMILARITY") === taskType
+    ) {
+      end += 1;
+    }
     vectors.push(
       ...await requestEmbeddingBatch(
-        inputs.slice(start, start + MAX_BATCH_SIZE),
+        inputs.slice(start, end),
+        taskType,
         options,
       ),
     );
+    start = end;
   }
   return vectors;
 }
 
 async function requestEmbeddingBatch(
   inputs: EmbeddingInput[],
+  taskType: EmbeddingTaskType,
   options: Omit<EmbeddingOptions, "title">,
 ): Promise<number[][]> {
-  const baseUrl = requiredEnv("EMBEDDING_SERVICE_URL").replace(/\/+$/, "");
-  const token = requiredEnv("EMBEDDING_SERVICE_TOKEN");
+  const apiKey = openRouterApiKey();
   const abortAfterMs = options.abortAfterMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const fuse = setTimeout(() => controller.abort(), abortAfterMs);
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}/embed`, {
+    response = await fetch(OPENROUTER_EMBEDDINGS_URL, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${token}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        "X-OpenRouter-Cache": "false",
       },
       body: JSON.stringify({
-        inputs: inputs.map((input) => ({
-          text: input.text,
-          task_type: input.taskType ?? "SEMANTIC_SIMILARITY",
-          title: input.title ?? null,
-        })),
+        model: OPENROUTER_EMBEDDING_MODEL,
+        input: inputs.map(formatInput),
+        dimensions: EMBEDDING_DIMENSIONS,
+        input_type: inputType(taskType),
+        provider: PROVIDER_POLICY,
       }),
       signal: controller.signal,
     });
   } catch (error) {
     if ((error as { name?: string }).name === "AbortError") {
       throw new ApiError(
-        `Embedding service aborted after ${abortAfterMs}ms`,
+        `OpenRouter embedding aborted after ${abortAfterMs}ms`,
         504,
-        "embedding_service_timeout",
+        "openrouter_embedding_timeout",
       );
     }
     throw new ApiError(
-      "Embedding service request failed",
+      "OpenRouter embedding request failed",
       502,
-      "embedding_service_transport",
+      "openrouter_embedding_transport",
     );
   } finally {
     clearTimeout(fuse);
   }
   if (!response.ok) {
     throw new ApiError(
-      `Embedding service failed with status ${response.status}`,
+      `OpenRouter embedding failed with status ${response.status}`,
       502,
-      `embedding_service_${response.status}`,
+      `openrouter_embedding_${response.status}`,
     );
   }
 
@@ -123,23 +173,20 @@ async function requestEmbeddingBatch(
     if (!isRecord(parsed)) throw new TypeError("not an object");
     body = parsed;
   } catch {
-    throw new ApiError("Embedding service returned malformed JSON", 502);
-  }
-  if (
-    body.model !== EMBEDDING_MODEL_TAG ||
-    body.dimensions !== EMBEDDING_DIMENSIONS
-  ) {
-    throw new ApiError("Embedding service model contract mismatch", 502);
-  }
-  const data = body.data;
-  if (!Array.isArray(data) || data.length !== inputs.length) {
-    throw new ApiError("Embedding service returned an unexpected count", 502);
+    throw new ApiError("OpenRouter embedding returned malformed JSON", 502);
   }
 
+  const data = body.data;
+  if (!Array.isArray(data) || data.length !== inputs.length) {
+    throw new ApiError(
+      "OpenRouter embedding returned an unexpected count",
+      502,
+    );
+  }
   const ordered: Array<number[] | undefined> = new Array(inputs.length);
   for (const item of data) {
     if (!isRecord(item) || !Number.isInteger(item.index)) {
-      throw new ApiError("Embedding service returned an invalid index", 502);
+      throw new ApiError("OpenRouter embedding returned an invalid index", 502);
     }
     const index = item.index as number;
     const vector = item.embedding;
@@ -150,12 +197,34 @@ async function requestEmbeddingBatch(
         typeof value === "number" && Number.isFinite(value)
       )
     ) {
-      throw new ApiError("Embedding service returned an invalid vector", 502);
+      throw new ApiError(
+        "OpenRouter embedding returned an invalid vector",
+        502,
+      );
     }
-    ordered[index] = vector as number[];
+    ordered[index] = normalizeVector(vector as number[]);
   }
+
+  const usage = isRecord(body.usage) ? body.usage : {};
+  logEvent({
+    level: "info",
+    fn: "embedding",
+    event: "openrouter_usage",
+    model: typeof body.model === "string"
+      ? body.model
+      : OPENROUTER_EMBEDDING_MODEL,
+    dimensions: EMBEDDING_DIMENSIONS,
+    input_count: inputs.length,
+    prompt_tokens: usage.prompt_tokens,
+    cost: usage.cost,
+    zdr: true,
+    upstream: "google-vertex",
+  });
+
   return ordered.map((vector) => {
-    if (!vector) throw new ApiError("Embedding service omitted an index", 502);
+    if (!vector) {
+      throw new ApiError("OpenRouter embedding omitted an index", 502);
+    }
     return vector;
   });
 }

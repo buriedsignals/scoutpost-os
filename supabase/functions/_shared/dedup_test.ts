@@ -37,6 +37,14 @@ Deno.test("guarded within-run dedup applies calibrated and custom thresholds", (
   };
   assertEquals(isWithinRunDuplicateWithGuards(candidate, [prior]), false);
   assertEquals(isWithinRunDuplicateWithGuards(candidate, [prior], 0.75), true);
+  const calibratedMatch = {
+    statement: "The council approved the plan",
+    embedding: [0.9, Math.sqrt(0.19), 0],
+  };
+  assertEquals(
+    isWithinRunDuplicateWithGuards(candidate, [calibratedMatch]),
+    true,
+  );
 });
 
 Deno.test("structured guards reject changed facts despite identical vectors", () => {

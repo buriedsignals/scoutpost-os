@@ -1,7 +1,7 @@
 /**
  * Cosine similarity + within-run dedup helpers.
  *
- * EmbeddingGemma uses a calibrated within-run threshold of 0.82 plus
+ * The active embedding model uses a calibrated within-run threshold plus
  * structured hard-negative guards.
  * after extraction, before hitting the cross-run dedup RPC. Without it, Gemini
  * paraphrase pairs ("Council voted on budget" / "City budget approved by
@@ -9,7 +9,10 @@
  * and §4.2 row 20.
  */
 
-const WITHIN_RUN_SIMILARITY_THRESHOLD = 0.82;
+// Calibrated on the multilingual Gemini 768d fixture: 0.90 with structured
+// guards produced zero false merges and retained 14/15 labelled duplicates.
+// Prefer a recoverable duplicate over an incorrect canonical merge.
+const WITHIN_RUN_SIMILARITY_THRESHOLD = 0.90;
 
 export interface DedupCandidate {
   statement: string;

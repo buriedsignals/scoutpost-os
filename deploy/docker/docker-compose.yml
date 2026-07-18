@@ -3,7 +3,7 @@
 # Usage:
 #   1. Copy .env.example to .env and fill in all values
 #   2. Run: docker compose up -d
-#   3. Run migrations: docker compose exec db psql -U postgres -f /migrations/001_initial.sql
+#   3. Confirm the one-shot migrations service completed successfully
 #   4. Open http://localhost:3000
 #
 # Architecture:
@@ -75,6 +75,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
     environment:
       SUPABASE_URL: http://kong:8000
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
@@ -83,8 +85,6 @@ services:
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       VERIFY_JWT: "false"
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      EMBEDDING_SERVICE_URL: http://embedding-service:8080
-      EMBEDDING_SERVICE_TOKEN: ${EMBEDDING_SERVICE_TOKEN:-local-embedding-token}
       # Self-hosted scrape service (SCRAPING-MIGRATION-PRD U6) — the Firecrawl
       # replacement. Default stays firecrawl: several call sites (web-scout
       # baseline, civic link-harvest, Beat direct scrapes) still call Firecrawl
@@ -121,15 +121,6 @@ services:
     shm_size: 1gb
     restart: unless-stopped
 
-  embedding-service:
-    build:
-      context: ../../embedding-service
-      dockerfile: Dockerfile
-    environment:
-      EMBEDDING_SERVICE_TOKEN: ${EMBEDDING_SERVICE_TOKEN:-local-embedding-token}
-      PORT: "8080"
-    restart: unless-stopped
-
   kong:
     image: kong:3.8
     depends_on:
@@ -164,6 +155,8 @@ services:
         condition: service_healthy
       auth:
         condition: service_started
+      migrations:
+        condition: service_completed_successfully
     ports:
       - "8080:8000"
     environment:
@@ -174,8 +167,6 @@ services:
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      EMBEDDING_SERVICE_URL: http://embedding-service:8080
-      EMBEDDING_SERVICE_TOKEN: ${EMBEDDING_SERVICE_TOKEN:-local-embedding-token}
       LLM_MODEL: ${LLM_MODEL:-google/gemini-2.5-flash-lite}
       EXA_API_KEY: ${EXA_API_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY}
@@ -211,13 +202,8 @@ services:
         condition: service_healthy
     volumes:
       - ../../supabase/migrations:/migrations:ro
-    entrypoint: >
-      sh -c "sleep 10 &&
-        for f in /migrations/00002_tables.sql /migrations/00003_indexes.sql /migrations/00004_rls.sql /migrations/00005_triggers.sql /migrations/00006_cron_cleanup.sql; do
-          echo \"Running $$f...\";
-          PGPASSWORD=$$POSTGRES_PASSWORD psql -h db -U postgres -d postgres -f $$f;
-        done &&
-        echo 'All app migrations complete.'"
+      - ./run-app-migrations.sh:/run-app-migrations.sh:ro
+    entrypoint: ["/bin/bash", "/run-app-migrations.sh"]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     restart: "no"

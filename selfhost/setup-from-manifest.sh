@@ -47,7 +47,6 @@ ADMIN_EMAIL="$(jqv '.auth.admin_email')"
 SIGNUP_DOMAINS="$(jq -r '.auth.signup_allowed_domains // [] | map(select(. != "")) | join(",")' "$MANIFEST")"
 
 OPENROUTER_API_KEY="$(jqv '.services.openrouter_api_key')"
-EMBEDDING_SERVICE_URL="$(jqv '.services.embedding_service_url' | sed 's:/*$::')"
 FIRECRAWL_API_KEY="$(jqv '.services.firecrawl_api_key')"
 EXA_API_KEY="$(jqv '.services.exa_api_key')"
 APIFY_API_TOKEN="$(jqv '.services.apify_api_token')"
@@ -56,7 +55,6 @@ RESEND_FROM_EMAIL="$(jqv '.services.resend_from_email')"
 PUBLIC_MAPTILER_API_KEY="$(jqv '.services.public_maptiler_api_key')"
 CUSTOM_MCP_URL="$(jqv '.agents.custom_mcp_url' | sed 's:/*$::')"
 RENDER_DEPLOY_HOOK="$(jqv '.options.render_deploy_hook')"
-EMBEDDING_SERVICE_TOKEN="$(openssl rand -hex 32)"
 
 if [ "$VERSION" = "1" ] && [ -z "$OPENROUTER_API_KEY" ]; then
   echo "Manifest version 1 is Gemini-only and cannot configure the current Scoutpost runtime." >&2
@@ -88,15 +86,6 @@ done
 if [ "$DATA_PLATFORM_PROVIDER" = "supabase" ] && [ -z "$SUPABASE_MODE" ]; then
   echo "Manifest missing required value: SUPABASE_MODE" >&2
   exit 1
-fi
-
-if [ "$DATA_PLATFORM_PROVIDER" = "supabase" ]; then
-  if [ "$SUPABASE_MODE" = "self-hosted" ] && [ -z "$EMBEDDING_SERVICE_URL" ]; then
-    EMBEDDING_SERVICE_URL="http://embedding-service:8080"
-  elif [ "$SUPABASE_MODE" != "self-hosted" ] && [ -z "$EMBEDDING_SERVICE_URL" ]; then
-    echo "Cloud Supabase requires services.embedding_service_url to be a publicly reachable EmbeddingGemma service." >&2
-    exit 1
-  fi
 fi
 
 if [ ! -d "supabase/functions" ] || [ ! -d "frontend" ]; then
@@ -329,7 +318,9 @@ resolve_supabase() {
 deploy_edge_functions() {
   if [ -n "${SUPABASE_PROJECT_REF:-}" ]; then
     log "Deploy Edge Functions"
-    $SUPABASE_CLI functions deploy --all
+    # Omitting a function name deploys every local function. Supabase CLI has
+    # no --all flag for this command.
+    $SUPABASE_CLI functions deploy
   fi
 }
 
@@ -369,8 +360,6 @@ set_supabase_secrets() {
     "ADMIN_EMAILS=${ADMIN_EMAIL}" \
     "INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY}" \
     "OPENROUTER_API_KEY=${OPENROUTER_API_KEY}" \
-    "EMBEDDING_SERVICE_URL=${EMBEDDING_SERVICE_URL}" \
-    "EMBEDDING_SERVICE_TOKEN=${EMBEDDING_SERVICE_TOKEN}" \
     "FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}" \
     "APIFY_API_TOKEN=${APIFY_API_TOKEN}" \
     "RESEND_API_KEY=${RESEND_API_KEY}" \
@@ -417,8 +406,6 @@ SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
 SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-}
 OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
 LLM_MODEL=google/gemini-2.5-flash-lite
-EMBEDDING_SERVICE_URL=${EMBEDDING_SERVICE_URL}
-EMBEDDING_SERVICE_TOKEN=${EMBEDDING_SERVICE_TOKEN}
 FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
 EXA_API_KEY=${EXA_API_KEY}
 RESEND_API_KEY=${RESEND_API_KEY}

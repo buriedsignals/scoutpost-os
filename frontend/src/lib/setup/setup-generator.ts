@@ -22,8 +22,6 @@ export interface SetupManifest {
   };
   services: {
     openrouter_api_key: string;
-    /** Public URL when Supabase Edge runs in the cloud; Docker-internal for self-hosted. */
-    embedding_service_url: string;
     firecrawl_api_key: string;
     /**
      * Default Beat Scout retrieval port. Optional: when missing, Beat Scout
@@ -176,14 +174,12 @@ export function validateSetupManifest(
   }
 
   if (manifest.supabase.mode === "cloud-create") {
-    require(manifest.services.embedding_service_url, "Embedding service URL");
     require(manifest.supabase.org_id, "Supabase organization ID");
     require(manifest.supabase.region, "Supabase region");
     require(manifest.supabase.db_password, "Supabase database password");
     require(manifest.supabase.access_token, "Supabase access token");
   }
   if (manifest.supabase.mode === "cloud-existing") {
-    require(manifest.services.embedding_service_url, "Embedding service URL");
     require(manifest.supabase.project_ref, "Supabase project ref");
     require(manifest.supabase.project_url, "Supabase project URL");
     require(manifest.supabase.anon_key, "Supabase anon key");

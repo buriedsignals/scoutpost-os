@@ -66,7 +66,7 @@ Please do this:
 
 7. Apply the current update locally if safe.
    - If this deployment uses Supabase Cloud and the Supabase CLI is authenticated, run migrations with `supabase db push`.
-   - Deploy Edge Functions with `supabase functions deploy --all` if Supabase is linked and credentials are available.
+   - Deploy all Edge Functions with `supabase functions deploy` if Supabase is linked and credentials are available.
    - Do not run `supabase db push` when the worktree contains untracked or
      locally modified migration files. Stop, list those files, and ask the
      operator to review whether they are local-only deployment migrations.

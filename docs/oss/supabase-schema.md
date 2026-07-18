@@ -103,8 +103,8 @@ scout_id      UUID → scouts(id) ON DELETE CASCADE
 user_id       UUID → auth.users(id)
 scout_type    TEXT
 summary_text  TEXT NOT NULL  -- 1-sentence summary for display
-embedding_v2  vector(768)    -- EmbeddingGemma shadow space for cosine dedup
-embedding_model_v2 TEXT      -- exact local model/runtime tag
+embedding_v2  vector(768)    -- active Gemini embedding space for cosine dedup
+embedding_model_v2 TEXT      -- exact provider/model/dimension policy tag
 content_hash  TEXT           -- for web scout baseline dedup
 is_duplicate  BOOLEAN
 metadata      JSONB
@@ -112,12 +112,12 @@ completed_at  TIMESTAMPTZ NOT NULL
 expires_at    TIMESTAMPTZ  -- NOW() + 90 days (TTL)
 ```
 
-The active shadow space is `vector(768)` from the pinned local EmbeddingGemma
-INT8 ONNX runtime. Its tag is
-`embeddinggemma-300m-768-int8-onnx-task-prefix-v1`. The legacy `embedding`
-column remains temporarily for rollback and is never compared with the shadow
-space. Model, dimension, task-prefix contract, and HNSW indexes migrate as one
-unit; existing vectors are backfilled, never relabeled.
+The active space is `vector(768)` from `google/gemini-embedding-001` through
+OpenRouter's Google Vertex ZDR route. Its tag is
+`openrouter-google-gemini-embedding-001-768-zdr-v1`. The legacy `embedding`
+column remains temporarily for rollback and is never compared with the active
+space. Model, dimension, task-type contract, and HNSW indexes migrate as one
+unit; existing vectors are re-embedded, never relabeled.
 
 ### `post_snapshots`
 

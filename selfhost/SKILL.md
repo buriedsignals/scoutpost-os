@@ -72,7 +72,8 @@ The user needs:
    step.
 5. **Provision Supabase** — managed or self-hosted Docker. Run migrations
    (`supabase db push`) and deploy all Edge Functions
-   (`supabase functions deploy --all`).
+   (`supabase functions deploy`; omitting a function name deploys all local
+   functions).
 6. **Write `.env`** — use `.env.example` as the template; fill in every
    variable the user provided.
 7. **Build and deploy the frontend** — `cd frontend && nvm use && npm ci &&

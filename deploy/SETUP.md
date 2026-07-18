@@ -19,8 +19,7 @@ Required API keys:
 
 | Service | Purpose | Required |
 | --- | --- | --- |
-| OpenRouter | Google Vertex extraction + scanned-PDF fallback | Yes |
-| EmbeddingGemma | Local text embeddings (included service; no API key) | Included |
+| OpenRouter | Google Vertex extraction, scanned-PDF fallback, and 768d Gemini embeddings | Yes |
 | Firecrawl | Web scraping/search | Yes |
 | Resend | Email notifications | Yes |
 | Apify | Social media scraping | Yes |
@@ -60,16 +59,12 @@ supabase db push
 
 ### 4. Provision secrets, then deploy Edge Functions
 
-Set and verify the secrets before activating functions that require the new
-OpenRouter credential or the local embedding service. Deploy
-`embedding-service/` first, generate one bearer token, and use the same URL and
-token in the service and Supabase:
+Set and verify the OpenRouter credential before activating functions that use
+Google Vertex for extraction or 768-dimensional Gemini embeddings:
 
 ```bash
 supabase secrets set \
   OPENROUTER_API_KEY=... \
-  EMBEDDING_SERVICE_URL=https://your-embedding-service \
-  EMBEDDING_SERVICE_TOKEN=... \
   FIRECRAWL_API_KEY=... \
   RESEND_API_KEY=... \
   RESEND_FROM_EMAIL=... \
@@ -82,7 +77,7 @@ supabase secrets set \
 Only after the secret command succeeds:
 
 ```bash
-supabase functions deploy --all
+supabase functions deploy
 ```
 
 ### 5. Configure the frontend
@@ -98,8 +93,6 @@ SUPABASE_ANON_KEY=...
 SUPABASE_JWT_SECRET=...
 OPENROUTER_API_KEY=...
 LLM_MODEL=google/gemini-2.5-flash-lite
-EMBEDDING_SERVICE_URL=https://your-embedding-service
-EMBEDDING_SERVICE_TOKEN=...
 FIRECRAWL_API_KEY=...
 RESEND_API_KEY=...
 RESEND_FROM_EMAIL=...
@@ -153,7 +146,25 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Then run migrations against your database and deploy Edge Functions against that Supabase instance.
+The one-shot `migrations` service waits for GoTrue's auth schema, applies every
+numbered file in `supabase/migrations/` in order, and records each version in
+`supabase_migrations.schema_migrations`. The local Edge Runtime mounts the
+function source directly, so no separate function deployment is required.
+
+Verify the bootstrap before opening the application:
+
+```bash
+docker compose ps migrations
+docker compose logs migrations
+```
+
+For later repository updates, rerun pending migrations and restart the
+application runtimes:
+
+```bash
+docker compose run --rm migrations
+docker compose restart edge-functions backend
+```
 
 ## Updates
 
@@ -177,16 +188,14 @@ After reviewing and merging an upstream sync PR, run:
 selfhost/selfhost-doctor.sh
 supabase secrets set "OPENROUTER_API_KEY=$OPENROUTER_API_KEY"
 supabase db push
-supabase functions deploy --all
+supabase functions deploy
 ```
 
-For the EmbeddingGemma cutover, do not activate the new Edge Functions until
-the exact pinned INT8 benchmark passes. Apply migration 00082, run the initial
-shadow backfill, pause schedules and ingest, drain active workers, run the final
-delta, and require zero null or incorrectly tagged shadow vectors. Then deploy
-the Edge Functions and resume traffic. The OpenRouter and embedding-service
-secrets must already be present before the new functions become active. The
-full verification and rollback procedure is in `docs/supabase/migrations.md`.
+For embedding-model changes, stage the replacement vectors separately, require
+zero missing rows, deploy model-isolated search code, and then use the atomic
+cutover RPC. `OPENROUTER_API_KEY` must already be present before the new
+functions become active. The full verification and rollback procedure is in
+`docs/supabase/migrations.md`.
 
 ## Optional FastAPI Add-on
 

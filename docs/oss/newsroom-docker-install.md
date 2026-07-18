@@ -71,9 +71,9 @@ Before running install, collect:
 
 The default extraction model ID is `google/gemini-2.5-flash-lite`. OpenRouter
 requests require the Google Vertex route with ZDR, deny provider data
-collection, and disable response caching. Text embeddings run in the included
-EmbeddingGemma service at 768 dimensions; its bearer token is generated during
-setup and is not an external API credential.
+collection, and disable response caching. Text embeddings use
+`google/gemini-embedding-001` through the same constrained route and request
+768 dimensions.
 
 For Supabase Cloud, the manifest field `supabase.access_token` is used as
 `SUPABASE_ACCESS_TOKEN`. Docker should not start browser-based Supabase login.

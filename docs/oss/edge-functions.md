@@ -66,9 +66,9 @@ to `google/gemini-2.5-flash-lite`; any `LLM_MODEL` override must remain in the
 ZDR, denies provider data collection, and sends `X-OpenRouter-Cache: false`.
 Structured output additionally requires provider parameter support.
 
-Text embedding calls use `EMBEDDING_SERVICE_URL` and the generated
-`EMBEDDING_SERVICE_TOKEN`. The internal service runs EmbeddingGemma locally and
-returns the pinned 768-dimensional model space.
+Text embedding calls use the same `OPENROUTER_API_KEY`, pin Google Vertex,
+require ZDR, deny provider data collection, disable fallbacks/caching, and ask
+`google/gemini-embedding-001` for exactly 768 dimensions.
 
 PDF parsing is local-first and is not an Edge LLM workflow: the scrape service
 runs Poppler `pdftotext -layout` first. Only a low-yield/scanned PDF may use

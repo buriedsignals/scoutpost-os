@@ -31,7 +31,7 @@ class TestStoreUnits:
                 "statement": "City council approved new budget",
                 "type": "fact",
                 "entities": ["city council"],
-                "embedding": [0.1] * 1536,
+                "embedding": [0.1] * 768,
                 "source_url": "https://example.com/article",
                 "source_domain": "example.com",
                 "source_title": "Budget News",
@@ -44,7 +44,7 @@ class TestStoreUnits:
                 "statement": "New park opening next month",
                 "type": "event",
                 "entities": ["parks department"],
-                "embedding": [0.2] * 1536,
+                "embedding": [0.2] * 768,
                 "source_url": "https://example.com/parks",
                 "source_domain": "example.com",
                 "source_title": "Park News",
@@ -78,7 +78,7 @@ class TestSearchUnits:
             },
         ])
 
-        query_embedding = [0.1] * 1536
+        query_embedding = [0.1] * 768
         result = await storage.search_units("user-1", query_embedding, limit=20)
         assert len(result) == 1
         assert result[0]["similarity"] == 0.92
@@ -87,7 +87,7 @@ class TestSearchUnits:
     async def test_search_with_topic_filter(self, storage, mock_pool):
         mock_pool.fetch = AsyncMock(return_value=[])
 
-        query_embedding = [0.1] * 1536
+        query_embedding = [0.1] * 768
         result = await storage.search_units(
             "user-1", query_embedding, filters={"topic": "government"}, limit=10
         )
@@ -171,8 +171,8 @@ class TestStoreUnitsDateConversion:
 
         records = mock_pool.executemany.call_args[0][1]
         from datetime import date
-        # event_date is at index 11 in the tuple
-        event_date = records[0][11]
+        # event_date is at index 12 after embedding_model_v2.
+        event_date = records[0][12]
         assert isinstance(event_date, date)
         assert event_date == date(2026, 4, 1)
 
@@ -187,7 +187,7 @@ class TestStoreUnitsDateConversion:
         }])
 
         records = mock_pool.executemany.call_args[0][1]
-        assert records[0][11] is None
+        assert records[0][12] is None
 
     @pytest.mark.asyncio
     async def test_handles_invalid_date_string(self, storage, mock_pool):
@@ -200,7 +200,7 @@ class TestStoreUnitsDateConversion:
         }])
 
         records = mock_pool.executemany.call_args[0][1]
-        assert records[0][11] is None  # Invalid date -> None
+        assert records[0][12] is None  # Invalid date -> None
 
 
 class TestStoreUnitsArticleId:

@@ -121,8 +121,7 @@ Still required:
 - `SUPABASE_JWT_SECRET` — residual FastAPI HS256 JWT verification in `adapters/supabase/auth.py`; ES256 tokens verify via Supabase JWKS
 - `SUPABASE_ANON_KEY` — used by frontend bundle; not actively read by backend (could be removed but harmless)
 - `MUCKROCK_CLIENT_ID`, `MUCKROCK_CLIENT_SECRET`, `SESSION_SECRET` — MuckRock auth broker and HMAC state signing
-- `OPENROUTER_API_KEY` — external key for extraction and scanned-PDF fallback through OpenRouter to Google Vertex
-- `EMBEDDING_SERVICE_URL` / `EMBEDDING_SERVICE_TOKEN` — internal authenticated EmbeddingGemma service
+- `OPENROUTER_API_KEY` — external key for extraction, scanned-PDF fallback, and 768d Gemini embeddings through OpenRouter to Google Vertex
 - `LLM_MODEL` — full `google/...` OpenRouter model ID compatible with the pinned Google Vertex route; defaults to `google/gemini-2.5-flash-lite`
 - `FIRECRAWL_API_KEY` — web scraping
 - `APIFY_API_TOKEN` — social scraping
@@ -130,8 +129,8 @@ Still required:
 - `INTERNAL_SERVICE_KEY` — Lambda → FastAPI auth (legacy; still used by adapters)
 - `LINEAR_API_KEY` — feedback router
 
-The local embedding model emits 768-dimensional vectors with tag
-`embeddinggemma-300m-768-int8-onnx-task-prefix-v1`. Every OpenRouter request restricts the provider to
+The embedding model emits 768-dimensional vectors with tag
+`openrouter-google-gemini-embedding-001-768-zdr-v1`. Every OpenRouter request restricts the provider to
 `google-vertex`, requires ZDR, denies provider data collection, and sends
 `X-OpenRouter-Cache: false`. OpenRouter remains a processor in front of Google
 Vertex; account-level logging/data-sharing settings are defense in depth.

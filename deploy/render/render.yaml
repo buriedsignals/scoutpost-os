@@ -37,10 +37,6 @@ services:
         sync: false
       - key: LLM_MODEL
         value: google/gemini-2.5-flash-lite
-      - key: EMBEDDING_SERVICE_URL
-        sync: false
-      - key: EMBEDDING_SERVICE_TOKEN
-        sync: false
 
       # Web scraping
       - key: FIRECRAWL_API_KEY
@@ -72,23 +68,6 @@ services:
       # Internal service key for optional FastAPI integration
       - key: INTERNAL_SERVICE_KEY
         generateValue: true
-
-  - type: web
-    name: scoutpost-embedding
-    runtime: docker
-    repo: https://github.com/buriedsignals/scoutpost-os
-    branch: master
-    rootDir: embedding-service
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    plan: standard
-    healthCheckPath: /health
-    autoDeploy: true
-    envVars:
-      - key: EMBEDDING_SERVICE_TOKEN
-        sync: false
-      - key: PORT
-        value: "8080"
 
   # --- Frontend (SvelteKit static SPA) ---
   - type: web

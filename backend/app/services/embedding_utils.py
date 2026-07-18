@@ -1,9 +1,4 @@
-"""Shared client and vector utilities for local EmbeddingGemma inference.
-
-The embedding model runs in Scoutpost's authenticated embedding service. The
-service applies task prefixes and returns one pinned 768-dimensional model
-space; this module validates that contract before vectors reach storage.
-"""
+"""Shared OpenRouter Gemini embedding client and vector utilities."""
 
 import base64
 import logging
@@ -19,8 +14,16 @@ from app.services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
+OPENROUTER_EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings"
+OPENROUTER_EMBEDDING_MODEL = "google/gemini-embedding-001"
 EMBEDDING_DIMENSIONS = 768
-EMBEDDING_MODEL_TAG = "embeddinggemma-300m-768-int8-onnx-task-prefix-v1"
+EMBEDDING_MODEL_TAG = "openrouter-google-gemini-embedding-001-768-zdr-v1"
+PROVIDER_POLICY = {
+    "only": ["google-vertex"],
+    "allow_fallbacks": False,
+    "zdr": True,
+    "data_collection": "deny",
+}
 
 
 class EmbeddingError(RuntimeError):
@@ -40,64 +43,85 @@ def normalize_embedding(values: list[float]) -> list[float]:
     return (arr / norm).tolist()
 
 
-def _service_configuration() -> tuple[str, str]:
-    url = settings.embedding_service_url.strip().rstrip("/")
-    token = settings.embedding_service_token.strip()
-    if not url:
-        raise EmbeddingError("EMBEDDING_SERVICE_URL not configured")
-    if not token:
-        raise EmbeddingError("EMBEDDING_SERVICE_TOKEN not configured")
-    return url, token
+def _api_key() -> str:
+    key = settings.openrouter_api_key.strip()
+    if not key:
+        raise EmbeddingError("OPENROUTER_API_KEY not configured")
+    return key
 
 
-async def _request_embeddings(inputs: list[dict[str, object]]) -> list[list[float]]:
-    url, token = _service_configuration()
+def _input_type(task_type: str) -> str:
+    return {
+        "SEMANTIC_SIMILARITY": "semantic_similarity",
+        "RETRIEVAL_DOCUMENT": "search_document",
+        "RETRIEVAL_QUERY": "search_query",
+        "CLASSIFICATION": "classification",
+        "CLUSTERING": "clustering",
+    }.get(task_type, "semantic_similarity")
+
+
+def _format_input(text: str, task_type: str, title: Optional[str]) -> str:
+    if task_type == "RETRIEVAL_DOCUMENT" and title and title.strip():
+        return f"title: {title.strip()} | text: {text}"
+    return text
+
+
+async def _request_embeddings(
+    texts: list[str],
+    task_type: str,
+    titles: list[Optional[str]],
+) -> list[list[float]]:
+    key = _api_key()
     client = await get_http_client()
     try:
         response = await client.post(
-            f"{url}/embed",
+            OPENROUTER_EMBEDDINGS_URL,
             headers={
-                "Authorization": f"Bearer {token}",
+                "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
+                "X-OpenRouter-Cache": "false",
             },
-            json={"inputs": inputs},
+            json={
+                "model": OPENROUTER_EMBEDDING_MODEL,
+                "input": [
+                    _format_input(text, task_type, titles[index])
+                    for index, text in enumerate(texts)
+                ],
+                "dimensions": EMBEDDING_DIMENSIONS,
+                "input_type": _input_type(task_type),
+                "provider": PROVIDER_POLICY,
+            },
         )
     except httpx.HTTPError:
-        logger.error("Embedding service transport failed")
-        raise _EmbeddingProviderError("Embedding service request failed") from None
+        logger.error("OpenRouter embedding transport failed")
+        raise _EmbeddingProviderError("OpenRouter embedding request failed") from None
     if response.status_code != 200:
-        logger.error("Embedding service failed with status %s", response.status_code)
+        logger.error("OpenRouter embedding failed with status %s", response.status_code)
         raise _EmbeddingProviderError(
-            f"Embedding service failed with status {response.status_code}"
+            f"OpenRouter embedding failed with status {response.status_code}"
         )
 
     try:
         body = response.json()
     except (TypeError, ValueError):
-        raise EmbeddingError("Embedding service returned malformed JSON") from None
+        raise EmbeddingError("OpenRouter embedding returned malformed JSON") from None
 
-    if (
-        not isinstance(body, dict)
-        or body.get("model") != EMBEDDING_MODEL_TAG
-        or body.get("dimensions") != EMBEDDING_DIMENSIONS
-    ):
-        raise EmbeddingError("Embedding service model contract mismatch")
-    data = body.get("data")
-    if not isinstance(data, list) or len(data) != len(inputs):
-        raise EmbeddingError("Embedding service returned an unexpected embedding count")
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(data, list) or len(data) != len(texts):
+        raise EmbeddingError("OpenRouter embedding returned an unexpected count")
 
-    ordered: list[Optional[list[float]]] = [None] * len(inputs)
+    ordered: list[Optional[list[float]]] = [None] * len(texts)
     for item in data:
         if not isinstance(item, dict):
-            raise EmbeddingError("Embedding service returned an invalid item")
+            raise EmbeddingError("OpenRouter embedding returned an invalid item")
         index = item.get("index")
         if (
             type(index) is not int
             or index < 0
-            or index >= len(inputs)
+            or index >= len(texts)
             or ordered[index] is not None
         ):
-            raise EmbeddingError("Embedding service returned an invalid index")
+            raise EmbeddingError("OpenRouter embedding returned an invalid index")
         vector = item.get("embedding")
         if (
             not isinstance(vector, list)
@@ -109,14 +133,24 @@ async def _request_embeddings(inputs: list[dict[str, object]]) -> list[list[floa
                 for value in vector
             )
         ):
-            raise EmbeddingError("Embedding service returned an invalid vector")
+            raise EmbeddingError("OpenRouter embedding returned an invalid vector")
         normalized = normalize_embedding([float(value) for value in vector])
         if not all(math.isfinite(value) for value in normalized):
-            raise EmbeddingError("Embedding service returned an invalid vector")
+            raise EmbeddingError("OpenRouter embedding returned an invalid vector")
         ordered[index] = normalized
 
     if any(vector is None for vector in ordered):
-        raise EmbeddingError("Embedding service omitted an input index")
+        raise EmbeddingError("OpenRouter embedding omitted an input index")
+    usage = body.get("usage") if isinstance(body, dict) else None
+    if isinstance(usage, dict):
+        logger.info(
+            "OpenRouter embedding usage model=%s dimensions=%s inputs=%s tokens=%s cost=%s zdr=true upstream=google-vertex",
+            body.get("model", OPENROUTER_EMBEDDING_MODEL),
+            EMBEDDING_DIMENSIONS,
+            len(texts),
+            usage.get("prompt_tokens"),
+            usage.get("cost"),
+        )
     return [vector for vector in ordered if vector is not None]
 
 
@@ -125,9 +159,7 @@ async def generate_embedding(
     task_type: str = "SEMANTIC_SIMILARITY",
     title: Optional[str] = None,
 ) -> List[float]:
-    values = await _request_embeddings(
-        [{"text": text, "task_type": task_type, "title": title}]
-    )
+    values = await _request_embeddings([text], task_type, [title])
     return values[0]
 
 
@@ -140,16 +172,9 @@ async def generate_embeddings_batch(
         return []
     if titles is not None and len(titles) != len(texts):
         raise ValueError("titles must be the same length as texts")
-    inputs = [
-        {
-            "text": text,
-            "task_type": task_type,
-            "title": titles[index] if titles is not None else None,
-        }
-        for index, text in enumerate(texts)
-    ]
+    resolved_titles = titles if titles is not None else [None] * len(texts)
     try:
-        return await _request_embeddings(inputs)
+        return await _request_embeddings(texts, task_type, resolved_titles)
     except _EmbeddingProviderError:
         return []
 

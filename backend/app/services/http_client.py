@@ -2,7 +2,7 @@
 Shared HTTP clients with connection pooling.
 
 PURPOSE: Two client pools with different connection reuse strategies:
-- Default client: Keepalive ON for the embedding service, Firecrawl, Resend, and other
+- Default client: Keepalive ON for embedding calls, Firecrawl, Resend, and other
   APIs that make many sequential calls to the same host.
 - LLM client: Keepalive OFF for OpenRouter LLM calls. Prevents HTTP/1.1
   connection contention when concurrent LLM requests (e.g. news +

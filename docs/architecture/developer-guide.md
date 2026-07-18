@@ -316,9 +316,7 @@ an `ImportError`. Check that no service or router has a direct import of an AWS 
 | `MUCKROCK_CLIENT_SECRET` | Yes | OAuth client secret |
 | `SESSION_SECRET` | Yes | JWT session signing key |
 | `OAUTH_REDIRECT_BASE` | Yes | Browser-facing URL (e.g., `http://localhost:5173` for local) |
-| `OPENROUTER_API_KEY` | Yes | External key for Google Vertex extraction and scanned-PDF fallback through OpenRouter |
-| `EMBEDDING_SERVICE_URL` | Yes | Authenticated local EmbeddingGemma service URL |
-| `EMBEDDING_SERVICE_TOKEN` | Yes | Generated internal bearer token for embedding calls |
+| `OPENROUTER_API_KEY` | Yes | External key for Google Vertex extraction, scanned-PDF fallback, and 768d Gemini embeddings through OpenRouter |
 | `LLM_MODEL` | No | Full `google/...` OpenRouter model ID compatible with the pinned Google Vertex route; default: `google/gemini-2.5-flash-lite` |
 | `FIRECRAWL_API_KEY` | Yes | Web scraping |
 | `APIFY_API_TOKEN` | Yes | Social media scraping |
@@ -336,9 +334,7 @@ an `ImportError`. Check that no service or router has a direct import of an AWS 
 | `SUPABASE_ANON_KEY` | Yes | Anon key (returned to frontend) |
 | `SUPABASE_JWT_SECRET` | Yes | JWT verification secret |
 | `DATABASE_URL` | Yes | Direct asyncpg connection string |
-| `OPENROUTER_API_KEY` | Yes | External key for Google Vertex extraction and scanned-PDF fallback through OpenRouter |
-| `EMBEDDING_SERVICE_URL` | Yes | Authenticated local EmbeddingGemma service URL |
-| `EMBEDDING_SERVICE_TOKEN` | Yes | Generated internal bearer token for embedding calls |
+| `OPENROUTER_API_KEY` | Yes | External key for Google Vertex extraction, scanned-PDF fallback, and 768d Gemini embeddings through OpenRouter |
 | `FIRECRAWL_API_KEY` | Yes | Web scraping |
 | `APIFY_API_TOKEN` | Yes | Social media scraping |
 | `RESEND_API_KEY` | Yes | Email notifications |
@@ -351,8 +347,8 @@ OpenRouter extraction traffic flows Scoutpost → OpenRouter → Google Vertex. 
 disable OpenRouter response caching with `X-OpenRouter-Cache: false`. Keep
 OpenRouter account logging/data-sharing controls disabled as defense in depth.
 This one-key setup simplifies billing and configuration; it does not remove a
-processor. Embeddings remain inside the deployment through the pinned 768d
-EmbeddingGemma INT8 ONNX service.
+processor. Embeddings use `google/gemini-embedding-001` through the same
+OpenRouter-to-Google-Vertex route and request 768 dimensions.
 
 ### Frontend (Build-time)
 

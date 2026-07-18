@@ -28,22 +28,10 @@ services:
       - APIFY_API_TOKEN=${APIFY_API_TOKEN}
       - LLM_MODEL=${LLM_MODEL:-google/gemini-2.5-flash-lite}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - EMBEDDING_SERVICE_URL=http://embedding-service:8080
-      - EMBEDDING_SERVICE_TOKEN=${EMBEDDING_SERVICE_TOKEN:-local-embedding-token}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-central-1}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level info
-    networks:
-      - cojournalist-network
-
-  embedding-service:
-    build:
-      context: ./embedding-service
-      dockerfile: Dockerfile
-    environment:
-      - EMBEDDING_SERVICE_TOKEN=${EMBEDDING_SERVICE_TOKEN:-local-embedding-token}
-      - PORT=8080
     networks:
       - cojournalist-network
 

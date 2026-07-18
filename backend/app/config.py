@@ -81,8 +81,6 @@ class Settings(BaseSettings):
 
     # Scout service settings
     openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
-    embedding_service_url: str = os.getenv("EMBEDDING_SERVICE_URL", "")
-    embedding_service_token: str = os.getenv("EMBEDDING_SERVICE_TOKEN", "")
     resend_api_key: str = os.getenv("RESEND_API_KEY", "")
     internal_service_key: str = os.getenv("INTERNAL_SERVICE_KEY", "")
 

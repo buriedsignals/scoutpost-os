@@ -41,15 +41,12 @@ services:
       # SaaS: MuckRock button on /login. OSS leaves this blank and the email/password form renders.
       - key: PUBLIC_MUCKROCK_ENABLED
         value: "true"
-      # One external AI credential for Google Vertex extraction through OpenRouter.
+      # One external AI credential for Google Vertex extraction and 768d
+      # Gemini embeddings through OpenRouter's ZDR route.
       - key: OPENROUTER_API_KEY
         sync: false
       - key: LLM_MODEL
         value: google/gemini-2.5-flash-lite
-      - key: EMBEDDING_SERVICE_URL
-        value: https://scoutpost-embedding.onrender.com
-      - key: EMBEDDING_SERVICE_TOKEN
-        sync: false
 
   # Self-hosted scrape service (SCRAPING-MIGRATION-PRD U6): Crawl4AI browser
   # rendering + poppler pdftotext, replacing Firecrawl. Reached by the Supabase
@@ -57,9 +54,7 @@ services:
   # PROVISIONING (manual, one-time): after first deploy, set the two secrets in
   # the Render dashboard, then mirror them into Supabase function secrets:
   #   supabase secrets set SCRAPE_SERVICE_URL=https://scoutpost-scrape.onrender.com \
-  #                        SCRAPE_SERVICE_TOKEN=<same value as below> \
-  #                        EMBEDDING_SERVICE_URL=https://scoutpost-embedding.onrender.com \
-  #                        EMBEDDING_SERVICE_TOKEN=<same value as embedding service>
+  #                        SCRAPE_SERVICE_TOKEN=<same value as below>
   - type: web
     name: scoutpost-scrape
     runtime: docker
@@ -76,23 +71,6 @@ services:
         sync: false
       # Enables the Google Vertex native-PDF fallback through OpenRouter.
       - key: OPENROUTER_API_KEY
-        sync: false
-      - key: PORT
-        value: "8080"
-
-  # Dedicated local-model service. Kept separate from Chromium so inference
-  # memory pressure cannot take down page/PDF parsing.
-  - type: web
-    name: scoutpost-embedding
-    runtime: docker
-    plan: standard
-    region: frankfurt
-    branch: main
-    dockerfilePath: ./embedding-service/Dockerfile
-    dockerContext: ./embedding-service
-    healthCheckPath: /health
-    envVars:
-      - key: EMBEDDING_SERVICE_TOKEN
         sync: false
       - key: PORT
         value: "8080"

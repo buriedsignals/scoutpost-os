@@ -8,10 +8,15 @@ import {
   EMBEDDING_DIMENSIONS,
   EMBEDDING_MODEL_TAG,
   embedText,
+  OPENROUTER_EMBEDDING_MODEL,
 } from "./embedding.ts";
 
 function vector(value = 0): number[] {
   return new Array(EMBEDDING_DIMENSIONS).fill(value);
+}
+
+function markerVector(value: number): number[] {
+  return [value + 1, 1, ...new Array(EMBEDDING_DIMENSIONS - 2).fill(0)];
 }
 
 function response(
@@ -23,9 +28,9 @@ function response(
 ): Response {
   return new Response(
     JSON.stringify({
-      model: EMBEDDING_MODEL_TAG,
-      dimensions: EMBEDDING_DIMENSIONS,
+      model: "gemini-embedding-001",
       data,
+      usage: { prompt_tokens: 4, total_tokens: 4, cost: 0.0000006 },
       ...extras,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
@@ -37,12 +42,10 @@ function restore(name: string, value: string | undefined): void {
   else Deno.env.set(name, value);
 }
 
-Deno.test("embedding client sends raw typed inputs to the authenticated local service", async () => {
+Deno.test("embedding client sends Gemini 768d to Google Vertex with ZDR", async () => {
   const originalFetch = globalThis.fetch;
-  const originalUrl = Deno.env.get("EMBEDDING_SERVICE_URL");
-  const originalToken = Deno.env.get("EMBEDDING_SERVICE_TOKEN");
-  Deno.env.set("EMBEDDING_SERVICE_URL", "https://embedding.internal/");
-  Deno.env.set("EMBEDDING_SERVICE_TOKEN", "internal-secret");
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.set("OPENROUTER_API_KEY", "openrouter-secret");
   let capturedUrl = "";
   let capturedHeaders = new Headers();
   let capturedBody: Record<string, unknown> = {};
@@ -60,111 +63,130 @@ Deno.test("embedding client sends raw typed inputs to the authenticated local se
       title: "Council minutes",
     });
     assertEquals(result.length, 768);
-    assertEquals(capturedUrl, "https://embedding.internal/embed");
+    assertEquals(
+      Math.abs(result.reduce((sum, value) => sum + value * value, 0) - 1) <
+        1e-12,
+      true,
+    );
+    assertEquals(capturedUrl, "https://openrouter.ai/api/v1/embeddings");
     assertEquals(
       capturedHeaders.get("Authorization"),
-      "Bearer internal-secret",
+      "Bearer openrouter-secret",
     );
+    assertEquals(capturedHeaders.get("X-OpenRouter-Cache"), "false");
     assertEquals(capturedBody, {
-      inputs: [{
-        text: "body",
-        task_type: "RETRIEVAL_DOCUMENT",
-        title: "Council minutes",
-      }],
+      model: OPENROUTER_EMBEDDING_MODEL,
+      input: ["title: Council minutes | text: body"],
+      dimensions: 768,
+      input_type: "search_document",
+      provider: {
+        only: ["google-vertex"],
+        allow_fallbacks: false,
+        zdr: true,
+        data_collection: "deny",
+      },
     });
+    assertEquals(EMBEDDING_MODEL_TAG.includes("768-zdr"), true);
   } finally {
     globalThis.fetch = originalFetch;
-    restore("EMBEDDING_SERVICE_URL", originalUrl);
-    restore("EMBEDDING_SERVICE_TOKEN", originalToken);
+    restore("OPENROUTER_API_KEY", originalKey);
   }
 });
 
-Deno.test("embedding client restores response order and validates the exact model space", async () => {
+Deno.test("embedding client restores response order and validates 768d", async () => {
   const originalFetch = globalThis.fetch;
-  const originalUrl = Deno.env.get("EMBEDDING_SERVICE_URL");
-  const originalToken = Deno.env.get("EMBEDDING_SERVICE_TOKEN");
-  Deno.env.set("EMBEDDING_SERVICE_URL", "https://embedding.internal");
-  Deno.env.set("EMBEDDING_SERVICE_TOKEN", "token");
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.set("OPENROUTER_API_KEY", "token");
   try {
     globalThis.fetch = (async () =>
       response([
-        { index: 1, embedding: vector(2) },
-        { index: 0, embedding: vector(1) },
+        { index: 1, embedding: markerVector(1) },
+        { index: 0, embedding: markerVector(0) },
       ])) as typeof fetch;
     const values = await embedBatch([{ text: "one" }, { text: "two" }]);
-    assertEquals(values[0][0], 1);
-    assertEquals(values[1][0], 2);
+    assertEquals(values[0][0] < values[1][0], true);
 
     for (
       const bad of [
         response([{ index: 0, embedding: [1, 2] }]),
         response([{ index: 2, embedding: vector() }]),
-        response([{ index: 0, embedding: vector() }], { model: "wrong" }),
-        response([{ index: 0, embedding: vector() }], { dimensions: 1536 }),
+        response([]),
       ]
     ) {
       globalThis.fetch = (async () => bad) as typeof fetch;
-      await assertRejects(() => embedText("x"), Error, "Embedding service");
+      await assertRejects(() => embedText("x"), Error, "OpenRouter embedding");
     }
   } finally {
     globalThis.fetch = originalFetch;
-    restore("EMBEDDING_SERVICE_URL", originalUrl);
-    restore("EMBEDDING_SERVICE_TOKEN", originalToken);
+    restore("OPENROUTER_API_KEY", originalKey);
   }
 });
 
-Deno.test("embedding client chunks broad batches without changing order", async () => {
+Deno.test("embedding client preserves order across task and size batches", async () => {
   const originalFetch = globalThis.fetch;
-  const originalUrl = Deno.env.get("EMBEDDING_SERVICE_URL");
-  const originalToken = Deno.env.get("EMBEDDING_SERVICE_TOKEN");
-  Deno.env.set("EMBEDDING_SERVICE_URL", "https://embedding.internal");
-  Deno.env.set("EMBEDDING_SERVICE_TOKEN", "token");
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.set("OPENROUTER_API_KEY", "token");
+  const batchTypes: string[] = [];
   const batchSizes: number[] = [];
   let offset = 0;
   globalThis.fetch = (async (
     _input: RequestInfo | URL,
     init?: globalThis.RequestInit,
   ) => {
-    const body = JSON.parse(String(init?.body)) as { inputs: unknown[] };
-    batchSizes.push(body.inputs.length);
+    const body = JSON.parse(String(init?.body)) as {
+      input: string[];
+      input_type: string;
+    };
+    batchTypes.push(body.input_type);
+    batchSizes.push(body.input.length);
     const start = offset;
-    offset += body.inputs.length;
-    return response(body.inputs.map((_, index) => ({
+    offset += body.input.length;
+    return response(body.input.map((_, index) => ({
       index,
-      embedding: vector(start + index),
+      embedding: markerVector(start + index),
     })));
   }) as typeof fetch;
   try {
-    const values = await embedBatch(
-      Array.from({ length: 65 }, (_, index) => ({ text: `item-${index}` })),
-    );
-    assertEquals(batchSizes, [32, 32, 1]);
+    const inputs = [
+      ...Array.from({ length: 33 }, (_, index) => ({
+        text: `doc-${index}`,
+        taskType: "RETRIEVAL_DOCUMENT" as const,
+      })),
+      { text: "query", taskType: "RETRIEVAL_QUERY" as const },
+    ];
+    const values = await embedBatch(inputs);
+    assertEquals(batchSizes, [32, 1, 1]);
+    assertEquals(batchTypes, [
+      "search_document",
+      "search_document",
+      "search_query",
+    ]);
     assertEquals(
       values.map((value) => value[0]),
-      Array.from({ length: 65 }, (_, index) => index),
+      Array.from(
+        { length: 34 },
+        (_, index) => (index + 1) / Math.sqrt((index + 1) ** 2 + 1),
+      ),
     );
   } finally {
     globalThis.fetch = originalFetch;
-    restore("EMBEDDING_SERVICE_URL", originalUrl);
-    restore("EMBEDDING_SERVICE_TOKEN", originalToken);
+    restore("OPENROUTER_API_KEY", originalKey);
   }
 });
 
-Deno.test("embedding client fails closed and never exposes the internal token", async () => {
+Deno.test("embedding client fails closed without exposing key or text", async () => {
   const originalFetch = globalThis.fetch;
-  const originalUrl = Deno.env.get("EMBEDDING_SERVICE_URL");
-  const originalToken = Deno.env.get("EMBEDDING_SERVICE_TOKEN");
-  Deno.env.delete("EMBEDDING_SERVICE_URL");
-  Deno.env.set("EMBEDDING_SERVICE_TOKEN", "internal-secret");
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.delete("OPENROUTER_API_KEY");
   try {
     await assertRejects(
       () => embedText("private text"),
       Error,
-      "EMBEDDING_SERVICE_URL not configured",
+      "OPENROUTER_API_KEY not configured",
     );
-    Deno.env.set("EMBEDDING_SERVICE_URL", "https://embedding.internal");
+    Deno.env.set("OPENROUTER_API_KEY", "openrouter-secret");
     globalThis.fetch = (async () =>
-      new Response("internal-secret private text", {
+      new Response("openrouter-secret private text", {
         status: 503,
       })) as typeof fetch;
     const error = await assertRejects(
@@ -173,21 +195,18 @@ Deno.test("embedding client fails closed and never exposes the internal token", 
       Error,
       "status 503",
     );
-    assert(!error.message.includes("internal-secret"));
+    assert(!error.message.includes("openrouter-secret"));
     assert(!error.message.includes("private text"));
   } finally {
     globalThis.fetch = originalFetch;
-    restore("EMBEDDING_SERVICE_URL", originalUrl);
-    restore("EMBEDDING_SERVICE_TOKEN", originalToken);
+    restore("OPENROUTER_API_KEY", originalKey);
   }
 });
 
 Deno.test("embedding client maps aborts to 504", async () => {
   const originalFetch = globalThis.fetch;
-  const originalUrl = Deno.env.get("EMBEDDING_SERVICE_URL");
-  const originalToken = Deno.env.get("EMBEDDING_SERVICE_TOKEN");
-  Deno.env.set("EMBEDDING_SERVICE_URL", "https://embedding.internal");
-  Deno.env.set("EMBEDDING_SERVICE_TOKEN", "token");
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.set("OPENROUTER_API_KEY", "token");
   globalThis.fetch =
     ((_input: RequestInfo | URL, init?: globalThis.RequestInit) =>
       new Promise<Response>((_resolve, reject) => {
@@ -205,7 +224,6 @@ Deno.test("embedding client maps aborts to 504", async () => {
     assertEquals((error as { status?: number }).status, 504);
   } finally {
     globalThis.fetch = originalFetch;
-    restore("EMBEDDING_SERVICE_URL", originalUrl);
-    restore("EMBEDDING_SERVICE_TOKEN", originalToken);
+    restore("OPENROUTER_API_KEY", originalKey);
   }
 });

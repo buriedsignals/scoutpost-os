@@ -71,7 +71,7 @@ live database:
 
 ```bash
 supabase db push
-supabase functions deploy --all
+supabase functions deploy
 ```
 
 Never accept upstream `supabase/config.toml` blindly over a local auth hook, and

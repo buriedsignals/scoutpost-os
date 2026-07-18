@@ -469,9 +469,8 @@ dependency manifest before chasing them.
 - `MUCKROCK_CLIENT_SECRET` - MuckRock OAuth client secret
 - `SESSION_SECRET` - HMAC signing key for OAuth/MCP broker state; legacy session JWT fallback only
 - `OAUTH_REDIRECT_BASE` - Public URL the browser sees (needed behind proxy, e.g. `http://localhost:5173`)
-- `OPENROUTER_API_KEY` - single external AI credential for structured extraction and exceptional scanned-PDF fallback. Runtime flow is Scoutpost → OpenRouter → Google Vertex.
+- `OPENROUTER_API_KEY` - single external AI credential for structured extraction, exceptional scanned-PDF fallback, and 768-dimensional Gemini embeddings. Runtime flow is Scoutpost → OpenRouter → Google Vertex.
 - `LLM_MODEL` - full OpenRouter model identifier (default: `google/gemini-2.5-flash-lite`).
-- `EMBEDDING_SERVICE_URL` / `EMBEDDING_SERVICE_TOKEN` - internal bearer-authenticated EmbeddingGemma service. It emits the pinned 768-dimensional INT8 ONNX model space and does not use an external embedding API.
 - `FIRECRAWL_API_KEY` - Web scraping
 - `APIFY_API_TOKEN` - Apify API token (social media scraping)
 - `RESEND_API_KEY` - Email notifications

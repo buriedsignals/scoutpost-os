@@ -1,17 +1,24 @@
 #!/usr/bin/env -S deno run --allow-net --allow-env
 
-/** Resumable shadow-space backfill for local EmbeddingGemma vectors. */
+/** Stage and atomically apply OpenRouter Gemini vectors in the existing 768d space. */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import {
+  embedBatch,
+  EMBEDDING_DIMENSIONS,
+  EMBEDDING_MODEL_TAG,
+  type EmbeddingInput,
+} from "../../supabase/functions/_shared/embedding.ts";
 
-export const TARGET_TAG = "embeddinggemma-300m-768-int8-onnx-task-prefix-v1";
-export const TARGET_DIMENSIONS = 768;
+export const TARGET_TAG = EMBEDDING_MODEL_TAG;
+export const TARGET_DIMENSIONS = EMBEDDING_DIMENSIONS;
 
 export type TableName =
   | "entities"
   | "reflections"
   | "information_units"
   | "execution_records";
+export type BackfillAction = "inventory" | "stage" | "apply";
 
 export const TABLES: TableName[] = [
   "entities",
@@ -28,88 +35,128 @@ function required(name: string): string {
   return value;
 }
 
-export function parseDryRun(value: string | undefined): boolean {
-  return value?.trim().toLowerCase() !== "false";
+export function parseAction(value: string | undefined): BackfillAction {
+  const action = value?.trim().toLowerCase() || "inventory";
+  if (action !== "inventory" && action !== "stage" && action !== "apply") {
+    throw new Error("BACKFILL_ACTION must be inventory, stage, or apply");
+  }
+  return action;
 }
 
-export function embeddingInput(table: TableName, row: Row) {
+export function embeddingInput(table: TableName, row: Row): EmbeddingInput {
   if (table === "entities") {
     const aliases = Array.isArray(row.aliases) ? row.aliases.join(", ") : "";
     return {
       text: [row.canonical_name, aliases].filter(Boolean).join("; "),
-      task_type: "RETRIEVAL_DOCUMENT",
+      taskType: "RETRIEVAL_DOCUMENT",
       title: String(row.type ?? "entity"),
     };
   }
   if (table === "reflections") {
     return {
       text: String(row.content ?? ""),
-      task_type: "RETRIEVAL_DOCUMENT",
+      taskType: "RETRIEVAL_DOCUMENT",
       title: String(row.scope_description ?? "reflection"),
     };
   }
   if (table === "execution_records") {
     return {
       text: String(row.summary_text ?? ""),
-      task_type: "RETRIEVAL_DOCUMENT",
+      taskType: "RETRIEVAL_DOCUMENT",
       title: String(row.scout_type ?? "scout execution"),
     };
   }
   return {
     text: String(row.statement ?? ""),
-    task_type: "RETRIEVAL_DOCUMENT",
+    taskType: "RETRIEVAL_DOCUMENT",
     title: String(row.source_title ?? "information unit"),
   };
 }
 
 function selectColumns(table: TableName): string {
   const columns: Record<TableName, string> = {
-    entities: "id,canonical_name,type,aliases",
-    reflections: "id,content,scope_description",
-    information_units: "id,statement,source_title",
-    execution_records: "id,summary_text,scout_type",
+    entities: "id,canonical_name,type,aliases,embedding_model_v2",
+    reflections: "id,content,scope_description,embedding_model_v2",
+    information_units: "id,statement,source_title,embedding_model_v2",
+    execution_records: "id,summary_text,scout_type,embedding_model_v2",
   };
   return columns[table];
 }
 
-export function validateEmbeddingResponse(
-  value: unknown,
-  expected: number,
-): number[][] {
-  const body = value as Record<string, unknown>;
-  if (
-    body?.model !== TARGET_TAG || body?.dimensions !== TARGET_DIMENSIONS ||
-    !Array.isArray(body?.data) || body.data.length !== expected
-  ) {
-    throw new Error("Embedding service model/count contract mismatch");
-  }
-  const ordered: Array<number[] | undefined> = new Array(expected);
-  for (const item of body.data as Array<Record<string, unknown>>) {
-    const index = item?.index;
-    const vector = item?.embedding;
-    if (
-      !Number.isInteger(index) || (index as number) < 0 ||
-      (index as number) >= expected || ordered[index as number] ||
-      !Array.isArray(vector) || vector.length !== TARGET_DIMENSIONS ||
-      !vector.every((entry) =>
-        typeof entry === "number" && Number.isFinite(entry)
-      )
-    ) {
-      throw new Error("Embedding service returned an invalid vector");
+async function inventory(supabase: any) {
+  const { data, error } = await supabase.rpc(
+    "embedding_v2_cutover_inventory",
+  );
+  if (error) throw new Error(`cutover inventory failed: ${error.message}`);
+  return data ?? [];
+}
+
+async function stageTable(
+  supabase: any,
+  table: TableName,
+  batchSize: number,
+): Promise<number> {
+  let lastId: string | null = null;
+  let written = 0;
+  while (true) {
+    let query = supabase.from(table)
+      .select(selectColumns(table))
+      .or(`embedding_model_v2.is.null,embedding_model_v2.neq.${TARGET_TAG}`)
+      .order("id")
+      .limit(batchSize);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
+    if (error) throw new Error(`${table} read failed: ${error.message}`);
+    const rows = (data ?? []) as unknown as Row[];
+    if (rows.length === 0) break;
+    lastId = rows[rows.length - 1].id;
+
+    const ids = rows.map((row) => row.id);
+    const { data: existing, error: existingError } = await supabase
+      .from("embedding_v2_cutover_stage")
+      .select("row_id")
+      .eq("table_name", table)
+      .eq("embedding_model", TARGET_TAG)
+      .in("row_id", ids);
+    if (existingError) {
+      throw new Error(
+        `${table} staged-id read failed: ${existingError.message}`,
+      );
     }
-    ordered[index as number] = vector as number[];
+    const stagedIds = new Set(
+      (existing ?? []).map((row: { row_id: string }) => row.row_id),
+    );
+    const pending = rows.filter((row) => !stagedIds.has(row.id));
+    if (pending.length === 0) continue;
+
+    const vectors = await embedBatch(
+      pending.map((row) => embeddingInput(table, row)),
+    );
+    for (let index = 0; index < pending.length; index += 1) {
+      const { error: writeError } = await supabase.rpc(
+        "stage_embedding_v2_cutover",
+        {
+          p_table: table,
+          p_id: pending[index].id,
+          p_embedding: vectors[index],
+          p_model: TARGET_TAG,
+        },
+      );
+      if (writeError) {
+        throw new Error(`${table} stage failed: ${writeError.message}`);
+      }
+    }
+    written += pending.length;
+    console.error(`${table}: ${written} staged`);
   }
-  if (ordered.some((vector) => vector === undefined)) {
-    throw new Error("Embedding service omitted an input index");
-  }
-  return ordered as number[][];
+  return written;
 }
 
 async function main(): Promise<void> {
-  const dryRun = parseDryRun(Deno.env.get("DRY_RUN"));
-  const batchSize = Number(Deno.env.get("BACKFILL_BATCH_SIZE") ?? "16");
-  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 32) {
-    throw new Error("BACKFILL_BATCH_SIZE must be between 1 and 32");
+  const action = parseAction(Deno.env.get("BACKFILL_ACTION"));
+  const batchSize = Number(Deno.env.get("BACKFILL_BATCH_SIZE") ?? "32");
+  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 100) {
+    throw new Error("BACKFILL_BATCH_SIZE must be between 1 and 100");
   }
   const supabase = createClient(
     required("SUPABASE_URL"),
@@ -117,71 +164,29 @@ async function main(): Promise<void> {
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
 
-  if (dryRun) {
-    const inventory = [];
-    for (const table of TABLES) {
-      const { count, error } = await supabase.from(table)
-        .select("id", { count: "exact", head: true })
-        .is("embedding_v2", null);
-      if (error) throw new Error(`${table} inventory failed: ${error.message}`);
-      inventory.push({ table, remaining: count ?? 0 });
-    }
+  if (action === "inventory") {
     console.log(
-      JSON.stringify({ status: "dry_run", model: TARGET_TAG, inventory }),
+      JSON.stringify({
+        action,
+        model: TARGET_TAG,
+        inventory: await inventory(supabase),
+      }),
     );
     return;
   }
+  if (action === "apply") {
+    const { data, error } = await supabase.rpc("apply_embedding_v2_cutover");
+    if (error) throw new Error(`cutover apply failed: ${error.message}`);
+    console.log(JSON.stringify({ action, result: data }));
+    return;
+  }
 
-  const serviceUrl = required("EMBEDDING_SERVICE_URL").replace(/\/+$/, "");
-  const serviceToken = required("EMBEDDING_SERVICE_TOKEN");
+  required("OPENROUTER_API_KEY");
   const counts: Record<string, number> = {};
   for (const table of TABLES) {
-    let written = 0;
-    while (true) {
-      const { data, error } = await supabase.from(table)
-        .select(selectColumns(table)).is("embedding_v2", null)
-        .order("id").limit(batchSize);
-      if (error) throw new Error(`${table} read failed: ${error.message}`);
-      const rows = (data ?? []) as unknown as Row[];
-      if (rows.length === 0) break;
-      const response = await fetch(`${serviceUrl}/embed`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${serviceToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          inputs: rows.map((row) => embeddingInput(table, row)),
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(
-          `${table} embedding failed with status ${response.status}`,
-        );
-      }
-      const vectors = validateEmbeddingResponse(
-        await response.json(),
-        rows.length,
-      );
-      for (let index = 0; index < rows.length; index += 1) {
-        const { error: writeError } = await supabase.rpc("write_embedding_v2", {
-          p_table: table,
-          p_id: rows[index].id,
-          p_embedding: vectors[index],
-          p_model: TARGET_TAG,
-        });
-        if (writeError) {
-          throw new Error(`${table} write failed: ${writeError.message}`);
-        }
-      }
-      written += rows.length;
-      console.error(`${table}: ${written} backfilled`);
-    }
-    counts[table] = written;
+    counts[table] = await stageTable(supabase, table, batchSize);
   }
-  console.log(
-    JSON.stringify({ status: "complete", model: TARGET_TAG, counts }),
-  );
+  console.log(JSON.stringify({ action, model: TARGET_TAG, counts }));
 }
 
 if (import.meta.main) {

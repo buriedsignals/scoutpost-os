@@ -1,4 +1,4 @@
-"""Contract tests for the local EmbeddingGemma client and vector utilities."""
+"""Contract tests for OpenRouter Gemini embeddings and vector utilities."""
 
 import base64
 import math
@@ -12,6 +12,7 @@ from app.config import settings
 from app.services.embedding_utils import (
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL_TAG,
+    OPENROUTER_EMBEDDING_MODEL,
     EmbeddingError,
     compress_embedding,
     cosine_similarity,
@@ -20,7 +21,6 @@ from app.services.embedding_utils import (
     generate_embeddings_batch,
     normalize_embedding,
 )
-
 
 VECTOR_A = [1.0] + [0.0] * (EMBEDDING_DIMENSIONS - 1)
 VECTOR_B = [0.0, 1.0] + [0.0] * (EMBEDDING_DIMENSIONS - 2)
@@ -31,11 +31,9 @@ def _response(*items: tuple[int, list[float]], status_code: int = 200) -> MagicM
     response.status_code = status_code
     response.text = "upstream body must stay private"
     response.json.return_value = {
-        "model": EMBEDDING_MODEL_TAG,
-        "dimensions": EMBEDDING_DIMENSIONS,
-        "data": [
-            {"index": index, "embedding": vector} for index, vector in items
-        ],
+        "model": "gemini-embedding-001",
+        "data": [{"index": index, "embedding": vector} for index, vector in items],
+        "usage": {"prompt_tokens": 4, "total_tokens": 4, "cost": 0.0000006},
     }
     return response
 
@@ -51,20 +49,17 @@ def _install_client(monkeypatch: pytest.MonkeyPatch, response: MagicMock) -> Asy
     return client
 
 
-def _configure_service(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "embedding_service_url", "https://embed.internal/")
-    monkeypatch.setattr(settings, "embedding_service_token", "internal-token")
+def _configure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "openrouter_api_key", "openrouter-token")
 
 
 class TestEmbeddingConstants:
-    def test_model_and_storage_tag_describe_exact_local_model_space(self):
+    def test_model_and_storage_tag_pin_openrouter_gemini_768_zdr(self):
         assert EMBEDDING_DIMENSIONS == 768
+        assert OPENROUTER_EMBEDDING_MODEL == "google/gemini-embedding-001"
         assert EMBEDDING_MODEL_TAG == (
-            "embeddinggemma-300m-768-int8-onnx-task-prefix-v1"
+            "openrouter-google-gemini-embedding-001-768-zdr-v1"
         )
-
-    def test_runtime_settings_do_not_expose_direct_gemini_key(self):
-        assert not hasattr(settings, "gemini_api_key")
 
 
 class TestEmbeddingCompression:
@@ -98,8 +93,8 @@ class TestNormalizeEmbedding:
 
 class TestGenerateEmbedding:
     @pytest.mark.asyncio
-    async def test_single_request_uses_authenticated_local_contract(self, monkeypatch):
-        _configure_service(monkeypatch)
+    async def test_single_request_enforces_vertex_zdr_768(self, monkeypatch):
+        _configure(monkeypatch)
         client = _install_client(monkeypatch, _response((0, VECTOR_A)))
 
         result = await generate_embedding(
@@ -107,24 +102,29 @@ class TestGenerateEmbedding:
         )
 
         assert result == VECTOR_A
-        assert client.post.call_args.args == ("https://embed.internal/embed",)
-        assert client.post.call_args.kwargs["headers"] == {
-            "Authorization": "Bearer internal-token",
-            "Content-Type": "application/json",
-        }
+        assert client.post.call_args.args == (
+            "https://openrouter.ai/api/v1/embeddings",
+        )
+        assert client.post.call_args.kwargs["headers"]["Authorization"] == (
+            "Bearer openrouter-token"
+        )
+        assert client.post.call_args.kwargs["headers"]["X-OpenRouter-Cache"] == "false"
         assert client.post.call_args.kwargs["json"] == {
-            "inputs": [
-                {
-                    "text": "body text",
-                    "task_type": "RETRIEVAL_DOCUMENT",
-                    "title": "Council Minutes",
-                }
-            ]
+            "model": "google/gemini-embedding-001",
+            "input": ["title: Council Minutes | text: body text"],
+            "dimensions": 768,
+            "input_type": "search_document",
+            "provider": {
+                "only": ["google-vertex"],
+                "allow_fallbacks": False,
+                "zdr": True,
+                "data_collection": "deny",
+            },
         }
 
     @pytest.mark.asyncio
     async def test_response_is_normalized_after_shape_validation(self, monkeypatch):
-        _configure_service(monkeypatch)
+        _configure(monkeypatch)
         vector = [3.0, 4.0] + [0.0] * (EMBEDDING_DIMENSIONS - 2)
         _install_client(monkeypatch, _response((0, vector)))
         result = await generate_embedding("normalize me")
@@ -140,49 +140,48 @@ class TestGenerateEmbedding:
         ],
     )
     async def test_rejects_invalid_vector_shape(self, monkeypatch, vector):
-        _configure_service(monkeypatch)
+        _configure(monkeypatch)
         _install_client(monkeypatch, _response((0, vector)))
         with pytest.raises(EmbeddingError, match="invalid vector"):
             await generate_embedding("test")
 
     @pytest.mark.asyncio
-    async def test_missing_configuration_fails_before_acquiring_client(self, monkeypatch):
-        monkeypatch.setattr(settings, "embedding_service_url", "")
-        monkeypatch.setattr(settings, "embedding_service_token", "")
+    async def test_missing_configuration_fails_before_client(self, monkeypatch):
+        monkeypatch.setattr(settings, "openrouter_api_key", "")
         get_client = AsyncMock()
         monkeypatch.setattr(embedding_utils, "get_http_client", get_client)
-        with pytest.raises(EmbeddingError, match="EMBEDDING_SERVICE_URL"):
+        with pytest.raises(EmbeddingError, match="OPENROUTER_API_KEY"):
             await generate_embedding("test")
         get_client.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_errors_do_not_expose_content_or_token(self, monkeypatch, caplog):
-        _configure_service(monkeypatch)
+        _configure(monkeypatch)
         response = _response(status_code=401)
-        response.text = "private prompt and internal-token"
+        response.text = "private prompt and openrouter-token"
         _install_client(monkeypatch, response)
         with pytest.raises(EmbeddingError) as error:
             await generate_embedding("private prompt")
         combined = f"{error.value} {caplog.text}"
         assert "status 401" in combined
         assert response.text not in combined
-        assert "internal-token" not in combined
+        assert "openrouter-token" not in combined
         assert "private prompt" not in combined
 
     @pytest.mark.asyncio
     async def test_transport_and_malformed_json_errors_are_safe(self, monkeypatch):
-        _configure_service(monkeypatch)
+        _configure(monkeypatch)
         client = AsyncMock()
         client.post = AsyncMock(
             side_effect=httpx.RequestError(
-                "request contained internal-token",
-                request=httpx.Request("POST", "https://embed.internal/embed"),
+                "request contained openrouter-token",
+                request=httpx.Request("POST", "https://openrouter.ai/api/v1/embeddings"),
             )
         )
         monkeypatch.setattr(
             embedding_utils, "get_http_client", AsyncMock(return_value=client)
         )
-        with pytest.raises(EmbeddingError, match="Embedding service request failed"):
+        with pytest.raises(EmbeddingError, match="OpenRouter embedding request failed"):
             await generate_embedding("private prompt")
 
         malformed = _response((0, VECTOR_A))
@@ -202,27 +201,17 @@ class TestGenerateEmbeddingsBatch:
         get_client.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_batch_preserves_raw_inputs_and_response_order(self, monkeypatch):
-        _configure_service(monkeypatch)
+    async def test_batch_preserves_inputs_and_response_order(self, monkeypatch):
+        _configure(monkeypatch)
         client = _install_client(monkeypatch, _response((1, VECTOR_B), (0, VECTOR_A)))
         result = await generate_embeddings_batch(
             ["alpha", "beta"], "RETRIEVAL_DOCUMENT", titles=["Title A", None]
         )
         assert result == [VECTOR_A, VECTOR_B]
-        assert client.post.call_args.kwargs["json"] == {
-            "inputs": [
-                {
-                    "text": "alpha",
-                    "task_type": "RETRIEVAL_DOCUMENT",
-                    "title": "Title A",
-                },
-                {
-                    "text": "beta",
-                    "task_type": "RETRIEVAL_DOCUMENT",
-                    "title": None,
-                },
-            ]
-        }
+        assert client.post.call_args.kwargs["json"]["input"] == [
+            "title: Title A | text: alpha",
+            "beta",
+        ]
 
     @pytest.mark.asyncio
     async def test_titles_length_must_match_inputs(self):
@@ -231,6 +220,6 @@ class TestGenerateEmbeddingsBatch:
 
     @pytest.mark.asyncio
     async def test_http_failure_preserves_best_effort_empty_batch(self, monkeypatch):
-        _configure_service(monkeypatch)
+        _configure(monkeypatch)
         _install_client(monkeypatch, _response(status_code=529))
         assert await generate_embeddings_batch(["alpha"]) == []

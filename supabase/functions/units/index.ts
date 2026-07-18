@@ -44,7 +44,7 @@ import {
 import { NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { shapeUnitResponse } from "../_shared/db.ts";
-import { embedText } from "../_shared/embedding.ts";
+import { EMBEDDING_MODEL_TAG, embedText } from "../_shared/embedding.ts";
 import type { SupabaseClient } from "../_shared/supabase.ts";
 import {
   buildSearchMatchInfo,
@@ -618,6 +618,7 @@ async function runUnitSearch(
   const svc = getServiceClient();
   const { data, error } = await svc.rpc("semantic_search_units_v2", {
     p_embedding: searchMode === "keyword" ? null : embedding,
+    p_embedding_model: EMBEDDING_MODEL_TAG,
     p_user_id: user.id,
     p_project_id: project_id ?? null,
     p_scout_id: scout_id ?? null,

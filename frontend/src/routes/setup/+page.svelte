@@ -47,17 +47,10 @@ docker run --rm -it \\
 	const requiredKeys: RequiredKey[] = [
 		{
 			name: 'OpenRouter API key',
-			purpose: 'Google Vertex extraction, summaries, classification, and scanned-PDF fallback.',
+			purpose:
+				'Google Vertex extraction, summaries, classification, scanned-PDF fallback, and 768-dimensional Gemini embeddings.',
 			signup: 'https://openrouter.ai/keys',
 			signupLabel: 'openrouter.ai'
-		},
-		{
-			name: 'EmbeddingGemma service',
-			purpose:
-				'Included local text-embedding service. Docker installs run it privately; Supabase Cloud installs also need a public service URL and the generated bearer token configured on that service.',
-			signup: 'https://huggingface.co/google/embeddinggemma-300m',
-			signupLabel: 'included',
-			optional: true
 		},
 		{
 			name: 'Firecrawl API key',
