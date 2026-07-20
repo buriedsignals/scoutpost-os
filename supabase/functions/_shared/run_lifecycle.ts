@@ -34,6 +34,11 @@ export type NotificationStatus =
   | "not_applicable"
   | "pending"
   | "sent"
+  | "delivered"
+  | "delayed"
+  | "bounced"
+  | "suppressed"
+  | "complained"
   | "skipped"
   | "failed";
 

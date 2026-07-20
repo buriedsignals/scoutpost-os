@@ -50,16 +50,21 @@ pg_cron/pg_net
        - refresh scout run / baseline metadata
 
 civic-extract-worker
-  -> claim_civic_queue_item() with FOR UPDATE SKIP LOCKED
+  -> claim_civic_queue_item(worker_id, lease) with FOR UPDATE SKIP LOCKED
+  -> renew heartbeat around expensive provider work and insert batches
   -> parse PDF/HTML via Firecrawl
   -> store raw_capture with 30-day expiry
   -> extract promise JSON with openRouterExtract (Google Gemini on Vertex)
   -> upsert canonical information_units / unit_occurrences
   -> upsert promises linked to unit_id
+  -> finalize only while the worker still owns a live lease
   -> append processed_pdf_urls only after successful extraction
 ```
 
-The queue is deliberately asynchronous. A scheduled run may finish by enqueueing documents, while extraction and promise/unit writes complete in later worker ticks.
+The queue is deliberately asynchronous. A scheduled run may finish by enqueueing
+documents, while extraction and promise/unit writes complete in later worker
+ticks. Expired leases are reclaimed; owner checks prevent a late worker from
+finalizing work another worker has taken over.
 
 ## Discovery And Extraction Rules
 

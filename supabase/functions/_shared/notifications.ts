@@ -290,7 +290,9 @@ export async function sendPageScoutAlert(
           ? [{
             label: getString("archived_evidence", language),
             value: getString("view_archived_snapshot", language),
-            href: `${appBaseUrl()}/?scout=${encodeURIComponent(params.scoutId)}`,
+            href: `${appBaseUrl()}/?scout=${
+              encodeURIComponent(params.scoutId)
+            }`,
             valueColor: VARIANT_THEME.page.accent,
           }]
           : []),
@@ -316,7 +318,7 @@ export interface TransportAlertParams extends BaseAlertParams {
   /** One composed statement per entrant, already human-readable. */
   entrantStatements: string[];
   mode: string;
-  /** Data-source attribution shown on each entrant card (e.g. "aisstream.io
+  /** Data-source attribution shown on each entrant card (e.g. "VesselAPI
    * (AIS)" for vessels, "adsb.lol (ODbL)" for aircraft). */
   sourceLabel: string;
 }

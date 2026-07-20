@@ -6,8 +6,18 @@ import {
   reAlertedObjectIds,
   samplerRunFailureMessage,
   type SamplerRunRow,
+  selectedTransportModes,
   selectFreshMalaccaVessels,
 } from "./benchmark-transport.ts";
+
+Deno.test("weekly transport benchmark can report each mode independently", () => {
+  assertEquals(selectedTransportModes([]), ["aircraft", "vessel", "satellite"]);
+  assertEquals(selectedTransportModes(["--mode", "vessel"]), ["vessel"]);
+  assertEquals(
+    selectedTransportModes(["--mode=aircraft", "--mode=satellite"]),
+    ["aircraft", "satellite"],
+  );
+});
 
 function samplerRun(overrides: Partial<SamplerRunRow>): SamplerRunRow {
   return {
@@ -34,11 +44,11 @@ Deno.test("sampler heartbeat exposes the asynchronous transport failure", () => 
       frames_received: 0,
       items_parsed: 0,
       items_written: 0,
-      error_code: "ais_not_connected",
-      error_message: "AIS sample failed",
+      error_code: "vesselapi_timeout",
+      error_message: "VesselAPI request exceeded its connection deadline",
     })),
-    "[ais_not_connected] AIS sampler failed: AIS sample failed; " +
-      "connected=false; provider_errored=false; frames=0; parsed=0; written=0",
+    "[vesselapi_timeout] vessel sampler failed: VesselAPI request exceeded its connection deadline; " +
+      "connected=false; provider_errored=false; rows=0; parsed=0; written=0",
   );
 });
 

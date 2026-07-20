@@ -34,6 +34,30 @@ import {
 
 export type TransportMode = "aircraft" | "vessel" | "satellite";
 
+const ALL_TRANSPORT_MODES: TransportMode[] = [
+  "aircraft",
+  "vessel",
+  "satellite",
+];
+
+export function selectedTransportModes(args: string[]): TransportMode[] {
+  const selected: TransportMode[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    let value: string | null = null;
+    if (arg === "--mode") value = args[++index] ?? "";
+    else if (arg.startsWith("--mode=")) value = arg.slice("--mode=".length);
+    else throw new Error(`unknown argument: ${arg}`);
+    if (!ALL_TRANSPORT_MODES.includes(value as TransportMode)) {
+      throw new Error(`invalid transport mode: ${value || "missing"}`);
+    }
+    if (!selected.includes(value as TransportMode)) {
+      selected.push(value as TransportMode);
+    }
+  }
+  return selected.length > 0 ? selected : [...ALL_TRANSPORT_MODES];
+}
+
 interface TransportConfig {
   mode: TransportMode;
   geofence?: {
@@ -80,14 +104,15 @@ export interface SamplerRunRow {
 }
 
 export function samplerRunFailureMessage(run: SamplerRunRow): string | null {
+  const taskLabel = run.task === "ais" ? "vessel" : "GP";
   if (run.status === "succeeded") return null;
   if (run.status === "accepted" || run.status === "running") {
-    return `[sampler_timeout] ${run.task.toUpperCase()} sampler remained ${run.status}`;
+    return `[sampler_timeout] ${taskLabel} sampler remained ${run.status}`;
   }
   return `[${run.error_code ?? `sampler_${run.status}`}] ` +
-    `${run.task.toUpperCase()} sampler ${run.status}: ` +
+    `${taskLabel} sampler ${run.status}: ` +
     `${run.error_message ?? "no error message"}; connected=${run.connected}; ` +
-    `provider_errored=${run.provider_errored}; frames=${run.frames_received}; ` +
+    `provider_errored=${run.provider_errored}; rows=${run.frames_received}; ` +
     `parsed=${run.items_parsed}; written=${run.items_written}`;
 }
 
@@ -226,7 +251,7 @@ async function pgList<T>(
 
 async function triggerSampler(
   ctx: BenchCtx,
-  body: { task: "ais" | "gp"; window_ms?: number },
+  body: { task: "ais" | "gp" },
 ): Promise<string> {
   const result = await serviceFunctionFetch(
     ctx,
@@ -324,7 +349,7 @@ async function waitForFreshMalaccaVessels(
     freshGeofenceCount: freshInMalacca.length,
   });
   throw new Error(
-    `[${outcome}] AIS sampler wrote no fresh vessel positions in Malacca before timeout; ` +
+    `[${outcome}] VesselAPI sampler wrote no fresh vessel positions in Malacca before timeout; ` +
       `newest_seen_at=${newest[0]?.seen_at ?? "none"}; ` +
       `fresh_candidates=${recent.length}; fresh_malacca=${freshInMalacca.length}`,
   );
@@ -337,7 +362,7 @@ async function prepareVesselCanary(
   const sampledAfter = new Date(Date.now() - 1_000);
   const sampler = await requireSuccessfulSamplerRun(
     ctx,
-    await triggerSampler(ctx, { task: "ais", window_ms: 30_000 }),
+    await triggerSampler(ctx, { task: "ais" }),
   );
   const vessels = await waitForFreshMalaccaVessels(ctx, sampledAfter);
   const config: TransportConfig = {
@@ -347,7 +372,7 @@ async function prepareVesselCanary(
   };
   await updateTransportConfig(ctx, scoutId, config);
   console.log(
-    `vessel sampler: connected=${sampler.connected} frames=${sampler.frames_received} ` +
+    `vessel sampler: connected=${sampler.connected} rows=${sampler.frames_received} ` +
       `written=${sampler.items_written}; ${vessels.length} fresh MMSI(s) over ${MALACCA_PRESET}`,
   );
   return config;
@@ -517,49 +542,56 @@ async function main() {
   assertLiveBenchmarkAllowed(ctx.supabaseUrl);
   if (!ctx.userToken) throw new Error("failed to acquire benchmark user token");
 
+  const modes = selectedTransportModes(Deno.args);
   const failures: string[] = [];
-  failures.push(
-    ...await runCanary(ctx, "aircraft", async () => {
-      const watchIds = await probeDoverHexes();
-      console.log(`aircraft probe: ${watchIds.length} over ${DOVER_PRESET}`);
-      if (watchIds.length === 0) {
-        throw new Error("adsb.lol observed zero aircraft over Dover Strait");
-      }
-      return aircraftCanaryConfig(watchIds);
-    }),
-  );
-
-  failures.push(
-    ...await runCanary(
-      ctx,
-      "vessel",
-      () => ({
-        mode: "vessel",
-        geofence: { preset_id: MALACCA_PRESET },
-        watch_ids: [BOOTSTRAP_MMSI],
+  if (modes.includes("aircraft")) {
+    failures.push(
+      ...await runCanary(ctx, "aircraft", async () => {
+        const watchIds = await probeDoverHexes();
+        console.log(`aircraft probe: ${watchIds.length} over ${DOVER_PRESET}`);
+        if (watchIds.length === 0) {
+          throw new Error("adsb.lol observed zero aircraft over Dover Strait");
+        }
+        return aircraftCanaryConfig(watchIds);
       }),
-      prepareVesselCanary,
-    ),
-  );
+    );
+  }
 
-  failures.push(
-    ...await runCanary(
-      ctx,
-      "satellite",
-      () => ({
-        mode: "satellite",
-        geofence: ISS_GEOFENCE,
-        watch_ids: [ISS_NORAD_ID],
-      }),
-      prepareSatelliteCanary,
-    ),
-  );
+  if (modes.includes("vessel")) {
+    failures.push(
+      ...await runCanary(
+        ctx,
+        "vessel",
+        () => ({
+          mode: "vessel",
+          geofence: { preset_id: MALACCA_PRESET },
+          watch_ids: [BOOTSTRAP_MMSI],
+        }),
+        prepareVesselCanary,
+      ),
+    );
+  }
+
+  if (modes.includes("satellite")) {
+    failures.push(
+      ...await runCanary(
+        ctx,
+        "satellite",
+        () => ({
+          mode: "satellite",
+          geofence: ISS_GEOFENCE,
+          watch_ids: [ISS_NORAD_ID],
+        }),
+        prepareSatelliteCanary,
+      ),
+    );
+  }
 
   if (failures.length > 0) {
     console.error(`\nbenchmark-transport FAILED:\n- ${failures.join("\n- ")}`);
     Deno.exit(1);
   }
-  console.log("\nbenchmark-transport PASSED (aircraft, vessel, satellite)");
+  console.log(`\nbenchmark-transport PASSED (${modes.join(", ")})`);
 }
 
 function delay(ms: number): Promise<void> {

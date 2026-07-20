@@ -14,14 +14,13 @@ import type { AircraftObject } from "./aircraft.ts";
 import type { VesselObject } from "./vessel.ts";
 import type { TransportMode } from "../_shared/transport_config.ts";
 
-/** Data source per mode — used for feed provenance AND email attribution.
- * Vessel data is AIS (aisstream), NOT the aircraft adsb.lol source. */
+/** Data source per mode — used for feed provenance AND email attribution. */
 export const MODE_SOURCE: Record<
   TransportMode,
   { domain: string; label: string }
 > = {
   aircraft: { domain: "adsb.lol", label: "adsb.lol (ODbL)" },
-  vessel: { domain: "aisstream.io", label: "aisstream.io (AIS)" },
+  vessel: { domain: "vesselapi.com", label: "VesselAPI (AIS)" },
   satellite: { domain: "celestrak.org", label: "CelesTrak (public domain)" },
 };
 

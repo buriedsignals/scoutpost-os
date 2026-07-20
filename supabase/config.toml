@@ -468,6 +468,12 @@ verify_jwt = false
 [functions.scout-health-monitor]
 verify_jwt = false
 
+[functions.operations-monitor]
+verify_jwt = false
+
+[functions.resend-webhook]
+verify_jwt = false
+
 
 [functions.scout-templates]
 verify_jwt = false

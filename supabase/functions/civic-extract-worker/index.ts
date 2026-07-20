@@ -2,14 +2,13 @@
  * civic-extract-worker Edge Function — drains civic_extraction_queue.
  *
  * Triggered by pg_cron every 2 minutes with empty body `{}`. The function
- * claims one queue row via claim_civic_queue_item (SKIP LOCKED), scrapes
+ * claims one queue row with an explicit renewable lease (SKIP LOCKED), scrapes
  * the source URL through Firecrawl, extracts promises/commitments via
  * OpenRouter (JSON-schema-constrained), persists a raw_capture plus N
- * promise rows, and marks the queue row done.
+ * promise rows, and finalizes the queue row while it still owns the lease.
  *
- * On any failure the queue row is updated status='failed' with
- * a truncated last_error, so the failsafe cron can either retry or
- * leave it parked.
+ * On failure an ownership-checked RPC releases retryable work or terminally
+ * fails the final attempt. The failsafe reclaims expired worker leases.
  *
  * Auth: shared service auth (pg_cron uses X-Service-Key from Vault; service-
  *       role bearer remains a tooling fallback).
@@ -21,7 +20,6 @@ import { getServiceClient, SupabaseClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { AuthError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
-import { classifyCivicQueueFailure } from "../_shared/civic_queue_state.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
 import { NeedsOcrError, parseDocument } from "../_shared/docparse.ts";
 import { EMBEDDING_MODEL_TAG, embedText } from "../_shared/embedding.ts";
@@ -51,6 +49,8 @@ const RAW_CONTENT_MAX = 80_000;
 const PROMPT_CONTENT_MAX = 40_000;
 const ERROR_MAX = 2_000;
 const PROCESSED_URLS_CAP = 100;
+const DEFAULT_LEASE_SECONDS = 900;
+const DEFAULT_MAX_ATTEMPTS = 3;
 // raw_captures TTL — 30-day retention. Long enough to re-extract promises on
 // a bug-fix deploy, short enough that we are not permanently storing civic
 // PDFs' extracted markdown. The cleanup_raw_captures pg_cron job scheduled
@@ -106,6 +106,9 @@ interface QueueRow {
   source_url: string;
   doc_kind: string;
   attempts: number;
+  lease_owner: string;
+  lease_expires_at: string;
+  heartbeat_at: string;
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -144,12 +147,28 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   const svc = getServiceClient();
+  const workerId = crypto.randomUUID();
+  const leaseSeconds = envInt(
+    "CIVIC_QUEUE_LEASE_SECONDS",
+    DEFAULT_LEASE_SECONDS,
+    60,
+    3600,
+  );
+  const maxAttempts = envInt(
+    "CIVIC_QUEUE_MAX_ATTEMPTS",
+    DEFAULT_MAX_ATTEMPTS,
+    1,
+    10,
+  );
 
-  // Claim one queue row (SKIP LOCKED; stale-processing recovery built in).
+  // Claim one queue row (SKIP LOCKED; expired-lease recovery built in).
   let claimed: QueueRow | null;
   try {
     const { data, error } = await svc.rpc("claim_civic_queue_item", {
+      p_worker_id: workerId,
       p_scout_run_id: requestedRunId,
+      p_lease_seconds: leaseSeconds,
+      p_max_attempts: maxAttempts,
     });
     if (error) throw new Error(error.message);
     const rows = Array.isArray(data) ? data : [];
@@ -171,7 +190,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const queueId = claimed.id;
 
   try {
-    const result = await processItem(svc, claimed);
+    const result = await processItem(svc, claimed, workerId, leaseSeconds);
     logEvent({
       level: "info",
       fn: "civic-extract-worker",
@@ -190,17 +209,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const failureState = classifyCivicQueueFailure(claimed.attempts);
+    let failureStatus = "lease_lost";
     try {
-      await svc
-        .from("civic_extraction_queue")
-        .update({
-          status: failureState.status,
-          last_error: msg.slice(0, ERROR_MAX),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", queueId);
-      if (failureState.terminal) {
+      const { data, error } = await svc.rpc("fail_civic_queue_item", {
+        p_queue_id: queueId,
+        p_worker_id: workerId,
+        p_error: msg.slice(0, ERROR_MAX),
+        p_max_attempts: maxAttempts,
+      });
+      if (error) throw new Error(error.message);
+      failureStatus = typeof data === "string" ? data : "lease_lost";
+      if (failureStatus === "failed") {
         await markLinkedRunFailedIfSettled(svc, claimed, msg);
       }
     } catch (markErr) {
@@ -215,7 +234,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     logEvent({
       level: "error",
       fn: "civic-extract-worker",
-      event: failureState.terminal ? "failed" : "retry_scheduled",
+      event: failureStatus === "failed"
+        ? "failed"
+        : failureStatus === "pending"
+        ? "retry_scheduled"
+        : "lease_lost",
       queue_id: queueId,
       scout_id: claimed.scout_id,
       attempts: claimed.attempts,
@@ -269,6 +292,8 @@ interface ProcessResult {
 async function processItem(
   svc: SupabaseClient,
   row: QueueRow,
+  workerId: string,
+  leaseSeconds: number,
 ): Promise<ProcessResult> {
   // 1. Load the owning scout so we can stamp scout_id + user_id consistently
   //    on downstream rows (and confirm the scout still exists).
@@ -281,6 +306,7 @@ async function processItem(
   if (!scout) throw new Error(`scout ${row.scout_id} not found`);
 
   const userId = (scout.user_id as string) ?? row.user_id;
+  await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
 
   // 2. Parse the source document (PDF → text, or HTML → markdown) via the
   //    doc-parse port. Dark default routes to Firecrawl; U7 flips to the
@@ -311,6 +337,7 @@ async function processItem(
 
   const contentHash = await sha256Hex(markdown);
   const sourceDomain = deriveSourceDomain(row.source_url);
+  await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
 
   // 3. Insert raw_captures with a 30-day TTL so cleanup_raw_captures
   //    actually deletes this row (the cron job was effectively a no-op
@@ -387,6 +414,7 @@ Set criteria_match=false for any promise that fails or only partially satisfies 
   if (row.scout_run_id) {
     await markRunStage(svc, row.scout_run_id, "extract");
   }
+  await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
   const extraction = await openRouterExtract<{ promises: ExtractedPromise[] }>(
     userPrompt,
     EXTRACTION_SCHEMA,
@@ -408,6 +436,7 @@ Set criteria_match=false for any promise that fails or only partially satisfies 
   const extracted = candidatePromises.filter((p) =>
     !scout.criteria?.trim() || p.criteria_match !== false
   );
+  await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
 
   // 5. Insert each promise. Drop promises whose due_date is already in the past
   //    — the digest query surfaces future-due commitments; legacy civic
@@ -420,7 +449,11 @@ Set criteria_match=false for any promise that fails or only partially satisfies 
   if (row.scout_run_id) {
     await markRunStage(svc, row.scout_run_id, "insert_units");
   }
-  for (const p of extracted) {
+  for (let promiseIndex = 0; promiseIndex < extracted.length; promiseIndex++) {
+    const p = extracted[promiseIndex];
+    if (promiseIndex % 5 === 0) {
+      await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
+    }
     if (!p || typeof p.promise_text !== "string" || !p.promise_text.trim()) {
       continue;
     }
@@ -515,6 +548,8 @@ Set criteria_match=false for any promise that fails or only partially satisfies 
     });
   }
 
+  await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
+
   // 6. Finalize this document atomically. The RPC flips the queue row
   //    processing -> done and bumps the run's counts ADDITIVELY in one
   //    statement, gated on winning that transition. This makes per-document
@@ -526,6 +561,7 @@ Set criteria_match=false for any promise that fails or only partially satisfies 
     "finalize_civic_run_doc",
     {
       p_queue_id: row.id,
+      p_worker_id: workerId,
       p_run_id: row.scout_run_id,
       p_created: inserted,
       p_merged: mergedExisting,
@@ -678,6 +714,34 @@ function normalizeConfidence(
   const lower = v.trim().toLowerCase();
   if (lower === "high" || lower === "medium" || lower === "low") return lower;
   return null;
+}
+
+async function heartbeatCivicLease(
+  svc: SupabaseClient,
+  queueId: string,
+  workerId: string,
+  leaseSeconds: number,
+): Promise<void> {
+  const { data, error } = await svc.rpc("heartbeat_civic_queue_item", {
+    p_queue_id: queueId,
+    p_worker_id: workerId,
+    p_lease_seconds: leaseSeconds,
+  });
+  if (error) throw new Error(`civic lease heartbeat failed: ${error.message}`);
+  if (data !== true) throw new Error("civic worker lease lost");
+}
+
+function envInt(
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const parsed = Number.parseInt(Deno.env.get(name) ?? "", 10);
+  return Math.min(
+    max,
+    Math.max(min, Number.isFinite(parsed) ? parsed : fallback),
+  );
 }
 
 async function upsertPromiseTracker(

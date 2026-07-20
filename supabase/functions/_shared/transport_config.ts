@@ -205,7 +205,7 @@ export function validateTransportConfig(
         `config: ${config.mode} scouts require watch_ids — the specific ${idKind} to track (categories only narrow a watch list, they cannot replace one)`,
     };
   }
-  // Vessel mode reads the shared AIS sampler, which only covers active
+  // Vessel mode reads the shared VesselAPI sampler, which only covers active
   // geofences — a watch-list-only vessel scout would have no data source.
   if (config.mode === "vessel" && !geofence) {
     return {

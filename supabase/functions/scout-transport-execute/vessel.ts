@@ -19,29 +19,30 @@ import {
 } from "./geofence.ts";
 import type { TransportConfig } from "../_shared/transport_config.ts";
 
-/** Sampler cadence (min). Must match the cron in migration 00073. */
-export const SAMPLER_PERIOD_MINUTES = 30;
-/** Extra AIS-anchor headroom on top of the sampler period. */
-const STALENESS_HEADROOM_MINUTES = 5;
-
-const CADENCE_HOURS: Record<string, number> = {
-  "3h": 3,
-  "6h": 6,
-  "12h": 12,
-  daily: 24,
-};
+/** Sampler cadence (min). Must match the current vessel sampler cron. */
+export const SAMPLER_PERIOD_MINUTES = 60;
+/** Latest successful heartbeat may drift beyond the exact cron boundary. */
+export const SAMPLER_HEARTBEAT_MAX_AGE_MINUTES = 90;
+/** VesselAPI returns up to two hours of position history by default. */
+export const POSITION_MAX_AGE_MINUTES = 125;
 
 /**
- * Freshness cutoff: a position older than this is stale. max(2× the scout's
- * cadence, sampler period + headroom) so a slow scout doesn't skip just
- * because the sampler runs less often than it does.
+ * Position freshness is tied to shared ingestion cadence, never the consumer
+ * scout's cadence. Keeping the parameter preserves the existing call contract.
  */
-export function stalenessCutoffMinutes(regularity: string | null): number {
-  const cadenceH = CADENCE_HOURS[regularity ?? "3h"] ?? 3;
-  return Math.max(
-    2 * cadenceH * 60,
-    SAMPLER_PERIOD_MINUTES + STALENESS_HEADROOM_MINUTES,
-  );
+export function stalenessCutoffMinutes(_regularity: string | null): number {
+  return POSITION_MAX_AGE_MINUTES;
+}
+
+export function samplerHeartbeatIsFresh(
+  completedAt: string | null,
+  now: Date = new Date(),
+): boolean {
+  if (!completedAt) return false;
+  const completedMs = Date.parse(completedAt);
+  if (!Number.isFinite(completedMs)) return false;
+  return now.getTime() - completedMs <=
+    SAMPLER_HEARTBEAT_MAX_AGE_MINUTES * 60_000;
 }
 
 export interface VesselObject {
@@ -71,30 +72,26 @@ interface PositionRow {
 }
 
 /**
- * Sampler-liveness check. Returns true when the sampler has written ANY
- * position (anywhere) within the staleness cutoff — the sampler samples every
- * active vessel area in one window, so a globally-fresh table means this
- * scout's area WAS covered this cycle. Deliberately GLOBAL, not in-fence: a
- * quiet geofence with zero vessels is a healthy "no traffic" result, not a
- * staleness failure (this distinction is the fix for the auto-deactivation
- * bug where empty areas escalated to scout deactivation).
+ * Sampler-liveness check. A recent successful heartbeat is healthy even when
+ * every requested MMSI is absent, while a failed heartbeat cannot be hidden by
+ * an old cached position. Deliberately global: provider health is shared.
  */
 export async function isSamplerFresh(
   svc: SupabaseClient,
-  regularity: string | null,
+  _regularity: string | null,
   now: Date = new Date(),
 ): Promise<{ fresh: boolean; freshestSeenAt: string | null }> {
   const { data, error } = await svc
-    .from("transport_positions")
-    .select("seen_at")
-    .order("seen_at", { ascending: false })
+    .from("transport_sampler_runs")
+    .select("completed_at")
+    .eq("task", "ais")
+    .eq("status", "succeeded")
+    .order("completed_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  const freshestSeenAt = (data?.seen_at as string | undefined) ?? null;
-  if (freshestSeenAt == null) return { fresh: false, freshestSeenAt: null };
-  const cutoffMs = stalenessCutoffMinutes(regularity) * 60 * 1000;
-  const fresh = now.getTime() - new Date(freshestSeenAt).getTime() <= cutoffMs;
+  const freshestSeenAt = (data?.completed_at as string | undefined) ?? null;
+  const fresh = samplerHeartbeatIsFresh(freshestSeenAt, now);
   return { fresh, freshestSeenAt };
 }
 
@@ -111,6 +108,9 @@ export async function fetchVesselsInGeofence(
   // pointInGeofence for the exact shape. A naive lat-only longitude
   // half-width under-covers at non-equatorial latitudes and drops vessels.
   const bbox = geofenceToBBox(geofence);
+  const freshAfter = new Date(
+    Date.now() - POSITION_MAX_AGE_MINUTES * 60_000,
+  ).toISOString();
   const { data, error } = await svc
     .from("transport_positions")
     .select(
@@ -119,7 +119,8 @@ export async function fetchVesselsInGeofence(
     .gte("lat", bbox.minLat)
     .lte("lat", bbox.maxLat)
     .gte("lon", bbox.minLon)
-    .lte("lon", bbox.maxLon);
+    .lte("lon", bbox.maxLon)
+    .gte("seen_at", freshAfter);
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as PositionRow[];
 

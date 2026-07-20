@@ -10,12 +10,15 @@ Source files: `supabase/functions/`
 | --- | --- |
 | `main` | Edge runtime health entry point. |
 | `scouts` | Scout CRUD, baseline setup, schedule orchestration. |
-| `execute-scout` | Scheduled dispatcher for page, beat, social, and civic scout runs. |
+| `execute-scout` | Scheduled dispatcher; queues Page/Beat/Civic and directly routes Social/Fleet. |
+| `scout-dispatch-drain` | Capacity-limited durable Page/Beat/Civic queue worker. |
 | `manage-schedule` | pg_cron / pg_net schedule lifecycle. |
 | `scout-web-execute` | Page Scout execution and change detection. |
 | `scout-beat-execute` | Beat / Location Scout execution. |
 | `social-test` | Social profile validation and baseline preview. |
 | `transport-test` | Authenticated, Pro/Team Fleet live-data check that returns stable baseline IDs without creating a scout or spending credits. |
+| `scout-transport-execute` | Fleet execution for aircraft, VesselAPI-backed vessels, and satellite passes. |
+| `transport-sampler` | Hourly VesselAPI exact-MMSI refresh plus daily CelesTrak GP refresh. |
 | `social-kickoff` | Social scheduled run kickoff and Apify actor start. |
 | `apify-callback` | Apify webhook receiver for completed actor runs. |
 | `apify-reconcile` | Cron fallback for missed Apify callbacks. |

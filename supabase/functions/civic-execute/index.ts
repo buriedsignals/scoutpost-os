@@ -210,8 +210,9 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
     // extracted (worker has appended them to scouts.processed_pdf_urls after
     // a successful Firecrawl + insert), OR (b) currently in the queue
     // (pending / processing / done). We intentionally do NOT block URLs with
-    // status='failed' past 3 attempts — claim_civic_queue_item caps retries
-    // at 3 and we trust that terminal state; re-enqueueing such a URL on the
+    // status='failed' past the configured attempt ceiling — the lease-aware
+    // claim/failsafe RPCs cap retries and we trust that terminal state;
+    // re-enqueueing such a URL on the
     // next run is an operator-initiated recovery path.
     const scoutSeen = new Set<string>(
       (Array.isArray(scout.processed_pdf_urls) ? scout.processed_pdf_urls : [])

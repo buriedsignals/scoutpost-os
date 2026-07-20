@@ -7,11 +7,7 @@ import type { AircraftObject } from "../scout-transport-execute/aircraft.ts";
 import type { ResolvedGeofence } from "../scout-transport-execute/geofence.ts";
 import type { GpElement } from "../scout-transport-execute/satellite.ts";
 import type { VesselObject } from "../scout-transport-execute/vessel.ts";
-import {
-  missingAisWatchIds,
-  runTransportTest,
-  type TransportTestDependencies,
-} from "./lib.ts";
+import { runTransportTest, type TransportTestDependencies } from "./lib.ts";
 
 const GEOFENCE: ResolvedGeofence = {
   kind: "circle",
@@ -20,23 +16,6 @@ const GEOFENCE: ResolvedGeofence = {
   lon: 8.54,
   radiusKm: 50,
 };
-
-Deno.test("transport-test: vessel IDs must all return a current AIS position", () => {
-  assertEquals(
-    missingAisWatchIds(
-      ["636019825", "563148100"],
-      [{ mmsi: "636019825" }],
-    ),
-    ["563148100"],
-  );
-  assertEquals(
-    missingAisWatchIds(
-      ["636019825", "563148100"],
-      [{ mmsi: "563148100" }, { mmsi: "636019825" }],
-    ),
-    [],
-  );
-});
 
 function dependencies(
   overrides: Partial<TransportTestDependencies> = {},

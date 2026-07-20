@@ -1,22 +1,13 @@
 /**
- * transport-sampler Edge Function — shared AIS position sampler (+ GP stub).
+ * transport-sampler Edge Function — shared VesselAPI positions + GP refresh.
  *
- * Invoked by two pg_cron jobs (migration 00073) with a task discriminator:
- *   { task: "ais" }  every 30 min — the vessel position sampler (this unit)
- *   { task: "gp" }   daily        — satellite GP refresh (U4 stub here)
+ * Invoked by two pg_cron jobs with a task discriminator:
+ *   { task: "ais" }  hourly — exact-MMSI VesselAPI position refresh
+ *   { task: "gp" }   daily  — satellite GP refresh
  *
- * AIS flow: returns 202 immediately and runs the sampling window in
- * EdgeRuntime.waitUntil (the pg_net caller times out in ~5s; the work must
- * outlive the request — precedent: execute-scout's fire-and-forget dispatch).
- * The window opens ONE WebSocket to aisstream.io subscribed to the merged
- * bounding boxes of all active vessel scouts, coalesces latest-position-per-
- * MMSI in memory, and flushes a few batched upserts to transport_positions.
- * No-op (no connection) when there are zero active vessel scouts.
- *
- * Measured load (2026-07-03, Hormuz+Malacca+Dover): 2.2 msg/s, 168 vessels/90s
- * — the 120s window and batched writes sit far inside Edge CPU limits.
- *
- * Auth: shared service auth (X-Service-Key / service-role bearer).
+ * Both tasks return 202 immediately and run under EdgeRuntime.waitUntil so
+ * provider work outlives pg_net's short request window. Auth uses the shared
+ * internal service-key boundary.
  */
 
 import { z } from "https://esm.sh/zod@3";
@@ -27,26 +18,18 @@ import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { AuthError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import {
-  type BBox,
-  coalesceFrames,
-  fitToBoxLimit,
-  MAX_SUBSCRIPTION_BOXES,
-  toSubscriptionBoxes,
-  unionBoxes,
-} from "./ais.ts";
-import {
-  activeVesselBoxes,
-  classifyAisSampleResult,
+  activeVesselWatchIds,
   hasActiveSatelliteScouts,
-  sampleAisWindowWithStatus,
   upsertPositions,
 } from "./sampler.ts";
 import { refreshGpCache } from "./gp.ts";
+import {
+  sampleVesselApiPositions,
+  VesselApiRequestError,
+} from "./vesselapi.ts";
 
 const InputSchema = z.object({
   task: z.enum(["ais", "gp"]).default("ais"),
-  /** Optional override for the sampling window (ms); defaults to 120s. */
-  window_ms: z.number().int().min(10_000).max(150_000).optional(),
 });
 
 declare const EdgeRuntime:
@@ -168,95 +151,100 @@ function runInBackground(work: Promise<void>): void {
   }
 }
 
-async function runAisSampler(
+async function runVesselApiSampler(
   svc: SupabaseClient,
-  windowMs: number,
 ): Promise<SamplerOutcome> {
-  const scoutBoxes = await activeVesselBoxes(svc);
-  if (scoutBoxes.length === 0) {
+  const watchIds = await activeVesselWatchIds(svc);
+  if (watchIds.length === 0) {
     logEvent({
       level: "info",
       fn: "transport-sampler",
-      event: "ais_noop",
-      msg: "no active vessel scouts",
+      event: "vesselapi_noop",
+      msg: "no active vessel watch IDs",
     });
-    return { status: "noop", errorCode: "no_active_vessel_scouts" };
+    return {
+      status: "noop",
+      errorCode: "no_active_vessel_scouts",
+      metadata: { provider: "vesselapi" },
+    };
   }
-  // Merge overlaps, then coarsen (never drop) to the subscription-box cap.
-  const unioned = unionBoxes(scoutBoxes);
-  const merged: BBox[] = fitToBoxLimit(unioned, MAX_SUBSCRIPTION_BOXES);
-  if (unioned.length > MAX_SUBSCRIPTION_BOXES) {
-    logEvent({
-      level: "info",
-      fn: "transport-sampler",
-      event: "boxes_coarsened",
-      msg:
-        `${unioned.length} disjoint areas coarsened to ${merged.length} boxes (coverage preserved via over-fetch)`,
-    });
-  }
-  const apiKey = Deno.env.get("AIS_API_KEY");
+  const apiKey = Deno.env.get("VESSELAPI_API_KEY")?.trim();
   if (!apiKey) {
     throw new SamplerFailure(
-      "ais_api_key_missing",
-      "AIS_API_KEY not configured",
+      "vesselapi_api_key_missing",
+      "VESSELAPI_API_KEY not configured",
+      { metadata: { provider: "vesselapi" } },
     );
   }
 
-  const sample = await sampleAisWindowWithStatus({
-    apiKey,
-    boxes: toSubscriptionBoxes(merged),
-    windowMs,
-  });
-  const positions = coalesceFrames(sample.frames);
-  const sampleError = classifyAisSampleResult(sample, positions.length);
-  if (sampleError) {
+  let sample;
+  try {
+    sample = await sampleVesselApiPositions({ apiKey, watchIds });
+  } catch (error) {
+    const code = error instanceof VesselApiRequestError
+      ? error.code
+      : "vesselapi_unhandled_error";
     throw new SamplerFailure(
-      sampleError,
-      `AIS sample failed: connected=${sample.connected}, errored=${sample.errored}, frames=${sample.frames.length}, positions=${positions.length}`,
+      code,
+      error instanceof Error ? error.message : String(error),
       {
-        connected: sample.connected,
-        providerErrored: sample.errored,
-        framesReceived: sample.frames.length,
-        itemsParsed: positions.length,
+        connected: false,
+        providerErrored: true,
         metadata: {
-          active_scout_boxes: scoutBoxes.length,
-          merged_subscription_boxes: merged.length,
+          provider: "vesselapi",
+          requested_watch_count: watchIds.length,
         },
       },
     );
   }
+
   let written: number;
   try {
-    written = await upsertPositions(svc, positions);
+    written = await upsertPositions(svc, sample.positions);
   } catch (error) {
     throw new SamplerFailure(
-      "ais_upsert_failed",
+      "vesselapi_upsert_failed",
       error instanceof Error ? error.message : String(error),
       {
-        connected: sample.connected,
-        providerErrored: sample.errored,
-        framesReceived: sample.frames.length,
-        itemsParsed: positions.length,
+        connected: true,
+        providerErrored: false,
+        framesReceived: sample.rowsReceived,
+        itemsParsed: sample.positions.length,
+        metadata: {
+          provider: "vesselapi",
+          requested_watch_count: sample.requestedCount,
+          missing_watch_count: sample.missingIds.length,
+        },
       },
     );
   }
+
   logEvent({
-    level: "info",
+    level: sample.missingIds.length > 0 ? "warn" : "info",
     fn: "transport-sampler",
-    event: "ais_sample",
+    event: "vesselapi_sample",
     msg:
-      `${scoutBoxes.length} scout box(es) → ${merged.length} merged, ${sample.frames.length} frames, ${written} vessels upserted`,
+      `${sample.requestedCount} watched, ${sample.rowsReceived} rows, ${written} positions, ${sample.missingIds.length} missing`,
+    provider: "vesselapi",
+    requested_watch_count: sample.requestedCount,
+    missing_watch_count: sample.missingIds.length,
+    quota_remaining: sample.quotaRemaining,
+    latency_ms: sample.latencyMs,
   });
   return {
     status: "succeeded",
-    connected: sample.connected,
-    providerErrored: sample.errored,
-    framesReceived: sample.frames.length,
-    itemsParsed: positions.length,
+    connected: true,
+    providerErrored: false,
+    framesReceived: sample.rowsReceived,
+    itemsParsed: sample.positions.length,
     itemsWritten: written,
     metadata: {
-      active_scout_boxes: scoutBoxes.length,
-      merged_subscription_boxes: merged.length,
+      provider: "vesselapi",
+      requested_watch_count: sample.requestedCount,
+      missing_watch_count: sample.missingIds.length,
+      response_has_more: sample.hasMore,
+      quota_remaining: sample.quotaRemaining,
+      provider_latency_ms: sample.latencyMs,
     },
   };
 }
@@ -303,7 +291,7 @@ Deno.serve((req: Request): Response | Promise<Response> => {
     try {
       body = await req.json();
     } catch {
-      // Empty body is fine — defaults to the AIS task.
+      // Empty body is fine — defaults to the vessel-position task.
     }
     const parsed = InputSchema.safeParse(body);
     if (!parsed.success) {
@@ -314,7 +302,6 @@ Deno.serve((req: Request): Response | Promise<Response> => {
       );
     }
     const svc = getServiceClient();
-    const windowMs = parsed.data.window_ms ?? 120_000;
     const samplerRunId = crypto.randomUUID();
     const { error: insertError } = await svc
       .from("transport_sampler_runs")
@@ -322,7 +309,7 @@ Deno.serve((req: Request): Response | Promise<Response> => {
         id: samplerRunId,
         task: parsed.data.task,
         status: "accepted",
-        requested_window_ms: parsed.data.task === "ais" ? windowMs : null,
+        requested_window_ms: null,
       });
     if (insertError) {
       return jsonFromError(
@@ -341,13 +328,13 @@ Deno.serve((req: Request): Response | Promise<Response> => {
       );
     }
 
-    // 202 + background: the window outlives the pg_net request.
+    // 202 + background: provider work outlives the pg_net request.
     runInBackground(
       trackSamplerRun(
         svc,
         samplerRunId,
         "ais",
-        () => runAisSampler(svc, windowMs),
+        () => runVesselApiSampler(svc),
       ),
     );
     return jsonOk(

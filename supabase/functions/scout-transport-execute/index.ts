@@ -239,8 +239,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   // 5b. Vessel sampler-liveness pre-check — NON-BILLABLE, before the charge.
-  // Vessel runs read the shared sampler cache; if the sampler itself is stale
-  // (no fresh positions ANYWHERE — sampler down or still starting), the run
+  // Vessel runs read the shared sampler cache; if its latest successful
+  // heartbeat is stale (provider down or sampler still starting), the run
   // SKIPS unbilled with frozen state clocks rather than reporting a false "no
   // traffic", and a run of consecutive skips escalates so a dead sampler is
   // visible (R16). A healthy sampler over a quiet area is NOT stale — it runs
@@ -276,8 +276,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
           stage: "scrape",
           errorClass: "provider",
           message: sampler.freshestSeenAt
-            ? `AIS sampler stale (freshest position ${sampler.freshestSeenAt}); sampler may be behind`
-            : "no AIS positions yet; sampler may be starting up",
+            ? `vessel sampler stale (latest successful heartbeat ${sampler.freshestSeenAt})`
+            : "no successful vessel sampler heartbeat yet",
           status: "skipped",
         });
         logEvent({
@@ -286,7 +286,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           event: "vessel_sampler_stale_skip",
           scout_id: scout.id,
           run_id: runId,
-          msg: sampler.freshestSeenAt ?? "no positions",
+          msg: sampler.freshestSeenAt ?? "no successful heartbeat",
         });
         return jsonOk({ status: "skipped", reason: "sampler_stale" });
       }

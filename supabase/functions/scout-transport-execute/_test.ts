@@ -323,19 +323,32 @@ Deno.test("watch-list statements never say 'entered watched identifiers'", () =>
 // ── U3: vessel staleness + filtering + statement ────────────────────────────
 import {
   filterVessels,
+  POSITION_MAX_AGE_MINUTES,
   SAMPLER_PERIOD_MINUTES,
+  samplerHeartbeatIsFresh,
   stalenessCutoffMinutes,
   type VesselObject,
 } from "./vessel.ts";
 import { composeVesselStatement } from "./events.ts";
 
-Deno.test("staleness cutoff is max(2x cadence, sampler period + headroom)", () => {
-  // 3h cadence → 2*180 = 360 min dominates the 35-min sampler floor.
-  assertEquals(stalenessCutoffMinutes("3h"), 360);
-  assertEquals(stalenessCutoffMinutes("12h"), 1440);
-  // Floor applies when cadence is somehow tiny/unknown.
-  assertEquals(stalenessCutoffMinutes(null), 360);
-  assertEquals(SAMPLER_PERIOD_MINUTES, 30);
+Deno.test("vessel freshness follows sampler cadence, not consumer cadence", () => {
+  assertEquals(stalenessCutoffMinutes("3h"), POSITION_MAX_AGE_MINUTES);
+  assertEquals(stalenessCutoffMinutes("12h"), POSITION_MAX_AGE_MINUTES);
+  assertEquals(stalenessCutoffMinutes(null), POSITION_MAX_AGE_MINUTES);
+  assertEquals(SAMPLER_PERIOD_MINUTES, 60);
+});
+
+Deno.test("successful sampler heartbeat expires independently of cached positions", () => {
+  const now = new Date("2026-07-20T18:00:00Z");
+  assertEquals(
+    samplerHeartbeatIsFresh("2026-07-20T16:31:00Z", now),
+    true,
+  );
+  assertEquals(
+    samplerHeartbeatIsFresh("2026-07-20T16:29:00Z", now),
+    false,
+  );
+  assertEquals(samplerHeartbeatIsFresh(null, now), false);
 });
 
 const VESSELS: VesselObject[] = [

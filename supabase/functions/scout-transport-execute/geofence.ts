@@ -76,9 +76,10 @@ export async function resolveGeofence(
   if (geofence.center && typeof geofence.radius_km === "number") {
     return {
       kind: "circle",
-      name: geofence.display_name || `${geofence.radius_km} km around ${
-        geofence.center.lat.toFixed(2)
-      }, ${geofence.center.lon.toFixed(2)}`,
+      name: geofence.display_name ||
+        `${geofence.radius_km} km around ${geofence.center.lat.toFixed(2)}, ${
+          geofence.center.lon.toFixed(2)
+        }`,
       lat: geofence.center.lat,
       lon: geofence.center.lon,
       radiusKm: geofence.radius_km,
@@ -88,7 +89,7 @@ export async function resolveGeofence(
 }
 
 /** Circumscribed bbox of any resolved geofence — used by the sampler to build
- * aisstream subscription boxes. Longitude scaling clamps latitude to 85°. */
+ * provider query boxes. Longitude scaling clamps latitude to 85°. */
 export function geofenceToBBox(g: ResolvedGeofence): {
   minLat: number;
   minLon: number;

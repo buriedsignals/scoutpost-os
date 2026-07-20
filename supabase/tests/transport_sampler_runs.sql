@@ -1,6 +1,6 @@
 BEGIN;
 SET LOCAL search_path = public, extensions;
-SELECT plan(4);
+SELECT plan(8);
 
 SELECT has_table(
   'public',
@@ -20,7 +20,7 @@ INSERT INTO public.transport_sampler_runs (
   0,
   0,
   0,
-  'ais_not_connected',
+  'vesselapi_timeout',
   now() - interval '1 minute'
 );
 
@@ -30,7 +30,7 @@ SELECT is(
       FROM public.transport_sampler_runs
      WHERE id = '00000000-0000-4000-8000-000000000861'
   ),
-  'ais_not_connected',
+  'vesselapi_timeout',
   'heartbeat stores a machine-readable provider failure'
 );
 
@@ -48,6 +48,44 @@ SELECT is(
   ),
   0,
   'expired heartbeat was removed'
+);
+
+SELECT has_function(
+  'public',
+  'trigger_transport_sampler',
+  ARRAY['text'],
+  'service-role transport sampler trigger exists'
+);
+
+SELECT function_privs_are(
+  'public',
+  'trigger_transport_sampler',
+  ARRAY['text'],
+  'service_role',
+  ARRAY['EXECUTE'],
+  'service role can request an immediate sampler canary'
+);
+
+SELECT ok(
+  (
+    SELECT command LIKE '%X-Service-Key%'
+       AND command LIKE '%internal_service_key%'
+       AND command NOT LIKE '%service_role_key%'
+      FROM cron.job
+     WHERE jobname = 'transport-ais-sampler'
+  ),
+  'hourly vessel sampler uses the internal service-key boundary'
+);
+
+SELECT ok(
+  (
+    SELECT command LIKE '%X-Service-Key%'
+       AND command LIKE '%internal_service_key%'
+       AND command NOT LIKE '%service_role_key%'
+      FROM cron.job
+     WHERE jobname = 'transport-gp-refresh'
+  ),
+  'daily GP refresh uses the internal service-key boundary'
 );
 
 SELECT * FROM finish();

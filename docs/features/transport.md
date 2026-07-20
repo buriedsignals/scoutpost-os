@@ -16,7 +16,7 @@ decision 2026-07-04). `categories` only narrow a watch list further.
 | Mode | Data source | Scope | Alert |
 |------|-------------|-------|-------|
 | `aircraft` | adsb.lol (`/v2/point`, `/v2/mil`, `/v2/hex`) | watch IDs (ICAO hex) and a circular area required | a watched aircraft enters the area |
-| `vessel` | aisstream.io (shared sampler → `transport_positions`) | watch IDs (MMSIs) and a circular area required | a watched vessel enters the area |
+| `vessel` | VesselAPI exact-MMSI REST sampler → `transport_positions` | watch IDs (MMSIs) and a circular area required | a watched vessel enters the area |
 | `satellite` | CelesTrak GP (OMM/JSON) → SGP4 | watch IDs (NORAD ids) and a circular area required | predicted overflight of the area |
 
 The area is selected with the MapTiler geocoder and stored as a circle (center,
@@ -65,10 +65,13 @@ The same two-step contract is public on every client surface:
 
 Omitting `transport_baseline_ids` retains the legacy silent-first-run behavior.
 
-**Shared-infrastructure staleness never auto-deactivates a scout.** If the AIS
-sampler or the satellite GP refresh is behind, runs record a visible `skipped`
-status and the scout resumes automatically when the source recovers — a
-sampler/GP outage cannot cascade the fleet into deactivation.
+**Shared-infrastructure staleness never auto-deactivates a scout.** If the vessel
+sampler or the satellite GP refresh is judged stale, runs record a visible
+`skipped` status and the scout resumes automatically when the source recovers.
+Vessel liveness requires a successful shared sampler heartbeat within 90
+minutes, independent of the consumer scout's cadence, and cached positions older
+than 125 minutes are excluded. A failed sampler can no longer be masked for up
+to two days by a daily scout's old position cache.
 
 ## Categories & watchlists
 
@@ -86,7 +89,7 @@ import** unless the upstream still declares the ODbL/DbCL license.
 | Source | Used for | License / terms |
 |--------|----------|-----------------|
 | [adsb.lol](https://adsb.lol) | aircraft positions | ODbL — attribution required; contact operator before high-volume production use |
-| [aisstream.io](https://aisstream.io) | vessel AIS positions | free beta, no SLA; commercial terms unresolved (see below) |
+| [VesselAPI](https://vesselapi.com) | primary exact-MMSI vessel positions | paid Basic plan; operator is separately confirming derived-alert rights |
 | [CelesTrak](https://celestrak.org) | satellite orbital elements | public domain; one-download-per-update fair use (daily fetch complies) |
 | [plane-alert-db](https://github.com/sdr-enthusiasts/plane-alert-db) | aircraft watchlist categories | **ODbL 1.0 / DbCL 1.0** |
 
@@ -95,11 +98,38 @@ rows are a derivative database of plane-alert-db and are therefore offered
 under the **Open Database License 1.0**, preserving attribution to
 `sdr-enthusiasts/plane-alert-db`.
 
-**aisstream.io commercial status:** aisstream provides no ToS document and its
-maintainers have not responded to commercial-licensing queries. The vessel
-adapter is isolated behind `vessel.ts` so it can be swapped for a paid REST
-provider (MyShipTracking credit packs, else Datalastic) without touching the
-rest of the pipeline. Decision deadline tracked separately.
+VesselAPI is the sole vessel-position provider. The adapter sends one bounded
+50-row bulk request, retains only requested
+MMSIs, drops provider-glitched/invalid positions, and coalesces the newest row
+per identity. Partial coverage is healthy ingestion: available positions are
+written and the heartbeat records only a sanitized missing-ID count.
+
+- VesselAPI is the active technical choice. Public-sample and authorized active-
+  fleet audits passed: four of five production MMSIs returned valid positions
+  3-20 minutes old; the fifth returned a clean 404. Each request consumes one of
+  the Basic plan's 1,500 monthly calls. The operator authorized production use
+  and is separately seeking written confirmation for derived end-user alerts.
+- Poseidon AIS explicitly markets journalism/OSINT and defense use, but requires
+  complete terms, price/credit confirmation, and a trial coverage check.
+- Datalastic's public terms permit non-raw commercial end-user products, but
+  expressly prohibit military/defense use; it can only route eligible civilian
+  scouts without a different written agreement.
+- MyShipTracking and Data Docked are not production candidates under their
+  public internal-use licenses. The former recommendation of MyShipTracking as
+  the default paid swap is withdrawn.
+- Fintraffic/Digitraffic and BarentsWatch are useful licensed regional routes,
+  not global fallbacks.
+
+VesselAPI Basic samples at minute 7 hourly: about 720 bulk calls/month leaves
+room for live configuration tests and canaries,
+whereas 30-minute sampling consumes about 1,440 of 1,500 calls. Hourly sampling
+still precedes the minimum three-hour vessel-scout cadence.
+
+The cron authenticates with the dedicated `internal_service_key` Vault secret,
+not the rotatable service-role bearer. Operators can request an immediate
+service-role-only canary with `trigger_transport_sampler('ais')`; the RPC
+returns only the pg_net request ID, while the result is recorded in
+`transport_sampler_runs`.
 
 **Excluded on purpose:** OpenSky (non-commercial), Global Fishing Watch
 (non-commercial API), and the shadowbroker yacht / PLAN-CCG vessel lists
@@ -112,5 +142,8 @@ rest of the pipeline. Decision deadline tracked separately.
   checks can be missed.
 - Terrestrial AIS has mid-ocean gaps; chokepoint/coastal geofences (the
   intended use) have strong coverage.
+- VesselAPI terrestrial coverage may omit a valid but non-reporting MMSI. When
+  VesselAPI has no recent successful heartbeat, vessel runs are treated as data-unavailable,
+  remain active, skip unbilled, and preserve entry/exit state for recovery.
 - Satellite passes are **predictions** from orbital elements, labelled as
   such in alerts.

@@ -44,6 +44,7 @@ SELECT is(
   (
     SELECT scout_run_id
       FROM public.claim_civic_queue_item(
+        'targeted-worker',
         '00000000-0000-4000-8000-000000000855'
       )
   ),
@@ -64,7 +65,7 @@ SELECT is(
 SELECT is(
   (
     SELECT scout_run_id
-      FROM public.claim_civic_queue_item(NULL)
+      FROM public.claim_civic_queue_item('global-worker', NULL)
   ),
   '00000000-0000-4000-8000-000000000854'::uuid,
   'global worker still claims the oldest pending row'

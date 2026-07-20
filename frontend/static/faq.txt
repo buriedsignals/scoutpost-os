@@ -21,7 +21,7 @@ Scoutpost, formerly coJournalist, helps journalists monitor beats, sources, page
 
 ## Open source
 
-Scoutpost is built on community-maintained open-source projects and open data: Crawl4AI (primary scraper), Playwright (browser automation), Poppler/pdftotext (civic-PDF extraction), Deno (CLI, MCP bridge, Edge Functions), FastAPI (backend API), pgvector (semantic scout search), langdetect (dedup language scoring), the Internet Archive Wayback Machine (optional evidence snapshots), and — for transport scouts — adsb.lol (aircraft), CelesTrak (satellite elements), aisstream.io (vessels), and satellite.js (orbital math). Full credits: https://www.scoutpost.ai/acknowledgements
+Scoutpost is built on community-maintained open-source projects and open data: Crawl4AI (primary scraper), Playwright (browser automation), Poppler/pdftotext (civic-PDF extraction), Deno (CLI, MCP bridge, Edge Functions), FastAPI (backend API), pgvector (semantic scout search), langdetect (dedup language scoring), the Internet Archive Wayback Machine (optional evidence snapshots), and — for transport scouts — adsb.lol (aircraft), CelesTrak (satellite elements), and satellite.js (orbital math). Hosted vessel positions come from the paid VesselAPI service. Full credits: https://www.scoutpost.ai/acknowledgements
 
 ## Useful links
 

@@ -28,16 +28,14 @@ import {
   filterVessels,
   type VesselObject,
 } from "../scout-transport-execute/vessel.ts";
-import { coalesceFrames } from "../transport-sampler/ais.ts";
 import { refreshGpCache } from "../transport-sampler/gp.ts";
+import { upsertPositions } from "../transport-sampler/sampler.ts";
 import {
-  sampleAisWindowWithStatus,
-  upsertPositions,
-} from "../transport-sampler/sampler.ts";
+  sampleVesselApiPositions,
+  VesselApiRequestError,
+} from "../transport-sampler/vesselapi.ts";
 
 const PREVIEW_LIMIT = 20;
-const LIVE_AIS_WINDOW_MS = 30_000;
-const WORLD_AIS_BOX = [[[-90, -180], [90, 180]]];
 
 export interface TransportTestResult {
   valid: true;
@@ -71,52 +69,42 @@ export interface TransportTestDependencies {
   ): PassWindow[];
 }
 
-export function missingAisWatchIds(
-  watchIds: string[],
-  positions: Array<{ mmsi: string }>,
-): string[] {
-  const confirmedIds = new Set(positions.map((position) => position.mmsi));
-  return watchIds.filter((id) => !confirmedIds.has(id));
-}
-
 async function ensureLiveVesselCoverage(
   svc: SupabaseClient,
   _geofence: ResolvedGeofence,
   watchIds: string[],
 ): Promise<void> {
-  const apiKey = Deno.env.get("AIS_API_KEY")?.trim();
+  const apiKey = Deno.env.get("VESSELAPI_API_KEY")?.trim();
   if (!apiKey) {
     throw new ApiError(
-      "AIS live test is unavailable because AIS_API_KEY is not configured",
+      "VesselAPI live test is unavailable because VESSELAPI_API_KEY is not configured",
       503,
       "transport_data_unavailable",
     );
   }
-  const sample = await sampleAisWindowWithStatus({
-    apiKey,
-    boxes: WORLD_AIS_BOX,
-    shipMmsi: watchIds,
-    windowMs: LIVE_AIS_WINDOW_MS,
-  });
-  if (!sample.connected || sample.errored) {
+  let sample;
+  try {
+    sample = await sampleVesselApiPositions({ apiKey, watchIds });
+  } catch (error) {
+    const providerCode = error instanceof VesselApiRequestError
+      ? error.code
+      : "vesselapi_unhandled_error";
     throw new ApiError(
-      "AIS live test could not establish a healthy sampler connection",
+      `VesselAPI live test failed (${providerCode})`,
       503,
       "transport_data_unavailable",
     );
   }
-  const positions = coalesceFrames(sample.frames);
-  const unconfirmedIds = missingAisWatchIds(watchIds, positions);
-  if (unconfirmedIds.length > 0) {
+  if (sample.missingIds.length > 0) {
     throw new ApiError(
-      `AIS live test could not confirm a current position for MMSI ${
-        unconfirmedIds.join(", ")
-      }; try again when the vessels are reporting`,
+      `VesselAPI could not confirm a current position for MMSI ${
+        sample.missingIds.join(", ")
+      }; verify the identifier or try again when the vessel is reporting`,
       503,
       "transport_data_unavailable",
     );
   }
-  await upsertPositions(svc, positions);
+  await upsertPositions(svc, sample.positions);
 }
 
 async function ensureLiveGpCoverage(svc: SupabaseClient): Promise<void> {

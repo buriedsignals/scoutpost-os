@@ -130,8 +130,8 @@ before merge.
 
 ## Acknowledgements
 
-Scoutpost stands on open work — community-maintained open-source projects that
-do the heavy operational lifting. A sincere thank-you to every project below.
+Scoutpost stands on open work and specialist data services that do the heavy
+operational lifting. A sincere thank-you to every project and provider below.
 *(Listing does not imply affiliation or endorsement.)*
 
 | Category | Projects we're grateful to |
@@ -140,7 +140,7 @@ do the heavy operational lifting. A sincere thank-you to every project below.
 | **Application runtime** | [Deno](https://deno.com/) (MIT — the `scout` CLI, MCP bridge, and every Edge Function) · [FastAPI](https://fastapi.tiangolo.com/) (Sebastián Ramírez, MIT — the backend API) |
 | **Search & analysis** | [pgvector](https://github.com/pgvector/pgvector) (Andrew Kane — vector search behind semantic scout matching) · [langdetect](https://github.com/Mimino666/langdetect) (language detection in dedup scoring) |
 | **Evidence archiving** | [Internet Archive / Wayback Machine](https://web.archive.org/) (optional evidence-snapshot submission) |
-| **Fleet & transport data** | [adsb.lol](https://adsb.lol/) (community ADS-B network — live aircraft positions) · [CelesTrak](https://celestrak.org/) (T.S. Kelso — satellite orbital elements) · [aisstream.io](https://aisstream.io/) (live vessel positions from community AIS receivers) · [satellite.js](https://github.com/shashwatak/satellite-js) (shashwatak, MIT — orbital math) |
+| **Fleet & transport data** | [adsb.lol](https://adsb.lol/) (community ADS-B network — live aircraft positions) · [VesselAPI](https://vesselapi.com/) (paid exact-MMSI vessel positions) · [CelesTrak](https://celestrak.org/) (T.S. Kelso — satellite orbital elements) · [satellite.js](https://github.com/shashwatak/satellite-js) (shashwatak, MIT — orbital math) |
 
 These and the app's full credits also live at
 [scoutpost.ai/acknowledgements](https://www.scoutpost.ai/acknowledgements).
