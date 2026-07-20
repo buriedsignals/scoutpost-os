@@ -10,7 +10,41 @@ import {
   toSubscriptionBoxes,
   unionBoxes,
 } from "./ais.ts";
-import { aisSubscriptionMessage } from "./sampler.ts";
+import { aisSubscriptionMessage, classifyAisSampleResult } from "./sampler.ts";
+
+Deno.test("AIS sampler result classification exposes background failure modes", () => {
+  assertEquals(
+    classifyAisSampleResult(
+      { connected: false, errored: false, frames: [] },
+      0,
+    ),
+    "ais_not_connected",
+  );
+  assertEquals(
+    classifyAisSampleResult({ connected: true, errored: true, frames: [] }, 0),
+    "ais_websocket_error",
+  );
+  assertEquals(
+    classifyAisSampleResult({ connected: true, errored: false, frames: [] }, 0),
+    "ais_zero_frames",
+  );
+  assertEquals(
+    classifyAisSampleResult({
+      connected: true,
+      errored: false,
+      frames: [{}],
+    }, 0),
+    "ais_no_valid_positions",
+  );
+  assertEquals(
+    classifyAisSampleResult({
+      connected: true,
+      errored: false,
+      frames: [{}],
+    }, 1),
+    null,
+  );
+});
 
 const fixture = JSON.parse(
   Deno.readTextFileSync(

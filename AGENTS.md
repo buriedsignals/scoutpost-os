@@ -1,9 +1,5 @@
 # Scoutpost
 
-## Session Preflight
-
-Before coding in this project, read `/Users/tomvaillant/buried_signals/kit/coding-rules/SKILL.md`. It is the canonical source for workflow routing, coding standards, Jujutsu/version-control rules, GitHub operations, and parallel-agent isolation. Local instructions below add project-specific constraints.
-
 ## Deployment Workflow - MANDATORY
 
 **NEVER push directly to `main`.** All changes go through a branch + PR. This is not optional.

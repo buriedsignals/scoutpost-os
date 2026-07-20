@@ -67,6 +67,7 @@ import {
   filterSubpageUrls,
   hasDeterministicListingSignal,
   isLikelyArticleUrl,
+  mergeDiscoveredSubpageLinks,
 } from "../_shared/subpage-filter.ts";
 import {
   type CanonicalUnitType,
@@ -651,22 +652,24 @@ async function runPipeline(
     });
   }
 
-  let phaseBLinks = rawHtml?.trim()
+  const htmlLinks = rawHtml?.trim()
     ? extractLinksFromHtml(rawHtml, scout.url)
     : [];
-  if (phaseBLinks.length === 0 && markdown.trim()) {
-    const markdownLinks = extractLinksFromMarkdown(markdown, scout.url);
-    if (markdownLinks.length > 0) {
-      phaseBLinks = markdownLinks;
-      logEvent({
-        level: "info",
-        fn: "scout-web-execute",
-        event: "phase_b_using_markdown_links",
-        scout_id: scout.id,
-        run_id: runId,
-        links_found: markdownLinks.length,
-      });
-    }
+  const markdownLinks = markdown.trim()
+    ? extractLinksFromMarkdown(markdown, scout.url)
+    : [];
+  const phaseBLinks = mergeDiscoveredSubpageLinks(htmlLinks, markdownLinks);
+  if (markdownLinks.length > 0) {
+    logEvent({
+      level: "info",
+      fn: "scout-web-execute",
+      event: "phase_b_merged_markdown_links",
+      scout_id: scout.id,
+      run_id: runId,
+      html_links: htmlLinks.length,
+      markdown_links: markdownLinks.length,
+      merged_links: phaseBLinks.length,
+    });
   }
   const phaseBCandidates = phaseBLinks.length > 0
     ? filterSubpageUrls(phaseBLinks.map(([url]) => url), scout.url)
@@ -756,7 +759,17 @@ async function runPipeline(
   const hasCriteria = !!scout.criteria?.trim();
 
   const extracted = deterministicListingPage
-    ? { units: [], isListingPage: true }
+    ? {
+      units: [],
+      isListingPage: true,
+      diagnostics: {
+        outcome: "empty" as const,
+        raw_units: 0,
+        valid_units: 0,
+        returned_units: 0,
+        error_code: null,
+      },
+    }
     : await extractAtomicUnits({
       title: scrape.title ?? null,
       content: markdown,
@@ -778,6 +791,16 @@ async function runPipeline(
         operation: "web_extract_primary",
       },
     });
+  await mergeRunMetadata(svc, runId, {
+    extraction_primary: extracted.diagnostics,
+  });
+  if (extracted.diagnostics.outcome === "failed") {
+    throw new ApiError(
+      `primary extraction failed (${extracted.diagnostics.error_code})`,
+      502,
+      extracted.diagnostics.error_code ?? "extraction_failed",
+    );
+  }
   const indexIsListingPage = deterministicListingPage ||
     extracted.isListingPage;
 

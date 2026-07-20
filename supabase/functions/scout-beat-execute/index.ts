@@ -973,6 +973,9 @@ async function execute(
     let mergedExistingCount = 0;
     let abstainedCount = 0;
     let extractionFailureCount = 0;
+    let extractionEmptyCount = 0;
+    let extractionFilteredCount = 0;
+    let extractedUnitCount = 0;
     let embedFailureCount = 0;
     let unitInsertFailureCount = 0;
     const insertedStatements: string[] = [];
@@ -1032,6 +1035,15 @@ async function execute(
           msg: e instanceof Error ? e.message : String(e),
         });
         continue;
+      }
+
+      extractedUnitCount += extracted.diagnostics.returned_units;
+      if (extracted.diagnostics.outcome === "failed") {
+        extractionFailureCount += 1;
+      } else if (extracted.diagnostics.outcome === "filtered") {
+        extractionFilteredCount += 1;
+      } else if (extracted.diagnostics.outcome === "empty") {
+        extractionEmptyCount += 1;
       }
 
       let embeddings: number[][];
@@ -1159,6 +1171,21 @@ async function execute(
         }
       }
     }
+
+    await mergeRunMetadata(db, runId, {
+      unit_pipeline: {
+        sources_scraped: succeeded.length,
+        sources_failed: failures.length,
+        extraction_failed_sources: extractionFailureCount,
+        extraction_empty_sources: extractionEmptyCount,
+        extraction_filtered_sources: extractionFilteredCount,
+        extracted_units: extractedUnitCount,
+        embedding_failures: embedFailureCount,
+        insert_failures: unitInsertFailureCount,
+        units_created: insertedCount,
+        units_merged: mergedExistingCount,
+      },
+    });
 
     const noSurfaceReason = insertedCount === 0 && mergedExistingCount === 0
       ? "No usable information units were extracted from successfully scraped sources."
@@ -1414,7 +1441,6 @@ async function execute(
       baseline_initialized: baselineOnly,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
     const classified = classifyRunError(e, "finalize");
     await markRunError(db, runId, {
       stage: classified.stage,

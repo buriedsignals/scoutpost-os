@@ -4,11 +4,28 @@ import {
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 
 import {
+  classifyExtractionDiagnostics,
   preferSourcePublishedDate,
   publishedDateFromScrape,
   selectExtractionWindow,
   sourcePublishedDate,
 } from "./atomic_extract.ts";
+
+Deno.test("classifyExtractionDiagnostics separates empty, filtered, and failed results", () => {
+  assertEquals(classifyExtractionDiagnostics(0, 0, 0).outcome, "empty");
+  assertEquals(classifyExtractionDiagnostics(2, 2, 0).outcome, "filtered");
+  assertEquals(classifyExtractionDiagnostics(2, 2, 1).outcome, "ok");
+  assertEquals(
+    classifyExtractionDiagnostics(0, 0, 0, "openrouter_503"),
+    {
+      outcome: "failed",
+      raw_units: 0,
+      valid_units: 0,
+      returned_units: 0,
+      error_code: "openrouter_503",
+    },
+  );
+});
 
 Deno.test("selectExtractionWindow centers a late matching article heading", () => {
   const navigation = `EARLIEST_NAV ${

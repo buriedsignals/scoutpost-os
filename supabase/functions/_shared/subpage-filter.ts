@@ -38,6 +38,27 @@ export function validateDomain(
 
 const MIN_DETERMINISTIC_ARTICLE_CANDIDATES = 3;
 
+export type DiscoveredSubpageLink = [url: string, anchorText: string];
+
+/**
+ * Merge links from rendered HTML and markdown instead of treating markdown as
+ * an all-or-nothing fallback. Anti-bot providers can return a large rendered
+ * shell in raw HTML while placing the useful listing links only in markdown.
+ */
+export function mergeDiscoveredSubpageLinks(
+  htmlLinks: DiscoveredSubpageLink[],
+  markdownLinks: DiscoveredSubpageLink[],
+): DiscoveredSubpageLink[] {
+  const merged = new Map<string, string>();
+  for (const [url, anchorText] of [...htmlLinks, ...markdownLinks]) {
+    const existing = merged.get(url);
+    if (existing === undefined || (!existing.trim() && anchorText.trim())) {
+      merged.set(url, anchorText);
+    }
+  }
+  return [...merged.entries()];
+}
+
 export function isLikelyArticleUrl(url: string): boolean {
   let parsed: URL;
   try {

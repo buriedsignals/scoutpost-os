@@ -36,8 +36,9 @@ import {
 } from "./ais.ts";
 import {
   activeVesselBoxes,
+  classifyAisSampleResult,
   hasActiveSatelliteScouts,
-  sampleAisWindow,
+  sampleAisWindowWithStatus,
   upsertPositions,
 } from "./sampler.ts";
 import { refreshGpCache } from "./gp.ts";
@@ -52,7 +53,105 @@ declare const EdgeRuntime:
   | { waitUntil(p: Promise<unknown>): void }
   | undefined;
 
-function runInBackground(work: Promise<unknown>): void {
+interface SamplerOutcome {
+  status: "succeeded" | "noop";
+  connected?: boolean | null;
+  providerErrored?: boolean | null;
+  framesReceived?: number;
+  itemsParsed?: number;
+  itemsWritten?: number;
+  errorCode?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+class SamplerFailure extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly details: Partial<SamplerOutcome> = {},
+  ) {
+    super(message);
+    this.name = "SamplerFailure";
+  }
+}
+
+async function updateSamplerRun(
+  svc: SupabaseClient,
+  runId: string,
+  values: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await svc
+    .from("transport_sampler_runs")
+    .update({ ...values, updated_at: new Date().toISOString() })
+    .eq("id", runId);
+  if (error) throw new Error(`sampler run update failed: ${error.message}`);
+}
+
+async function trackSamplerRun(
+  svc: SupabaseClient,
+  runId: string,
+  task: "ais" | "gp",
+  work: () => Promise<SamplerOutcome>,
+): Promise<void> {
+  await updateSamplerRun(svc, runId, { status: "running" });
+  try {
+    const outcome = await work();
+    await updateSamplerRun(svc, runId, {
+      status: outcome.status,
+      connected: outcome.connected ?? null,
+      provider_errored: outcome.providerErrored ?? null,
+      frames_received: outcome.framesReceived ?? 0,
+      items_parsed: outcome.itemsParsed ?? 0,
+      items_written: outcome.itemsWritten ?? 0,
+      error_code: outcome.errorCode ?? null,
+      error_message: null,
+      metadata: outcome.metadata ?? {},
+      completed_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    const code = error instanceof SamplerFailure
+      ? error.code
+      : "sampler_unhandled_error";
+    const message = error instanceof Error ? error.message : String(error);
+    try {
+      const details = error instanceof SamplerFailure ? error.details : {};
+      await updateSamplerRun(svc, runId, {
+        status: "failed",
+        connected: details.connected ?? null,
+        provider_errored: details.providerErrored ?? null,
+        frames_received: details.framesReceived ?? 0,
+        items_parsed: details.itemsParsed ?? 0,
+        items_written: details.itemsWritten ?? 0,
+        metadata: details.metadata ?? {},
+        error_code: code,
+        error_message: message.slice(0, 500),
+        completed_at: new Date().toISOString(),
+      });
+    } catch (updateError) {
+      logEvent({
+        level: "error",
+        fn: "transport-sampler",
+        event: "run_status_update_failed",
+        run_id: runId,
+        msg: updateError instanceof Error
+          ? updateError.message
+          : String(updateError),
+      });
+    }
+    logEvent({
+      level: "error",
+      fn: "transport-sampler",
+      event: "tracked_run_failed",
+      run_id: runId,
+      task,
+      error_code: code,
+      msg: message,
+    });
+    throw error;
+  }
+}
+
+function runInBackground(work: Promise<void>): void {
   const guarded = work.catch((err) =>
     logEvent({
       level: "error",
@@ -72,7 +171,7 @@ function runInBackground(work: Promise<unknown>): void {
 async function runAisSampler(
   svc: SupabaseClient,
   windowMs: number,
-): Promise<void> {
+): Promise<SamplerOutcome> {
   const scoutBoxes = await activeVesselBoxes(svc);
   if (scoutBoxes.length === 0) {
     logEvent({
@@ -81,7 +180,7 @@ async function runAisSampler(
       event: "ais_noop",
       msg: "no active vessel scouts",
     });
-    return;
+    return { status: "noop", errorCode: "no_active_vessel_scouts" };
   }
   // Merge overlaps, then coarsen (never drop) to the subscription-box cap.
   const unioned = unionBoxes(scoutBoxes);
@@ -97,32 +196,72 @@ async function runAisSampler(
   }
   const apiKey = Deno.env.get("AIS_API_KEY");
   if (!apiKey) {
-    logEvent({
-      level: "warn",
-      fn: "transport-sampler",
-      event: "ais_no_key",
-      msg: "AIS_API_KEY not set; skipping sample",
-    });
-    return;
+    throw new SamplerFailure(
+      "ais_api_key_missing",
+      "AIS_API_KEY not configured",
+    );
   }
 
-  const frames = await sampleAisWindow({
+  const sample = await sampleAisWindowWithStatus({
     apiKey,
     boxes: toSubscriptionBoxes(merged),
     windowMs,
   });
-  const positions = coalesceFrames(frames);
-  const written = await upsertPositions(svc, positions);
+  const positions = coalesceFrames(sample.frames);
+  const sampleError = classifyAisSampleResult(sample, positions.length);
+  if (sampleError) {
+    throw new SamplerFailure(
+      sampleError,
+      `AIS sample failed: connected=${sample.connected}, errored=${sample.errored}, frames=${sample.frames.length}, positions=${positions.length}`,
+      {
+        connected: sample.connected,
+        providerErrored: sample.errored,
+        framesReceived: sample.frames.length,
+        itemsParsed: positions.length,
+        metadata: {
+          active_scout_boxes: scoutBoxes.length,
+          merged_subscription_boxes: merged.length,
+        },
+      },
+    );
+  }
+  let written: number;
+  try {
+    written = await upsertPositions(svc, positions);
+  } catch (error) {
+    throw new SamplerFailure(
+      "ais_upsert_failed",
+      error instanceof Error ? error.message : String(error),
+      {
+        connected: sample.connected,
+        providerErrored: sample.errored,
+        framesReceived: sample.frames.length,
+        itemsParsed: positions.length,
+      },
+    );
+  }
   logEvent({
     level: "info",
     fn: "transport-sampler",
     event: "ais_sample",
     msg:
-      `${scoutBoxes.length} scout box(es) → ${merged.length} merged, ${frames.length} frames, ${written} vessels upserted`,
+      `${scoutBoxes.length} scout box(es) → ${merged.length} merged, ${sample.frames.length} frames, ${written} vessels upserted`,
   });
+  return {
+    status: "succeeded",
+    connected: sample.connected,
+    providerErrored: sample.errored,
+    framesReceived: sample.frames.length,
+    itemsParsed: positions.length,
+    itemsWritten: written,
+    metadata: {
+      active_scout_boxes: scoutBoxes.length,
+      merged_subscription_boxes: merged.length,
+    },
+  };
 }
 
-async function runGpRefresh(svc: SupabaseClient): Promise<void> {
+async function runGpRefresh(svc: SupabaseClient): Promise<SamplerOutcome> {
   // GP refresh is gated on satellite scouts (guard in the EF, not the cron),
   // so an all-vessel or idle deployment never hits CelesTrak.
   if (!(await hasActiveSatelliteScouts(svc))) {
@@ -132,7 +271,7 @@ async function runGpRefresh(svc: SupabaseClient): Promise<void> {
       event: "gp_noop",
       msg: "no active satellite scouts",
     });
-    return;
+    return { status: "noop", errorCode: "no_active_satellite_scouts" };
   }
   const result = await refreshGpCache(svc);
   logEvent({
@@ -141,6 +280,11 @@ async function runGpRefresh(svc: SupabaseClient): Promise<void> {
     event: "gp_done",
     msg: `${result.status}, ${result.cached} cached`,
   });
+  return {
+    status: "succeeded",
+    itemsWritten: result.cached,
+    metadata: { provider_status: result.status },
+  };
 }
 
 Deno.serve((req: Request): Response | Promise<Response> => {
@@ -171,15 +315,44 @@ Deno.serve((req: Request): Response | Promise<Response> => {
     }
     const svc = getServiceClient();
     const windowMs = parsed.data.window_ms ?? 120_000;
+    const samplerRunId = crypto.randomUUID();
+    const { error: insertError } = await svc
+      .from("transport_sampler_runs")
+      .insert({
+        id: samplerRunId,
+        task: parsed.data.task,
+        status: "accepted",
+        requested_window_ms: parsed.data.task === "ais" ? windowMs : null,
+      });
+    if (insertError) {
+      return jsonFromError(
+        new Error(`failed to create sampler run: ${insertError.message}`),
+      );
+    }
 
     if (parsed.data.task === "gp") {
       // Satellite GP refresh — no-op when no active satellite scouts exist.
-      runInBackground(runGpRefresh(svc));
-      return jsonOk({ status: "accepted", task: "gp" }, 202);
+      runInBackground(
+        trackSamplerRun(svc, samplerRunId, "gp", () => runGpRefresh(svc)),
+      );
+      return jsonOk(
+        { status: "accepted", task: "gp", run_id: samplerRunId },
+        202,
+      );
     }
 
     // 202 + background: the window outlives the pg_net request.
-    runInBackground(runAisSampler(svc, windowMs));
-    return jsonOk({ status: "accepted", task: "ais" }, 202);
+    runInBackground(
+      trackSamplerRun(
+        svc,
+        samplerRunId,
+        "ais",
+        () => runAisSampler(svc, windowMs),
+      ),
+    );
+    return jsonOk(
+      { status: "accepted", task: "ais", run_id: samplerRunId },
+      202,
+    );
   })();
 });

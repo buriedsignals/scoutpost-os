@@ -121,11 +121,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonFromError(e instanceof AuthError ? e : new AuthError());
   }
 
-  // Body may be empty; tolerate either way.
+  // Operators/benchmarks may target one run so a deterministic drain does not
+  // consume unrelated fleet work. Empty body preserves the cron worker path.
+  let requestedRunId: string | null = null;
   try {
-    await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => ({})) as {
+      scout_run_id?: unknown;
+    };
+    if (body.scout_run_id !== undefined) {
+      if (
+        typeof body.scout_run_id !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+          .test(body.scout_run_id)
+      ) {
+        return jsonError("scout_run_id must be a UUID", 400);
+      }
+      requestedRunId = body.scout_run_id;
+    }
   } catch {
-    // ignore
+    return jsonError("invalid JSON body", 400);
   }
 
   const svc = getServiceClient();
@@ -133,7 +147,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // Claim one queue row (SKIP LOCKED; stale-processing recovery built in).
   let claimed: QueueRow | null;
   try {
-    const { data, error } = await svc.rpc("claim_civic_queue_item");
+    const { data, error } = await svc.rpc("claim_civic_queue_item", {
+      p_scout_run_id: requestedRunId,
+    });
     if (error) throw new Error(error.message);
     const rows = Array.isArray(data) ? data : [];
     claimed = rows.length > 0 ? (rows[0] as QueueRow) : null;

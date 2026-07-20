@@ -55,6 +55,50 @@ export interface ExtractedUnit {
 export interface ExtractionResult {
   units: ExtractedUnit[];
   isListingPage: boolean;
+  diagnostics: ExtractionDiagnostics;
+}
+
+export interface ExtractionDiagnostics {
+  outcome: "ok" | "empty" | "filtered" | "failed";
+  raw_units: number;
+  valid_units: number;
+  returned_units: number;
+  error_code: string | null;
+}
+
+export function classifyExtractionDiagnostics(
+  rawUnits: number,
+  validUnits: number,
+  returnedUnits: number,
+  errorCode: string | null = null,
+): ExtractionDiagnostics {
+  const outcome = errorCode
+    ? "failed"
+    : returnedUnits > 0
+    ? "ok"
+    : rawUnits > 0 && validUnits > 0
+    ? "filtered"
+    : "empty";
+  return {
+    outcome,
+    raw_units: rawUnits,
+    valid_units: validUnits,
+    returned_units: returnedUnits,
+    error_code: errorCode,
+  };
+}
+
+function extractionErrorCode(error: unknown): string {
+  if (error && typeof error === "object") {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && /^[a-z0-9_-]{1,80}$/i.test(code)) {
+      return code;
+    }
+    if ((error as { name?: unknown }).name === "AbortError") {
+      return "timeout";
+    }
+  }
+  return "extraction_failed";
 }
 
 function normalizedTitle(value: string): string {
@@ -259,7 +303,13 @@ export async function extractAtomicUnits(
     usage,
   } = input;
 
-  if (!content.trim()) return { units: [], isListingPage: false };
+  if (!content.trim()) {
+    return {
+      units: [],
+      isListingPage: false,
+      diagnostics: classifyExtractionDiagnostics(0, 0, 0),
+    };
+  }
 
   let sourceDomain = "";
   try {
@@ -329,8 +379,18 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
         criteria_present: Boolean(criteria?.trim()),
       });
     }
-    return { units: filtered.slice(0, maxUnits), isListingPage };
+    const returned = filtered.slice(0, maxUnits);
+    return {
+      units: returned,
+      isListingPage,
+      diagnostics: classifyExtractionDiagnostics(
+        units.length,
+        valid.length,
+        returned.length,
+      ),
+    };
   } catch (e) {
+    const errorCode = extractionErrorCode(e);
     logEvent({
       level: "warn",
       fn: "atomic_extract",
@@ -338,7 +398,11 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
       source_url: sourceUrl,
       msg: e instanceof Error ? e.message : String(e),
     });
-    return { units: [], isListingPage: false };
+    return {
+      units: [],
+      isListingPage: false,
+      diagnostics: classifyExtractionDiagnostics(0, 0, 0, errorCode),
+    };
   }
 }
 

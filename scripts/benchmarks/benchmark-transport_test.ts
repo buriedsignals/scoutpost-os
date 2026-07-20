@@ -1,10 +1,77 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   aircraftCanaryConfig,
+  classifyVesselSamplerOutcome,
   modeScheduleCron,
   reAlertedObjectIds,
+  samplerRunFailureMessage,
+  type SamplerRunRow,
   selectFreshMalaccaVessels,
 } from "./benchmark-transport.ts";
+
+function samplerRun(overrides: Partial<SamplerRunRow>): SamplerRunRow {
+  return {
+    id: "00000000-0000-4000-8000-000000000001",
+    task: "ais",
+    status: "succeeded",
+    connected: true,
+    provider_errored: false,
+    frames_received: 12,
+    items_parsed: 4,
+    items_written: 4,
+    error_code: null,
+    error_message: null,
+    ...overrides,
+  };
+}
+
+Deno.test("sampler heartbeat exposes the asynchronous transport failure", () => {
+  assertEquals(samplerRunFailureMessage(samplerRun({})), null);
+  assertEquals(
+    samplerRunFailureMessage(samplerRun({
+      status: "failed",
+      connected: false,
+      frames_received: 0,
+      items_parsed: 0,
+      items_written: 0,
+      error_code: "ais_not_connected",
+      error_message: "AIS sample failed",
+    })),
+    "[ais_not_connected] AIS sampler failed: AIS sample failed; " +
+      "connected=false; provider_errored=false; frames=0; parsed=0; written=0",
+  );
+});
+
+Deno.test("vessel sampler diagnostics separate stale cache from empty geography", () => {
+  const sampledAfter = new Date("2026-07-20T09:30:00Z");
+  assertEquals(
+    classifyVesselSamplerOutcome({
+      newestSeenAt: null,
+      sampledAfter,
+      freshCandidateCount: 0,
+      freshGeofenceCount: 0,
+    }),
+    "sampler_empty",
+  );
+  assertEquals(
+    classifyVesselSamplerOutcome({
+      newestSeenAt: "2026-07-20T09:29:59Z",
+      sampledAfter,
+      freshCandidateCount: 0,
+      freshGeofenceCount: 0,
+    }),
+    "positions_stale",
+  );
+  assertEquals(
+    classifyVesselSamplerOutcome({
+      newestSeenAt: "2026-07-20T09:30:01Z",
+      sampledAfter,
+      freshCandidateCount: 4,
+      freshGeofenceCount: 0,
+    }),
+    "no_geo_matches",
+  );
+});
 
 Deno.test("aircraft canary follows live identities without a transient geofence", () => {
   assertEquals(aircraftCanaryConfig(["abc123"]), {

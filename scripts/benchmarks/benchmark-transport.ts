@@ -66,6 +66,55 @@ interface GpCacheRow {
   fetched_at: string;
 }
 
+export interface SamplerRunRow {
+  id: string;
+  task: "ais" | "gp";
+  status: "accepted" | "running" | "succeeded" | "failed" | "noop";
+  connected: boolean | null;
+  provider_errored: boolean | null;
+  frames_received: number;
+  items_parsed: number;
+  items_written: number;
+  error_code: string | null;
+  error_message: string | null;
+}
+
+export function samplerRunFailureMessage(run: SamplerRunRow): string | null {
+  if (run.status === "succeeded") return null;
+  if (run.status === "accepted" || run.status === "running") {
+    return `[sampler_timeout] ${run.task.toUpperCase()} sampler remained ${run.status}`;
+  }
+  return `[${run.error_code ?? `sampler_${run.status}`}] ` +
+    `${run.task.toUpperCase()} sampler ${run.status}: ` +
+    `${run.error_message ?? "no error message"}; connected=${run.connected}; ` +
+    `provider_errored=${run.provider_errored}; frames=${run.frames_received}; ` +
+    `parsed=${run.items_parsed}; written=${run.items_written}`;
+}
+
+export type VesselSamplerOutcome =
+  | "ok"
+  | "sampler_empty"
+  | "positions_stale"
+  | "no_candidates"
+  | "no_geo_matches";
+
+export function classifyVesselSamplerOutcome(input: {
+  newestSeenAt: string | null;
+  sampledAfter: Date;
+  freshCandidateCount: number;
+  freshGeofenceCount: number;
+}): VesselSamplerOutcome {
+  if (!input.newestSeenAt) return "sampler_empty";
+  if (
+    new Date(input.newestSeenAt).getTime() < input.sampledAfter.getTime()
+  ) {
+    return "positions_stale";
+  }
+  if (input.freshCandidateCount === 0) return "no_candidates";
+  if (input.freshGeofenceCount === 0) return "no_geo_matches";
+  return "ok";
+}
+
 const DORMANT_CRON = "0 0 1 1 *";
 const DAILY_CRON = "0 0 * * *";
 const RUN_TIMEOUT_MS = 4 * 60_000;
@@ -178,7 +227,7 @@ async function pgList<T>(
 async function triggerSampler(
   ctx: BenchCtx,
   body: { task: "ais" | "gp"; window_ms?: number },
-): Promise<void> {
+): Promise<string> {
   const result = await serviceFunctionFetch(
     ctx,
     "/functions/v1/transport-sampler",
@@ -189,6 +238,51 @@ async function triggerSampler(
       `transport sampler ${body.task} responded ${result.status}: ${result.text}`,
     );
   }
+  let payload: { run_id?: unknown };
+  try {
+    payload = JSON.parse(result.text) as { run_id?: unknown };
+  } catch {
+    throw new Error(`transport sampler ${body.task} returned invalid JSON`);
+  }
+  if (typeof payload.run_id !== "string") {
+    throw new Error(`transport sampler ${body.task} returned no run_id`);
+  }
+  return payload.run_id;
+}
+
+async function waitForSamplerRun(
+  ctx: BenchCtx,
+  runId: string,
+): Promise<SamplerRunRow> {
+  const deadline = Date.now() + SAMPLER_TIMEOUT_MS;
+  let latest: SamplerRunRow | null = null;
+  while (Date.now() < deadline) {
+    const rows = await pgList<SamplerRunRow>(
+      ctx,
+      "transport_sampler_runs",
+      "select=id,task,status,connected,provider_errored,frames_received," +
+        "items_parsed,items_written,error_code,error_message" +
+        `&id=eq.${runId}`,
+    );
+    latest = rows[0] ?? null;
+    if (
+      latest &&
+      ["succeeded", "failed", "noop"].includes(latest.status)
+    ) return latest;
+    await delay(POLL_INTERVAL_MS);
+  }
+  if (latest) return latest;
+  throw new Error(`[sampler_missing] no sampler heartbeat found for ${runId}`);
+}
+
+async function requireSuccessfulSamplerRun(
+  ctx: BenchCtx,
+  runId: string,
+): Promise<SamplerRunRow> {
+  const run = await waitForSamplerRun(ctx, runId);
+  const failure = samplerRunFailureMessage(run);
+  if (failure) throw new Error(failure);
+  return run;
 }
 
 async function waitForFreshMalaccaVessels(
@@ -210,8 +304,29 @@ async function waitForFreshMalaccaVessels(
     if (selected.length > 0) return selected;
     await delay(POLL_INTERVAL_MS);
   }
+
+  const newest = await pgList<VesselPositionRow>(
+    ctx,
+    "transport_positions",
+    "select=mmsi,lat,lon,seen_at&order=seen_at.desc",
+  );
+  const recent = await pgList<VesselPositionRow>(
+    ctx,
+    "transport_positions",
+    `select=mmsi,lat,lon,seen_at&seen_at=gte.${after}` +
+      "&order=seen_at.desc",
+  );
+  const freshInMalacca = selectFreshMalaccaVessels(recent, sampledAfter);
+  const outcome = classifyVesselSamplerOutcome({
+    newestSeenAt: newest[0]?.seen_at ?? null,
+    sampledAfter,
+    freshCandidateCount: recent.length,
+    freshGeofenceCount: freshInMalacca.length,
+  });
   throw new Error(
-    "AIS sampler wrote no fresh vessel positions in Malacca before timeout",
+    `[${outcome}] AIS sampler wrote no fresh vessel positions in Malacca before timeout; ` +
+      `newest_seen_at=${newest[0]?.seen_at ?? "none"}; ` +
+      `fresh_candidates=${recent.length}; fresh_malacca=${freshInMalacca.length}`,
   );
 }
 
@@ -220,7 +335,10 @@ async function prepareVesselCanary(
   scoutId: string,
 ): Promise<TransportConfig> {
   const sampledAfter = new Date(Date.now() - 1_000);
-  await triggerSampler(ctx, { task: "ais", window_ms: 30_000 });
+  const sampler = await requireSuccessfulSamplerRun(
+    ctx,
+    await triggerSampler(ctx, { task: "ais", window_ms: 30_000 }),
+  );
   const vessels = await waitForFreshMalaccaVessels(ctx, sampledAfter);
   const config: TransportConfig = {
     mode: "vessel",
@@ -229,7 +347,8 @@ async function prepareVesselCanary(
   };
   await updateTransportConfig(ctx, scoutId, config);
   console.log(
-    `vessel sampler: ${vessels.length} fresh MMSI(s) over ${MALACCA_PRESET}`,
+    `vessel sampler: connected=${sampler.connected} frames=${sampler.frames_received} ` +
+      `written=${sampler.items_written}; ${vessels.length} fresh MMSI(s) over ${MALACCA_PRESET}`,
   );
   return config;
 }
@@ -255,10 +374,14 @@ async function waitForFreshIssElement(ctx: BenchCtx): Promise<GpCacheRow> {
 }
 
 async function prepareSatelliteCanary(ctx: BenchCtx): Promise<void> {
-  await triggerSampler(ctx, { task: "gp" });
+  const sampler = await requireSuccessfulSamplerRun(
+    ctx,
+    await triggerSampler(ctx, { task: "gp" }),
+  );
   const iss = await waitForFreshIssElement(ctx);
   console.log(
-    `satellite sampler: ${iss.name ?? "ISS"} GP fetched ${iss.fetched_at}`,
+    `satellite sampler: written=${sampler.items_written}; ` +
+      `${iss.name ?? "ISS"} GP fetched ${iss.fetched_at}`,
   );
 }
 
@@ -362,7 +485,7 @@ async function auditTwoRunBaseline(
 async function runCanary(
   ctx: BenchCtx,
   mode: TransportMode,
-  initialConfig: () => Promise<TransportConfig>,
+  initialConfig: () => TransportConfig | Promise<TransportConfig>,
   prepare?: (ctx: BenchCtx, scoutId: string) => Promise<unknown>,
 ): Promise<string[]> {
   let scoutId: string | null = null;
@@ -410,7 +533,7 @@ async function main() {
     ...await runCanary(
       ctx,
       "vessel",
-      async () => ({
+      () => ({
         mode: "vessel",
         geofence: { preset_id: MALACCA_PRESET },
         watch_ids: [BOOTSTRAP_MMSI],
@@ -423,7 +546,7 @@ async function main() {
     ...await runCanary(
       ctx,
       "satellite",
-      async () => ({
+      () => ({
         mode: "satellite",
         geofence: ISS_GEOFENCE,
         watch_ids: [ISS_NORAD_ID],

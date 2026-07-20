@@ -80,6 +80,17 @@ export interface AisSampleResult {
   errored: boolean;
 }
 
+export function classifyAisSampleResult(
+  result: Pick<AisSampleResult, "connected" | "errored" | "frames">,
+  parsedPositions: number,
+): string | null {
+  if (!result.connected) return "ais_not_connected";
+  if (result.errored) return "ais_websocket_error";
+  if (result.frames.length === 0) return "ais_zero_frames";
+  if (parsedPositions === 0) return "ais_no_valid_positions";
+  return null;
+}
+
 export function aisSubscriptionMessage(
   args: Pick<SampleArgs, "apiKey" | "boxes" | "shipMmsi">,
 ): Record<string, unknown> {

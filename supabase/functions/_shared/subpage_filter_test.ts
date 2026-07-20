@@ -4,9 +4,28 @@ import {
   hasDeterministicListingSignal,
   isLikelyArticleUrl,
   isStrictChildUrl,
+  mergeDiscoveredSubpageLinks,
 } from "./subpage-filter.ts";
 
 const INDEX = "https://www.example.ch/news/press-releases/";
+
+Deno.test("mergeDiscoveredSubpageLinks retains markdown articles beside rendered navigation", () => {
+  const navigation = [
+    ["https://www.example.ch/", "Home"],
+    ["https://www.example.ch/contact", "Contact"],
+  ] as [string, string][];
+  const releases = [
+    ["https://www.example.ch/news/press-releases/release-one", "Release one"],
+    ["https://www.example.ch/news/press-releases/release-two", "Release two"],
+  ] as [string, string][];
+
+  const merged = mergeDiscoveredSubpageLinks(navigation, releases);
+  assertEquals(merged, [...navigation, ...releases]);
+  assertEquals(
+    filterSubpageUrls(merged.map(([url]) => url), INDEX),
+    releases.map(([url]) => url),
+  );
+});
 
 Deno.test("filterSubpageUrls keeps URLs under the index path", () => {
   const input = [
