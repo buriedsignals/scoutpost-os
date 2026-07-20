@@ -386,6 +386,9 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 [functions.execute-scout]
 verify_jwt = false
 
+[functions.scout-dispatch-drain]
+verify_jwt = false
+
 [functions.scout-web-execute]
 verify_jwt = false
 

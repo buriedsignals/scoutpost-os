@@ -11,6 +11,7 @@ import type { SupabaseClient } from "./supabase.ts";
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 export const OPENROUTER_DEFAULT_CHAT_MODEL = "google/gemini-2.5-flash-lite";
+export const OPENROUTER_DEFAULT_FALLBACK_MODEL = "google/gemini-2.5-flash";
 
 const PROVIDER_POLICY = {
   only: ["google-vertex"],
@@ -39,10 +40,32 @@ export interface AiUsageContext {
 
 export interface OpenRouterExtractOptions {
   model?: string;
+  /** Set null to disable the bounded model fallback. */
+  fallbackModel?: string | null;
   systemInstruction?: string;
   timeoutMs?: number;
   abortAfterMs?: number;
+  /** Test/ops override for the bounded delay before fallback. */
+  retryDelayMs?: number;
   usage?: AiUsageContext;
+}
+
+class OpenRouterRequestError extends ApiError {
+  readonly retryable: boolean;
+  readonly retryAfterMs: number | null;
+
+  constructor(
+    message: string,
+    status: number,
+    code: string,
+    retryable: boolean,
+    retryAfterMs: number | null = null,
+  ) {
+    super(message, status, code);
+    this.name = "OpenRouterRequestError";
+    this.retryable = retryable;
+    this.retryAfterMs = retryAfterMs;
+  }
 }
 
 /** JSON-schema-constrained generation. Returns the parsed object. */
@@ -53,12 +76,15 @@ export async function openRouterExtract<T>(
 ): Promise<T> {
   const model = options.model ?? Deno.env.get("LLM_MODEL") ??
     OPENROUTER_DEFAULT_CHAT_MODEL;
-  if (!model.startsWith("google/")) {
-    throw new ApiError(
-      "LLM_MODEL must use the google/ namespace for the pinned Google Vertex route",
-      500,
-    );
-  }
+  const fallbackModel = options.fallbackModel === undefined
+    ? Deno.env.get("LLM_FALLBACK_MODEL") ??
+      OPENROUTER_DEFAULT_FALLBACK_MODEL
+    : options.fallbackModel;
+  const models = [model, fallbackModel]
+    .filter((value): value is string => Boolean(value))
+    .filter((value, index, all) => all.indexOf(value) === index);
+  for (const candidate of models) validateGoogleModel(candidate);
+  validateOpenRouterSchema(schema);
 
   const messages: Array<Record<string, string>> = [];
   if (options.systemInstruction) {
@@ -68,49 +94,89 @@ export async function openRouterExtract<T>(
 
   const timeoutMs = options.timeoutMs ?? OPENROUTER_EXTRACT_TIMEOUT_MS;
   const abortAfterMs = options.abortAfterMs ?? timeoutMs + 5_000;
-  const response = await openRouterRequest(
-    "chat/completions",
-    {
-      model,
-      messages,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "structured_response",
-          strict: true,
-          schema,
+  const deadline = Date.now() + abortAfterMs;
+  let terminalError: unknown = null;
+
+  for (const [attemptIndex, attemptModel] of models.entries()) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    const attemptsLeft = models.length - attemptIndex;
+    // Reserve a real attempt window for fallback instead of allowing the
+    // primary request to consume the entire total deadline.
+    const attemptTimeoutMs = Math.max(
+      1,
+      Math.min(timeoutMs, Math.floor(remainingMs / attemptsLeft)),
+    );
+    try {
+      const response = await openRouterRequest(
+        "chat/completions",
+        {
+          model: attemptModel,
+          messages,
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "structured_response",
+              strict: true,
+              schema,
+            },
+          },
+          provider: {
+            ...PROVIDER_POLICY,
+            require_parameters: true,
+          },
         },
-      },
-      provider: {
-        ...PROVIDER_POLICY,
-        require_parameters: true,
-      },
-    },
-    abortAfterMs,
-    "extraction",
-  );
-  const body = await parseResponseJson(response, "extraction");
-  await recordOpenRouterUsage(
-    options.usage,
-    "chat_completion",
-    responseModel(body, model),
-    body?.usage,
-    body,
-  );
-  const choices = body.choices;
-  const firstChoice = Array.isArray(choices) ? choices[0] : undefined;
-  const message = isRecord(firstChoice) && isRecord(firstChoice.message)
-    ? firstChoice.message
-    : null;
-  const content = message?.content;
-  if (typeof content !== "string") {
-    throw new ApiError("OpenRouter response missing message content", 502);
+        attemptTimeoutMs,
+        "extraction",
+      );
+      const body = await parseResponseJson(response, "extraction");
+      throwIfProviderError(body, "extraction");
+      await recordOpenRouterUsage(
+        options.usage
+          ? {
+            ...options.usage,
+            metadata: {
+              ...(options.usage.metadata ?? {}),
+              extraction_attempt: attemptIndex + 1,
+              fallback_used: attemptIndex > 0,
+            },
+          }
+          : undefined,
+        "chat_completion",
+        responseModel(body, attemptModel),
+        body?.usage,
+        body,
+      );
+      return parseStructuredContent<T>(body);
+    } catch (error) {
+      terminalError = error;
+      const canFallback = attemptIndex < models.length - 1 &&
+        error instanceof OpenRouterRequestError && error.retryable;
+      if (!canFallback) throw error;
+
+      logEvent({
+        level: "warn",
+        fn: "openrouter",
+        event: "extraction_fallback",
+        model: attemptModel,
+        fallback_model: models[attemptIndex + 1],
+        error_code: error.code,
+        attempt: attemptIndex + 1,
+      });
+
+      const delayMs = boundedRetryDelayMs(error, options.retryDelayMs);
+      if (Date.now() + delayMs >= deadline) throw error;
+      if (delayMs > 0) await sleep(delayMs);
+    }
   }
-  try {
-    return JSON.parse(content) as T;
-  } catch {
-    throw new ApiError("OpenRouter returned non-JSON content", 502);
-  }
+
+  if (terminalError) throw terminalError;
+  throw new OpenRouterRequestError(
+    "OpenRouter extraction exhausted its total deadline",
+    504,
+    "openrouter_timeout",
+    true,
+  );
 }
 
 async function openRouterRequest(
@@ -136,22 +202,32 @@ async function openRouterRequest(
     if (!response.ok) {
       // Do not include the upstream body: it is not needed for routing errors
       // and could reflect request content. Status and operation are sufficient.
-      throw new ApiError(
+      await response.body?.cancel();
+      throw new OpenRouterRequestError(
         `OpenRouter ${operation} failed with status ${response.status}`,
         502,
         `openrouter_${response.status}`,
+        isRetryableProviderStatus(response.status),
+        retryAfterMs(response.headers.get("Retry-After")),
       );
     }
     return response;
   } catch (error) {
     if ((error as { name?: string }).name === "AbortError") {
-      throw new ApiError(
+      throw new OpenRouterRequestError(
         `OpenRouter ${operation} aborted after ${abortAfterMs}ms`,
         504,
         "openrouter_timeout",
+        true,
       );
     }
-    throw error;
+    if (error instanceof ApiError) throw error;
+    throw new OpenRouterRequestError(
+      `OpenRouter ${operation} network request failed`,
+      502,
+      "openrouter_network_error",
+      true,
+    );
   } finally {
     clearTimeout(fuse);
   }
@@ -166,12 +242,140 @@ async function parseResponseJson(
     if (!isRecord(body)) throw new TypeError("response is not an object");
     return body;
   } catch {
-    throw new ApiError(
+    throw new OpenRouterRequestError(
       `OpenRouter ${operation} returned malformed JSON`,
       502,
       "openrouter_malformed_response",
+      true,
     );
   }
+}
+
+function parseStructuredContent<T>(body: Record<string, unknown>): T {
+  const choices = body.choices;
+  const firstChoice = Array.isArray(choices) ? choices[0] : undefined;
+  const message = isRecord(firstChoice) && isRecord(firstChoice.message)
+    ? firstChoice.message
+    : null;
+  const content = message?.content;
+  if (typeof content !== "string" || !content.trim()) {
+    throw new OpenRouterRequestError(
+      "OpenRouter response missing message content",
+      502,
+      "openrouter_missing_content",
+      true,
+    );
+  }
+  try {
+    return JSON.parse(content) as T;
+  } catch {
+    throw new OpenRouterRequestError(
+      "OpenRouter returned non-JSON content",
+      502,
+      "openrouter_non_json_content",
+      true,
+    );
+  }
+}
+
+function throwIfProviderError(
+  body: Record<string, unknown>,
+  operation: string,
+): void {
+  const error = body.error;
+  if (!isRecord(error)) return;
+  const metadata = isRecord(error.metadata) ? error.metadata : null;
+  const errorType = safeErrorCode(metadata?.error_type) ??
+    safeErrorCode(error.code) ?? "provider_error";
+  const numericCode = intValue(error.code);
+  throw new OpenRouterRequestError(
+    `OpenRouter ${operation} returned provider error ${errorType}`,
+    numericCode === 408 || numericCode === 504 ? 504 : 502,
+    `openrouter_${errorType}`,
+    isRetryableProviderError(errorType, numericCode),
+  );
+}
+
+function validateGoogleModel(model: string): void {
+  if (!model.startsWith("google/")) {
+    throw new ApiError(
+      "LLM models must use the google/ namespace for the pinned Google Vertex route",
+      500,
+      "openrouter_invalid_model",
+    );
+  }
+}
+
+export function validateOpenRouterSchema(
+  schema: Record<string, unknown>,
+): void {
+  const visit = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((entry, index) => visit(entry, `${path}[${index}]`));
+      return;
+    }
+    if (!isRecord(value)) return;
+    if (Object.prototype.hasOwnProperty.call(value, "nullable")) {
+      throw new ApiError(
+        `OpenRouter schema uses unsupported nullable keyword at ${path}`,
+        500,
+        "openrouter_invalid_schema",
+      );
+    }
+    for (const [key, child] of Object.entries(value)) {
+      visit(child, `${path}.${key}`);
+    }
+  };
+  visit(schema, "schema");
+}
+
+function safeErrorCode(value: unknown): string | null {
+  const normalized = typeof value === "number"
+    ? String(Math.trunc(value))
+    : typeof value === "string"
+    ? value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_")
+    : "";
+  return /^[a-z0-9_-]{1,80}$/.test(normalized) ? normalized : null;
+}
+
+function isRetryableProviderStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function isRetryableProviderError(
+  errorType: string,
+  numericCode: number | null,
+): boolean {
+  if (numericCode !== null && isRetryableProviderStatus(numericCode)) {
+    return true;
+  }
+  return new Set([
+    "provider_overloaded",
+    "provider_unavailable",
+    "rate_limit_exceeded",
+    "server",
+    "timeout",
+    "unmapped",
+  ]).has(errorType);
+}
+
+function retryAfterMs(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  return Math.min(5_000, Math.round(seconds * 1_000));
+}
+
+function boundedRetryDelayMs(
+  error: OpenRouterRequestError,
+  override: number | undefined,
+): number {
+  if (override !== undefined) return Math.max(0, Math.min(5_000, override));
+  return error.retryAfterMs ?? 250;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function responseModel(

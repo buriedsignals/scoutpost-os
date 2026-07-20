@@ -15,15 +15,17 @@ const PREVIEW_EXTRACTION_SCHEMA: Record<string, unknown> = {
         properties: {
           promise_text: { type: "string" },
           context: { type: "string" },
-          source_date: { type: "string", nullable: true },
-          due_date: { type: "string", nullable: true },
+          source_date: { type: ["string", "null"] },
+          due_date: { type: ["string", "null"] },
           date_confidence: { type: "string" },
         },
         required: ["promise_text"],
+        additionalProperties: false,
       },
     },
   },
   required: ["promises"],
+  additionalProperties: false,
 };
 
 interface ExtractedPreviewPromise {

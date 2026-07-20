@@ -3,7 +3,12 @@ import {
   assertEquals,
   assertRejects,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { openRouterExtract } from "./openrouter.ts";
+import {
+  OPENROUTER_DEFAULT_CHAT_MODEL,
+  OPENROUTER_DEFAULT_FALLBACK_MODEL,
+  openRouterExtract,
+  validateOpenRouterSchema,
+} from "./openrouter.ts";
 
 function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) Deno.env.delete(name);
@@ -117,6 +122,8 @@ Deno.test("openRouterExtract sends strict JSON Schema and maps normalized usage 
     assertEquals(inserted[0].completion_tokens, 4);
     assertEquals(inserted[0].total_tokens, 16);
     assertEquals(inserted[0].metadata, {
+      extraction_attempt: 1,
+      fallback_used: false,
       upstream_provider: "Google Vertex AI",
       openrouter_response_id: "gen-123",
       usage_metadata: {
@@ -361,6 +368,210 @@ Deno.test("OpenRouter extraction rejects non-Google model IDs before fetch", asy
       "google/ namespace",
     );
     assertEquals(fetched, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv("OPENROUTER_API_KEY", originalKey);
+  }
+});
+
+Deno.test("OpenRouter schema validation rejects legacy nullable keywords", async () => {
+  const error = await assertRejects(
+    async () => {
+      validateOpenRouterSchema({
+        type: "object",
+        properties: {
+          occurred_at: { type: "string", nullable: true },
+        },
+      });
+    },
+    Error,
+    "unsupported nullable keyword",
+  );
+  assertEquals((error as { code?: string }).code, "openrouter_invalid_schema");
+
+  validateOpenRouterSchema({
+    type: "object",
+    properties: {
+      occurred_at: { type: ["string", "null"] },
+    },
+    required: ["occurred_at"],
+    additionalProperties: false,
+  });
+});
+
+Deno.test("OpenRouter retries an HTTP-200 provider error on the fallback model", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.set("OPENROUTER_API_KEY", "test-key");
+  const requestedModels: string[] = [];
+  const usageRows: Record<string, unknown>[] = [];
+  const fakeDb = {
+    from(table: string) {
+      assertEquals(table, "ai_usage_records");
+      return {
+        insert(row: Record<string, unknown>) {
+          usageRows.push(row);
+          return Promise.resolve({ error: null });
+        },
+      };
+    },
+  };
+  globalThis.fetch = (async (
+    _input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
+    const request = JSON.parse(String(init?.body));
+    requestedModels.push(request.model);
+    if (requestedModels.length === 1) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 503,
+            message: "must not be reflected",
+            metadata: { error_type: "provider_overloaded" },
+          },
+          usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        choices: [{ message: { content: '{"ok":true}' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await openRouterExtract<{ ok: boolean }>(
+      "prompt",
+      { type: "object", properties: { ok: { type: "boolean" } } },
+      {
+        retryDelayMs: 0,
+        usage: { db: fakeDb as never, orgId: null },
+      },
+    );
+    assertEquals(result, { ok: true });
+    assertEquals(requestedModels, [
+      "google/gemini-2.5-flash-lite",
+      "google/gemini-2.5-flash",
+    ]);
+    assertEquals(usageRows.length, 1);
+    assertEquals(usageRows[0].model, "google/gemini-2.5-flash");
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv("OPENROUTER_API_KEY", originalKey);
+  }
+});
+
+Deno.test("OpenRouter retries a network failure without exposing its message", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.set("OPENROUTER_API_KEY", "test-key");
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    if (calls === 1) throw new TypeError("secret host detail");
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await openRouterExtract<{ ok: boolean }>(
+      "prompt",
+      { type: "object" },
+      { retryDelayMs: 0 },
+    );
+    assertEquals(result.ok, true);
+    assertEquals(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv("OPENROUTER_API_KEY", originalKey);
+  }
+});
+
+Deno.test("OpenRouter reserves deadline for a fallback after primary timeout", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.set("OPENROUTER_API_KEY", "test-key");
+  const requestedModels: string[] = [];
+  globalThis.fetch = ((_: RequestInfo | URL, init?: RequestInit) => {
+    const request = JSON.parse(String(init?.body)) as { model: string };
+    requestedModels.push(request.model);
+    if (request.model === OPENROUTER_DEFAULT_CHAT_MODEL) {
+      return new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("aborted", "AbortError")),
+        );
+      });
+    }
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          model: OPENROUTER_DEFAULT_FALLBACK_MODEL,
+          choices: [{ message: { content: '{"ok":true}' } }],
+        }),
+        { status: 200 },
+      ),
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await openRouterExtract<{ ok: boolean }>(
+      "prompt",
+      { type: "object" },
+      { timeoutMs: 20, abortAfterMs: 60, retryDelayMs: 0 },
+    );
+    assertEquals(result, { ok: true });
+    assertEquals(requestedModels, [
+      OPENROUTER_DEFAULT_CHAT_MODEL,
+      OPENROUTER_DEFAULT_FALLBACK_MODEL,
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) Deno.env.delete("OPENROUTER_API_KEY");
+    else Deno.env.set("OPENROUTER_API_KEY", originalKey);
+  }
+});
+
+Deno.test("OpenRouter does not fallback for non-retryable provider errors", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.set("OPENROUTER_API_KEY", "test-key");
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: 402,
+          message: "billing detail",
+          metadata: { error_type: "payment_required" },
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const error = await assertRejects(
+      () =>
+        openRouterExtract("prompt", { type: "object" }, { retryDelayMs: 0 }),
+      Error,
+      "payment_required",
+    );
+    assertEquals(
+      (error as { code?: string }).code,
+      "openrouter_payment_required",
+    );
+    assertEquals(calls, 1);
+    assert(!error.message.includes("billing detail"));
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv("OPENROUTER_API_KEY", originalKey);

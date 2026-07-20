@@ -234,16 +234,18 @@ const ARTICLES_SCHEMA: Record<string, unknown> = {
           url: { type: "string" },
           source: { type: "string" },
           summary: { type: "string" },
-          date: { type: "string", nullable: true },
+          date: { type: ["string", "null"] },
           matches_criteria: { type: "boolean" },
           matches_location: { type: "boolean" },
         },
         required: ["title", "url", "summary"],
+        additionalProperties: false,
       },
     },
     filtered_out: { type: "integer" },
   },
   required: ["summary", "articles"],
+  additionalProperties: false,
 };
 
 Deno.serve(async (req: Request): Promise<Response> => {

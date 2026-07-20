@@ -175,7 +175,7 @@ const EXTRACTION_SCHEMA: Record<string, unknown> = {
           statement: { type: "string" },
           type: { type: "string", enum: ["fact", "event", "entity_update"] },
           context_excerpt: { type: "string" },
-          occurred_at: { type: "string", nullable: true },
+          occurred_at: { type: ["string", "null"] },
           entities: { type: "array", items: { type: "string" } },
           criteria_match: {
             type: "boolean",
@@ -184,11 +184,13 @@ const EXTRACTION_SCHEMA: Record<string, unknown> = {
           },
         },
         required: ["statement", "type", "criteria_match"],
+        additionalProperties: false,
       },
     },
     isListingPage: { type: "boolean" },
   },
   required: ["units", "isListingPage"],
+  additionalProperties: false,
 };
 
 /**

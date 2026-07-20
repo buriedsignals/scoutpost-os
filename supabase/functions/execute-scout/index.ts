@@ -3,13 +3,18 @@
  *
  * Triggered by pg_cron (via pg_net.http_post using X-Service-Key) or by
  * the authenticated frontend through `trigger_scout_run`. The dispatcher
- * resolves the scout's type and forwards the request to the type-specific
- * worker Edge Function over HTTP (fire-and-forget with a short timeout).
+ * resolves the scout's type. Scrape-heavy web/beat/civic runs enter the
+ * durable dispatch queue; social and transport runs are forwarded directly.
  *
  * Auth: either a valid user JWT (requireUser) OR shared service auth
  *       (X-Service-Key, with service-role bearer fallback for tooling).
  *
- * Body: { scout_id: uuid, run_id?: uuid, user_id?: uuid }
+ * Body: {
+ *   scout_id: uuid,
+ *   run_id?: uuid,
+ *   user_id?: uuid,
+ *   trigger_source?: "scheduled" | "manual"
+ * }
  *
  * Dispatch table:
  *   web    -> POST /functions/v1/scout-web-execute
@@ -39,6 +44,7 @@ const DispatchSchema = z.object({
   scout_id: z.string().uuid(),
   run_id: z.string().uuid().optional(),
   user_id: z.string().uuid().optional(),
+  trigger_source: z.enum(["scheduled", "manual"]).optional(),
 });
 
 const WORKERS: Record<string, string> = {
@@ -50,6 +56,7 @@ const WORKERS: Record<string, string> = {
 };
 
 const WORKER_TIMEOUT_MS = 5_000;
+const QUEUE_BACKED_TYPES = new Set(["web", "beat", "civic"]);
 
 Deno.serve(async (req: Request): Promise<Response> => {
   const cors = handleCors(req);
@@ -90,7 +97,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       new ValidationError(parsed.error.issues.map((i) => i.message).join("; ")),
     );
   }
-  const { scout_id, run_id, user_id } = parsed.data;
+  const { scout_id, run_id, user_id, trigger_source } = parsed.data;
 
   const svc = getServiceClient();
 
@@ -112,6 +119,48 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const worker = WORKERS[scout.type as string];
     if (!worker) {
       throw new ValidationError(`unknown scout type: ${scout.type}`);
+    }
+
+    if (queueEnabledFor(scout.type as string)) {
+      const source = trigger_source ??
+        (isServiceCaller ? "scheduled" : "manual");
+      const { data: queued, error: queueError } = await svc.rpc(
+        "enqueue_scout_dispatch",
+        {
+          p_scout_id: scout_id,
+          p_run_id: run_id ?? null,
+          p_source: source,
+          p_priority: source === "manual" ? 100 : 0,
+        },
+      );
+      if (queueError) throw new Error(queueError.message);
+
+      const queueResult = Array.isArray(queued) ? queued[0] : queued;
+      const queuedRunId = queueResult && typeof queueResult === "object"
+        ? (queueResult as { run_id?: string }).run_id
+        : undefined;
+      const enqueued = queueResult && typeof queueResult === "object"
+        ? (queueResult as { enqueued?: boolean }).enqueued === true
+        : false;
+      if (!queuedRunId) throw new Error("queue did not return a run id");
+
+      logEvent({
+        level: "info",
+        fn: "execute-scout",
+        event: enqueued ? "queued" : "queue_coalesced",
+        scout_id,
+        run_id: queuedRunId,
+        scout_type: scout.type,
+        source,
+        caller: callerId,
+      });
+
+      return jsonOk({
+        queued: scout.type,
+        scout_id,
+        run_id: queuedRunId,
+        enqueued,
+      }, 202);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -262,6 +311,19 @@ async function safeText(res: Response): Promise<string> {
   } catch {
     return "";
   }
+}
+
+function queueEnabledFor(scoutType: string): boolean {
+  const enabled = Deno.env.get("SCOUT_DISPATCH_QUEUE_ENABLED")?.trim()
+    .toLowerCase();
+  if (enabled && ["0", "false", "no", "off"].includes(enabled)) return false;
+  if (!QUEUE_BACKED_TYPES.has(scoutType)) return false;
+
+  const configuredTypes = Deno.env.get("SCOUT_DISPATCH_QUEUE_TYPES");
+  if (!configuredTypes) return true;
+  return new Set(
+    configuredTypes.split(",").map((value) => value.trim().toLowerCase()),
+  ).has(scoutType);
 }
 
 async function markRunTerminal(

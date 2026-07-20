@@ -3,7 +3,7 @@
  *
  * These tests run against a local supabase (127.0.0.1:54321). Sibling worker
  * functions may not be deployed during parallel development — tests that
- * exercise dispatch tolerate either 202 (worker ran) or 502 (worker missing).
+ * exercise web dispatch expect a durable queue acknowledgement.
  */
 
 import {
@@ -157,7 +157,7 @@ Deno.test("execute-scout: user JWT cannot run another user's scout", async () =>
 });
 
 Deno.test(
-  "execute-scout: active scout dispatches (202 if worker ran, 502 if worker missing)",
+  "execute-scout: active web scout enters the durable queue",
   async () => {
     const user = await createTestUser();
     let scoutId: string | null = null;
@@ -169,16 +169,25 @@ Deno.test(
         body: JSON.stringify({ scout_id: scoutId }),
       });
       const body = await res.json().catch(() => ({}));
-      // 202 => worker answered OK. 502 => worker is missing or errored — both
-      // prove that the dispatch logic reached the forward step.
-      assert(
-        res.status === 202 || res.status === 502,
-        `expected 202 or 502, got ${res.status}: ${JSON.stringify(body)}`,
+      assertEquals(
+        res.status,
+        202,
+        `expected 202, got ${res.status}: ${JSON.stringify(body)}`,
       );
-      if (res.status === 202) {
-        assertEquals(body.dispatched, "web");
-        assertEquals(body.scout_id, scoutId);
-      }
+      assertEquals(body.queued, "web");
+      assertEquals(body.scout_id, scoutId);
+      assert(typeof body.run_id === "string");
+      assertEquals(body.enqueued, true);
+
+      const { data: queued, error: queueError } = await svc()
+        .from("scout_dispatch_queue")
+        .select("scout_run_id, scout_id, status, source")
+        .eq("scout_run_id", body.run_id)
+        .single();
+      if (queueError) throw new Error(queueError.message);
+      assertEquals(queued.scout_id, scoutId);
+      assertEquals(queued.status, "queued");
+      assertEquals(queued.source, "scheduled");
     } finally {
       if (scoutId) await svc().from("scouts").delete().eq("id", scoutId);
       await user.cleanup();

@@ -68,12 +68,11 @@ const EXTRACTION_SCHEMA: Record<string, unknown> = {
         properties: {
           promise_text: { type: "string" },
           context: { type: "string" },
-          meeting_date: { type: "string", nullable: true },
-          due_date: { type: "string", nullable: true },
+          meeting_date: { type: ["string", "null"] },
+          due_date: { type: ["string", "null"] },
           date_confidence: {
-            type: "string",
+            type: ["string", "null"],
             enum: ["high", "medium", "low"],
-            nullable: true,
           },
           criteria_match: {
             type: "boolean",
@@ -82,10 +81,12 @@ const EXTRACTION_SCHEMA: Record<string, unknown> = {
           },
         },
         required: ["promise_text", "criteria_match"],
+        additionalProperties: false,
       },
     },
   },
   required: ["promises"],
+  additionalProperties: false,
 };
 
 interface ExtractedPromise {

@@ -92,7 +92,7 @@ const EXTRACTION_SCHEMA: Record<string, unknown> = {
             description:
               "Exact contiguous text copied character-for-character from TEXT",
           },
-          occurred_at: { type: "string", nullable: true },
+          occurred_at: { type: ["string", "null"] },
           entities: { type: "array", items: { type: "string" } },
           criteria_match: {
             type: "boolean",
@@ -101,10 +101,12 @@ const EXTRACTION_SCHEMA: Record<string, unknown> = {
           },
         },
         required: ["statement", "type", "criteria_match"],
+        additionalProperties: false,
       },
     },
   },
   required: ["units"],
+  additionalProperties: false,
 };
 
 interface ExtractedUnit {
