@@ -121,6 +121,11 @@ export async function openRouterExtract<T>(
               schema,
             },
           },
+          // OpenRouter repairs syntax-only defects (for example fenced JSON or
+          // trailing commas) before returning the response. This is a local
+          // response pass, not another model attempt, so it avoids retry cost
+          // and duplicate usage-ledger rows.
+          plugins: [{ id: "response-healing" }],
           provider: {
             ...PROVIDER_POLICY,
             require_parameters: true,

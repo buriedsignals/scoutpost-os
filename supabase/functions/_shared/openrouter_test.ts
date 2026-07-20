@@ -108,6 +108,7 @@ Deno.test("openRouterExtract sends strict JSON Schema and maps normalized usage 
         schema,
       },
     });
+    assertEquals(capturedBody.plugins, [{ id: "response-healing" }]);
     assertEquals(capturedBody.provider, {
       only: ["google-vertex"],
       zdr: true,

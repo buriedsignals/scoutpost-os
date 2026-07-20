@@ -174,6 +174,72 @@ Deno.test("embedding client preserves order across task and size batches", async
   }
 });
 
+Deno.test("embedding client bisects count-mismatched batches with a bounded depth", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.set("OPENROUTER_API_KEY", "token");
+  const batchSizes: number[] = [];
+  globalThis.fetch = (async (
+    _input: RequestInfo | URL,
+    init?: globalThis.RequestInit,
+  ) => {
+    const body = JSON.parse(String(init?.body)) as { input: string[] };
+    batchSizes.push(body.input.length);
+    if (body.input.length === 4) {
+      return response([{ index: 0, embedding: markerVector(0) }]);
+    }
+    return response(body.input.map((text, index) => ({
+      index,
+      embedding: markerVector(Number(text.slice(-1))),
+    })));
+  }) as typeof fetch;
+  try {
+    const values = await embedBatch([
+      { text: "item-0" },
+      { text: "item-1" },
+      { text: "item-2" },
+      { text: "item-3" },
+    ]);
+    assertEquals(batchSizes, [4, 2, 2]);
+    assertEquals(values.length, 4);
+    assertEquals(values[0][0] < values[3][0], true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restore("OPENROUTER_API_KEY", originalKey);
+  }
+});
+
+Deno.test("embedding client stops bisection after two count-mismatch levels", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.set("OPENROUTER_API_KEY", "token");
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return response([]);
+  }) as typeof fetch;
+  try {
+    const error = await assertRejects(
+      () =>
+        embedBatch(Array.from({ length: 8 }, (_, index) => ({
+          text: `item-${index}`,
+        }))),
+      Error,
+      "unexpected count",
+    );
+    assertEquals(
+      (error as { code?: string }).code,
+      "openrouter_embedding_count_mismatch",
+    );
+    // Initial 8, then the failing left branch at 4 and 2. The right branches
+    // are not attempted once bounded recovery has conclusively failed.
+    assertEquals(calls, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restore("OPENROUTER_API_KEY", originalKey);
+  }
+});
+
 Deno.test("embedding client fails closed without exposing key or text", async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = Deno.env.get("OPENROUTER_API_KEY");

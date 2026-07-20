@@ -11,6 +11,7 @@ export const EMBEDDING_MODEL_TAG =
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_BATCH_SIZE = 32;
+const MAX_COUNT_MISMATCH_BISECT_DEPTH = 2;
 const PROVIDER_POLICY = {
   only: ["google-vertex"],
   allow_fallbacks: false,
@@ -105,7 +106,7 @@ export async function embedBatch(
       end += 1;
     }
     vectors.push(
-      ...await requestEmbeddingBatch(
+      ...await requestEmbeddingBatchResilient(
         inputs.slice(start, end),
         taskType,
         options,
@@ -114,6 +115,50 @@ export async function embedBatch(
     start = end;
   }
   return vectors;
+}
+
+async function requestEmbeddingBatchResilient(
+  inputs: EmbeddingInput[],
+  taskType: EmbeddingTaskType,
+  options: Omit<EmbeddingOptions, "title">,
+  depth = 0,
+): Promise<number[][]> {
+  try {
+    return await requestEmbeddingBatch(inputs, taskType, options);
+  } catch (error) {
+    const code = error instanceof ApiError ? error.code : null;
+    if (
+      code !== "openrouter_embedding_count_mismatch" ||
+      inputs.length <= 1 ||
+      depth >= MAX_COUNT_MISMATCH_BISECT_DEPTH
+    ) {
+      throw error;
+    }
+
+    const midpoint = Math.ceil(inputs.length / 2);
+    logEvent({
+      level: "warn",
+      fn: "embedding",
+      event: "batch_bisected",
+      input_count: inputs.length,
+      left_count: midpoint,
+      right_count: inputs.length - midpoint,
+      depth: depth + 1,
+    });
+    const left = await requestEmbeddingBatchResilient(
+      inputs.slice(0, midpoint),
+      taskType,
+      options,
+      depth + 1,
+    );
+    const right = await requestEmbeddingBatchResilient(
+      inputs.slice(midpoint),
+      taskType,
+      options,
+      depth + 1,
+    );
+    return [...left, ...right];
+  }
 }
 
 async function requestEmbeddingBatch(
@@ -181,6 +226,7 @@ async function requestEmbeddingBatch(
     throw new ApiError(
       "OpenRouter embedding returned an unexpected count",
       502,
+      "openrouter_embedding_count_mismatch",
     );
   }
   const ordered: Array<number[] | undefined> = new Array(inputs.length);
