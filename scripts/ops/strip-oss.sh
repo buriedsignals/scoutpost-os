@@ -184,6 +184,7 @@ rm -f USER_UPDATE_EMAIL.md
 rm -f docs/operations/user-update-email.md
 rm -rf supabase/functions/user-update-email
 rm -f supabase/migrations/00093_user_update_email_deliveries.sql
+rm -f supabase/migrations/00094_user_update_email_recipients_rpc.sql
 rm -f supabase/migrations/00067_monthly_usage_report_cron.sql
 
 # Private live benchmark harness. These scripts assume hosted Supabase Auth
