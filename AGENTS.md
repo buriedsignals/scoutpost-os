@@ -6,18 +6,22 @@
 
 1. **Check for worktrees first:**
    ```bash
-   git worktree list
+   jj workspace list
    ```
-   If a worktree exists for the current task, work there.
+   If a workspace exists for the current task, work there.
 
-2. **Create a branch** from `main` (or use `develop`):
+2. **Create a Jujutsu change** from current remote `main`:
    ```bash
-   git checkout -b my-feature main
+   jj git fetch
+   jj new main@origin -m "type: concise description"
+   jj bookmark create my-feature -r @
    ```
+   Use `jj` for working-copy and history mutations. Git is read-only
+   compatibility tooling in this workspace.
 
-3. **Push the branch and open a PR to `main`:**
+3. **Push the bookmark and open a PR to `main`:**
    ```bash
-   git push -u origin my-feature
+   jj git push --bookmark my-feature
    gh pr create --title "..." --body "..."
    ```
 
@@ -61,6 +65,22 @@ asserts Beat execution requested Exa via
 `supabase status -o env` only for local Edge Runtime diagnostics; local
 functions need their own env file if you intentionally serve them with
 `scripts/ops/serve-functions-local.sh`.
+
+---
+
+## Occasional User Update Emails
+
+Follow `docs/operations/user-update-email.md` and use
+`scripts/ops/send-user-update-email.ts`. The hosted function fetches recipients
+directly from MuckRock, keeps them in memory only, and sends through Resend.
+Never add a Scoutpost recipient table, delivery ledger, email hash, or other
+campaign-recipient persistence. MuckRock and Resend credentials stay in
+Supabase Function Secrets.
+
+The required flow is preview, test-send to `tom@buriedsignals.com`, then
+campaign send with the campaign-specific confirmation value. Messages use
+`Tom at Scoutpost <updates@scoutpost.ai>` and
+`Reply-To: tom@buriedsignals.com`.
 
 ---
 
@@ -241,6 +261,7 @@ AI-powered local news monitoring platform. Users create "scouts" that monitor we
 - **Units & Dedup**: `docs/supabase/units-entities.md` - canonical information units and dedup
 - **Entitlements & Credits**: `docs/muckrock/plans-and-entitlements.md` - MuckRock entitlement tiers, credit costs
 - **MuckRock Integration**: `docs/muckrock/oauth-integration.md` - OAuth flow, session management
+- **User Update Emails**: `docs/operations/user-update-email.md` - stateless MuckRock-to-Resend operator workflow
 - **Team Plan**: `docs/muckrock/entitlements-team-design.md` - Shared credit pool, ORG# records, seat management
 - **OSS / Self-Hosted**: `docs/oss/` - Architecture, adapters, Supabase, licensing, deployment, automation
 
