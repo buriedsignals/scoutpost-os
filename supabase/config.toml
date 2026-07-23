@@ -475,6 +475,7 @@ verify_jwt = false
 verify_jwt = false
 
 
+
 [functions.scout-templates]
 verify_jwt = false
 

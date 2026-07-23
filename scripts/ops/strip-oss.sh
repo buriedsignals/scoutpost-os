@@ -111,6 +111,7 @@ strip_edge_function billing-webhook
 strip_edge_function indicator-claim
 strip_edge_function mcp-auth
 strip_edge_function newsletter-subscribe
+strip_edge_function user-update-email
 sed_if_exists -i '/^# auth-muckrock is browser-facing/,+1d' supabase/config.toml
 sed_if_exists -i '/^# mcp-auth is the MCP-only sibling/,+4d' supabase/config.toml
 sed_if_exists -i '/^# newsletter-subscribe is called pre-auth/,+1d' supabase/config.toml
@@ -177,10 +178,12 @@ fi
 # -------------------------------------------------------------------
 rm -rf scripts/migrate/
 # Hosted SaaS-only user update sender. It resolves recipient email addresses
-# through MuckRock and sends through the hosted Resend account.
+# from Supabase Auth and sends through the hosted Resend account.
 rm -f scripts/ops/send-user-update-email.ts
 rm -f USER_UPDATE_EMAIL.md
 rm -f docs/operations/user-update-email.md
+rm -rf supabase/functions/user-update-email
+rm -f supabase/migrations/00093_user_update_email_deliveries.sql
 rm -f supabase/migrations/00067_monthly_usage_report_cron.sql
 
 # Private live benchmark harness. These scripts assume hosted Supabase Auth
@@ -712,6 +715,7 @@ HOSTED_ONLY_EDGE_FUNCTIONS=(
   mcp-auth
   newsletter-subscribe
   notifications-benchmark
+  user-update-email
 )
 HOSTED_ONLY_SHARED_FILES=(
   "${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER}.ts"

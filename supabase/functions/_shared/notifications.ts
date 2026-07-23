@@ -29,7 +29,7 @@ import { getString } from "./email_translations.ts";
 
 const RESEND_URL = "https://api.resend.com/emails";
 const FROM = "Scoutpost <alerts@scoutpost.ai>";
-const REPLY_TO = "updates@scoutpost.ai";
+const REPLY_TO = "tom@buriedsignals.com";
 
 /** Public workspace base URL the browser sees — configurable so OSS/self-host
  * deep links resolve to their own deployment instead of the hosted SaaS
