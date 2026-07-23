@@ -177,14 +177,15 @@ fi
 # migration and user-announcement tooling.
 # -------------------------------------------------------------------
 rm -rf scripts/migrate/
-# Hosted SaaS-only user update sender. It resolves recipient email addresses
-# from Supabase Auth and sends through the hosted Resend account.
+# Hosted SaaS-only user update sender. It resolves recipients from MuckRock in
+# memory and sends through the hosted Resend account without Scoutpost storage.
 rm -f scripts/ops/send-user-update-email.ts
 rm -f USER_UPDATE_EMAIL.md
 rm -f docs/operations/user-update-email.md
 rm -rf supabase/functions/user-update-email
 rm -f supabase/migrations/00093_user_update_email_deliveries.sql
 rm -f supabase/migrations/00094_user_update_email_recipients_rpc.sql
+rm -f supabase/migrations/00095_drop_user_update_email_storage.sql
 rm -f supabase/migrations/00067_monthly_usage_report_cron.sql
 
 # Private live benchmark harness. These scripts assume hosted Supabase Auth
