@@ -38,6 +38,14 @@ status() {
 }
 
 # ---------------------------------------------------------------------------
+say "page-scout-contract"
+if bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/page-scout-contract-smoke.sh"; then
+  printf '  ok   %-40s\n' "Page Scout deterministic contract"
+else
+  printf '  FAIL %-40s\n' "Page Scout deterministic contract"
+  FAIL=$((FAIL+1))
+fi
+
 say "openapi-spec"
 check "GET /openapi-spec" "200" "$(status "$SUPABASE_URL/functions/v1/openapi-spec")"
 

@@ -22,7 +22,20 @@ import {
   storeCaptureResult,
 } from "./snapshot_capture.ts";
 
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+const PNG = new Uint8Array([
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a,
+  1,
+  2,
+  3,
+  4,
+]);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 9, 9]);
 
 function b64(bytes: Uint8Array): string {
@@ -98,7 +111,11 @@ function fakeSvc(opts: {
         },
         update(patch: Record<string, unknown>) {
           updates.push(patch);
-          return { eq() { return Promise.resolve({ error: null }); } };
+          return {
+            eq() {
+              return Promise.resolve({ error: null });
+            },
+          };
         },
       };
     },
@@ -183,7 +200,10 @@ Deno.test("isAllowedScreenshotUrl honors env override", () => {
 // --------------------------------------------------------------------------
 // downloadScreenshot
 // --------------------------------------------------------------------------
-function fetchReturning(body: Uint8Array, headers: Record<string, string> = {}) {
+function fetchReturning(
+  body: Uint8Array,
+  headers: Record<string, string> = {},
+) {
   return () =>
     Promise.resolve(
       new Response(body as unknown as BodyInit, { status: 200, headers }),
@@ -334,13 +354,34 @@ Deno.test("downloadScreenshot enforces the streamed byte ceiling (no content-len
 // degradeClass
 // --------------------------------------------------------------------------
 Deno.test("degradeClass maps failure shapes", () => {
-  assertEquals(degradeClass(new Error("Blocked by anti-bot protection")), "antibot");
-  assertEquals(degradeClass(new Error("artifact_too_large:mhtml:99")), "oversize");
-  assertEquals(degradeClass(new Error("screenshot_url_rejected")), "bad_cdn_url");
-  assertEquals(degradeClass(new Error("screenshot_not_png")), "screenshot_format");
-  assertEquals(degradeClass(new Error("screenshot_download_http_500")), "artifact_download");
-  assertEquals(degradeClass(new Error("artifact_decode_failed:mhtml")), "artifact_decode");
-  assertEquals(degradeClass(new Error("aborted after 40000ms")), "capture_timeout");
+  assertEquals(
+    degradeClass(new Error("Blocked by anti-bot protection")),
+    "antibot",
+  );
+  assertEquals(
+    degradeClass(new Error("artifact_too_large:mhtml:99")),
+    "oversize",
+  );
+  assertEquals(
+    degradeClass(new Error("screenshot_url_rejected")),
+    "bad_cdn_url",
+  );
+  assertEquals(
+    degradeClass(new Error("screenshot_not_png")),
+    "screenshot_format",
+  );
+  assertEquals(
+    degradeClass(new Error("screenshot_download_http_500")),
+    "artifact_download",
+  );
+  assertEquals(
+    degradeClass(new Error("artifact_decode_failed:mhtml")),
+    "artifact_decode",
+  );
+  assertEquals(
+    degradeClass(new Error("aborted after 40000ms")),
+    "capture_timeout",
+  );
   assertEquals(degradeClass(new SnapshotIntegrityError("weird")), "integrity");
   assertEquals(degradeClass(new SnapshotStorageError("weird")), "storage");
   assertEquals(degradeClass("a bare string"), "capture_fetch");
@@ -372,17 +413,26 @@ Deno.test("resolveArchiveGate: SaaS pro passes, free fails, read-error fails clo
   try {
     const pro = fakeSvc({ tier: "pro" });
     assertEquals(
-      await resolveArchiveGate(pro.svc, { user_id: "u", archive_enabled: true }),
+      await resolveArchiveGate(pro.svc, {
+        user_id: "u",
+        archive_enabled: true,
+      }),
       true,
     );
     const free = fakeSvc({ tier: "free" });
     assertEquals(
-      await resolveArchiveGate(free.svc, { user_id: "u", archive_enabled: true }),
+      await resolveArchiveGate(free.svc, {
+        user_id: "u",
+        archive_enabled: true,
+      }),
       false,
     );
     const err = fakeSvc({ prefsError: "boom" });
     assertEquals(
-      await resolveArchiveGate(err.svc, { user_id: "u", archive_enabled: true }),
+      await resolveArchiveGate(err.svc, {
+        user_id: "u",
+        archive_enabled: true,
+      }),
       false,
     );
   } finally {
@@ -412,7 +462,10 @@ Deno.test("storeCaptureResult stores fidelity=full from an inline payload", asyn
   assertEquals(uploads.length, 3);
   assertEquals(rows[0].fidelity, "full");
   // Decision 10: the .md record is the CAPTURE markdown, not detection.
-  assertEquals(rows[0].markdown_bytes, new TextEncoder().encode("capture body").byteLength);
+  assertEquals(
+    rows[0].markdown_bytes,
+    new TextEncoder().encode("capture body").byteLength,
+  );
 });
 
 Deno.test("storeCaptureResult degrades when capture markdown is empty", async () => {
@@ -578,7 +631,10 @@ Deno.test("performArchiveCapture: crawl4ai-served issues one pinned capture fetc
   let pinnedNoFallback = false;
   const detection = baseResult({ served_by: "crawl4ai" });
   const out = await performArchiveCapture(svc, ctx(), detection, {
-    scrapeImpl: ((_url: string, o: { noAntibotFallback?: boolean; snapshot?: unknown }) => {
+    scrapeImpl: ((
+      _url: string,
+      o: { noAntibotFallback?: boolean; snapshot?: unknown },
+    ) => {
       pinnedNoFallback = o.noAntibotFallback === true && o.snapshot === true;
       return Promise.resolve(baseResult({
         markdown: "capture md",
@@ -608,4 +664,82 @@ Deno.test("performArchiveCapture: capture-fetch failure degrades to markdown_onl
   assertStringIncludes(out.status, "degraded:antibot");
 });
 
+Deno.test("PA-CHILD-001 performArchiveCapture: child capture redirect outside scope stores only validated detection markdown", async () => {
+  const { svc, rows } = fakeSvc();
+  const detection = baseResult({
+    served_by: "crawl4ai",
+    source_url: "https://example.com/news/item-a",
+    markdown: "validated child body",
+  });
+  const childCtx = {
+    ...ctx(),
+    requestedUrl: "https://example.com/news/item-a",
+    fallbackMarkdown: "validated child body",
+    allowedScopeRootUrl: "https://example.com/news/",
+  };
+  const out = await performArchiveCapture(svc, childCtx, detection, {
+    scrapeImpl: (() =>
+      Promise.resolve(baseResult({
+        source_url: "https://example.com/account",
+        markdown: "redirected private content",
+      }))) as unknown as typeof import("./scrape.ts").scrape,
+  });
+  assertEquals(out.fidelity, "markdown_only");
+  assertStringIncludes(out.status, "degraded:out_of_scope");
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].requested_url, "https://example.com/news/item-a");
+  assertEquals(rows[0].final_url, "https://example.com/news/item-a");
+});
 
+Deno.test("performArchiveCapture: child capture redirect to a sibling child stores only detection markdown", async () => {
+  const { svc, rows } = fakeSvc();
+  const detection = baseResult({
+    served_by: "crawl4ai",
+    source_url: "https://example.com/news/item-a",
+    markdown: "validated item A",
+  });
+  const childCtx = {
+    ...ctx(),
+    requestedUrl: "https://example.com/news/item-a",
+    fallbackMarkdown: "validated item A",
+    allowedScopeRootUrl: "https://example.com/news/",
+    allowedExactUrl: "https://example.com/news/item-a",
+  };
+  const out = await performArchiveCapture(svc, childCtx, detection, {
+    scrapeImpl: (() =>
+      Promise.resolve(baseResult({
+        source_url: "https://example.com/news/item-b",
+        markdown: "sibling item B",
+      }))) as unknown as typeof import("./scrape.ts").scrape,
+  });
+  assertEquals(out.fidelity, "markdown_only");
+  assertStringIncludes(out.status, "degraded:out_of_scope");
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].final_url, "https://example.com/news/item-a");
+});
+
+Deno.test("performArchiveCapture: root capture redirect stores only validated detection markdown", async () => {
+  const { svc, rows } = fakeSvc();
+  const detection = baseResult({
+    served_by: "crawl4ai",
+    source_url: "https://example.com/news/",
+    markdown: "validated root body",
+  });
+  const rootCtx = {
+    ...ctx(),
+    requestedUrl: "https://example.com/news/",
+    fallbackMarkdown: "validated root body",
+    allowedExactUrl: "https://example.com/news/",
+  };
+  const out = await performArchiveCapture(svc, rootCtx, detection, {
+    scrapeImpl: (() =>
+      Promise.resolve(baseResult({
+        source_url: "https://example.com/events/",
+        markdown: "redirected sibling content",
+      }))) as unknown as typeof import("./scrape.ts").scrape,
+  });
+  assertEquals(out.fidelity, "markdown_only");
+  assertStringIncludes(out.status, "degraded:out_of_scope");
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].final_url, "https://example.com/news/");
+});

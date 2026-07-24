@@ -14,10 +14,12 @@ The current UI opens on **Specific Criteria** so journalists state what matters
 before testing the page. **Any Change** remains available as an explicit choice
 and for legacy/API requests with empty criteria.
 
-Uses Firecrawl `/scrape` as the fetch/render provider, but Page Scout change
-detection is owned locally by Scoutpost: fresh markdown is canonicalized,
-version-hashed, and compared against the latest `raw_captures` baseline.
-Firecrawl `changeTracking` remains a legacy migration path for older scouts.
+Uses the configured scrape port (Crawl4AI with the existing Firecrawl anti-bot
+fallback), but Page Scout change detection is owned locally by Scoutpost:
+fresh markdown is canonicalized, version-hashed, and compared against the
+latest successful per-source `raw_captures` baseline. Firecrawl
+`changeTracking` remains only a legacy fetch/migration path; its remote change
+decision is not authoritative.
 
 ## Change Detection Provider
 
@@ -25,11 +27,12 @@ The live Page Scout provider values are:
 
 | Provider | Method | Change Detection | When Used |
 |----------|--------|------------------|-----------|
-| `firecrawl_plain` | Fresh Firecrawl scrape (`maxAge: 0`, `storeInCache: false`) | Local canonical markdown SHA-256 | Default for new Page Scouts |
-| `firecrawl` | Firecrawl `changeTracking` format | Firecrawl remote baseline diff | Legacy scouts during migration |
+| `firecrawl_plain` | Fresh provider-port scrape (cache bypassed) | Local canonical markdown SHA-256 | Default for new Page Scouts |
+| `firecrawl` | Legacy Firecrawl `changeTracking` fetch format | Local canonical markdown SHA-256 | Legacy scouts during migration |
 
-The `firecrawl_plain` name is historical. It now means "Firecrawl scrape
-provider + Scoutpost local hash detector" for Page Scouts.
+The `firecrawl_plain` name is historical. It means “fresh scrape through the
+provider port + Scoutpost local hash detector,” regardless of which configured
+backend actually served the page.
 
 ### Canonical Hashing
 
@@ -68,26 +71,28 @@ do not silently migrate.
 │  │   └─ On success, write local canonical baseline + migrate    │
 │  └─ Returns: "new" | "changed" | "same"                         │
 │           │                                                     │
-│           │ If "same" → return early (no notification)          │
+│           │ If root is same and no known/discovered children →  │
+│           │ return early. Known index children are still due.   │
 │           ▼                                                     │
-│  Stage 2: Criteria Analysis                                     │
-│  ├─ If criteria is null ("Any Change" mode):                    │
-│  │   └─ Auto-match, summary = "Page content updated"            │
-│  ├─ If criteria is set ("Specific Criteria" mode):              │
-│  │   ├─ Analyze markdown content against criteria (GPT-4o-mini) │
-│  │   └─ Returns: {matches: bool, summary: string}               │
-│  │       │                                                      │
-│  │       │ If !matches → return early (no notification)         │
+│  Stage 2: Scope + per-source comparison                         │
+│  ├─ Exact page: compare configured URL only                     │
+│  └─ Genuine index: follow strict descendants one hop, rotate    │
+│      fairly under the cap, and compare each child independently │
 │           ▼                                                     │
-│  Stage 3: Unit Deduplication                                    │
-│  ├─ Extract atomic units                                        │
+│  Stage 3: Alert decision from normalized delta                  │
+│  ├─ Any Change: any non-empty normalized content delta          │
+│  └─ Specific Changes: structured match on ADDED/REMOVED text    │
+│      (no generated description is required)                     │
+│           ▼                                                     │
+│  Stage 4: Optional unit enrichment + deduplication              │
+│  ├─ Extract atomic units after the alert decision               │
 │  ├─ Upsert through canonical unit dedup                         │
-│  └─ Merge duplicates instead of inserting repeated facts        │
+│  └─ Zero/duplicate units cannot veto a qualifying alert         │
 │           ▼                                                     │
-│  Stage 4: Notification                                          │
+│  Stage 5: One aggregated notification                           │
 │  ├─ Store scout_run diagnostics                                 │
 │  ├─ Store raw_captures + information_units                      │
-│  ├─ Send localized email (user's preferred_language)            │
+│  ├─ Render exact source URLs + deterministic before/after text   │
 │  └─ Decrement credits via Supabase RPC                          │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -102,13 +107,16 @@ do not silently migrate.
 | `_shared/firecrawl.ts` | `supabase/functions/` | Firecrawl scrape wrapper |
 | `_shared/web_content_canonical.ts` | `supabase/functions/` | Versioned markdown canonicalizer |
 | `_shared/web_scout_baseline.ts` | `supabase/functions/` | Schedule-time baseline establishment |
+| `_shared/page_scout_change.ts` | `supabase/functions/` | Deterministic normalized delta and alert decision |
+| `_shared/page_scout_criteria.ts` | `supabase/functions/` | Structured Specific Changes delta matcher |
+| `_shared/subpage-filter.ts` | `supabase/functions/` | Strict descendant scope and primary-content discovery |
 | `_shared/atomic_extract.ts` | `supabase/functions/` | Atomic unit extraction |
 | `_shared/notifications.ts` | `supabase/functions/` | Localized email notifications |
 
 ## Deduplication Mechanisms
 
 ### Layer 1: Local canonical hash baseline
-- Fresh Firecrawl scrape bypasses the default provider cache for Page Scout
+- The fresh provider-port scrape bypasses the default provider cache for Page Scout
   change detection.
 - Canonical markdown hash is compared with the latest `raw_captures` baseline
   for the same canonicalizer version.
@@ -126,7 +134,14 @@ do not silently migrate.
 - Page Scout Firecrawl calls are client-side bounded; fresh scrapes abort if
   Firecrawl stalls.
 - OpenRouter extraction and embedding calls are bounded so a provider stall cannot leave the run row in `running` indefinitely.
-- Listing-page Phase B subpage-follow runs under a total wall-clock budget and per-subpage scrape cap instead of unbounded sequential fetches.
+- Listing-page Phase B subpage-follow runs under a total wall-clock budget and
+  per-subpage scrape cap instead of unbounded sequential fetches. Candidate
+  selection uses prior capture and attempt times, so failed, zero-unit, and
+  deduplicated children cannot monopolize every run.
+- The configured URL and every provider-reported effective child URL are
+  validated before comparison, persistence, extraction, archiving, or alerting.
+- Run metadata reports candidate, checked, scraped, failed, and
+  `coverage_complete` values; partial coverage is never labelled complete.
 
 ## Preview vs Scheduled Mode
 
@@ -143,7 +158,11 @@ canonical baseline before the schedule is enabled. Run Now does not create the
 first baseline, because that would make the first manual run look like a
 successful no-op while silently changing future alerts.
 
-If a listing/index page changes and Phase B follows matching subpages, the configured scout URL remains the index URL, but each extracted unit and its raw capture are attributed to the exact article/subpage URL that produced the fact.
+For a genuine listing/index, the configured scout URL remains the index URL,
+but each child keeps its own successful canonical baseline. Child captures,
+units, alert links, and archive evidence retain the exact effective child URL.
+A child linked during initial index establishment is a silent baseline; a child
+first linked later is evaluated as an addition.
 
 ## Source Dates
 
@@ -161,12 +180,27 @@ traceability. Page Scout rows include:
 - `canonicalizer_version` — e.g. `web-md-v1`
 - `expires_at` — raw capture retention cutoff
 
+The ordinary 30-day TTL still bounds raw-capture history, but cleanup pins the
+newest successful canonical capture for each Page Scout source. Before 90-day
+run cleanup, that capture is detached from its expiring run, so paused scouts
+and rotated index children retain one comparison baseline for the scout's
+lifetime. Deleting the scout still deletes those captures.
+
 ### `scout_runs`
 
 Stores run lifecycle, stage, notification, and diagnostic fields. When
 archiving is on, the background capture writes `snapshot_status` (and, on
 success, `snapshot_id`/`snapshot_fidelity`) into `scout_runs.metadata` — a
 diagnostic only; it never changes the run outcome.
+Index runs additionally write bounded `page_snapshot_sources` diagnostics per
+exact source, while the legacy scalar snapshot diagnostics continue to describe
+the root only.
+
+Initial index membership is first-write-wins in
+`scouts.metadata.page_scout_initial_candidates`; it is not derived from
+expiring run diagnostics. The last authoritative root membership is stored in
+`scouts.metadata.page_scout_active_candidates`, so removed children are not
+resurrected from historical captures on a later unchanged run.
 
 ## Evidence Archiving (Page Archive)
 
@@ -181,12 +215,15 @@ Opt-in, per-scout **evidence-grade snapshots** of the page updating. Gated on
 Internet Archive submission. Dark by default — no scout captures until a user
 enables it.
 
-**When it captures (R4):** at schedule-time baseline establishment and on runs
-whose change status is `changed`/`new`. Never on `same` runs (~75%), never in
-preview/test. Capture runs in the **background** (`EdgeRuntime.waitUntil`) after
-the run is marked success and its notification is sent, so a capture fetch —
-which can take tens of seconds — never delays or endangers the run or the alert
-(R11).
+**When it captures:** the configured root gets a baseline snapshot at
+archive-enabled creation or on the false→true archive transition, and a
+run/raw-capture-bound change snapshot on canonical `changed`/`new` runs.
+Snapshot eligibility follows the canonical change—not criteria matching,
+generated units, or notification delivery. Followed children get independently
+URL-bound baseline/change snapshots; enabling archive later creates one
+non-retroactive child baseline on its next unchanged check. Capture runs in the
+**background** (`EdgeRuntime.waitUntil`) after the run is marked success and its
+notification is sent.
 
 **Two-fetch flow (KTD2 / Decision 10):** the detection scrape stays the
 change-detection baseline, raw capture, and extraction input. On a gated
@@ -205,12 +242,19 @@ change.
 | `rendered_thirdparty` | Firecrawl anti-bot fallback, same fetch | rawHtml + full-page PNG (verbatim) + `.md` |
 | `markdown_only` | any capture failure (degrade) | `.md` content record only |
 
-A notified change **always** leaves at least a `markdown_only` record. On
+A capture-eligible change degrades to a `markdown_only` record when richer
+artifacts are unavailable. On
 anti-bot-walled hosts (served by the Firecrawl fallback), the alert-firing fetch
 itself carries the same-fetch rawHtml + screenshot (KTD9) — no local render is
 possible. Firecrawl's `screenshot`/`rawHtml` formats add **no** extra credits
 over a plain scrape (verified against Firecrawl billing, 2026-07-07); the
 fallback's cost driver is its proxy mode, not the capture formats.
+
+Each source capture and trust operation is failure-isolated. Capture diagnostics
+are persisted before the slower TSA/Wayback work. Root-only alerts retain the
+general archive CTA; any alert involving a child omits that CTA until the
+notification can resolve an exact-child snapshot target, so root evidence is
+never presented as evidence for a child.
 
 Persistence, hashing, storage layout, RLS, and the deletion contract live in
 `page_snapshots` + the `page-snapshots` bucket (see

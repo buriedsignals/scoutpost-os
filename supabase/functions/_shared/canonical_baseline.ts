@@ -19,6 +19,15 @@ import {
 
 export type CanonicalChangeStatus = "new" | "same" | "changed";
 
+export interface CanonicalContentComparison {
+  status: CanonicalChangeStatus;
+  previousMarkdown: string | null;
+  previousCaptureId: string | null;
+  /** Successful baselines in newest-first order. Used to distinguish children
+   * present at index establishment from links added after activation. */
+  successfulMarkdownHistory: string[];
+}
+
 export const RAW_CAPTURE_TTL_DAYS = 30;
 
 export function rawCaptureExpiresAt(nowIso: string): string {
@@ -40,7 +49,28 @@ export async function hashChangeStatusForUrl(
   markdown: string,
   opts: { sourceUrl?: string; fn?: string } = {},
 ): Promise<CanonicalChangeStatus> {
-  if (!markdown.trim()) return "new";
+  return (await compareCanonicalContentForUrl(svc, scoutId, markdown, opts))
+    .status;
+}
+
+/**
+ * The comparison seam used by Page Scout when it also needs the prior
+ * successful content to construct the normalized delta. Failed-run captures
+ * are excluded exactly as in hashChangeStatusForUrl.
+ */
+export async function compareCanonicalContentForUrl(
+  svc: SupabaseClient,
+  scoutId: string,
+  markdown: string,
+  opts: { sourceUrl?: string; fn?: string } = {},
+): Promise<CanonicalContentComparison> {
+  const fresh = (): CanonicalContentComparison => ({
+    status: "new",
+    previousMarkdown: null,
+    previousCaptureId: null,
+    successfulMarkdownHistory: [],
+  });
+  if (!markdown.trim()) return fresh();
   const rawHash = await sha256Hex(markdown);
   const canonicalHash = await webCanonicalHash(markdown);
 
@@ -67,7 +97,10 @@ export async function hashChangeStatusForUrl(
   const { data, error } = await query
     .order("captured_at", { ascending: false })
     .limit(50);
-  if (error || !data?.length) return "new";
+  if (error) {
+    throw new Error(`canonical baseline lookup failed: ${error.message}`);
+  }
+  if (!data?.length) return fresh();
 
   const captures = data as Array<{
     id: string;
@@ -100,28 +133,52 @@ export async function hashChangeStatusForUrl(
         scout_id: scoutId,
         msg: runsError.message,
       });
+      throw new Error(
+        `canonical baseline run-status lookup failed: ${runsError.message}`,
+      );
     }
   }
 
   const latestBaseline = captures.find((capture) =>
     !capture.scout_run_id || successfulRunIds.has(capture.scout_run_id)
   );
-  if (!latestBaseline) return "new";
+  if (!latestBaseline) return fresh();
+  const successfulMarkdownHistory = captures
+    .filter((capture) =>
+      (!capture.scout_run_id ||
+        successfulRunIds.has(capture.scout_run_id)) &&
+      typeof capture.content_md === "string" &&
+      capture.content_md.trim().length > 0
+    )
+    .map((capture) => capture.content_md as string);
+
+  const result = (
+    status: CanonicalChangeStatus,
+  ): CanonicalContentComparison => ({
+    status,
+    previousMarkdown: latestBaseline.content_md,
+    previousCaptureId: latestBaseline.id,
+    successfulMarkdownHistory,
+  });
 
   if (
     latestBaseline.canonicalizer_version === WEB_CANONICALIZER_VERSION &&
     latestBaseline.canonical_content_sha256
   ) {
-    return latestBaseline.canonical_content_sha256 === canonicalHash
-      ? "same"
-      : "changed";
+    return result(
+      latestBaseline.canonical_content_sha256 === canonicalHash
+        ? "same"
+        : "changed",
+    );
   }
 
   if (
     typeof latestBaseline.content_md === "string" &&
     latestBaseline.content_md.trim()
   ) {
-    const priorCanonicalHash = await webCanonicalHash(latestBaseline.content_md);
+    const priorCanonicalHash = await webCanonicalHash(
+      latestBaseline.content_md,
+    );
     await svc
       .from("raw_captures")
       .update({
@@ -129,12 +186,12 @@ export async function hashChangeStatusForUrl(
         canonicalizer_version: WEB_CANONICALIZER_VERSION,
       })
       .eq("id", latestBaseline.id);
-    return priorCanonicalHash === canonicalHash ? "same" : "changed";
+    return result(priorCanonicalHash === canonicalHash ? "same" : "changed");
   }
 
   // Legacy fallback for old captures that have only the raw hash.
-  if (latestBaseline.content_sha256 === rawHash) return "same";
-  return "changed";
+  if (latestBaseline.content_sha256 === rawHash) return result("same");
+  return result("changed");
 }
 
 /**

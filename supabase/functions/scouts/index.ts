@@ -77,6 +77,7 @@ import {
   WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
   webCanonicalHashEnabled,
 } from "../_shared/web_content_canonical.ts";
+import { pageScoutMetadataForUrlChange } from "../_shared/subpage-filter.ts";
 import {
   formatSocialBaselinePosts,
   scanSocialBaseline,
@@ -1396,7 +1397,29 @@ async function updateScout(
     monitor_mode?: z.infer<typeof SocialMonitorMode> | null;
     platform?: z.infer<typeof SocialPlatform> | null;
     profile_handle?: string | null;
+    metadata?: Record<string, unknown> | null;
   };
+  const urlWasPatched = Object.prototype.hasOwnProperty.call(
+    parsed.data,
+    "url",
+  );
+  const urlMembership = current.type === "web" && urlWasPatched
+    ? pageScoutMetadataForUrlChange(
+      typeof current.url === "string" ? current.url : "",
+      typeof parsed.data.url === "string" ? parsed.data.url : "",
+      current.metadata as Record<string, unknown> | null,
+    )
+    : {
+      changed: false,
+      metadata: { ...((current.metadata ?? {}) as Record<string, unknown>) },
+    };
+  const webUrlChanged = urlMembership.changed;
+  if (webUrlChanged) {
+    (parsed.data as Record<string, unknown>).metadata = urlMembership.metadata;
+    (parsed.data as Record<string, unknown>).baseline_established_at = null;
+    nextScout.metadata = urlMembership.metadata;
+    nextScout.baseline_established_at = null;
+  }
   if (nextScout.type === "social") {
     if (
       nextScout.monitor_mode === "criteria" &&
@@ -1509,7 +1532,7 @@ async function updateScout(
         "or regularity together with a time",
     );
   }
-  if (willBeActive && willHaveSchedule) {
+  if (willBeActive && willHaveSchedule && !webUrlChanged) {
     await ensureScheduledBaseline(getServiceClient(), nextScout);
   }
 
@@ -1530,6 +1553,26 @@ async function updateScout(
   if (!data) throw new NotFoundError("scout");
 
   const svc = getServiceClient();
+  let responseScout = data;
+  if (webUrlChanged && willBeActive && willHaveSchedule) {
+    try {
+      await ensureScheduledBaseline(svc, {
+        ...(data as BaselineableScout),
+        baseline_established_at: null,
+      });
+    } catch (error) {
+      await rollbackScoutUpdate(svc, id, user.id, current, parsed.data);
+      throw error;
+    }
+    const { data: refreshed, error: refreshError } = await db
+      .from("scouts")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (refreshError) throw new Error(refreshError.message);
+    if (refreshed) responseScout = refreshed;
+  }
   const cronChanged =
     Object.prototype.hasOwnProperty.call(parsed.data, "schedule_cron") &&
     parsed.data.schedule_cron !== current.schedule_cron;
@@ -1570,21 +1613,21 @@ async function updateScout(
   // throws, so this stays off the update critical path.
   const archiveTurnedOn = parsed.data.archive_enabled === true &&
     current.archive_enabled !== true;
-  if (archiveTurnedOn && data.type === "web" && willHaveSchedule) {
+  if (archiveTurnedOn && responseScout.type === "web" && willHaveSchedule) {
     runSnapshotInBackground(
       captureWebBaselineSnapshot(svc, {
-        id: data.id,
+        id: responseScout.id,
         user_id: user.id,
-        url: data.url,
-        provider: data.provider,
-        archive_enabled: data.archive_enabled,
-        wayback_enabled: data.wayback_enabled,
-        name: data.name,
+        url: responseScout.url,
+        provider: responseScout.provider,
+        archive_enabled: responseScout.archive_enabled,
+        wayback_enabled: responseScout.wayback_enabled,
+        name: responseScout.name,
       }),
     );
   }
 
-  return jsonOk(await shapeScoutResponse(db, data));
+  return jsonOk(await shapeScoutResponse(db, responseScout));
 }
 
 async function deleteScout(user: AuthedUser, id: string): Promise<Response> {

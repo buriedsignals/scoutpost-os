@@ -1,8 +1,10 @@
 import {
   assertEquals,
+  assertRejects,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import type { SupabaseClient } from "./supabase.ts";
 import {
+  compareCanonicalContentForUrl,
   hashChangeStatusForUrl,
   writeCanonicalBaseline,
 } from "./canonical_baseline.ts";
@@ -55,16 +57,22 @@ function fakeSvc(opts: {
               },
               limit() {
                 if (opts.captureError) {
-                  return Promise.resolve({ data: null, error: { message: "boom" } });
+                  return Promise.resolve({
+                    data: null,
+                    error: { message: "boom" },
+                  });
                 }
                 // apply source_url filter if present
                 let rows = opts.captures ?? [];
                 if (this._eq.source_url) {
-                  rows = rows.filter((c) => c.source_url === this._eq.source_url);
+                  rows = rows.filter((c) =>
+                    c.source_url === this._eq.source_url
+                  );
                 }
                 for (const col of this._notNull) {
                   rows = rows.filter(
-                    (c) => (c as unknown as Record<string, unknown>)[col] != null,
+                    (c) =>
+                      (c as unknown as Record<string, unknown>)[col] != null,
                   );
                 }
                 return Promise.resolve({ data: rows, error: null });
@@ -94,7 +102,10 @@ function fakeSvc(opts: {
             return {
               in() {
                 if (opts.runsError) {
-                  return Promise.resolve({ data: null, error: { message: "runs boom" } });
+                  return Promise.resolve({
+                    data: null,
+                    error: { message: "runs boom" },
+                  });
                 }
                 return Promise.resolve({ data: opts.runs ?? [], error: null });
               },
@@ -122,9 +133,13 @@ Deno.test("hashChangeStatusForUrl returns new when no baseline exists", async ()
   assertEquals(await hashChangeStatusForUrl(svc, "s1", "hello world"), "new");
 });
 
-Deno.test("hashChangeStatusForUrl returns new on capture query error", async () => {
+Deno.test("hashChangeStatusForUrl fails closed on capture query error", async () => {
   const { svc } = fakeSvc({ captureError: true });
-  assertEquals(await hashChangeStatusForUrl(svc, "s1", "hello world"), "new");
+  await assertRejects(
+    () => hashChangeStatusForUrl(svc, "s1", "hello world"),
+    Error,
+    "canonical baseline lookup failed",
+  );
 });
 
 Deno.test("hashChangeStatusForUrl returns same on canonical match", async () => {
@@ -153,7 +168,40 @@ Deno.test("hashChangeStatusForUrl returns changed on canonical mismatch", async 
       canonicalizer_version: WEB_CANONICALIZER_VERSION,
     }],
   });
-  assertEquals(await hashChangeStatusForUrl(svc, "s1", "new content"), "changed");
+  assertEquals(
+    await hashChangeStatusForUrl(svc, "s1", "new content"),
+    "changed",
+  );
+});
+
+Deno.test("compareCanonicalContentForUrl returns the exact successful prior content", async () => {
+  const previous = "Registration opens 1 August";
+  const { svc } = fakeSvc({
+    captures: [{
+      id: "baseline",
+      scout_run_id: "run-ok",
+      content_sha256: null,
+      content_md: previous,
+      canonical_content_sha256: await canonicalOf(previous),
+      canonicalizer_version: WEB_CANONICALIZER_VERSION,
+      source_url: "https://example.test/event",
+    }],
+    runs: [{ id: "run-ok", status: "success" }],
+  });
+  assertEquals(
+    await compareCanonicalContentForUrl(
+      svc,
+      "s1",
+      "Registration opens 15 August",
+      { sourceUrl: "https://example.test/event" },
+    ),
+    {
+      status: "changed",
+      previousMarkdown: previous,
+      previousCaptureId: "baseline",
+      successfulMarkdownHistory: [previous],
+    },
+  );
 });
 
 Deno.test("hashChangeStatusForUrl only counts baselines from successful runs", async () => {
@@ -309,9 +357,7 @@ Deno.test("hashChangeStatusForUrl returns new when the only baseline is from a f
   assertEquals(await hashChangeStatusForUrl(svc, "s1", "x"), "new");
 });
 
-Deno.test("hashChangeStatusForUrl treats content as new baseline when run-status lookup errors", async () => {
-  // scout_runs query fails → successfulRunIds stays empty → a capture from a
-  // run is not usable → "new" (logs a warning, does not throw).
+Deno.test("hashChangeStatusForUrl fails closed when run-status lookup errors", async () => {
   const { svc } = fakeSvc({
     captures: [{
       id: "c1",
@@ -323,7 +369,11 @@ Deno.test("hashChangeStatusForUrl treats content as new baseline when run-status
     }],
     runsError: true,
   });
-  assertEquals(await hashChangeStatusForUrl(svc, "s1", "x"), "new");
+  await assertRejects(
+    () => hashChangeStatusForUrl(svc, "s1", "x"),
+    Error,
+    "canonical baseline run-status lookup failed",
+  );
 });
 
 Deno.test("hashChangeStatusForUrl migrate-on-read returns changed on mismatch", async () => {
@@ -337,7 +387,10 @@ Deno.test("hashChangeStatusForUrl migrate-on-read returns changed on mismatch", 
       canonicalizer_version: null,
     }],
   });
-  assertEquals(await hashChangeStatusForUrl(svc, "s1", "brand new body"), "changed");
+  assertEquals(
+    await hashChangeStatusForUrl(svc, "s1", "brand new body"),
+    "changed",
+  );
   assertEquals(updates.length, 1); // still migrates the old row
 });
 

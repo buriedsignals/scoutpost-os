@@ -1,4 +1,7 @@
 export interface PageScoutNotificationResult {
+  /** Decided from the normalized page delta (and criteria result when set)
+   * before optional extraction or unit deduplication. */
+  alert_eligible: boolean;
   articles_count: number;
   criteria_ran: boolean;
   summary?: string | null;
@@ -7,5 +10,5 @@ export interface PageScoutNotificationResult {
 export function shouldSendPageScoutAlert(
   result: PageScoutNotificationResult,
 ): boolean {
-  return result.articles_count > 0 && Boolean(result.summary?.trim());
+  return result.alert_eligible;
 }

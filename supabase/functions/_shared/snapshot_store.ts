@@ -64,7 +64,11 @@ function isDuplicateStorageError(error: { message: string } | null): boolean {
 // move up to ~25MB.
 const STORAGE_OP_TIMEOUT_MS = 45_000;
 
-function withStorageTimeout<T>(op: PromiseLike<T>, label: string): Promise<T> {
+function withStorageTimeout<T>(
+  op: PromiseLike<T>,
+  label: string,
+  timeoutMs = STORAGE_OP_TIMEOUT_MS,
+): Promise<T> {
   // ReturnType<typeof setTimeout>, not number: CI's Deno types setTimeout as
   // returning Timeout, and a `number` annotation fails type-checking (TS2322).
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -73,10 +77,10 @@ function withStorageTimeout<T>(op: PromiseLike<T>, label: string): Promise<T> {
       () =>
         reject(
           new SnapshotStorageError(
-            `storage op timed out after ${STORAGE_OP_TIMEOUT_MS}ms: ${label}`,
+            `storage op timed out after ${timeoutMs}ms: ${label}`,
           ),
         ),
-      STORAGE_OP_TIMEOUT_MS,
+      timeoutMs,
     );
   });
   return Promise.race([op, timeout]).finally(() => {
@@ -87,7 +91,10 @@ function withStorageTimeout<T>(op: PromiseLike<T>, label: string): Promise<T> {
 export async function sha256HexBytes(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer,
   );
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -98,7 +105,9 @@ const HEX64_RE = /^[0-9a-f]{64}$/;
 
 function assertUuid(value: string, label: string): void {
   if (!UUID_RE.test(value)) {
-    throw new SnapshotPathError(`${label} is not a UUID: ${JSON.stringify(value)}`);
+    throw new SnapshotPathError(
+      `${label} is not a UUID: ${JSON.stringify(value)}`,
+    );
   }
 }
 
@@ -116,9 +125,13 @@ export function snapshotObjectPath(
   assertUuid(userId, "userId");
   assertUuid(scoutId, "scoutId");
   if (!HEX64_RE.test(sha256)) {
-    throw new SnapshotPathError(`sha256 is not 64-char hex: ${JSON.stringify(sha256)}`);
+    throw new SnapshotPathError(
+      `sha256 is not 64-char hex: ${JSON.stringify(sha256)}`,
+    );
   }
-  return `${userId.toLowerCase()}/${scoutId.toLowerCase()}/${sha256}.${ARTIFACT_META[kind].ext}`;
+  return `${userId.toLowerCase()}/${scoutId.toLowerCase()}/${sha256}.${
+    ARTIFACT_META[kind].ext
+  }`;
 }
 
 export function manifestObjectPath(
@@ -160,7 +173,9 @@ export async function uploadTrustObject(
     `trust upload ${path}`,
   );
   if (error && !isDuplicateStorageError(error)) {
-    throw new SnapshotStorageError(`trust upload failed (${path}): ${error.message}`);
+    throw new SnapshotStorageError(
+      `trust upload failed (${path}): ${error.message}`,
+    );
   }
 }
 
@@ -222,6 +237,9 @@ export interface StoreSnapshotParams {
    * outlives the raw_captures TTL). */
   markdown: string;
   artifacts?: SnapshotArtifact[];
+  /** Test seam for proving stalled storage calls fail closed. Production
+   * callers omit this and use the 45-second storage fuse. */
+  storageOpTimeoutMs?: number;
 }
 
 export interface StoredSnapshot {
@@ -237,7 +255,9 @@ export interface StoredSnapshot {
 
 /** Fidelity tiers imply exact artifact sets (KTD9). Enforced so a bug cannot
  * store a row whose label overstates what it holds. */
-function requiredArtifactKinds(fidelity: SnapshotFidelity): SnapshotArtifactKind[] {
+function requiredArtifactKinds(
+  fidelity: SnapshotFidelity,
+): SnapshotArtifactKind[] {
   if (fidelity === "full") return ["mhtml", "screenshot"];
   if (fidelity === "rendered_thirdparty") return ["screenshot", "rawhtml"];
   return [];
@@ -247,6 +267,8 @@ export async function storeSnapshot(
   svc: SupabaseClient,
   params: StoreSnapshotParams,
 ): Promise<StoredSnapshot> {
+  const storageOpTimeoutMs = params.storageOpTimeoutMs ??
+    STORAGE_OP_TIMEOUT_MS;
   if (!params.markdown.trim()) {
     throw new SnapshotIntegrityError(
       "every snapshot row carries the canonical-markdown content record; markdown is empty",
@@ -256,7 +278,9 @@ export async function storeSnapshot(
   const required = requiredArtifactKinds(params.fidelity).sort();
   if (provided.join(",") !== required.join(",")) {
     throw new SnapshotIntegrityError(
-      `fidelity '${params.fidelity}' requires artifacts [${required.join(", ")}], got [${provided.join(", ")}]`,
+      `fidelity '${params.fidelity}' requires artifacts [${
+        required.join(", ")
+      }], got [${provided.join(", ")}]`,
     );
   }
 
@@ -282,7 +306,12 @@ export async function storeSnapshot(
       kind: artifact.kind,
       bytes: artifact.bytes,
       sha256: actual,
-      path: snapshotObjectPath(params.userId, params.scoutId, actual, artifact.kind),
+      path: snapshotObjectPath(
+        params.userId,
+        params.scoutId,
+        actual,
+        artifact.kind,
+      ),
     });
   }
   const markdownSha = await sha256HexBytes(markdownBytes);
@@ -290,7 +319,12 @@ export async function storeSnapshot(
     kind: "markdown",
     bytes: markdownBytes,
     sha256: markdownSha,
-    path: snapshotObjectPath(params.userId, params.scoutId, markdownSha, "markdown"),
+    path: snapshotObjectPath(
+      params.userId,
+      params.scoutId,
+      markdownSha,
+      "markdown",
+    ),
   });
 
   // Track objects THIS call newly created (not pre-existing duplicates, which a
@@ -305,6 +339,7 @@ export async function storeSnapshot(
       await withStorageTimeout(
         svc.storage.from(SNAPSHOT_BUCKET).remove(createdPaths),
         `orphan cleanup (${createdPaths.length})`,
+        storageOpTimeoutMs,
       );
     } catch (e) {
       // Best-effort: a scout deletion sweep is the backstop. Log and move on.
@@ -330,6 +365,7 @@ export async function storeSnapshot(
             upsert: false,
           }),
         `upload ${upload.kind}`,
+        storageOpTimeoutMs,
       ));
     } catch (e) {
       await cleanupCreated();
@@ -426,7 +462,9 @@ export function snapshotDiagnostics(outcome: {
   snapshotId?: string;
   fidelity?: SnapshotFidelity;
 }): Record<string, unknown> {
-  const diagnostics: Record<string, unknown> = { snapshot_status: outcome.status };
+  const diagnostics: Record<string, unknown> = {
+    snapshot_status: outcome.status,
+  };
   if (outcome.snapshotId) diagnostics.snapshot_id = outcome.snapshotId;
   if (outcome.fidelity) diagnostics.snapshot_fidelity = outcome.fidelity;
   return diagnostics;
@@ -462,10 +500,14 @@ export async function deleteScoutSnapshots(
         `list ${prefix}`,
       );
       if (error) {
-        throw new SnapshotStorageError(`list failed for ${prefix}: ${error.message}`);
+        throw new SnapshotStorageError(
+          `list failed for ${prefix}: ${error.message}`,
+        );
       }
       if (!data || data.length === 0) break;
-      const names = (data as Array<{ name: string }>).map((o) => `${prefix}/${o.name}`);
+      const names = (data as Array<{ name: string }>).map((o) =>
+        `${prefix}/${o.name}`
+      );
       const signature = names.join("\n");
       if (signature === previousPage) {
         throw new SnapshotStorageError(

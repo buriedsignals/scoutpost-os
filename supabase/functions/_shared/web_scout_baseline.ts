@@ -18,6 +18,15 @@ import {
   resolveArchiveGate,
 } from "./snapshot_capture.ts";
 import { applyTrustLayer, scoutWaybackEnabled } from "./trust.ts";
+import {
+  extractSubpageLinksFromHtml,
+  extractSubpageLinksFromMarkdown,
+  filterSubpageUrls,
+  isConfiguredPageUrl,
+  primaryContentHtml,
+  selectPrimarySubpageLinks,
+} from "./subpage-filter.ts";
+import { capPageScoutCandidates } from "./page_scout_schedule.ts";
 
 export interface WebBaselineScout {
   id: string;
@@ -40,6 +49,9 @@ interface WebBaselineDeps {
   doubleProbe: typeof doubleProbe;
   firecrawlScrape: typeof firecrawlScrape;
   now: () => string;
+  resolveArchiveGate?: typeof resolveArchiveGate;
+  performArchiveCapture?: typeof performArchiveCapture;
+  applyTrustLayer?: typeof applyTrustLayer;
 }
 
 const DEFAULT_DEPS: WebBaselineDeps = {
@@ -47,7 +59,41 @@ const DEFAULT_DEPS: WebBaselineDeps = {
   doubleProbe,
   firecrawlScrape,
   now: () => new Date().toISOString(),
+  resolveArchiveGate,
+  performArchiveCapture,
+  applyTrustLayer,
 };
+
+function baselineChildCandidates(
+  scrape: ScrapeResult,
+  rootUrl: string,
+): string[] {
+  const rawHtml = scrape.rawHtml?.trim() ?? "";
+  const htmlLinks = rawHtml
+    ? extractSubpageLinksFromHtml(primaryContentHtml(rawHtml), rootUrl)
+    : [];
+  const markdownLinks = scrape.markdown?.trim()
+    ? extractSubpageLinksFromMarkdown(scrape.markdown, rootUrl)
+    : [];
+  return capPageScoutCandidates(filterSubpageUrls(
+    selectPrimarySubpageLinks(htmlLinks, markdownLinks, {
+      hasRenderedHtml: Boolean(rawHtml),
+    }).map(([url]) => url),
+    rootUrl,
+  ));
+}
+
+async function persistBaselineMembership(
+  svc: SupabaseClient,
+  scoutId: string,
+  candidates: string[],
+): Promise<void> {
+  const { error } = await svc.rpc(
+    "set_page_scout_initial_candidates_if_absent",
+    { p_scout_id: scoutId, p_candidates: candidates },
+  );
+  if (error) throw new Error(error.message);
+}
 
 async function stampBaseline(
   svc: SupabaseClient,
@@ -86,6 +132,11 @@ export async function establishWebBaseline(
       scout.url,
       WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
     );
+    if (!isConfiguredPageUrl(scrape.source_url ?? scout.url, scout.url)) {
+      throw new ValidationError(
+        "page baseline scrape resolved outside the configured URL",
+      );
+    }
     const markdown = scrape.markdown?.trim() ?? "";
     if (!markdown) {
       throw new ValidationError(
@@ -107,6 +158,11 @@ export async function establishWebBaseline(
       expires_at: rawCaptureExpiresAt(deps.now()),
     });
     if (error) throw new Error(error.message);
+    await persistBaselineMembership(
+      svc,
+      scout.id,
+      baselineChildCandidates(scrape, scout.url),
+    );
     await stampBaseline(svc, scout.id, { provider: "firecrawl_plain" }, deps);
     return "firecrawl_plain";
   }
@@ -121,6 +177,11 @@ export async function establishWebBaseline(
   }
 
   const scrape = await deps.firecrawlScrape(scout.url);
+  if (!isConfiguredPageUrl(scrape.source_url ?? scout.url, scout.url)) {
+    throw new ValidationError(
+      "page baseline scrape resolved outside the configured URL",
+    );
+  }
   const markdown = scrape.markdown?.trim() ?? "";
   if (!markdown) {
     throw new ValidationError(
@@ -141,6 +202,11 @@ export async function establishWebBaseline(
     expires_at: rawCaptureExpiresAt(deps.now()),
   });
   if (error) throw new Error(error.message);
+  await persistBaselineMembership(
+    svc,
+    scout.id,
+    baselineChildCandidates(scrape, scout.url),
+  );
   await stampBaseline(svc, scout.id, { provider }, deps);
   return provider;
 }
@@ -179,7 +245,7 @@ export async function captureWebBaselineSnapshot(
   if (!scout.url?.trim()) return null;
   let gateOn: boolean;
   try {
-    gateOn = await resolveArchiveGate(svc, scout);
+    gateOn = await (deps.resolveArchiveGate ?? resolveArchiveGate)(svc, scout);
   } catch {
     return null;
   }
@@ -205,24 +271,49 @@ export async function captureWebBaselineSnapshot(
 
   const markdown = detection.markdown?.trim() ?? "";
   if (!markdown) return null;
+  if (!isConfiguredPageUrl(detection.source_url ?? scout.url, scout.url)) {
+    logEvent({
+      level: "warn",
+      fn: "web-scout-baseline",
+      event: "baseline_capture_out_of_scope",
+      scout_id: scout.id,
+      requested_url: scout.url,
+      effective_url: detection.source_url ?? scout.url,
+    });
+    return null;
+  }
 
-  const outcome = await performArchiveCapture(svc, {
-    scoutId: scout.id,
-    userId: scout.user_id,
-    scoutRunId: null,
-    rawCaptureId: null,
-    captureKind: "baseline",
-    requestedUrl: scout.url,
-    fallbackMarkdown: detection.markdown,
-    contentSha256: await sha256Hex(detection.markdown),
-    canonicalContentSha256: await webCanonicalHash(detection.markdown),
-  }, detection);
+  let outcome: CaptureOutcome;
+  try {
+    outcome = await (deps.performArchiveCapture ?? performArchiveCapture)(svc, {
+      scoutId: scout.id,
+      userId: scout.user_id,
+      scoutRunId: null,
+      rawCaptureId: null,
+      captureKind: "baseline",
+      requestedUrl: scout.url,
+      fallbackMarkdown: detection.markdown,
+      contentSha256: await sha256Hex(detection.markdown),
+      canonicalContentSha256: await webCanonicalHash(detection.markdown),
+      allowedExactUrl: scout.url,
+    }, detection);
+  } catch (e) {
+    logEvent({
+      level: "warn",
+      fn: "web-scout-baseline",
+      event: "baseline_capture_failed",
+      scout_id: scout.id,
+      user_id: scout.user_id,
+      msg: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  }
 
   // Trust layer (U4) — applied after the row is stored, non-fatal. Baseline
   // rows have no scout_run, so there is nothing to sequence before it here.
   if (outcome.stored) {
     try {
-      await applyTrustLayer(
+      await (deps.applyTrustLayer ?? applyTrustLayer)(
         svc,
         outcome.stored,
         scoutWaybackEnabled(scout.wayback_enabled),

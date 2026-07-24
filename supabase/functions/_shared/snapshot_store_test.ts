@@ -9,8 +9,8 @@ import {
   manifestObjectPath,
   sha256HexBytes,
   SNAPSHOT_BUCKET,
-  SnapshotIntegrityError,
   snapshotDiagnostics,
+  SnapshotIntegrityError,
   snapshotObjectPath,
   SnapshotPathError,
   SnapshotStorageError,
@@ -28,25 +28,45 @@ function bytesOf(text: string): Uint8Array {
 }
 
 interface FakeOptions {
-  uploadErrors?: Record<string, string | { message: string; statusCode?: string }>; // substring of path -> error
+  uploadErrors?: Record<
+    string,
+    string | { message: string; statusCode?: string }
+  >; // substring of path -> error
   listPages?: Array<Array<{ name: string }>>;
   listError?: string;
   removeError?: string;
   insertError?: string;
   insertNullData?: boolean;
   deleteError?: string;
+  uploadReject?: string;
+  uploadNever?: string;
+  removeReject?: unknown;
 }
 
 function fakeSvc(opts: FakeOptions = {}) {
-  const uploads: Array<{ path: string; contentType: string; bytes: Uint8Array }> = [];
+  const uploads: Array<
+    { path: string; contentType: string; bytes: Uint8Array }
+  > = [];
   const removed: string[][] = [];
   const inserts: Array<Record<string, unknown>> = [];
   const deletes: Array<Record<string, unknown>> = [];
   const listPages = [...(opts.listPages ?? [])];
 
   const storageApi = {
-    upload(path: string, bytes: Uint8Array, uploadOpts: { contentType: string }) {
-      const errorKey = Object.keys(opts.uploadErrors ?? {}).find((k) => path.includes(k));
+    upload(
+      path: string,
+      bytes: Uint8Array,
+      uploadOpts: { contentType: string },
+    ) {
+      if (opts.uploadNever && path.includes(opts.uploadNever)) {
+        return new Promise<never>(() => {});
+      }
+      if (opts.uploadReject && path.includes(opts.uploadReject)) {
+        return Promise.reject(new Error("upload transport rejected"));
+      }
+      const errorKey = Object.keys(opts.uploadErrors ?? {}).find((k) =>
+        path.includes(k)
+      );
       if (errorKey) {
         const spec = opts.uploadErrors![errorKey];
         const error = typeof spec === "string" ? { message: spec } : spec;
@@ -57,11 +77,17 @@ function fakeSvc(opts: FakeOptions = {}) {
     },
     list(_prefix: string, _listOpts: { limit: number }) {
       if (opts.listError) {
-        return Promise.resolve({ data: null, error: { message: opts.listError } });
+        return Promise.resolve({
+          data: null,
+          error: { message: opts.listError },
+        });
       }
       return Promise.resolve({ data: listPages.shift() ?? [], error: null });
     },
     remove(names: string[]) {
+      if (opts.removeReject !== undefined) {
+        return Promise.reject(opts.removeReject);
+      }
       if (opts.removeError) {
         return Promise.resolve({ error: { message: opts.removeError } });
       }
@@ -95,7 +121,9 @@ function fakeSvc(opts: FakeOptions = {}) {
               eq: (col2: string, val2: unknown) => {
                 deletes.push({ [col1]: val1, [col2]: val2 });
                 return Promise.resolve(
-                  opts.deleteError ? { error: { message: opts.deleteError } } : { error: null },
+                  opts.deleteError
+                    ? { error: { message: opts.deleteError } }
+                    : { error: null },
                 );
               },
             }),
@@ -104,10 +132,18 @@ function fakeSvc(opts: FakeOptions = {}) {
       };
     },
   };
-  return { svc: svc as unknown as SupabaseClient, uploads, removed, inserts, deletes };
+  return {
+    svc: svc as unknown as SupabaseClient,
+    uploads,
+    removed,
+    inserts,
+    deletes,
+  };
 }
 
-function fullParams(overrides: Partial<StoreSnapshotParams> = {}): StoreSnapshotParams {
+function fullParams(
+  overrides: Partial<StoreSnapshotParams> = {},
+): StoreSnapshotParams {
   return {
     scoutId: SCOUT,
     userId: USER,
@@ -142,15 +178,33 @@ Deno.test("sha256HexBytes matches known vectors", async () => {
   );
 });
 
+Deno.test("storage operations fail within the configured timeout", async () => {
+  const { svc } = fakeSvc({ uploadNever: ".mhtml" });
+  await assertRejects(
+    () => storeSnapshot(svc, fullParams({ storageOpTimeoutMs: 1 })),
+    SnapshotStorageError,
+    "storage op timed out after 1ms",
+  );
+});
+
 Deno.test("snapshotObjectPath builds content-addressed paths per kind", () => {
   const sha = "c".repeat(64);
   assertEquals(
     snapshotObjectPath(USER, SCOUT, sha, "mhtml"),
     `${USER}/${SCOUT}/${sha}.mhtml`,
   );
-  assertEquals(snapshotObjectPath(USER, SCOUT, sha, "screenshot").endsWith(".png"), true);
-  assertEquals(snapshotObjectPath(USER, SCOUT, sha, "rawhtml").endsWith(".html"), true);
-  assertEquals(snapshotObjectPath(USER, SCOUT, sha, "markdown").endsWith(".md"), true);
+  assertEquals(
+    snapshotObjectPath(USER, SCOUT, sha, "screenshot").endsWith(".png"),
+    true,
+  );
+  assertEquals(
+    snapshotObjectPath(USER, SCOUT, sha, "rawhtml").endsWith(".html"),
+    true,
+  );
+  assertEquals(
+    snapshotObjectPath(USER, SCOUT, sha, "markdown").endsWith(".md"),
+    true,
+  );
   // Uppercase ids are valid UUIDs but must lowercase in the path: storage RLS
   // compares the first folder to auth.uid()::text, which is lowercase.
   assertEquals(
@@ -183,7 +237,10 @@ Deno.test("manifestObjectPath validates and builds", () => {
     manifestObjectPath(USER, SCOUT, SNAP),
     `${USER}/${SCOUT}/manifest-${SNAP}.json`,
   );
-  assertThrows(() => manifestObjectPath(USER, SCOUT, "nope"), SnapshotPathError);
+  assertThrows(
+    () => manifestObjectPath(USER, SCOUT, "nope"),
+    SnapshotPathError,
+  );
 });
 
 Deno.test("storeSnapshot happy path: uploads artifacts + .md record, inserts row", async () => {
@@ -218,7 +275,11 @@ Deno.test("storeSnapshot verifies claimed hashes before storing anything", async
         svc,
         fullParams({
           artifacts: [
-            { kind: "mhtml", bytes: bytesOf("mhtml-bytes"), claimedSha256: "f".repeat(64) },
+            {
+              kind: "mhtml",
+              bytes: bytesOf("mhtml-bytes"),
+              claimedSha256: "f".repeat(64),
+            },
             { kind: "screenshot", bytes: bytesOf("png-bytes") },
           ],
         }),
@@ -244,7 +305,11 @@ Deno.test("storeSnapshot accepts matching claimed hashes", async () => {
           bytes: mhtml,
           claimedSha256: (await sha256HexBytes(mhtml)).toUpperCase(),
         },
-        { kind: "screenshot", bytes: png, claimedSha256: await sha256HexBytes(png) },
+        {
+          kind: "screenshot",
+          bytes: png,
+          claimedSha256: await sha256HexBytes(png),
+        },
       ],
     }),
   );
@@ -292,7 +357,11 @@ Deno.test("storeSnapshot markdown_only stores just the .md record", async () => 
   const { svc, uploads, inserts } = fakeSvc();
   const stored = await storeSnapshot(
     svc,
-    fullParams({ fidelity: "markdown_only", servedBy: "firecrawl", artifacts: [] }),
+    fullParams({
+      fidelity: "markdown_only",
+      servedBy: "firecrawl",
+      artifacts: [],
+    }),
   );
   assertEquals(uploads.length, 1);
   assertEquals(uploads[0].path.endsWith(".md"), true);
@@ -324,13 +393,44 @@ Deno.test("storeSnapshot surfaces non-duplicate upload errors", async () => {
   const { svc, inserts } = fakeSvc({
     uploadErrors: { ".png": "Payload too large" },
   });
-  await assertRejects(() => storeSnapshot(svc, fullParams()), SnapshotStorageError, "upload failed");
+  await assertRejects(
+    () => storeSnapshot(svc, fullParams()),
+    SnapshotStorageError,
+    "upload failed",
+  );
+  assertEquals(inserts.length, 0);
+});
+
+Deno.test("storeSnapshot cleans up when an upload promise rejects", async () => {
+  const { svc, inserts } = fakeSvc({
+    uploadReject: ".png",
+    removeReject: "cleanup transport rejected",
+  });
+  await assertRejects(
+    () => storeSnapshot(svc, fullParams()),
+    Error,
+    "upload transport rejected",
+  );
+  assertEquals(inserts.length, 0);
+});
+
+Deno.test("storeSnapshot handles a first-upload transport rejection without cleanup", async () => {
+  const { svc, inserts } = fakeSvc({ uploadReject: ".mhtml" });
+  await assertRejects(
+    () => storeSnapshot(svc, fullParams()),
+    Error,
+    "upload transport rejected",
+  );
   assertEquals(inserts.length, 0);
 });
 
 Deno.test("storeSnapshot surfaces insert errors", async () => {
   const { svc } = fakeSvc({ insertError: "permission denied" });
-  await assertRejects(() => storeSnapshot(svc, fullParams()), SnapshotStorageError, "insert failed");
+  await assertRejects(
+    () => storeSnapshot(svc, fullParams()),
+    SnapshotStorageError,
+    "insert failed",
+  );
 });
 
 Deno.test("storeSnapshot surfaces insert returning no row", async () => {
@@ -365,11 +465,18 @@ Deno.test("storeSnapshot minimal params default every optional field to null", a
 });
 
 Deno.test("snapshotDiagnostics shapes run metadata", () => {
-  assertEquals(snapshotDiagnostics({ status: "stored" , snapshotId: SNAP, fidelity: "full" }), {
-    snapshot_status: "stored",
-    snapshot_id: SNAP,
-    snapshot_fidelity: "full",
-  });
+  assertEquals(
+    snapshotDiagnostics({
+      status: "stored",
+      snapshotId: SNAP,
+      fidelity: "full",
+    }),
+    {
+      snapshot_status: "stored",
+      snapshot_id: SNAP,
+      snapshot_fidelity: "full",
+    },
+  );
   assertEquals(snapshotDiagnostics({ status: "degraded:flap" }), {
     snapshot_status: "degraded:flap",
   });
@@ -446,7 +553,8 @@ Deno.test("deleteScoutSnapshots surfaces storage and row errors", async () => {
     "remove failed",
   );
   await assertRejects(
-    () => deleteScoutSnapshots(fakeSvc({ deleteError: "boom" }).svc, USER, SCOUT),
+    () =>
+      deleteScoutSnapshots(fakeSvc({ deleteError: "boom" }).svc, USER, SCOUT),
     SnapshotStorageError,
     "delete failed",
   );
@@ -460,24 +568,40 @@ Deno.test("updateSnapshotTrust returns false (never throws) on a row-update erro
   const { updateSnapshotTrust } = await import("./snapshot_store.ts");
   const okSvc = {
     from() {
-      return { update() { return { eq() { return Promise.resolve({ error: null }); } }; } };
+      return {
+        update() {
+          return {
+            eq() {
+              return Promise.resolve({ error: null });
+            },
+          };
+        },
+      };
     },
   } as unknown as SupabaseClient;
   assertEquals(
-    await updateSnapshotTrust(okSvc, "44444444-4444-4444-4444-444444444444", { tsa_status: "ok" }),
+    await updateSnapshotTrust(okSvc, "44444444-4444-4444-4444-444444444444", {
+      tsa_status: "ok",
+    }),
     true,
   );
   const errSvc = {
     from() {
       return {
         update() {
-          return { eq() { return Promise.resolve({ error: { message: "db down" } }); } };
+          return {
+            eq() {
+              return Promise.resolve({ error: { message: "db down" } });
+            },
+          };
         },
       };
     },
   } as unknown as SupabaseClient;
   assertEquals(
-    await updateSnapshotTrust(errSvc, "44444444-4444-4444-4444-444444444444", { tsa_status: "ok" }),
+    await updateSnapshotTrust(errSvc, "44444444-4444-4444-4444-444444444444", {
+      tsa_status: "ok",
+    }),
     false,
   );
 });

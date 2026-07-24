@@ -1,33 +1,141 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals.ts";
 import {
+  extractSubpageLinksFromHtml,
+  extractSubpageLinksFromMarkdown,
   filterSubpageUrls,
   hasDeterministicListingSignal,
+  isConfiguredPageUrl,
   isLikelyArticleUrl,
   isStrictChildUrl,
-  mergeDiscoveredSubpageLinks,
+  pageScoutMetadataForUrlChange,
+  primaryContentHtml,
+  primaryContentText,
+  renderIndexClassificationContent,
+  selectPrimarySubpageLinks,
 } from "./subpage-filter.ts";
 
-const INDEX = "https://www.example.ch/news/press-releases/";
-
-Deno.test("mergeDiscoveredSubpageLinks retains markdown articles beside rendered navigation", () => {
-  const navigation = [
-    ["https://www.example.ch/", "Home"],
-    ["https://www.example.ch/contact", "Contact"],
-  ] as [string, string][];
-  const releases = [
-    ["https://www.example.ch/news/press-releases/release-one", "Release one"],
-    ["https://www.example.ch/news/press-releases/release-two", "Release two"],
-  ] as [string, string][];
-
-  const merged = mergeDiscoveredSubpageLinks(navigation, releases);
-  assertEquals(merged, [...navigation, ...releases]);
+Deno.test("Page Scout URL changes invalidate durable child membership", () => {
+  const metadata = {
+    page_scout_initial_candidates: ["https://example.test/old/a"],
+    page_scout_active_candidates: ["https://example.test/old/a"],
+    unrelated: "preserved",
+  };
   assertEquals(
-    filterSubpageUrls(merged.map(([url]) => url), INDEX),
-    releases.map(([url]) => url),
+    pageScoutMetadataForUrlChange(
+      "https://example.test/old/",
+      "https://example.test/new/",
+      metadata,
+    ),
+    { changed: true, metadata: { unrelated: "preserved" } },
+  );
+  assertEquals(
+    pageScoutMetadataForUrlChange(
+      "http://www.example.test/old/",
+      "https://example.test/old",
+      metadata,
+    ),
+    { changed: false, metadata },
+  );
+  assertEquals(
+    pageScoutMetadataForUrlChange(
+      "",
+      "https://example.test/new/",
+      metadata,
+    ),
+    { changed: true, metadata: { unrelated: "preserved" } },
   );
 });
 
-Deno.test("filterSubpageUrls keeps URLs under the index path", () => {
+const INDEX = "https://www.example.ch/news/press-releases/";
+
+Deno.test("primaryContentHtml excludes global navigation from index discovery", () => {
+  const html = `
+    <nav><a href="/news/press-releases/archive">Archive navigation</a></nav>
+    <main><a href="/news/press-releases/item-a">Item A</a></main>
+    <footer><a href="/news/press-releases/contact">Contact</a></footer>`;
+  assertEquals(primaryContentHtml(html).includes("Archive navigation"), false);
+  assertEquals(primaryContentHtml(html).includes("Item A"), true);
+  assertEquals(primaryContentHtml(html).includes("Contact"), false);
+});
+
+Deno.test("provider-shell HTML and markdown links merge within the configured subtree", () => {
+  const primary = [
+    ["https://www.example.ch/news/press-releases/release-one", "Release one"],
+  ] as [string, string][];
+  const markdownWithChrome = [
+    ["https://www.example.ch/news/press-releases/archive", "Archive"],
+    ["https://www.example.ch/news/press-releases/release-two", "Release two"],
+  ] as [string, string][];
+
+  assertEquals(
+    selectPrimarySubpageLinks(primary, markdownWithChrome, {
+      hasRenderedHtml: true,
+    }),
+    [primary[0], ...markdownWithChrome],
+  );
+  assertEquals(
+    filterSubpageUrls(
+      selectPrimarySubpageLinks(primary, markdownWithChrome, {
+        hasRenderedHtml: true,
+      }).map(([url]) => url),
+      INDEX,
+    ),
+    [
+      "https://www.example.ch/news/press-releases/release-one",
+      "https://www.example.ch/news/press-releases/archive",
+      "https://www.example.ch/news/press-releases/release-two",
+    ],
+  );
+  assertEquals(
+    selectPrimarySubpageLinks([], markdownWithChrome),
+    markdownWithChrome,
+  );
+});
+
+Deno.test("rendered root indexes keep simple markdown descendants for provider-shell recovery", () => {
+  const primary = [
+    ["https://example.test/schedule", "Schedule"],
+  ] as [string, string][];
+  const markdown = [
+    ["https://example.test/footer-help", "Help"],
+    [
+      "https://example.test/news/2026/07/24/new-report",
+      "New report",
+    ],
+  ] as [string, string][];
+  assertEquals(
+    selectPrimarySubpageLinks(primary, markdown, {
+      hasRenderedHtml: true,
+    }),
+    [
+      ...primary,
+      ["https://example.test/footer-help", "Help"],
+      [
+        "https://example.test/news/2026/07/24/new-report",
+        "New report",
+      ],
+    ],
+  );
+});
+
+Deno.test("index classification receives the same primary candidate surface as following", () => {
+  const text = primaryContentText(`
+    <nav>Global archive</nav>
+    <main><h1>News</h1><a href="/news/item-a">Item A</a></main>
+  `);
+  const rendered = renderIndexClassificationContent(text, [[
+    "https://www.example.ch/news/item-a",
+    "Item A",
+  ]]);
+  assertEquals(rendered.includes("Global archive"), false);
+  assertEquals(rendered.includes("News Item A"), true);
+  assertEquals(
+    rendered.includes("https://www.example.ch/news/item-a"),
+    true,
+  );
+});
+
+Deno.test("PS-INDEX-001 filterSubpageUrls keeps URLs under the index path", () => {
   const input = [
     "https://www.example.ch/news/press-releases/one",
     "https://www.example.ch/news/press-releases/two",
@@ -47,11 +155,22 @@ Deno.test("filterSubpageUrls drops URLs outside the index path", () => {
   ]);
 });
 
-Deno.test("filterSubpageUrls keeps safe same-host article routes outside the index path", () => {
+Deno.test("filterSubpageUrls rejects article-looking same-host routes outside the index path", () => {
   const index = "https://www.bzbasel.ch/gemeinde/arlesheim-4144";
   const article =
     "https://www.bzbasel.ch/aargau/fricktal/zeiningen-steiner-logistic-ag-wird-uebernommen-ld.4158147";
-  assertEquals(filterSubpageUrls([article], index), [article]);
+  assertEquals(filterSubpageUrls([article], index), []);
+});
+
+Deno.test("PS-HYROX-001 filterSubpageUrls rejects the audited HYROX Basel sibling navigation routes", () => {
+  const index = "https://hyroxdach.com/de/event/hyrox-basel/";
+  const siblings = [
+    "https://hyroxdach.com/de/race-for-impact-charity-tickets",
+    "https://hyroxdach.com/de/die-hyrox-familie",
+    "https://hyroxdach.com/de/das-fitness-race",
+    "https://hyroxdach.com/de/finde-dein-race",
+  ];
+  assertEquals(filterSubpageUrls(siblings, index), []);
 });
 
 Deno.test("filterSubpageUrls prefers strict child URLs when a listing path has them", () => {
@@ -107,12 +226,67 @@ Deno.test("isStrictChildUrl requires same host and path-segment parentage", () =
   );
 });
 
+Deno.test("PS-REDIRECT-001 configured page effective URL may normalize host/slash but not redirect to parent or sibling", () => {
+  const configured = "https://www.example.ch/news/item/?lang=en";
+  assertEquals(
+    isConfiguredPageUrl(
+      "http://example.ch/news/item?lang=en",
+      configured,
+    ),
+    true,
+  );
+  assertEquals(
+    isConfiguredPageUrl("https://example.ch/news/?lang=en", configured),
+    false,
+  );
+  assertEquals(
+    isConfiguredPageUrl(
+      "https://example.ch/news/other/?lang=en",
+      configured,
+    ),
+    false,
+  );
+  assertEquals(
+    isConfiguredPageUrl("https://example.ch/news/item?lang=de", configured),
+    false,
+  );
+  assertEquals(
+    isConfiguredPageUrl(
+      "https://example.ch:8443/news/item?lang=en",
+      configured,
+    ),
+    false,
+  );
+});
+
 Deno.test("filterSubpageUrls treats www and bare host as the same host", () => {
   const input = [
     "https://example.ch/news/press-releases/one",
     "https://www.example.ch/news/press-releases/two",
   ];
   assertEquals(filterSubpageUrls(input, INDEX), input);
+});
+
+Deno.test("HTML extraction keeps absolute www children after a bare-host redirect", () => {
+  const pageUrl = "https://example.ch/news/press-releases/";
+  assertEquals(
+    extractSubpageLinksFromHtml(
+      '<main><a href="https://www.example.ch/news/press-releases/one">One</a></main>',
+      pageUrl,
+    ),
+    [["https://www.example.ch/news/press-releases/one", "One"]],
+  );
+});
+
+Deno.test("markdown extraction keeps absolute www children after a bare-host redirect", () => {
+  const pageUrl = "https://example.ch/news/press-releases/";
+  assertEquals(
+    extractSubpageLinksFromMarkdown(
+      "[One](https://www.example.ch/news/press-releases/one)",
+      pageUrl,
+    ),
+    [["https://www.example.ch/news/press-releases/one", "One"]],
+  );
 });
 
 Deno.test("filterSubpageUrls rejects cross-host paths even when the path matches", () => {
@@ -187,7 +361,7 @@ Deno.test("filterSubpageUrls tolerates trailing slashes on the index URL", () =>
   );
 });
 
-Deno.test("filterSubpageUrls root listings only keep structural article routes and order articles first", () => {
+Deno.test("filterSubpageUrls root indexes keep simple descendants and rank article routes first", () => {
   const input = [
     "https://www.example.ch/register",
     "https://www.example.ch/2026-05-04/council-approves-budget",
@@ -199,6 +373,8 @@ Deno.test("filterSubpageUrls root listings only keep structural article routes a
     "https://www.example.ch/2026-05-04/council-approves-budget",
     "https://www.example.ch/story/headline-123456",
     "https://www.example.ch/news/today.html",
+    "https://www.example.ch/register",
+    "https://www.example.ch/kundenservice",
   ]);
 });
 

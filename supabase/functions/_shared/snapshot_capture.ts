@@ -19,14 +19,15 @@ import type { SupabaseClient } from "./supabase.ts";
 import type { ScrapeResult } from "./scrape_types.ts";
 import { scrape } from "./scrape.ts";
 import { WEB_SCOUT_FRESH_SCRAPE_OPTIONS } from "./web_content_canonical.ts";
+import { isConfiguredPageUrl, isStrictChildUrl } from "./subpage-filter.ts";
 import { creditsEnabled } from "./credits.ts";
 import { logEvent } from "./log.ts";
 import {
   type SnapshotArtifact,
   type SnapshotCaptureKind,
+  snapshotDiagnostics,
   type SnapshotFidelity,
   SnapshotIntegrityError,
-  snapshotDiagnostics,
   SnapshotStorageError,
   type StoredSnapshot,
   storeSnapshot,
@@ -99,6 +100,12 @@ export interface CaptureStoreContext {
    * fired (KTD4). */
   contentSha256?: string | null;
   canonicalContentSha256?: string | null;
+  /** Present for index children. Both the validated detection URL and any
+   * dedicated capture fetch's effective URL must remain in this subtree. */
+  allowedScopeRootUrl?: string | null;
+  /** Present for the configured root. Detection and capture fetches must
+   * resolve to this exact page (normalizing host/default port/trailing slash). */
+  allowedExactUrl?: string | null;
 }
 
 export interface CaptureOutcome {
@@ -380,7 +387,12 @@ export async function storeCaptureResult(
         markdown: capture.markdown,
         artifacts,
       });
-      return { status: "stored", snapshotId: stored.id, fidelity: "full", stored };
+      return {
+        status: "stored",
+        snapshotId: stored.id,
+        fidelity: "full",
+        stored,
+      };
     }
 
     if (capture.screenshot_url && capture.rawHtml?.trim()) {
@@ -456,6 +468,24 @@ export async function performArchiveCapture(
   detection: ScrapeResult,
   deps: CaptureStoreDeps = {},
 ): Promise<CaptureOutcome> {
+  if (
+    ctx.allowedExactUrl &&
+    !isConfiguredPageUrl(
+      detection.source_url ?? ctx.requestedUrl,
+      ctx.allowedExactUrl,
+    )
+  ) {
+    return { status: "failed:out_of_scope" };
+  }
+  if (
+    ctx.allowedScopeRootUrl &&
+    !isStrictChildUrl(
+      detection.source_url ?? ctx.requestedUrl,
+      ctx.allowedScopeRootUrl,
+    )
+  ) {
+    return { status: "failed:out_of_scope" };
+  }
   // Fallback-served host (KTD9): the detection fetch itself carried the
   // same-fetch rawHtml + screenshot. Store them verbatim (or degrade if the
   // hint didn't produce artifacts).
@@ -479,6 +509,24 @@ export async function performArchiveCapture(
     // Capture-fetch failure or anti-bot block on the pin → never flip
     // provider; degrade to a markdown_only record of the detection content.
     return await storeDegraded(svc, ctx, detection, degradeClass(e));
+  }
+  if (
+    ctx.allowedExactUrl &&
+    !isConfiguredPageUrl(
+      capture.source_url ?? ctx.requestedUrl,
+      ctx.allowedExactUrl,
+    )
+  ) {
+    return await storeDegraded(svc, ctx, detection, "out_of_scope");
+  }
+  if (
+    ctx.allowedScopeRootUrl &&
+    !isStrictChildUrl(
+      capture.source_url ?? ctx.requestedUrl,
+      ctx.allowedScopeRootUrl,
+    )
+  ) {
+    return await storeDegraded(svc, ctx, detection, "out_of_scope");
   }
   return await storeCaptureResult(svc, ctx, capture, deps);
 }
