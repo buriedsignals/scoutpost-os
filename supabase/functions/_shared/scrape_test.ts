@@ -80,6 +80,37 @@ Deno.test("scrape() dispatches to the active provider", async () => {
   }
 });
 
+Deno.test("scrape() falls back when Crawl4AI returns an empty 403 challenge", async () => {
+  const originalFetch = globalThis.fetch;
+  const seen: string[] = [];
+  try {
+    globalThis.fetch = ((input) => {
+      const target = String(input);
+      seen.push(target);
+      const body = target.includes("scrape.internal")
+        ? { markdown: "", status_code: 403, rawHtml: "" }
+        : { data: { markdown: "firecrawl recovered content" } };
+      return Promise.resolve(new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    }) as typeof fetch;
+    fallbackEnv();
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+
+    const result = await scrape("https://example.com");
+
+    assertEquals(result.markdown, "firecrawl recovered content");
+    assertEquals(seen, [
+      "https://scrape.internal/scrape",
+      "https://api.firecrawl.dev/v2/scrape",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearFallbackEnv();
+  }
+});
+
 // ---- anti-bot fallback (crawl4ai blocked → firecrawl) ----------------------
 
 const ANTIBOT_DETAIL = JSON.stringify({

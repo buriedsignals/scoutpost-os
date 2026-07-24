@@ -82,13 +82,29 @@ export async function crawl4aiScrape(
   }
   const d = await res.json();
   const metadata = (d.metadata ?? {}) as Record<string, unknown>;
+  const statusCode = typeof d.status_code === "number"
+    ? d.status_code
+    : undefined;
+  const markdown = typeof d.markdown === "string" ? d.markdown : "";
+  const rawHtml = typeof d.rawHtml === "string" ? d.rawHtml : "";
+  // Crawl4AI can report a challenge page as a successful browser run. Do not
+  // let that empty document become a durable "same" baseline: surface it as
+  // the anti-bot failure the provider contract already knows how to fall back
+  // from. A normal empty 200 response remains a valid scrape for callers that
+  // intentionally handle empty documents.
+  if ((statusCode === 403 || statusCode === 429) && !markdown.trim()) {
+    throw new ApiError(
+      `crawl4ai scrape failed: status ${statusCode}; Blocked by anti-bot protection: empty challenge result`,
+      502,
+    );
+  }
   const sourceUrl = typeof d.source_url === "string" && d.source_url.trim()
     ? d.source_url
     : url;
   return {
-    markdown: typeof d.markdown === "string" ? d.markdown : "",
+    markdown,
     html: typeof d.html === "string" ? d.html : undefined,
-    rawHtml: typeof d.rawHtml === "string" ? d.rawHtml : null,
+    rawHtml: rawHtml || null,
     title: typeof d.title === "string" ? d.title : undefined,
     metadata,
     requested_url: url,
@@ -96,7 +112,7 @@ export async function crawl4aiScrape(
     fetched_at: typeof d.fetched_at === "string"
       ? d.fetched_at
       : new Date().toISOString(),
-    status_code: typeof d.status_code === "number" ? d.status_code : undefined,
+    status_code: statusCode,
     response_headers: mapResponseHeaders(d.response_headers),
     ...(snapshot
       ? {

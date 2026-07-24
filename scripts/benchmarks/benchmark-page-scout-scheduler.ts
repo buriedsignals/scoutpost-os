@@ -162,6 +162,7 @@ async function main(): Promise<void> {
           type: "web",
           url: FIXTURE_URL,
           criteria: "",
+          topic: "web benchmark",
           preferred_language: "en",
           regularity: "daily",
           schedule_cron: dailyCronAt(tomorrow),
