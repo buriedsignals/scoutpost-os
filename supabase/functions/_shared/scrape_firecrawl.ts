@@ -1,9 +1,9 @@
 /**
- * Firecrawl v2 provider (SCRAPING-MIGRATION-PRD U2).
+ * Firecrawl Cloud v2 adapter.
  *
- * Moved verbatim from the former `firecrawl.ts` — behavior unchanged. This is
- * one of two scrape providers behind the `_shared/scrape.ts` port; it is the
- * default until U7 flips `SCRAPE_PROVIDER=crawl4ai`, and is deleted in U8.
+ * Beat discovery uses `/search`. Page rendering reaches `/scrape` only through
+ * the scrape port's classified anti-bot fallback; Crawl4AI remains the primary
+ * renderer.
  *
  * Docs: https://docs.firecrawl.dev/api-reference
  */
@@ -124,29 +124,29 @@ export async function firecrawlSearch(
   query: string,
   opts: SearchOptions = {},
 ): Promise<SearchHit[]> {
+  if (opts.includeDomains?.length && opts.excludeDomains?.length) {
+    throw new ApiError(
+      "firecrawl search includeDomains and excludeDomains are mutually exclusive",
+      400,
+    );
+  }
   const body: Record<string, unknown> = {
     query,
     limit: Math.min(Math.max(1, opts.limit ?? 10), 100),
     ignoreInvalidURLs: opts.ignoreInvalidURLs ?? true,
   };
   if (opts.sources?.length) body.sources = opts.sources;
-  if (opts.categories?.length) body.categories = opts.categories;
-  if (opts.lang) body.lang = opts.lang;
   if (opts.location) body.location = opts.location;
   if (opts.country) body.country = opts.country;
   if (opts.tbs) body.tbs = opts.tbs;
   if (opts.includeDomains?.length) body.includeDomains = opts.includeDomains;
   if (opts.excludeDomains?.length) body.excludeDomains = opts.excludeDomains;
-  if (opts.scrape) {
-    body.scrapeOptions = { formats: ["markdown"], onlyMainContent: true };
-  }
 
   const abortAfterMs = opts.abortAfterMs ?? 45_000;
   const ac = new AbortController();
   const fuse = setTimeout(() => ac.abort(), abortAfterMs);
-  let res: Response;
   try {
-    res = await fetch(`${FIRECRAWL_BASE}/search`, {
+    const res = await fetch(`${FIRECRAWL_BASE}/search`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${firecrawlApiKey()}`,
@@ -155,8 +155,58 @@ export async function firecrawlSearch(
       body: JSON.stringify(body),
       signal: ac.signal,
     });
+    if (!res.ok) {
+      throw new ApiError(
+        `firecrawl search failed: ${res.status} ${await res.text()}`,
+        502,
+      );
+    }
+    let payload: unknown;
+    try {
+      payload = await res.json();
+    } catch (e) {
+      if ((e as { name?: string }).name === "AbortError") throw e;
+      throw new ApiError("firecrawl search returned invalid JSON", 502);
+    }
+    if (!isRecord(payload)) {
+      throw new ApiError("firecrawl search returned a malformed response", 502);
+    }
+    if (payload.success === false) {
+      const detail = typeof payload.error === "string"
+        ? `: ${payload.error}`
+        : "";
+      throw new ApiError(`firecrawl search failed${detail}`, 502);
+    }
+    if (!("data" in payload)) {
+      throw new ApiError(
+        "firecrawl search returned a malformed response: missing data",
+        502,
+      );
+    }
+
+    const data = payload.data;
+    const hits: Array<
+      Record<string, unknown> & { _source: "web" | "news" }
+    > = Array.isArray(data)
+      ? normalizeSearchSource(data, "web")
+      : normalizeSearchDataObject(data);
+    return hits.map((h) => ({
+      url: String(h.url ?? ""),
+      title: typeof h.title === "string" ? h.title : undefined,
+      description: typeof h.description === "string"
+        ? h.description
+        : typeof h.snippet === "string"
+        ? h.snippet
+        : undefined,
+      markdown: typeof h.markdown === "string" ? h.markdown : undefined,
+      date: typeof h.date === "string"
+        ? h.date
+        : typeof h.publishedDate === "string"
+        ? h.publishedDate
+        : null,
+      source: h._source,
+    })).filter((h: SearchHit) => h.url.length > 0);
   } catch (e) {
-    clearTimeout(fuse);
     if ((e as { name?: string }).name === "AbortError") {
       throw new ApiError(
         `firecrawl search aborted after ${abortAfterMs}ms`,
@@ -164,45 +214,59 @@ export async function firecrawlSearch(
       );
     }
     throw e;
+  } finally {
+    clearTimeout(fuse);
   }
-  clearTimeout(fuse);
-  if (!res.ok) {
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeSearchSource(
+  value: unknown[],
+  source: "web" | "news",
+): Array<Record<string, unknown> & { _source: "web" | "news" }> {
+  if (!value.every(isRecord)) {
     throw new ApiError(
-      `firecrawl search failed: ${res.status} ${await res.text()}`,
+      `firecrawl search returned malformed ${source} results`,
       502,
     );
   }
-  const j = await res.json();
-  const data = j?.data;
-  const hits: Array<Record<string, unknown> & { _source?: "web" | "news" }> =
-    Array.isArray(data)
-      ? data.map((h: Record<string, unknown>) => ({ ...h, _source: "web" }))
-      : [
-        ...((Array.isArray(data?.web) ? data.web : []) as Record<
-          string,
-          unknown
-        >[]).map((h) => ({ ...h, _source: "web" as const })),
-        ...((Array.isArray(data?.news) ? data.news : []) as Record<
-          string,
-          unknown
-        >[]).map((h) => ({ ...h, _source: "news" as const })),
-      ];
-  return hits.map((h) => ({
-    url: String(h.url ?? ""),
-    title: typeof h.title === "string" ? h.title : undefined,
-    description: typeof h.description === "string"
-      ? h.description
-      : typeof h.snippet === "string"
-      ? h.snippet
-      : undefined,
-    markdown: typeof h.markdown === "string" ? h.markdown : undefined,
-    date: typeof h.date === "string"
-      ? h.date
-      : typeof h.publishedDate === "string"
-      ? h.publishedDate
-      : null,
-    source: h._source,
-  })).filter((h: SearchHit) => h.url.length > 0);
+  return value.map((hit) => ({ ...hit, _source: source }));
+}
+
+function normalizeSearchDataObject(
+  data: unknown,
+): Array<Record<string, unknown> & { _source: "web" | "news" }> {
+  if (!isRecord(data)) {
+    throw new ApiError(
+      "firecrawl search returned a malformed response: data must be an object or array",
+      502,
+    );
+  }
+  if (data.web !== undefined && !Array.isArray(data.web)) {
+    throw new ApiError(
+      "firecrawl search returned malformed web results",
+      502,
+    );
+  }
+  if (data.news !== undefined && !Array.isArray(data.news)) {
+    throw new ApiError(
+      "firecrawl search returned malformed news results",
+      502,
+    );
+  }
+  return [
+    ...normalizeSearchSource(
+      Array.isArray(data.web) ? data.web : [],
+      "web",
+    ),
+    ...normalizeSearchSource(
+      Array.isArray(data.news) ? data.news : [],
+      "news",
+    ),
+  ];
 }
 
 /**

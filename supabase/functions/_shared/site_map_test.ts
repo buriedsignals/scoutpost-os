@@ -114,6 +114,7 @@ Deno.test("mapSite treats a two-label public suffix as one registrable domain", 
 Deno.test("mapSite falls back to link-harvest when no sitemap exists", async () => {
   const restore = stubFetch(() => null); // robots + sitemap both 404
   const originalScrapeEnv = Deno.env.get("SCRAPE_PROVIDER");
+  Deno.env.set("SCRAPE_PROVIDER", "firecrawl");
   Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
   // Re-stub fetch so the scrape port's firecrawl call returns rawHtml.
   const original = globalThis.fetch;
@@ -144,6 +145,7 @@ Deno.test("mapSite falls back to link-harvest when no sitemap exists", async () 
     restore();
     Deno.env.delete("FIRECRAWL_API_KEY");
     if (originalScrapeEnv) Deno.env.set("SCRAPE_PROVIDER", originalScrapeEnv);
+    else Deno.env.delete("SCRAPE_PROVIDER");
   }
 });
 
@@ -255,7 +257,15 @@ Deno.test("mapSite registrable-domain uses two labels for a non-suffix host", as
 Deno.test("mapSite fallback skips malformed hrefs", async () => {
   const restore = stubFetch(() => null); // no sitemap
   const original = globalThis.fetch;
-  const restoreOuter = () => { globalThis.fetch = original; restore(); Deno.env.delete("FIRECRAWL_API_KEY"); };
+  const originalScrapeEnv = Deno.env.get("SCRAPE_PROVIDER");
+  const restoreOuter = () => {
+    globalThis.fetch = original;
+    restore();
+    Deno.env.delete("FIRECRAWL_API_KEY");
+    if (originalScrapeEnv) Deno.env.set("SCRAPE_PROVIDER", originalScrapeEnv);
+    else Deno.env.delete("SCRAPE_PROVIDER");
+  };
+  Deno.env.set("SCRAPE_PROVIDER", "firecrawl");
   Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
   globalThis.fetch = ((input: string | URL | Request) => {
     const url = String(input);
@@ -297,6 +307,8 @@ Deno.test("mapSite aborts a hung request via the timeout fuse", async () => {
 Deno.test("mapSite fallback returns [] when the page has no rawHtml", async () => {
   const restore = stubFetch(() => null); // no sitemap
   const original = globalThis.fetch;
+  const originalScrapeEnv = Deno.env.get("SCRAPE_PROVIDER");
+  Deno.env.set("SCRAPE_PROVIDER", "firecrawl");
   Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
   globalThis.fetch = ((input: string | URL | Request) => {
     const url = String(input);
@@ -314,6 +326,8 @@ Deno.test("mapSite fallback returns [] when the page has no rawHtml", async () =
     globalThis.fetch = original;
     restore();
     Deno.env.delete("FIRECRAWL_API_KEY");
+    if (originalScrapeEnv) Deno.env.set("SCRAPE_PROVIDER", originalScrapeEnv);
+    else Deno.env.delete("SCRAPE_PROVIDER");
   }
 });
 

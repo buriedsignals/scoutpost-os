@@ -31,12 +31,6 @@ import { NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { scrape, scrapeProvider } from "../_shared/scrape.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
-import {
-  exaSearch,
-  normalizeRetrievalPort,
-  resolveBeatRetrievalPort,
-  shouldFallbackFromExa,
-} from "../_shared/exa.ts";
 import { isWithinRunDuplicateWithGuards } from "../_shared/dedup.ts";
 import { embedBatch, EMBEDDING_MODEL_TAG } from "../_shared/embedding.ts";
 import {
@@ -46,13 +40,13 @@ import {
   upsertCanonicalUnit,
 } from "../_shared/unit_dedup.ts";
 import {
-  beatCandidateRejectReason,
   BeatHit,
   BeatScope,
   BeatSourceMode,
   discoverBeatHits,
+  discoverPriorityDomainHits,
+  summarizeSearchJobs,
 } from "../_shared/beat_pipeline.ts";
-import { logBeatAbRun } from "../_shared/beat_ab_logger.ts";
 import {
   type DigestArticle,
   formatBeatDigest,
@@ -164,21 +158,6 @@ function asObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function shouldRunBeatAbShadow(
-  scoutMetadata: Record<string, unknown>,
-): boolean {
-  const env = (Deno.env.get("BEAT_AB_SHADOW") ?? "").toLowerCase();
-  if (env === "1" || env === "true" || env === "yes") return true;
-  return scoutMetadata.ab_shadow === true ||
-    scoutMetadata.beat_ab_shadow === true;
-}
-
-function alternateRetrievalPort(
-  retrieval: "firecrawl" | "exa",
-): "firecrawl" | "exa" {
-  return retrieval === "exa" ? "firecrawl" : "exa";
-}
-
 async function mergeRunMetadata(
   db: SupabaseClient,
   runId: string,
@@ -210,67 +189,7 @@ async function mergeRunMetadata(
   }
 }
 
-async function discoverPriorityDomainHits(opts: {
-  domains: string[];
-  criteria: string | null;
-  topic: string | null;
-  locationLabel: string | null;
-  preferredLanguage: string;
-  countryCode: string | null;
-  excludedDomains: string[];
-}): Promise<BeatHit[]> {
-  if (opts.domains.length === 0) return [];
-  const subject = compactSearchPart(opts.topic || opts.criteria || "news", 160);
-  const location = compactSearchPart(opts.locationLabel ?? "", 80);
-  const jobs = opts.domains.flatMap((domain) => {
-    const main = [subject, location].filter(Boolean).join(" ");
-    const fallback = [location, "news"].filter(Boolean).join(" ") ||
-      "recent news";
-    // Scope to the priority domain via Exa `includeDomains`, NOT a `site:`
-    // operator — Exa neural search treats `site:` as literal words and returns
-    // zero on-domain hits (this matches the beat-search preview surface, and
-    // keeps beat search Exa-only).
-    return uniqueStrings([main || fallback, fallback])
-      .map((query) => ({ domain, query }));
-  });
-  const results = await mapLimit(jobs, 4, async (job) => {
-    const hits = await exaSearch(job.query, {
-      numResults: 5,
-      category: "news",
-      userLocation: opts.countryCode ?? undefined,
-      includeDomains: [job.domain],
-      excludeDomains: opts.excludedDomains,
-      contents: {
-        text: { maxCharacters: 1000, verbosity: "compact" },
-        maxAgeHours: 72,
-      },
-    });
-    return hits
-      .filter((hit) => urlMatchesDomain(hit.url, job.domain))
-      .filter((hit) => beatCandidateRejectReason(hit) === null)
-      .map((hit) => ({
-        ...hit,
-        date: hit.date ?? null,
-        _pass: "news" as const,
-        query: job.query,
-      }));
-  });
-  const hits: BeatHit[] = [];
-  const seen = new Set<string>();
-  for (const result of results) {
-    if (result.status !== "fulfilled") continue;
-    for (const hit of result.value) {
-      if (!hit.url || seen.has(hit.url)) continue;
-      seen.add(hit.url);
-      hits.push(hit);
-    }
-  }
-  return hits;
-}
-
 interface RetrievalDiscoveryOpts {
-  port: "firecrawl" | "exa";
-  exaType?: "auto" | "deep-lite";
   scope: BeatScope;
   sourceMode: BeatSourceMode;
   cityName: string | null;
@@ -294,47 +213,11 @@ interface RetrievalDiscoveryOpts {
 interface RetrievalDiscoveryResult {
   news: BeatHit[];
   gov: BeatHit[];
-  raw: BeatHit[];
-  totalCostDollars: number | null;
-  /** True only when every search leg that ran was a total provider failure —
-   * lets the caller distinguish an Exa outage from a genuine zero-hit run. */
-  searchErrored: boolean;
+  jobsAttempted: number;
+  jobsErrored: number;
 }
 
-/** Merge two discovery passes, deduping hits by URL and summing cost. The
- * low-coverage retry uses this so a second (deep-lite) Exa pass can only ADD
- * coverage: replacing outright would let a 1-hit primary degrade to 0 when
- * deep-lite — a different, non-deterministic tier — returns fewer or
- * all-rejected candidates, contradicting the "never worsens" intent. */
-function mergeDiscoveries(
-  a: RetrievalDiscoveryResult,
-  b: RetrievalDiscoveryResult,
-): RetrievalDiscoveryResult {
-  const dedupeByUrl = (hits: BeatHit[]): BeatHit[] => {
-    const seen = new Set<string>();
-    const out: BeatHit[] = [];
-    for (const hit of hits) {
-      const key = hit.url ?? "";
-      if (key && seen.has(key)) continue;
-      if (key) seen.add(key);
-      out.push(hit);
-    }
-    return out;
-  };
-  const sumCost = a.totalCostDollars === null && b.totalCostDollars === null
-    ? null
-    : (a.totalCostDollars ?? 0) + (b.totalCostDollars ?? 0);
-  return {
-    news: dedupeByUrl([...a.news, ...b.news]),
-    gov: dedupeByUrl([...a.gov, ...b.gov]),
-    raw: [...a.raw, ...b.raw],
-    totalCostDollars: sumCost,
-    // Both passes must be total failures for the merged result to signal outage.
-    searchErrored: a.searchErrored && b.searchErrored,
-  };
-}
-
-async function discoverForRetrievalPort(
+async function discoverWithFirecrawl(
   opts: RetrievalDiscoveryOpts,
 ): Promise<RetrievalDiscoveryResult> {
   const newsDiscovery = await discoverBeatHits({
@@ -349,14 +232,11 @@ async function discoverForRetrievalPort(
     criteria: opts.searchCriteria,
     preferredLanguage: opts.preferredLanguage,
     excludedDomains: opts.excludedDomains,
-    retrievalPort: opts.port,
-    exaType: opts.exaType,
     usage: opts.usage,
   });
   let gov: BeatHit[] = [];
-  let govRaw: BeatHit[] = [];
-  let govSearchErrored = false;
-  let totalCostDollars = newsDiscovery.totalCostDollars;
+  let govJobsAttempted = 0;
+  let govJobsErrored = 0;
   if (opts.includeGovernment) {
     const govDiscovery = await discoverBeatHits({
       scope: "combined",
@@ -370,41 +250,18 @@ async function discoverForRetrievalPort(
       criteria: opts.searchCriteria,
       preferredLanguage: opts.preferredLanguage,
       excludedDomains: opts.excludedDomains,
-      retrievalPort: opts.port,
-      exaType: opts.exaType,
       usage: opts.usage,
     });
     gov = govDiscovery.hits;
-    govRaw = govDiscovery.rawHits;
-    govSearchErrored = Boolean(govDiscovery.searchErrored);
-    if (typeof govDiscovery.totalCostDollars === "number") {
-      totalCostDollars = (totalCostDollars ?? 0) +
-        govDiscovery.totalCostDollars;
-    }
+    govJobsAttempted = govDiscovery.jobsAttempted;
+    govJobsErrored = govDiscovery.jobsErrored;
   }
   return {
     news: newsDiscovery.hits,
     gov,
-    raw: newsDiscovery.rawHits.concat(govRaw),
-    totalCostDollars,
-    // Every leg that ran must be a total failure to count as an outage: news
-    // always runs; gov only when includeGovernment. If gov didn't run, defer to
-    // news alone.
-    searchErrored: Boolean(newsDiscovery.searchErrored) &&
-      (!opts.includeGovernment || Boolean(govSearchErrored)),
+    jobsAttempted: newsDiscovery.jobsAttempted + govJobsAttempted,
+    jobsErrored: newsDiscovery.jobsErrored + govJobsErrored,
   };
-}
-
-function compactSearchPart(value: string, limit: number): string {
-  return value.replace(/\s+/g, " ").trim().slice(0, limit);
-}
-
-function urlMatchesDomain(
-  rawUrl: string | null | undefined,
-  domain: string,
-): boolean {
-  const host = safeDomain(rawUrl)?.replace(/^www\./i, "").toLowerCase();
-  return Boolean(host && (host === domain || host.endsWith(`.${domain}`)));
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -481,14 +338,7 @@ async function execute(
   //    fail visibly without spending credits.
   const runId = await resolveRun(db, scout, runIdIn);
   await markRunStage(db, runId, "dispatch");
-  const scoutMetadata = asObject(scout.metadata);
-  const retrievalPort = resolveBeatRetrievalPort(scoutMetadata);
-  const effectiveRetrievalPort = retrievalPort;
-  const retrievalEnv = normalizeRetrievalPort(Deno.env.get("BEAT_RETRIEVAL"));
-  const runBeatAbShadow = retrievalEnv === "firecrawl"
-    ? false
-    : shouldRunBeatAbShadow(scoutMetadata);
-  await mergeRunMetadata(db, runId, { retrieval: retrievalPort });
+  await mergeRunMetadata(db, runId, { retrieval: "firecrawl" });
   let chargedCredits = false;
 
   if (!baselineOnly && !scout.baseline_established_at) {
@@ -592,17 +442,16 @@ async function execute(
       "en";
 
     // --- Resolve final source list ---
-    // Two branches, chosen by the user's setup:
-    //  (A) priority_sources non-empty → direct scrape (legacy opt-in path)
-    //  (B) empty → full 8-stage beat pipeline (query gen → search → dedup → AI filter)
+    // Direct priority URLs bypass discovery only when they are the sole priority
+    // source. Mixed source lists run discovery too, while keeping those direct
+    // URLs ahead of discovered results before the source cap is applied.
     let finalUrls: string[];
     let newsBeatHits: BeatHit[] = [];
     let govBeatHits: BeatHit[] = [];
     let priorityBeatHits: BeatHit[] = [];
-    let rawBeatHits: BeatHit[] = [];
-    let retrievalTotalCostDollars: number | null = null;
-    let retrievalFallbackTriggered = false;
     let retrievalSearchErrored = false;
+    let prioritySearchJobsAttempted = 0;
+    let prioritySearchJobsErrored = 0;
     const priorityPlan = partitionPrioritySources(manualSources);
 
     if (
@@ -616,16 +465,15 @@ async function execute(
       // Domain-only priority sources are treated as preferred source domains,
       // not as homepage URLs to scrape directly.
       if (priorityPlan.domains.length > 0) {
-        priorityBeatHits = await discoverPriorityDomainHits({
+        const priorityDiscovery = await discoverPriorityDomainHits({
           domains: priorityPlan.domains,
           criteria: searchCriteria,
-          topic,
-          locationLabel: cityName || extractLocationLabel(scout.location) ||
-            countryName,
-          preferredLanguage,
-          countryCode,
+          location: locationObj,
           excludedDomains,
         });
+        priorityBeatHits = priorityDiscovery.hits;
+        prioritySearchJobsAttempted = priorityDiscovery.jobsAttempted;
+        prioritySearchJobsErrored = priorityDiscovery.jobsErrored;
       }
       const baseDiscoveryOpts = {
         scope,
@@ -647,123 +495,29 @@ async function execute(
           functionName: "scout-beat-execute",
         },
       };
-      let primaryDiscovery = await discoverForRetrievalPort({
-        ...baseDiscoveryOpts,
-        port: retrievalPort,
-      });
-      const primaryDiscoveredCount = primaryDiscovery.news.length +
-        primaryDiscovery.gov.length +
-        priorityBeatHits.length;
-      if (
-        shouldFallbackFromExa({
-          requestedRetrieval: retrievalPort,
-          retrievalEnv,
-          discoveredCount: primaryDiscoveredCount,
-          scoutMetadata,
-        })
-      ) {
-        await logBeatAbRun(db, {
-          scoutId,
-          runId,
-          userId: scout.user_id as string,
-          retrieval: "exa",
-          rawHits: primaryDiscovery.raw,
-          finalHits: [...primaryDiscovery.news, ...primaryDiscovery.gov],
-          unitsCreated: 0,
-          unitsMerged: 0,
-          totalCostDollars: primaryDiscovery.totalCostDollars,
-          location: {
-            city: cityName,
-            country: countryName,
-            countryCode,
-          },
-          metadata: {
-            scope,
-            source_mode: sourceMode,
-            fallback_triggered: true,
-            fallback_reason: "exa_low_coverage",
-            selected_url_count: primaryDiscoveredCount,
-          },
-        });
-        // Low-coverage retry stays on Exa (a more thorough "deep-lite" tier)
-        // rather than falling back to Firecrawl — beat search is Exa-only.
-        // Firecrawl search on these niche queries returned ~0 results in
-        // practice (audit 2026-07-07), so a deeper Exa pass is both cleaner and
-        // a better coverage attempt. MERGE the retry into the primary rather
-        // than replacing it: deep-lite is a different, non-deterministic tier
-        // that can return fewer hits, and replacing would let a 1-hit primary
-        // degrade to 0 — mergeDiscoveries guarantees the retry only ever adds.
-        const retryDiscovery = await discoverForRetrievalPort({
-          ...baseDiscoveryOpts,
-          port: "exa",
-          exaType: "deep-lite",
-        });
-        primaryDiscovery = mergeDiscoveries(primaryDiscovery, retryDiscovery);
-        retrievalFallbackTriggered = true;
-        await mergeRunMetadata(db, runId, {
-          retrieval: "exa",
-          requested_retrieval: "exa",
-          fallback_reason: "exa_low_coverage_keyword_retry",
-          exa_candidate_count: primaryDiscoveredCount,
-        });
-      }
+      const primaryDiscovery = await discoverWithFirecrawl(baseDiscoveryOpts);
       newsBeatHits = primaryDiscovery.news;
       govBeatHits = primaryDiscovery.gov;
-      rawBeatHits = rawBeatHits.concat(primaryDiscovery.raw);
-      retrievalTotalCostDollars = primaryDiscovery.totalCostDollars;
-      retrievalSearchErrored = primaryDiscovery.searchErrored;
-
-      if (runBeatAbShadow && !retrievalFallbackTriggered) {
-        const shadowPort = alternateRetrievalPort(effectiveRetrievalPort);
-        try {
-          const shadowDiscovery = await discoverForRetrievalPort({
-            ...baseDiscoveryOpts,
-            port: shadowPort,
-          });
-          const shadowFinalHits = [
-            ...shadowDiscovery.news,
-            ...shadowDiscovery.gov,
-          ].slice(0, maxDiscoveredSources);
-          await logBeatAbRun(db, {
-            scoutId,
-            runId,
-            userId: scout.user_id as string,
-            retrieval: shadowPort,
-            rawHits: shadowDiscovery.raw,
-            finalHits: shadowFinalHits,
-            unitsCreated: 0,
-            unitsMerged: 0,
-            totalCostDollars: shadowDiscovery.totalCostDollars,
-            location: {
-              city: cityName,
-              country: countryName,
-              countryCode,
-            },
-            metadata: {
-              scope,
-              source_mode: sourceMode,
-              shadow: true,
-              primary_retrieval: effectiveRetrievalPort,
-              selected_url_count: shadowFinalHits.length,
-            },
-          });
-        } catch (e) {
-          logEvent({
-            level: "warn",
-            fn: "scout-beat-execute",
-            event: "beat_ab_shadow_failed",
-            scout_id: scoutId,
-            run_id: runId,
-            retrieval: shadowPort,
-            msg: e instanceof Error ? e.message : String(e),
-          });
-        }
-      }
+      const searchStats = summarizeSearchJobs(
+        {
+          jobsAttempted: prioritySearchJobsAttempted,
+          jobsErrored: prioritySearchJobsErrored,
+        },
+        primaryDiscovery,
+      );
+      retrievalSearchErrored = searchStats.allErrored;
+      await mergeRunMetadata(db, runId, {
+        priority_search_jobs_attempted: prioritySearchJobsAttempted,
+        priority_search_jobs_errored: prioritySearchJobsErrored,
+        priority_search_hit_count: priorityBeatHits.length,
+        search_jobs_attempted: searchStats.jobsAttempted,
+        search_jobs_errored: searchStats.jobsErrored,
+      });
       finalUrls = [
+        ...priorityPlan.directUrls,
         ...priorityBeatHits.map((h) => h.url),
         ...newsBeatHits.map((h) => h.url),
         ...govBeatHits.map((h) => h.url),
-        ...priorityPlan.directUrls,
       ].filter((u, i, arr) => u && arr.indexOf(u) === i).slice(
         0,
         maxDiscoveredSources,
@@ -773,18 +527,14 @@ async function execute(
     for (const hit of [...priorityBeatHits, ...newsBeatHits, ...govBeatHits]) {
       if (hit.url) beatHitByUrl.set(hit.url, hit);
     }
-    const selectedBeatHits = finalUrls
-      .map((url) => beatHitByUrl.get(url))
-      .filter((hit): hit is BeatHit => Boolean(hit));
 
     if (finalUrls.length === 0 && retrievalSearchErrored && !baselineOnly) {
       // Zero URLs because EVERY search query threw — a provider outage (revoked
-      // key, Exa down, 429 storm), not a quiet news day. Recording a no-op
+      // key, Firecrawl down, 429 storm), not a quiet news day. Recording a no-op
       // success here (as the block below does) would make the two
       // indistinguishable and silently hide a total retrieval failure until the
       // weekly benchmark noticed. Fail the run and refund the pre-charge so it
-      // surfaces in run status. Before the Exa-only cutover a low-coverage run
-      // still had the Firecrawl fallback; now nothing catches a full outage.
+      // surfaces in run status.
       const msg =
         "beat retrieval failed: every search query errored (provider outage or throttling)";
       logEvent({
@@ -793,7 +543,7 @@ async function execute(
         event: "retrieval_all_queries_failed",
         scout_id: scoutId,
         run_id: runId,
-        retrieval: effectiveRetrievalPort,
+        retrieval: "firecrawl",
       });
       await markRunError(db, runId, {
         stage: "scrape",
@@ -829,28 +579,6 @@ async function execute(
         notificationStatus: baselineOnly ? "not_applicable" : "skipped",
         sourcesScraped: 0,
         sourcesFailed: 0,
-      });
-      await logBeatAbRun(db, {
-        scoutId,
-        runId,
-        userId: scout.user_id as string,
-        retrieval: effectiveRetrievalPort,
-        rawHits: rawBeatHits,
-        finalHits: [],
-        unitsCreated: 0,
-        unitsMerged: 0,
-        totalCostDollars: retrievalTotalCostDollars,
-        location: {
-          city: cityName,
-          country: countryName,
-          countryCode,
-        },
-        metadata: {
-          scope,
-          source_mode: sourceMode,
-          baseline_only: baselineOnly,
-          selected_url_count: 0,
-        },
       });
       if (chargedCredits) {
         await refundCredits(db, {
@@ -1256,32 +984,6 @@ async function execute(
       sourcesScraped: succeeded.length,
       sourcesFailed: failures.length,
     });
-    await logBeatAbRun(db, {
-      scoutId,
-      runId,
-      userId: scout.user_id as string,
-      retrieval: effectiveRetrievalPort,
-      rawHits: rawBeatHits,
-      finalHits: selectedBeatHits,
-      unitsCreated: baselineOnly ? 0 : insertedCount,
-      unitsMerged: baselineOnly ? 0 : mergedExistingCount,
-      totalCostDollars: retrievalTotalCostDollars,
-      location: {
-        city: cityName,
-        country: countryName,
-        countryCode,
-      },
-      metadata: {
-        scope,
-        source_mode: sourceMode,
-        baseline_only: baselineOnly,
-        priority_domain_hits: priorityBeatHits.length,
-        selected_url_count: finalUrls.length,
-        requested_retrieval: retrievalPort,
-        fallback_triggered: retrievalFallbackTriggered,
-      },
-    });
-
     const { error: resetErr } = await db.rpc("reset_scout_failures", {
       p_scout_id: scoutId,
     });

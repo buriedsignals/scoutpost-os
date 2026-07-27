@@ -129,7 +129,6 @@ function permutations(
 ): Permutation[] {
   const base = {
     limit,
-    lang: scenario.lang,
     location: scenario.location,
     country: scenario.country,
     ignoreInvalidURLs: true,

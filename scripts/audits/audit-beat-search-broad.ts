@@ -294,7 +294,6 @@ function parseArgs() {
 function permutations(limit: number, scenario: Scenario): Permutation[] {
   const base = {
     limit,
-    lang: scenario.lang,
     location: scenario.location,
     country: scenario.country,
     ignoreInvalidURLs: true,

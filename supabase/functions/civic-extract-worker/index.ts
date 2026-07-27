@@ -308,9 +308,8 @@ async function processItem(
   const userId = (scout.user_id as string) ?? row.user_id;
   await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
 
-  // 2. Parse the source document (PDF → text, or HTML → markdown) via the
-  //    doc-parse port. Dark default routes to Firecrawl; U7 flips to the
-  //    self-hosted pdftotext/scrape service.
+  // 2. Parse the source document (PDF → text, or HTML → markdown) through the
+  //    default self-hosted pdftotext/Crawl4AI service.
   if (row.scout_run_id) {
     await markRunStage(svc, row.scout_run_id, "scrape");
   }

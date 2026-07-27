@@ -31,13 +31,13 @@ function scrapeResult(
 
 // ---- provider dispatch -----------------------------------------------------
 
-Deno.test("scrapeProvider defaults to firecrawl and honors SCRAPE_PROVIDER", () => {
+Deno.test("scrapeProvider defaults to crawl4ai and honors SCRAPE_PROVIDER", () => {
   Deno.env.delete("SCRAPE_PROVIDER");
-  assertEquals(scrapeProvider(), "firecrawl");
-  Deno.env.set("SCRAPE_PROVIDER", "crawl4ai");
   assertEquals(scrapeProvider(), "crawl4ai");
-  Deno.env.set("SCRAPE_PROVIDER", "something-else");
+  Deno.env.set("SCRAPE_PROVIDER", "firecrawl");
   assertEquals(scrapeProvider(), "firecrawl");
+  Deno.env.set("SCRAPE_PROVIDER", "something-else");
+  assertEquals(scrapeProvider(), "crawl4ai");
   Deno.env.delete("SCRAPE_PROVIDER");
 });
 
@@ -62,12 +62,12 @@ Deno.test("scrape() dispatches to the active provider", async () => {
     Deno.env.set("SCRAPE_SERVICE_URL", "https://scrape.internal");
     Deno.env.set("SCRAPE_SERVICE_TOKEN", "tok");
 
-    Deno.env.delete("SCRAPE_PROVIDER");
+    Deno.env.set("SCRAPE_PROVIDER", "firecrawl");
     const fc = await scrape("https://example.com");
     assertEquals(fc.markdown, "fc");
     assertEquals(seen.at(-1), "https://api.firecrawl.dev/v2/scrape");
 
-    Deno.env.set("SCRAPE_PROVIDER", "crawl4ai");
+    Deno.env.delete("SCRAPE_PROVIDER");
     const c4a = await scrape("https://example.com");
     assertEquals(c4a.markdown, "c4a");
     assertEquals(seen.at(-1), "https://scrape.internal/scrape");
@@ -249,7 +249,7 @@ Deno.test("scrape() stamps served_by on the normal (non-fallback) paths", async 
     const c4a = await scrape("https://example.com");
     assertEquals(c4a.served_by, "crawl4ai");
 
-    Deno.env.delete("SCRAPE_PROVIDER");
+    Deno.env.set("SCRAPE_PROVIDER", "firecrawl");
     const fc = await scrape("https://example.com");
     assertEquals(fc.served_by, "firecrawl");
   } finally {
@@ -454,7 +454,7 @@ Deno.test("scrapePrimaryPageResilient split path drops capture artifacts + snaps
 
 Deno.test("scrape() strips the on_fallback hint on the primary firecrawl path", async () => {
   const originalFetch = globalThis.fetch;
-  Deno.env.delete("SCRAPE_PROVIDER"); // firecrawl is primary
+  Deno.env.set("SCRAPE_PROVIDER", "firecrawl");
   Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
   let sentFormats: unknown[] = [];
   try {
@@ -474,6 +474,7 @@ Deno.test("scrape() strips the on_fallback hint on the primary firecrawl path", 
     assertEquals(result.screenshot_url, undefined);
   } finally {
     globalThis.fetch = originalFetch;
+    Deno.env.delete("SCRAPE_PROVIDER");
     Deno.env.delete("FIRECRAWL_API_KEY");
   }
 });

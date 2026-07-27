@@ -116,12 +116,9 @@ export interface SearchHit {
 
 export interface SearchOptions {
   limit?: number;
-  scrape?: boolean;
-  lang?: string;
   location?: string;
   country?: string;
   sources?: Array<"web" | "news">;
-  categories?: Array<"github" | "pdf" | "research">;
   tbs?: string;
   ignoreInvalidURLs?: boolean;
   includeDomains?: string[];

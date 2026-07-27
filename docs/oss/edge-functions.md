@@ -2,6 +2,10 @@
 
 Scoutpost's current SaaS and OSS scout runtime is Supabase Edge Functions. The older AWS Lambda mapping is migration history, not the implementation target for new work.
 
+Beat discovery uses Firecrawl Cloud's `/v2/search` endpoint. Crawl4AI remains
+the primary article renderer; Firecrawl `/scrape` is used only as the
+classified anti-bot fallback.
+
 Source files: `supabase/functions/`
 
 ## Runtime Shape

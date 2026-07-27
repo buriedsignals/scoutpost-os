@@ -21,12 +21,14 @@ import { type AiUsageContext, openRouterExtract } from "./openrouter.ts";
 import { embedBatch } from "./embedding.ts";
 import { firecrawlSearch } from "./scrape_firecrawl.ts";
 import type { SearchHit } from "./scrape_types.ts";
-import { exaSearchWithMetadata } from "./exa.ts";
 import { logEvent } from "./log.ts";
 import { cosineSimilarity, hasStructuredConflict } from "./dedup.ts";
 import { buildBeatCriteriaRule } from "./beat_criteria.ts";
 import { compressContext, logCompressionStats } from "./taco_compress.ts";
-import { buildBeatLocationSearchLabel } from "./beat_location.ts";
+import {
+  type BeatLocationShape,
+  buildBeatLocationSearchLabel,
+} from "./beat_location.ts";
 
 export type BeatCategory = "news" | "government" | "analysis";
 export type BeatSourceMode = "reliable" | "niche";
@@ -557,26 +559,33 @@ function normalizeQueryPlanForCompoundTopic(
 
 export interface SearchOpts {
   plan: BeatQueryPlan;
-  scope?: BeatScope;
-  lang?: string;
   location?: string;
   country?: string;
   searchLimit?: number;
   concurrency?: number;
   excludedDomains?: string[];
-  retrievalPort?: "firecrawl" | "exa";
-  /** Exa search tier. "auto" (default) or "deep-lite" (more thorough low-coverage retry). */
-  exaType?: "auto" | "deep-lite";
-  category?: BeatCategory;
-  sourceMode?: BeatSourceMode;
-  recencyDays?: number;
+  tbs?: string;
 }
 
-interface SearchRunResult {
+export interface SearchRunResult {
   hits: BeatHit[];
-  totalCostDollars: number | null;
   jobsAttempted: number;
   jobsErrored: number;
+}
+
+export function summarizeSearchJobs(
+  ...stats: Array<Pick<SearchRunResult, "jobsAttempted" | "jobsErrored">>
+): { jobsAttempted: number; jobsErrored: number; allErrored: boolean } {
+  const jobsAttempted = stats.reduce(
+    (sum, item) => sum + item.jobsAttempted,
+    0,
+  );
+  const jobsErrored = stats.reduce((sum, item) => sum + item.jobsErrored, 0);
+  return {
+    jobsAttempted,
+    jobsErrored,
+    allErrored: jobsAttempted > 0 && jobsErrored === jobsAttempted,
+  };
 }
 
 type FirecrawlSearchSource = "web" | "news";
@@ -600,73 +609,50 @@ export async function runSearches(opts: SearchOpts): Promise<BeatHit[]> {
   return (await runSearchesWithMetadata(opts)).hits;
 }
 
-async function runSearchesWithMetadata(
+export async function runSearchesWithMetadata(
   opts: SearchOpts,
 ): Promise<SearchRunResult> {
   const { plan } = opts;
   const searchLimit = opts.searchLimit ?? 10;
-  const retrievalPort = opts.retrievalPort ?? "firecrawl";
   const newsJobs: SearchJob[] = plan.queries.map((q) => ({
     query: q,
     pass: "news" as const,
     sources: ["web"] as const,
+    tbs: opts.tbs,
   }));
   const discoveryJobs: SearchJob[] = plan.discovery_queries.map((q) => ({
     query: q,
     pass: "discovery" as const,
     sources: ["web"] as const,
+    tbs: opts.tbs,
   }));
   const all = [...newsJobs, ...discoveryJobs];
   const concurrency = opts.concurrency ?? 4;
 
-  const hits: BeatHit[] = [];
-  let totalCostDollars: number | null = null;
   let jobsErrored = 0;
-  const seenUrls = new Set<string>();
-  const runOne = async (job: typeof all[number]) => {
+  const jobResults = new Array<BeatHit[]>(all.length);
+  const runOne = async (job: typeof all[number], jobIndex: number) => {
     try {
-      const res = retrievalPort === "exa"
-        ? await exaSearchWithMetadata(job.query, {
-          type: opts.exaType ?? "auto",
-          numResults: searchLimit,
-          category: exaCategoryForBeat(opts.category, opts.sourceMode),
-          userLocation: opts.country,
-          excludeDomains: opts.excludedDomains,
-          startPublishedDate: isoDaysAgo(opts.recencyDays ?? 90),
-          contents: {
-            highlights: true,
-            text: { maxCharacters: 1000, verbosity: "compact" },
-            maxAgeHours: 72,
-          },
-        })
-        : {
-          hits: await firecrawlSearch(job.query, {
-            limit: searchLimit,
-            lang: opts.lang,
-            location: opts.location,
-            country: opts.country,
-            sources: [...job.sources],
-            tbs: job.tbs,
-            ignoreInvalidURLs: true,
-            excludeDomains: opts.excludedDomains,
-          }),
-          totalCostDollars: null,
-        };
-      if (typeof res.totalCostDollars === "number") {
-        totalCostDollars = (totalCostDollars ?? 0) + res.totalCostDollars;
-      }
-      for (const h of res.hits) {
-        if (!h.url || seenUrls.has(h.url)) continue;
-        seenUrls.add(h.url);
-        hits.push({
+      const searchHits = await firecrawlSearch(job.query, {
+        limit: searchLimit,
+        location: opts.location,
+        country: opts.country,
+        sources: [...job.sources],
+        tbs: job.tbs,
+        ignoreInvalidURLs: true,
+        excludeDomains: opts.excludedDomains,
+      });
+      jobResults[jobIndex] = searchHits
+        .filter((h) => h.url)
+        .map((h) => ({
           ...h,
           date: h.date ?? null,
           _pass: job.pass,
           query: job.query,
-        });
-      }
+        }));
     } catch (e) {
       jobsErrored++;
+      jobResults[jobIndex] = [];
       logEvent({
         level: "warn",
         fn: "beat-pipeline",
@@ -675,28 +661,33 @@ async function runSearchesWithMetadata(
         sources: job.sources.join(","),
         tbs: job.tbs,
         msg: e instanceof Error ? e.message : String(e),
-        retrieval: retrievalPort,
+        retrieval: "firecrawl",
       });
     }
   };
-  // Simple semaphore via chunks — keeps the code path readable.
-  for (let i = 0; i < all.length; i += concurrency) {
-    await Promise.all(all.slice(i, i + concurrency).map(runOne));
+  let nextJobIndex = 0;
+  const worker = async () => {
+    while (true) {
+      const jobIndex = nextJobIndex++;
+      const job = all[jobIndex];
+      if (!job) return;
+      await runOne(job, jobIndex);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, all.length) }, worker),
+  );
+
+  const hits: BeatHit[] = [];
+  const seenUrls = new Set<string>();
+  for (const jobHits of jobResults) {
+    for (const hit of jobHits) {
+      if (seenUrls.has(hit.url)) continue;
+      seenUrls.add(hit.url);
+      hits.push(hit);
+    }
   }
-  return { hits, totalCostDollars, jobsAttempted: all.length, jobsErrored };
-}
-
-function exaCategoryForBeat(
-  category: BeatCategory | undefined,
-  sourceMode: BeatSourceMode | undefined,
-): "news" | "personal site" | "research paper" {
-  if (category === "analysis") return "research paper";
-  if (sourceMode === "niche") return "personal site";
-  return "news";
-}
-
-function isoDaysAgo(days: number): string {
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  return { hits, jobsAttempted: all.length, jobsErrored };
 }
 
 export interface BeatDiscoveryOpts {
@@ -711,8 +702,6 @@ export interface BeatDiscoveryOpts {
   criteria: string | null;
   preferredLanguage: string;
   excludedDomains?: string[];
-  retrievalPort?: "firecrawl" | "exa";
-  exaType?: "auto" | "deep-lite";
   usage?: AiUsageContext;
 }
 
@@ -721,7 +710,8 @@ export interface BeatDiscoveryResult {
   plan: BeatQueryPlan;
   rawHits: BeatHit[];
   queriesUsed: string[];
-  totalCostDollars: number | null;
+  jobsAttempted: number;
+  jobsErrored: number;
   /** True only when EVERY search job threw (provider outage / revoked key /
    * 429 storm) — distinct from a genuine zero-hit quiet day where jobs ran and
    * returned nothing. Lets the caller avoid recording a silent zero-unit
@@ -835,6 +825,142 @@ export function filterUsableBeatCandidates(hits: BeatHit[]): BeatHit[] {
   return hits.filter((hit) => beatCandidateRejectReason(hit) === null);
 }
 
+export interface PriorityDomainDiscoveryOpts {
+  domains: string[];
+  criteria: string | null;
+  location: BeatLocationShape;
+  excludedDomains?: string[];
+  concurrency?: number;
+}
+
+export interface PriorityDomainDiscoveryResult {
+  hits: BeatHit[];
+  queries: string[];
+  jobsAttempted: number;
+  jobsErrored: number;
+}
+
+/**
+ * Search user-prioritized domains through the same Firecrawl adapter used by
+ * ordinary Beat discovery. Direct priority URLs are intentionally not accepted
+ * here: callers partition them first and send those URLs straight to scraping.
+ */
+export async function discoverPriorityDomainHits(
+  opts: PriorityDomainDiscoveryOpts,
+): Promise<PriorityDomainDiscoveryResult> {
+  if (opts.domains.length === 0) {
+    return { hits: [], queries: [], jobsAttempted: 0, jobsErrored: 0 };
+  }
+
+  const subject = compactSearchPart(opts.criteria || "news", 160);
+  const locationLabel = buildBeatLocationSearchLabel(opts.location);
+  const location = compactSearchPart(locationLabel ?? "", 80);
+  const excludedDomains = uniqueNonEmpty(opts.excludedDomains ?? [])
+    .map(normalizeDomain)
+    .filter((domain): domain is string => domain !== null);
+  const jobs = uniqueNonEmpty(opts.domains).flatMap((domain) => {
+    const normalizedDomain = normalizeDomain(domain);
+    if (
+      !normalizedDomain ||
+      excludedDomains.some((excluded) =>
+        normalizedDomain === excluded ||
+        normalizedDomain.endsWith(`.${excluded}`)
+      )
+    ) return [];
+    const main = [subject, location].filter(Boolean).join(" ");
+    const fallback = [location, "news"].filter(Boolean).join(" ") ||
+      "recent news";
+    return uniqueNonEmpty([main || fallback, fallback]).map((query) => ({
+      domain: normalizedDomain,
+      query,
+    }));
+  });
+  const concurrency = Math.max(1, opts.concurrency ?? 4);
+  const jobResults = new Array<BeatHit[]>(jobs.length);
+  let jobsErrored = 0;
+  let nextJobIndex = 0;
+  const worker = async () => {
+    while (true) {
+      const jobIndex = nextJobIndex++;
+      const job = jobs[jobIndex];
+      if (!job) return;
+      try {
+        const hits = await firecrawlSearch(job.query, {
+          limit: 5,
+          sources: ["web"],
+          location: locationLabel ?? undefined,
+          country: opts.location.countryCode ?? undefined,
+          tbs: "qdr:m,sbd:1",
+          includeDomains: [job.domain],
+          ignoreInvalidURLs: true,
+        });
+        jobResults[jobIndex] = hits
+          .filter((hit) => urlMatchesDomain(hit.url, job.domain))
+          .filter((hit) =>
+            !excludedDomains.some((domain) => urlMatchesDomain(hit.url, domain))
+          )
+          .filter((hit) => beatCandidateRejectReason(hit) === null)
+          .map((hit) => ({
+            ...hit,
+            date: hit.date ?? null,
+            _pass: "news" as const,
+            query: job.query,
+          }));
+      } catch (e) {
+        jobsErrored++;
+        logEvent({
+          level: "warn",
+          fn: "beat-pipeline",
+          event: "priority_search_failed",
+          query: job.query,
+          domain: job.domain,
+          msg: e instanceof Error ? e.message : String(e),
+          retrieval: "firecrawl",
+        });
+        jobResults[jobIndex] = [];
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, jobs.length) }, worker),
+  );
+
+  const hits: BeatHit[] = [];
+  const seenUrls = new Set<string>();
+  for (const jobHits of jobResults) {
+    for (const hit of jobHits) {
+      if (!hit.url || seenUrls.has(hit.url)) continue;
+      seenUrls.add(hit.url);
+      hits.push(hit);
+    }
+  }
+  return {
+    hits,
+    queries: uniqueNonEmpty(jobs.map((job) => job.query)),
+    jobsAttempted: jobs.length,
+    jobsErrored,
+  };
+}
+
+function compactSearchPart(value: string, limit: number): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function normalizeDomain(value: string): string | null {
+  const trimmed = value.trim().toLowerCase().replace(/^www\./, "");
+  if (!trimmed || trimmed.includes("/") || !trimmed.includes(".")) return null;
+  return trimmed;
+}
+
+function urlMatchesDomain(rawUrl: string, domain: string): boolean {
+  try {
+    const host = new URL(rawUrl).hostname.replace(/^www\./i, "").toLowerCase();
+    return host === domain || host.endsWith(`.${domain}`);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Shared Beat Scout discovery pipeline used by both preview (`beat-search`)
  * and scheduled execution (`scout-beat-execute`).
@@ -856,37 +982,47 @@ export async function discoverBeatHits(
   });
   const queriesUsed = [...plan.queries, ...plan.discovery_queries];
   if (queriesUsed.length === 0) {
-    return { hits: [], plan, rawHits: [], queriesUsed, totalCostDollars: null };
+    return {
+      hits: [],
+      plan,
+      rawHits: [],
+      queriesUsed,
+      jobsAttempted: 0,
+      jobsErrored: 0,
+    };
   }
 
   const recency = getRecencyConfig(opts.scope, opts.category, opts.sourceMode);
   const searchResult = await runSearchesWithMetadata({
     plan,
-    exaType: opts.exaType,
-    scope: opts.scope,
-    category: opts.category,
-    sourceMode: opts.sourceMode,
-    lang: plan.primary_language || opts.preferredLanguage,
-    location: (opts.city || opts.country)
-      ? buildLocationLabel(opts.city, opts.country)
-      : undefined,
+    location: buildBeatLocationSearchLabel({
+      city: opts.city,
+      state: opts.state ?? null,
+      country: opts.country,
+      countryCode: opts.countryCode,
+      displayName: opts.displayName ?? null,
+    }) ?? undefined,
     country: opts.countryCode ?? undefined,
     excludedDomains: opts.excludedDomains,
-    retrievalPort: opts.retrievalPort,
-    recencyDays: Math.max(recency.news_days, recency.discovery_days),
+    tbs: buildFirecrawlRecencyTbs(
+      Math.max(recency.news_days, recency.discovery_days),
+    ),
   });
   const rawHits = searchResult.hits;
-  const totalCostDollars = searchResult.totalCostDollars;
   // A total provider failure (every job threw) is distinct from a quiet day.
   const searchErrored = searchResult.jobsAttempted > 0 &&
     searchResult.jobsErrored === searchResult.jobsAttempted;
+  const searchStats = {
+    jobsAttempted: searchResult.jobsAttempted,
+    jobsErrored: searchResult.jobsErrored,
+  };
   if (rawHits.length === 0) {
     return {
       hits: [],
       plan,
       rawHits,
       queriesUsed,
-      totalCostDollars,
+      ...searchStats,
       searchErrored,
     };
   }
@@ -906,14 +1042,14 @@ export async function discoverBeatHits(
     });
   }
   if (usableRawHits.length === 0) {
-    return { hits: [], plan, rawHits, queriesUsed, totalCostDollars };
+    return { hits: [], plan, rawHits, queriesUsed, ...searchStats };
   }
 
   const { dated, undated } = applyDateFilter(usableRawHits, recency);
   const capped = capUndatedResults(undated, recency);
   let hits = [...dated, ...capped];
   if (hits.length === 0) {
-    return { hits: [], plan, rawHits, queriesUsed, totalCostDollars };
+    return { hits: [], plan, rawHits, queriesUsed, ...searchStats };
   }
 
   const threshold = opts.scope === "combined"
@@ -935,7 +1071,7 @@ export async function discoverBeatHits(
     hits = clusterFilter(hits);
   }
   if (hits.length === 0) {
-    return { hits: [], plan, rawHits, queriesUsed, totalCostDollars };
+    return { hits: [], plan, rawHits, queriesUsed, ...searchStats };
   }
 
   const maxResults = opts.sourceMode === "reliable" ? 8 : 6;
@@ -957,7 +1093,7 @@ export async function discoverBeatHits(
       : undefined,
   });
 
-  return { hits, plan, rawHits, queriesUsed, totalCostDollars };
+  return { hits, plan, rawHits, queriesUsed, ...searchStats };
 }
 
 // ---------------------------------------------------------------------------
@@ -1024,6 +1160,18 @@ export function getRecencyConfig(
     return { ...base, max_undated_news: 25, max_undated_discovery: 25 };
   }
   return base;
+}
+
+/** Build Firecrawl's documented custom date range, sorted newest first. */
+export function buildFirecrawlRecencyTbs(
+  days: number,
+  now = new Date(),
+): string {
+  const windowDays = Math.max(1, Math.ceil(days));
+  const earliest = new Date(now.getTime() - windowDays * 86_400_000);
+  const formatDate = (date: Date) =>
+    `${date.getUTCMonth() + 1}/${date.getUTCDate()}/${date.getUTCFullYear()}`;
+  return `sbd:1,cdr:1,cd_min:${formatDate(earliest)},cd_max:${formatDate(now)}`;
 }
 
 /** Parse a search-hit date string. Handles ISO + a few common English forms. */
@@ -1698,8 +1846,9 @@ export async function aiFilterResults(
       msg: e instanceof Error ? e.message : String(e),
     });
     // Fail CLOSED. A relevance-filter outage must never ship LLM-unfiltered
-    // candidates to the digest — that is the 2026-07 regression where a single
-    // Provider errors used to dump every raw Exa hit (for example, a Russian semiconductor story
+    // candidates to the digest — that is the 2026-07 regression where a
+    // provider error dumped every raw search hit (for example, a Russian
+    // semiconductor story
     // into an English housing beat). Degrade to a deterministic relevance
     // backstop instead of pass-through: location scouts keep only candidates
     // that mention the place; topic scouts keep only topic-signal matches.

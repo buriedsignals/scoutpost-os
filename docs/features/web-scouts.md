@@ -104,7 +104,7 @@ do not silently migrate.
 |------|----------|---------|
 | `scout-web-execute/index.ts` | `supabase/functions/` | Main scheduled/run-now Page Scout pipeline |
 | `scouts/index.ts` | `supabase/functions/` | Scout CRUD, preview/test, run, pause/resume |
-| `_shared/firecrawl.ts` | `supabase/functions/` | Firecrawl scrape wrapper |
+| `_shared/scrape_firecrawl.ts` | `supabase/functions/` | Firecrawl scrape wrapper |
 | `_shared/web_content_canonical.ts` | `supabase/functions/` | Versioned markdown canonicalizer |
 | `_shared/web_scout_baseline.ts` | `supabase/functions/` | Schedule-time baseline establishment |
 | `_shared/page_scout_change.ts` | `supabase/functions/` | Deterministic normalized delta and alert decision |

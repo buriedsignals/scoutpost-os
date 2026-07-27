@@ -13,7 +13,6 @@ TOM.md
 CLAUDE.local.md
 cojournalist-pat.txt
 supabase-keys.txt
-exa.txt
 *.secret.txt
 
 # Ephemeral HTML explainers / progress reports (operator-only, not for repo)

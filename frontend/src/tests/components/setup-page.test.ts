@@ -28,13 +28,14 @@ describe('setup page', () => {
 		expect(screen.queryByText(/shell fallback/i)).not.toBeInTheDocument();
 	});
 
-	it('documents the required and recommended API keys, including Exa as the Beat Scout default', () => {
+	it('documents the required API keys, including Firecrawl for Beat Scout search', () => {
 		render(SetupPage);
 
 		// Each required key is named in the manifest checklist.
 		expect(screen.getByText(/OpenRouter API key/i)).toBeInTheDocument();
 		expect(screen.queryByText(/Gemini API key/i)).not.toBeInTheDocument();
 		expect(screen.getByText(/Firecrawl API key/i)).toBeInTheDocument();
+		expect(screen.getByText(/Beat Scout search/i)).toBeInTheDocument();
 		expect(screen.getByText(/Apify API token/i)).toBeInTheDocument();
 		expect(screen.getByText(/Resend API key/i)).toBeInTheDocument();
 		expect(screen.getByText(/MapTiler API key/i)).toBeInTheDocument();
@@ -42,16 +43,7 @@ describe('setup page', () => {
 		// and the keys list, so allow either or both.
 		expect(screen.getAllByText(/Supabase access token/i).length).toBeGreaterThan(0);
 
-		// Exa is named and explained as Beat Scout's (Exa-only) retrieval port.
-		expect(screen.getByText(/Exa API key/i)).toBeInTheDocument();
-		expect(
-			screen.getByText(/Beat search is Exa-only/i)
-		).toBeInTheDocument();
-
-		// Exa is recommended (only needed for Beat Scout), not strictly required.
-		const exaRow = screen.getByText(/Exa API key/i).closest('li');
-		expect(exaRow).not.toBeNull();
-		expect(exaRow?.textContent ?? '').toMatch(/recommended/i);
+		expect(screen.queryByText(/Exa API key/i)).not.toBeInTheDocument();
 	});
 
 	it('shows install, doctor, and update docker commands using the official image', () => {

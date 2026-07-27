@@ -262,8 +262,8 @@ async function runPipeline(
 
   if (input.kind === "url") {
     sourceUrl = input.url!;
-    // Route through the scrape port so U7's SCRAPE_PROVIDER flip switches this
-    // caller. HTML ingest is provider-agnostic (no PDF/changeTracking needs).
+    // Route through the scrape port. HTML ingest is provider-agnostic and uses
+    // the default Crawl4AI renderer unless compatibility mode is selected.
     const result = await scrape(sourceUrl);
     content = result.markdown ?? "";
     if (!sourceTitle && result.title) sourceTitle = result.title;

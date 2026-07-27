@@ -1,8 +1,8 @@
-# scrape-service — self-hosted scraping (Firecrawl replacement)
+# scrape-service — self-hosted primary rendering
 
-The `scrape-service/` container replaces Firecrawl for the whole platform
-(SCRAPING-MIGRATION-PRD). It runs the **Crawl4AI** library (Playwright browser
-rendering) for HTML → markdown and Poppler **`pdftotext -layout`** for
+The `scrape-service/` container is Scoutpost's primary page and document
+renderer. It runs the **Crawl4AI** library (Playwright browser rendering) for
+HTML → markdown and Poppler **`pdftotext -layout`** for
 deterministic PDF → text, with an optional **Google native-PDF through
 OpenRouter** fallback for scanned/thin documents. The
 Supabase edge functions call it over HTTP through the scrape port
@@ -39,7 +39,8 @@ plan, Frankfurt, `dockerfilePath: ./scrape-service/Dockerfile`). To bring it up:
      SCRAPE_SERVICE_URL=https://scoutpost-scrape.onrender.com \
      SCRAPE_SERVICE_TOKEN=<the token from step 2>
    ```
-   Leave `SCRAPE_PROVIDER` unset (defaults to `firecrawl`) until the U7 cutover.
+   Leave `SCRAPE_PROVIDER` unset to use the `crawl4ai` default. Set it to
+   `firecrawl` only for deliberate compatibility rollback.
 5. **Verify** — authenticated `POST /scrape` and `/parse` round-trips from
    outside the VPC; unauthenticated requests must return 401; `/docs` and
    `/openapi.json` must return 404 (disabled).
@@ -55,20 +56,23 @@ See OpenRouter's official [PDF input](https://openrouter.ai/docs/guides/overview
 and [provider-routing](https://openrouter.ai/docs/guides/routing/provider-selection)
 documentation for the wire contract and parser selection behavior.
 
-## Cutover (U7)
+## Provider selection
 
-Flip production to the self-hosted service by setting the provider secret:
+The self-hosted service is the default. Production may set the provider secret
+explicitly for clarity:
 ```
 supabase secrets set SCRAPE_PROVIDER=crawl4ai
 ```
-Rollback is the reverse (`SCRAPE_PROVIDER=firecrawl`) — keep it available for
-the full bake window. `FIRECRAWL_API_KEY` must remain set until U8.
+Compatibility rollback is the reverse (`SCRAPE_PROVIDER=firecrawl`).
+`FIRECRAWL_API_KEY` remains required for Beat search and for the classified
+anti-bot scrape fallback.
 
 ## OSS / self-host
 
 `deploy/docker/docker-compose.yml` ships the `scrape-service` container
-**default-on** with `SCRAPE_PROVIDER=crawl4ai` — self-hosters no longer need a
-paid Firecrawl key. The edge-functions service points at
+**default-on** with `SCRAPE_PROVIDER=crawl4ai`. Self-hosters still need a
+Firecrawl Cloud key for Beat search and the classified anti-bot fallback. The
+edge-functions service points at
 `http://scrape-service:8080` with a shared `SCRAPE_SERVICE_TOKEN`
 (defaults to a local dev token).
 

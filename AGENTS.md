@@ -84,8 +84,8 @@ and exports `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, `SCOUT_BENCHMARK_TARGET=scout-health`,
 `SCOUT_BENCHMARK_PROJECT=1`, `SCOUT_LIVE_BENCHMARK=1`, and
 `SCOUT_ALLOW_PROD_FIRECRAWL=1` for the child command. `benchmark-beat.ts`
-asserts Beat execution requested Exa via
-`scout_runs.metadata.requested_retrieval` / `retrieval`. Use
+asserts Beat execution used Firecrawl Cloud search via
+`scout_runs.metadata.retrieval`. Use
 `supabase status -o env` only for local Edge Runtime diagnostics; local
 functions need their own env file if you intentionally serve them with
 `scripts/ops/serve-functions-local.sh`.
@@ -295,7 +295,7 @@ Detailed docs for each sidebar service in `docs/features/`:
 
 | Service | File | Description |
 |---------|------|-------------|
-| Page Scout (type `web`) | `web-scouts.md` | fresh Firecrawl scrape, local canonical hash baselines, criteria analysis |
+| Page Scout (type `web`) | `web-scouts.md` | fresh Crawl4AI scrape, local canonical hash baselines, criteria analysis |
 | Page Archive | `page-archive.md` | Evidence-snapshot retrieve/toggle for Page Scouts (CLI `scout snapshots`, MCP `list_snapshots`/`get_snapshot_url`, REST `/snapshots`); `archive_enabled` on scout create/update |
 | Location Scout (type `beat`) | `beat.md` | Location-based monitoring — niche local sources by default |
 | Beat Scout (type `beat`) | `beat.md` | Topic/criteria monitoring — reliable sources by default |
@@ -381,7 +381,11 @@ directly from the public mirror with Deno.
 
 **Scout topics are tags:** The UI stores multiple topics as a comma-separated string when saving a scout, but those values are semantically independent tags. Frontend display, filters, counts, and suggestions must use `frontend/src/lib/utils/topics.ts` (`parseTopicTags`, `collectTopicCounts`, `topicMatches`) rather than comparing `scout.topic` as one opaque string.
 
-**Page Scout change detection:** Uses fresh Firecrawl scrape output plus a local, versioned canonical markdown hash stored in `raw_captures`. Legacy Firecrawl `changeTracking` remains only as a migration path for older scouts. See `docs/features/web-scouts.md`.
+**Page Scout change detection:** Uses fresh Crawl4AI scrape output (with a
+classified Firecrawl Cloud anti-bot fallback) plus a local, versioned canonical
+markdown hash stored in `raw_captures`. Legacy Firecrawl `changeTracking`
+remains only as a migration path for older scouts. See
+`docs/features/web-scouts.md`.
 
 **Page Scout first-run extraction:** Users control whether to import existing page data via "Import current page data" toggle. OFF (default) establishes baseline only; ON extracts content to knowledge base.
 

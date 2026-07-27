@@ -669,8 +669,7 @@ async function runPipeline(
 ): Promise<PipelineResult> {
   await markRunStage(svc, runId, "scrape");
   // Stamp which scrape backend serves this run (firecrawl | crawl4ai) so the
-  // weekly scoreboard and bake monitoring can attribute results per provider —
-  // the U7 flip's observability contract (mirrors beat's requested_retrieval).
+  // weekly scoreboard can attribute primary and compatibility-mode results.
   await mergeRunMetadata(svc, runId, { scrape_provider: scrapeProvider() });
 
   // Archive gate (KTD6). Resolved before the detection scrape so a

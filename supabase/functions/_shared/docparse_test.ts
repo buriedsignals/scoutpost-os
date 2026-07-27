@@ -28,16 +28,17 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-// ---- firecrawl (dark default) path ----------------------------------------
+// ---- explicit firecrawl compatibility path -------------------------------
 
 Deno.test(
-  "parseDocument uses firecrawlScrape under the default provider",
+  "parseDocument uses firecrawlScrape when explicitly configured",
   restoreEnvAfter(async () => {
     let seenUrl = "";
     globalThis.fetch = ((input) => {
       seenUrl = String(input);
       return Promise.resolve(jsonResponse({ data: { markdown: "pdf text", metadata: {} } }));
     }) as typeof fetch;
+    Deno.env.set("SCRAPE_PROVIDER", "firecrawl");
     Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
 
     const result = await parseDocument("https://council.example/minutes.pdf");

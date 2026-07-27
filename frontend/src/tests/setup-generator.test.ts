@@ -21,7 +21,6 @@ function manifest(overrides: Partial<SetupManifest> = {}): SetupManifest {
 		services: {
 			openrouter_api_key: 'openrouter-secret',
 			firecrawl_api_key: 'firecrawl-secret',
-			exa_api_key: 'exa-secret',
 			apify_api_token: 'apify-secret',
 			resend_api_key: 'resend-secret',
 			resend_from_email: 'scouts@example.com',
@@ -136,10 +135,10 @@ describe('setup generator', () => {
 		const redacted = redactSetupManifest(manifest());
 
 		expect(redacted.services.openrouter_api_key).toBe('open…redacted');
-		expect(redacted.services.exa_api_key).toBe('exa-…redacted');
+		expect(redacted.services.firecrawl_api_key).toBe('fire…redacted');
 		expect(redacted.supabase.access_token).toBe('sbp-…redacted');
 		expect(JSON.stringify(redacted)).not.toContain('openrouter-secret');
-		expect(JSON.stringify(redacted)).not.toContain('exa-secret');
+		expect(JSON.stringify(redacted)).not.toContain('firecrawl-secret');
 	});
 
 	it('generates a v2 manifest with one AI key', () => {
@@ -152,16 +151,6 @@ describe('setup generator', () => {
 		expect(Object.keys(generated.services).filter((key) => /(?:gemini|openrouter)_api_key/.test(key))).toEqual([
 			'openrouter_api_key'
 		]);
-	});
-
-	it('treats exa_api_key as optional — missing Exa key is not a validation error', () => {
-		const data = manifest();
-		delete data.services.exa_api_key;
-
-		const result = validateSetupManifest(data);
-
-		expect(result.valid).toBe(true);
-		expect(result.errors).not.toContain('Exa API key is required.');
 	});
 
 	it('shell-escapes single quotes', () => {

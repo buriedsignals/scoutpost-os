@@ -1,73 +1,62 @@
-# Retrieval Ports
+# Beat Retrieval
 
-Scoutpost keeps retrieval provider selection explicit so provider migrations do
-not rewrite scheduling, credits, canonical-unit dedup, or notification behavior.
+Beat discovery uses one provider boundary: Firecrawl Cloud
+`POST /v2/search`. Keeping preview and scheduled execution on the same shared
+adapter prevents provider drift without changing scheduling, credits,
+canonical-unit deduplication, or notification behavior.
 
-## Beat Scout
+The pipeline lives in `_shared/beat_pipeline.ts`; the Firecrawl request and
+response adapter lives in `_shared/scrape_firecrawl.ts`.
 
-Beat Scout has two retrieval ports:
+## Runtime contract
 
-| Port | Status | Purpose |
+- Generated Beat queries use Firecrawl Cloud `/v2/search`.
+- Search defaults to web results. Existing local date, locality, source-quality,
+  relevance, and deduplication filters remain authoritative.
+- Priority-domain discovery uses `includeDomains`. Explicit source URLs bypass
+  search and go directly to rendering.
+- A search response with no useful results is a valid quiet run. If every query
+  fails at the provider boundary, the run fails and its pre-charge is refunded.
+- `scout_runs.metadata.retrieval` is stamped as `firecrawl` so the live
+  benchmark can detect deployment drift.
+
+There is no runtime provider selector, per-scout retrieval override,
+low-coverage provider retry, or discovery shadow mode. Old
+`BEAT_RETRIEVAL`, `BEAT_AB_SHADOW`, and Exa-specific scout metadata have no
+live effect and should not be reintroduced.
+
+## Search versus rendering
+
+Discovery and page rendering have deliberately different responsibilities:
+
+| Boundary | Primary | Fallback |
 |---|---|---|
-| `exa` | **Default** | Exa `/search` Beat retrieval. |
-| `firecrawl` | Kill-switch / per-scout opt-out | Original Firecrawl-compatible discovery path. Still fully wired; selected via env or scout metadata. |
+| Beat discovery | Firecrawl Cloud `/v2/search` | None |
+| Page/article rendering | Self-hosted Crawl4AI scrape service | Firecrawl Cloud scrape for classified anti-bot failures only |
 
-The pipeline lives in `_shared/beat_pipeline.ts`. The previous `beat_pipeline.ts`
-facade re-exporting `beat_pipeline_legacy.ts` was deleted on 2026-05-24 once Exa
-became the default — there is no longer a "legacy" file.
+Crawl4AI remains the primary renderer because Scoutpost controls that narrow
+self-hosted service and its output contract. Self-hosting Firecrawl merely to
+combine search and scraping would add a larger AGPL service and would still
+require a separately operated search backend for equivalent self-hosted search.
+Firecrawl Cloud remains useful where its managed search index and anti-bot
+capability are the product being consumed.
 
-## Controls
+## Historical telemetry
 
-| Control | Scope | Behavior |
-|---|---|---|
-| `BEAT_RETRIEVAL=firecrawl` | Global | **Kill-switch.** Forces every Beat run back to Firecrawl. Set as a Supabase Edge Function secret to flip without a code deploy. |
-| `BEAT_RETRIEVAL=exa` | Global | Pins to Exa (same as default; useful for asserting intent). |
-| `scouts.metadata.retrieval = "firecrawl"` | Per scout | Opt one scout out of Exa (e.g. a scout that consistently underperforms on Exa for known structural reasons). |
-| `scouts.metadata.retrieval = "exa"` | Per scout | Pin one scout to Exa (defensive — same as default). |
-| `scouts.metadata.exa_fallback = false` | Per scout | Disable the runtime low-coverage fallback for this scout. |
-| `BEAT_AB_SHADOW=1` | Global | Discovery-only shadow logging of the alternate port. Surviving canary-phase telemetry; candidate for deletion in a follow-up cleanup. |
-
-## Runtime fallback
-
-Exa occasionally returns very few hits for sparse locations. If an Exa run
-yields fewer than 2 candidates and the run wasn't forced via global env:
-
-1. A row is written to `beat_ab_runs` with `metadata.fallback_reason = "exa_low_coverage"`.
-2. The current execution re-runs through Firecrawl so the scout still gets fresh
-   units this cycle.
-3. After three consecutive low-coverage Exa rows, the scout's metadata is set to
-   `retrieval = "firecrawl"` — a per-scout latch that survives until cleared.
-
-Item (3) was originally canary protection. With Exa as default, the latch is
-debatable — it can mask Exa improvements over time. Tracking removal as a
-follow-up cleanup, gated on seeing how many scouts actually latch in
-production.
-
-## Metrics
-
-`beat_ab_runs` is the canary/audit table:
-
-| Field | Meaning |
-|---|---|
-| `retrieval` | `firecrawl` or `exa` |
-| `raw_hit_count` | Search hits before local filtering |
-| `dated_hit_count` | Raw hits with provider publication dates |
-| `final_hit_count` | Hits selected for downstream scraping/extraction |
-| `locality_score` | Fraction of final hits matching configured location text |
-| `freshness_score` | Fraction of raw hits with dates |
-| `total_cost_dollars` | Exa response cost when returned by the API |
-| `metadata.shadow` | Discovery-only A/B shadow row |
-| `metadata.fallback_reason` | Why the run ended up here (e.g. `exa_low_coverage`) |
+Migration `00064` and the `beat_ab_runs` table remain in the database so old
+retrieval-comparison rows stay readable. The current Beat runtime does not
+write, consult, or require this table. Its `exa` values, fallback metadata, and
+cost fields describe historical migrations only.
 
 ## Rollback playbook
 
-If Exa goes wrong in production:
+Rollback is a code revert:
 
-1. `supabase secrets set BEAT_RETRIEVAL=firecrawl --project-ref <project-ref>`
-2. Wait one Beat run cycle and confirm `beat_ab_runs.retrieval='firecrawl'` for
-   recent rows.
-3. Investigate, fix, then `supabase secrets unset BEAT_RETRIEVAL` to restore the
-   Exa default.
+1. Revert the Firecrawl-search migration commit on a new branch.
+2. Deploy `beat-search` and `scout-beat-execute` together.
+3. Run the linked-project Beat benchmark and confirm the reverted
+   `scout_runs.metadata.retrieval` contract.
 
-No code deploy needed for the rollback — the kill switch is read on every
-beat run.
+Do not use an environment-variable provider switch. The retired Exa credential
+must remain absent during normal operation; restoring an old implementation
+also requires restoring its secret deliberately.

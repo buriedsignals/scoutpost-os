@@ -189,14 +189,13 @@ const civicPdfSearch = await firecrawlSearch(
   {
     limit: 10,
     sources: ["web"],
-    categories: ["pdf"],
     country: "CH",
     location: "Pontresina, Graubunden, Switzerland",
     ignoreInvalidURLs: true,
   },
 );
 rows.push(
-  summarizeHits("pontresina-civic", "search pdf category", civicPdfSearch),
+  summarizeHits("pontresina-civic", "search web PDF query", civicPdfSearch),
 );
 
 const civicMap = await firecrawlMap("https://www.gemeinde-pontresina.ch", {

@@ -17,8 +17,8 @@ Scoutpost self-hosting uses this stack:
 | Scheduling       | Supabase/Postgres cron  | Recurring scout runs                                   |
 | Auth             | Supabase Auth           | Newsroom user accounts and domain allowlist            |
 | AI extraction    | OpenRouter → Google Vertex | Gemini summaries, structured extraction, classification |
-| Web scraping     | Firecrawl               | Page/civic source fetching and change detection        |
-| Beat retrieval   | Exa                     | Beat Scout search port (Exa-only; no Firecrawl fallback) |
+| Web rendering    | Crawl4AI + Firecrawl Cloud | Crawl4AI primary rendering; Firecrawl Civic/legacy Page change tracking and classified anti-bot fallback |
+| Beat retrieval   | Firecrawl Cloud         | Beat Scout discovery through `/v2/search`              |
 | Social scraping  | Apify                   | Social scout actor runs                                |
 | Email            | Resend                  | Scout notifications                                    |
 | Maps/geocoding   | MapTiler                | Location scout UI and geocoding                        |
@@ -52,9 +52,7 @@ Before running install, collect:
 - Supabase project ref, URL, anon key, service role key, and JWT secret for an
   existing Supabase project
 - OpenRouter API key (single runtime AI credential)
-- Firecrawl API key
-- Exa API key (Beat Scout retrieval port — Beat search is Exa-only, so Beat
-  Scout runs fail without it; not needed if you do not use Beat Scout)
+- Firecrawl API key (Page/Civic scraping and Beat Scout search)
 - Apify API token
 - Resend API key and sender email
 - MapTiler public API key

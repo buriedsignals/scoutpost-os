@@ -1,21 +1,17 @@
 /**
- * Scrape port (SCRAPING-MIGRATION-PRD U2).
+ * Provider-agnostic scrape port.
  *
- * Provider-agnostic entry point for all production scraping. Dispatches
- * `scrape()` to the active provider (`SCRAPE_PROVIDER`, default "firecrawl"),
- * and owns the resilient multi-strategy orchestrator plus the transient-error
- * taxonomy — all provider-neutral. The two providers live in
- * `scrape_firecrawl.ts` (default, deleted U8) and `scrape_crawl4ai.ts` (the
- * self-hosted scrape-service).
- *
- * Landing dark: until U7 flips `SCRAPE_PROVIDER=crawl4ai` in production, this
- * dispatches to Firecrawl and behavior is byte-identical to the former
- * `firecrawl.ts`.
+ * Crawl4AI is the default primary renderer. Firecrawl Cloud is retained as a
+ * classified anti-bot fallback and as an explicit compatibility provider when
+ * `SCRAPE_PROVIDER=firecrawl`.
  */
 
 import { ApiError } from "./errors.ts";
 import { logEvent } from "./log.ts";
-import { firecrawlChangeTrackingScrape, firecrawlScrape } from "./scrape_firecrawl.ts";
+import {
+  firecrawlChangeTrackingScrape,
+  firecrawlScrape,
+} from "./scrape_firecrawl.ts";
 import { crawl4aiScrape } from "./scrape_crawl4ai.ts";
 import type {
   ChangeTrackingOptions,
@@ -31,7 +27,9 @@ import type {
 export type ScrapeProvider = "firecrawl" | "crawl4ai";
 
 export function scrapeProvider(): ScrapeProvider {
-  return Deno.env.get("SCRAPE_PROVIDER") === "crawl4ai" ? "crawl4ai" : "firecrawl";
+  return Deno.env.get("SCRAPE_PROVIDER") === "firecrawl"
+    ? "firecrawl"
+    : "crawl4ai";
 }
 
 /**
@@ -48,22 +46,17 @@ export function isAntiBotBlockedError(e: unknown): e is ApiError {
 }
 
 /**
- * Scrape a single URL through the active provider — the switch point for the
- * U7 `SCRAPE_PROVIDER` flip. Reached today by `scrapePrimaryPageResilient`
- * (the web-scout primary path) and by direct callers that have migrated
- * (e.g. `ingest`). The remaining `firecrawlScrape` call sites stay on the
- * Firecrawl provider until their owning unit rewires them: civic PDF parsing
- * moves to the doc-parse port in U3, web change-detection callers route here
- * in U4, and Beat retrieval in U5. Until each is migrated it keeps hitting
- * Firecrawl (and needs `FIRECRAWL_API_KEY`) even after the flip — intentional,
- * per-subsystem cutover.
+ * Scrape a single URL through the active provider. Page Scouts, Beat article
+ * rendering, ingest, and document parsing use Crawl4AI unless an operator
+ * deliberately selects Firecrawl compatibility mode.
  */
 export async function scrape(
   url: string,
   opts: ScrapeOptions = {},
 ): Promise<ScrapeResult> {
   if (scrapeProvider() !== "crawl4ai") {
-    // Primary firecrawl path: the KTD9 `snapshot: "on_fallback"` hint is a
+    // Explicit Firecrawl compatibility path: the KTD9
+    // `snapshot: "on_fallback"` hint is a
     // FALLBACK signal — it must not fire a same-fetch capture on the primary
     // provider (that would append a full-page screenshot to every detection
     // scrape, including `same` runs). Only an explicit `snapshot: true` capture

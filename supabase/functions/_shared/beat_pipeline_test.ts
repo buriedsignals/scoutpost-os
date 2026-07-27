@@ -7,11 +7,15 @@ import { assertFalse } from "https://deno.land/std@0.208.0/assert/assert_false.t
 import {
   addLocationNewsSeedQueries,
   aiFilterResults,
+  buildFirecrawlRecencyTbs,
   buildGenerateQueriesPrompt,
   dedupeByEmbedding,
+  discoverPriorityDomainHits,
   ensureBeatLocationSearchLabel,
   getRecencyConfig,
   runSearches,
+  runSearchesWithMetadata,
+  summarizeSearchJobs,
 } from "./beat_pipeline.ts";
 
 Deno.test("buildGenerateQueriesPrompt treats no-location topic scouts as global topic scouts", () => {
@@ -112,6 +116,19 @@ Deno.test("reliable location news keeps only a small undated fallback", () => {
   const recency = getRecencyConfig("location", "news", "reliable");
   assertEquals(recency.max_undated_news, 2);
   assertEquals(recency.max_undated_discovery, 2);
+});
+
+Deno.test("buildFirecrawlRecencyTbs preserves the configured 14-day provider window", () => {
+  assertEquals(
+    buildFirecrawlRecencyTbs(
+      Math.max(
+        getRecencyConfig("combined", "news", "reliable").news_days,
+        getRecencyConfig("combined", "news", "reliable").discovery_days,
+      ),
+      new Date("2026-06-15T12:00:00Z"),
+    ),
+    "sbd:1,cdr:1,cd_min:6/1/2026,cd_max:6/15/2026",
+  );
 });
 
 Deno.test("dedupeByEmbedding sends one ordered OpenRouter embedding batch", async () => {
@@ -229,7 +246,6 @@ Deno.test("runSearches uses explicit web-only Firecrawl search by default", asyn
         discovery_queries: ["Nieman Lab AI"],
         local_domains: [],
       },
-      scope: "topic",
       excludedDomains: ["youtube.com"],
     });
 
@@ -254,7 +270,7 @@ Deno.test("runSearches uses explicit web-only Firecrawl search by default", asyn
   }
 });
 
-Deno.test("runSearches passes Firecrawl location for location-scoped searches", async () => {
+Deno.test("runSearches passes Firecrawl location, country, and recency filters", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<Record<string, unknown>> = [];
   try {
@@ -286,79 +302,451 @@ Deno.test("runSearches passes Firecrawl location for location-scoped searches", 
         discovery_queries: [],
         local_domains: [],
       },
-      scope: "combined",
-      lang: "sv",
       location: "Sweden",
       country: "SE",
+      tbs: buildFirecrawlRecencyTbs(
+        14,
+        new Date("2026-06-15T12:00:00Z"),
+      ),
     });
 
-    assertEquals(requests[0].lang, "sv");
     assertEquals(requests[0].location, "Sweden");
     assertEquals(requests[0].country, "SE");
+    assertEquals(
+      requests[0].tbs,
+      "sbd:1,cdr:1,cd_min:6/1/2026,cd_max:6/15/2026",
+    );
   } finally {
     globalThis.fetch = originalFetch;
     Deno.env.delete("FIRECRAWL_API_KEY");
   }
 });
 
-Deno.test("runSearches can use Exa retrieval with Beat-compatible options", async () => {
+Deno.test("runSearches dedupes URLs across Firecrawl jobs and preserves the first pass", async () => {
   const originalFetch = globalThis.fetch;
-  const requests: Array<Record<string, unknown>> = [];
   try {
-    globalThis.fetch = ((input, init) => {
-      const body = (init as { body?: BodyInit | null } | undefined)?.body;
-      requests.push(JSON.parse(String(body ?? "{}")));
-      assertStringIncludes(String(input), "api.exa.ai/search");
+    globalThis.fetch = (() => {
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            results: [{
-              title: "Zurich procurement AI policy",
-              text:
-                "Zurich procurement officials discussed artificial intelligence.",
-              url: "https://stadt-zuerich.example/procurement-ai",
-              publishedDate: "2026-05-01T00:00:00Z",
-              highlights: ["Zurich procurement officials discussed AI."],
-            }],
+            success: true,
+            data: {
+              web: [{
+                title: "Same story",
+                description: "Shared result",
+                url: "https://example.com/story",
+                publishedDate: "2026-05-01T00:00:00Z",
+              }],
+            },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );
     }) as typeof fetch;
-    Deno.env.set("EXA_API_KEY", "exa-test");
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
 
     const hits = await runSearches({
       plan: {
-        primary_language: "de",
-        queries: ["Zurich procurement AI"],
-        discovery_queries: [],
+        primary_language: "en",
+        queries: ["first query"],
+        discovery_queries: ["second query"],
         local_domains: [],
       },
-      scope: "combined",
-      category: "news",
-      sourceMode: "reliable",
-      country: "CH",
-      excludedDomains: ["youtube.com"],
-      retrievalPort: "exa",
-      recencyDays: 14,
     });
 
-    assertEquals(requests.length, 1);
-    assertEquals(requests[0].category, "news");
-    assertEquals(requests[0].userLocation, "CH");
-    assertEquals(requests[0].excludeDomains, ["youtube.com"]);
-    assertEquals(typeof requests[0].startPublishedDate, "string");
-    const ageDays = (Date.now() -
-      new Date(String(requests[0].startPublishedDate)).getTime()) /
-      86_400_000;
-    assertEquals(ageDays >= 13.9 && ageDays <= 14.1, true);
-    const contents = requests[0].contents as Record<string, unknown>;
-    assertEquals(contents.highlights, true);
+    assertEquals(hits.length, 1);
     assertEquals(hits[0].date, "2026-05-01T00:00:00Z");
     assertEquals(hits[0]._pass, "news");
+    assertEquals(hits[0].query, "first query");
   } finally {
     globalThis.fetch = originalFetch;
-    Deno.env.delete("EXA_API_KEY");
+    Deno.env.delete("FIRECRAWL_API_KEY");
+  }
+});
+
+Deno.test("runSearches preserves declared job order across mixed response latency", async () => {
+  const originalFetch = globalThis.fetch;
+  const firstResponse = Promise.withResolvers<Response>();
+  try {
+    globalThis.fetch = ((_, init) => {
+      const body = JSON.parse(
+        String((init as RequestInit | undefined)?.body ?? "{}"),
+      ) as { query?: string };
+      const response = new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            web: [{
+              title: body.query,
+              url: "https://example.com/shared",
+            }],
+          },
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      );
+      return body.query === "first"
+        ? firstResponse.promise
+        : Promise.resolve(response);
+    }) as typeof fetch;
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+
+    const result = runSearches({
+      plan: {
+        primary_language: "en",
+        queries: ["first"],
+        discovery_queries: ["second"],
+        local_domains: [],
+      },
+      concurrency: 2,
+    });
+    await Promise.resolve();
+    firstResponse.resolve(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            web: [{
+              title: "first",
+              url: "https://example.com/shared",
+            }],
+          },
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    assertEquals(await result, [{
+      title: "first",
+      url: "https://example.com/shared",
+      description: undefined,
+      markdown: undefined,
+      date: null,
+      source: "web",
+      _pass: "news",
+      query: "first",
+    }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Deno.env.delete("FIRECRAWL_API_KEY");
+  }
+});
+
+Deno.test("runSearchesWithMetadata distinguishes quiet empty jobs from total provider failure", async () => {
+  const originalFetch = globalThis.fetch;
+  const plan = {
+    primary_language: "en",
+    queries: ["one", "two"],
+    discovery_queries: ["three"],
+    local_domains: [],
+  };
+  try {
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ success: true, data: {} }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )) as typeof fetch;
+
+    assertEquals(await runSearchesWithMetadata({ plan }), {
+      hits: [],
+      jobsAttempted: 3,
+      jobsErrored: 0,
+    });
+
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response("provider down", { status: 503 }),
+      )) as typeof fetch;
+
+    assertEquals(await runSearchesWithMetadata({ plan }), {
+      hits: [],
+      jobsAttempted: 3,
+      jobsErrored: 3,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    Deno.env.delete("FIRECRAWL_API_KEY");
+  }
+});
+
+Deno.test("summarizeSearchJobs treats any successful empty job as a quiet search", () => {
+  assertEquals(
+    summarizeSearchJobs(
+      { jobsAttempted: 2, jobsErrored: 0 },
+      { jobsAttempted: 3, jobsErrored: 3 },
+    ),
+    {
+      jobsAttempted: 5,
+      jobsErrored: 3,
+      allErrored: false,
+    },
+  );
+  assertEquals(
+    summarizeSearchJobs(
+      { jobsAttempted: 2, jobsErrored: 2 },
+      { jobsAttempted: 3, jobsErrored: 3 },
+    ),
+    {
+      jobsAttempted: 5,
+      jobsErrored: 5,
+      allErrored: true,
+    },
+  );
+});
+
+Deno.test("discoverPriorityDomainHits uses Firecrawl domain filters and returns only usable matching hits", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<Record<string, unknown>> = [];
+  try {
+    globalThis.fetch = ((_, init) => {
+      const body = JSON.parse(
+        String((init as RequestInit | undefined)?.body ?? "{}"),
+      ) as Record<string, unknown>;
+      requests.push(body);
+      const domain = (body.includeDomains as string[])[0];
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              web: [
+                {
+                  title: `${domain} article`,
+                  url: `https://${domain}/stories/article`,
+                },
+                {
+                  title: "Wrong domain",
+                  url: "https://other.example/stories/article",
+                },
+                {
+                  title: "Homepage",
+                  url: `https://${domain}/`,
+                },
+                {
+                  title: "Excluded subdomain",
+                  url: `https://ads.${domain}/stories/sponsored`,
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+
+    const result = await discoverPriorityDomainHits({
+      domains: [
+        "www.one.example",
+        "two.example",
+        "blocked.example",
+        "invalid",
+      ],
+      criteria: "AI policy",
+      location: {
+        city: "London",
+        state: "Ontario",
+        country: "Canada",
+        countryCode: "CA",
+        displayName: "London, Ontario, Canada",
+      },
+      excludedDomains: [
+        "blocked.example",
+        "ads.one.example",
+        "ads.two.example",
+        "youtube.com",
+      ],
+    });
+
+    assertEquals(result.queries, [
+      "AI policy London Ontario",
+      "London Ontario news",
+    ]);
+    assertEquals(requests.length, 4);
+    assertEquals(
+      requests.every((request) => !("excludeDomains" in request)),
+      true,
+    );
+    assertEquals(
+      requests.map((request) => ({
+        query: request.query,
+        limit: request.limit,
+        sources: request.sources,
+        location: request.location,
+        country: request.country,
+        tbs: request.tbs,
+        includeDomains: request.includeDomains,
+        ignoreInvalidURLs: request.ignoreInvalidURLs,
+      })),
+      [
+        {
+          query: "AI policy London Ontario",
+          limit: 5,
+          sources: ["web"],
+          location: "London Ontario",
+          country: "CA",
+          tbs: "qdr:m,sbd:1",
+          includeDomains: ["one.example"],
+          ignoreInvalidURLs: true,
+        },
+        {
+          query: "London Ontario news",
+          limit: 5,
+          sources: ["web"],
+          location: "London Ontario",
+          country: "CA",
+          tbs: "qdr:m,sbd:1",
+          includeDomains: ["one.example"],
+          ignoreInvalidURLs: true,
+        },
+        {
+          query: "AI policy London Ontario",
+          limit: 5,
+          sources: ["web"],
+          location: "London Ontario",
+          country: "CA",
+          tbs: "qdr:m,sbd:1",
+          includeDomains: ["two.example"],
+          ignoreInvalidURLs: true,
+        },
+        {
+          query: "London Ontario news",
+          limit: 5,
+          sources: ["web"],
+          location: "London Ontario",
+          country: "CA",
+          tbs: "qdr:m,sbd:1",
+          includeDomains: ["two.example"],
+          ignoreInvalidURLs: true,
+        },
+      ],
+    );
+    assertEquals(
+      result.hits.map((hit) => hit.url),
+      [
+        "https://one.example/stories/article",
+        "https://two.example/stories/article",
+      ],
+    );
+    assertEquals(result.jobsAttempted, 4);
+    assertEquals(result.jobsErrored, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Deno.env.delete("FIRECRAWL_API_KEY");
+  }
+});
+
+Deno.test("discoverPriorityDomainHits keeps criteria and location parity for London, United Kingdom", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<Record<string, unknown>> = [];
+  try {
+    globalThis.fetch = ((_, init) => {
+      const body = JSON.parse(
+        String((init as RequestInit | undefined)?.body ?? "{}"),
+      ) as Record<string, unknown>;
+      requests.push(body);
+      return Promise.resolve(
+        new Response(JSON.stringify({ success: true, data: { web: [] } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }) as typeof fetch;
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+
+    await discoverPriorityDomainHits({
+      domains: ["priority.example"],
+      criteria: "housing affordability",
+      location: {
+        city: "London",
+        state: null,
+        country: "United Kingdom",
+        countryCode: "GB",
+        displayName: "London, United Kingdom",
+      },
+    });
+
+    assertEquals(
+      requests.map((request) => ({
+        query: request.query,
+        location: request.location,
+        country: request.country,
+      })),
+      [
+        {
+          query: "housing affordability London United Kingdom",
+          location: "London United Kingdom",
+          country: "GB",
+        },
+        {
+          query: "London United Kingdom news",
+          location: "London United Kingdom",
+          country: "GB",
+        },
+      ],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    Deno.env.delete("FIRECRAWL_API_KEY");
+  }
+});
+
+Deno.test("discoverPriorityDomainHits starts queued work as each worker frees", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<Record<string, unknown>> = [];
+  const gates = Array.from(
+    { length: 4 },
+    () => Promise.withResolvers<Response>(),
+  );
+  const thirdRequestStarted = Promise.withResolvers<void>();
+  try {
+    globalThis.fetch = ((_, init) => {
+      requests.push(
+        JSON.parse(
+          String((init as RequestInit | undefined)?.body ?? "{}"),
+        ) as Record<string, unknown>,
+      );
+      if (requests.length === 3) thirdRequestStarted.resolve();
+      return gates[requests.length - 1].promise;
+    }) as typeof fetch;
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+
+    const result = discoverPriorityDomainHits({
+      domains: ["one.example", "two.example"],
+      criteria: "local housing",
+      location: {
+        city: "London",
+        state: "Ontario",
+        country: "Canada",
+        countryCode: "CA",
+        displayName: "London, Ontario, Canada",
+      },
+      concurrency: 2,
+    });
+    await Promise.resolve();
+    assertEquals(requests.length, 2);
+
+    gates[1].resolve(
+      new Response(JSON.stringify({ success: true, data: { web: [] } }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await thirdRequestStarted.promise;
+    assertEquals(requests.length, 3);
+
+    for (const gate of [gates[0], gates[2], gates[3]]) {
+      gate.resolve(
+        new Response(JSON.stringify({ success: true, data: { web: [] } }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
+    await result;
+  } finally {
+    globalThis.fetch = originalFetch;
+    Deno.env.delete("FIRECRAWL_API_KEY");
   }
 });
 

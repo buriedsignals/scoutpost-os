@@ -1,20 +1,17 @@
 /**
- * Document-parse port (SCRAPING-MIGRATION-PRD U3).
+ * Document-parse port.
  *
  * `parseDocument(url)` returns markdown/text for a civic document (PDF today,
- * occasionally an HTML agenda). It is the switch point for PDF parsing at the
- * U7 flip:
+ * occasionally an HTML agenda):
  *
- *   - SCRAPE_PROVIDER=firecrawl (default, dark): `firecrawlScrape(url)` — the
- *     legacy path, which parses PDFs server-side (pdfMode:"fast", embedded
- *     text, no OCR) and HTML transparently. Behavior is byte-identical to the
- *     former civic call sites.
- *   - SCRAPE_PROVIDER=crawl4ai: dispatch by content. Try the self-hosted
+ *   - The default Crawl4AI path dispatches by content. Try the self-hosted
  *     scrape-service `POST /parse` (poppler `pdftotext -layout`, deterministic
  *     — civic dedup keys on content_sha256); if the service reports the URL is
  *     not a PDF (415), fall back to the browser scrape port for HTML. A
  *     bitmap-only PDF surfaces as `NeedsOcrError` (the service's 422), which
  *     mirrors today's silent-empty behavior — production has never OCR'd.
+ *   - Explicit `SCRAPE_PROVIDER=firecrawl` compatibility mode uses
+ *     `firecrawlScrape(url)` for PDFs and HTML.
  *
  * Consumers read `.markdown` only; `pages` is advisory (scanned-share metrics).
  */
@@ -102,14 +99,23 @@ async function parseViaService(
     const body = await res.json().catch(() => ({}));
     const detail = body?.detail ?? {};
     if (detail?.error === "needs_ocr") {
-      throw new NeedsOcrError(Number(detail.pages ?? 0), Number(detail.chars ?? 0));
+      throw new NeedsOcrError(
+        Number(detail.pages ?? 0),
+        Number(detail.chars ?? 0),
+      );
     }
-    throw new ApiError(`crawl4ai parse failed: 422 ${JSON.stringify(body)}`, 502);
+    throw new ApiError(
+      `crawl4ai parse failed: 422 ${JSON.stringify(body)}`,
+      502,
+    );
   }
   if (!res.ok) {
     // Parity with the scrape provider: non-OK → 502 (transient classifier
     // still catches upstream 5xx/429 via the "failed: <status>" shape).
-    throw new ApiError(`crawl4ai parse failed: ${res.status} ${await res.text()}`, 502);
+    throw new ApiError(
+      `crawl4ai parse failed: ${res.status} ${await res.text()}`,
+      502,
+    );
   }
   const d = await res.json();
   return {

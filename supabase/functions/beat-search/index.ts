@@ -37,7 +37,6 @@ import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { scrape } from "../_shared/scrape.ts";
-import { exaSearch, shouldFallbackFromExa } from "../_shared/exa.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
 import { openRouterExtract } from "../_shared/openrouter.ts";
 import {
@@ -47,6 +46,8 @@ import {
   type BeatSourceMode,
   countryPrimaryLanguage,
   discoverBeatHits,
+  discoverPriorityDomainHits,
+  summarizeSearchJobs,
 } from "../_shared/beat_pipeline.ts";
 import {
   buildBeatLocationMatcher,
@@ -138,88 +139,6 @@ function normalizePrioritySource(
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter((v) => v.trim().length > 0))];
-}
-
-async function discoverPriorityDomainHits(opts: {
-  domains: string[];
-  criteria: string | null;
-  locationLabel: string | null;
-  preferredLanguage: string;
-  countryCode: string | null;
-  excludedDomains: string[];
-}): Promise<{ hits: BeatHit[]; queries: string[] }> {
-  if (opts.domains.length === 0) return { hits: [], queries: [] };
-  const subject = compactSearchPart(opts.criteria || "news", 160);
-  const location = compactSearchPart(opts.locationLabel ?? "", 80);
-  const jobs = opts.domains.flatMap((domain) => {
-    const main = [subject, location].filter(Boolean).join(" ");
-    const fallback = [location, "news"].filter(Boolean).join(" ") ||
-      "recent news";
-    // Domain scoping is done with Exa's includeDomains, NOT a `site:` operator
-    // in the query text — Exa's neural search treats `site:` as literal words
-    // (unlike the Firecrawl SERP it replaced), which silently returned zero
-    // on-domain hits. The query is now just the topic.
-    return uniqueStrings([main || fallback, fallback])
-      .map((query) => ({ domain, query }));
-  });
-  const results = await mapLimit(jobs, 4, async (job) => {
-    try {
-      // Exa is the sole Beat retrieval port (U5). includeDomains scopes to the
-      // priority source; the urlMatchesDomain post-filter is kept as a
-      // belt-and-suspenders guard. Exa's country model replaces Firecrawl's
-      // lang/location/sources.
-      const hits = await exaSearch(job.query, {
-        numResults: 5,
-        category: "news",
-        userLocation: opts.countryCode ?? undefined,
-        includeDomains: [job.domain],
-        excludeDomains: opts.excludedDomains,
-        contents: {
-          text: { maxCharacters: 1000, verbosity: "compact" },
-          maxAgeHours: 72,
-        },
-      });
-      return hits
-        .filter((hit) => urlMatchesDomain(hit.url, job.domain))
-        .map((hit) => ({
-          ...hit,
-          date: hit.date ?? null,
-          _pass: "news" as const,
-          query: job.query,
-        }));
-    } catch (e) {
-      logEvent({
-        level: "warn",
-        fn: "beat-search",
-        event: "priority_search_failed",
-        query: job.query,
-        msg: e instanceof Error ? e.message : String(e),
-      });
-      return [];
-    }
-  });
-  const hits: BeatHit[] = [];
-  const seen = new Set<string>();
-  for (const result of results) {
-    for (const hit of result) {
-      if (!hit.url || seen.has(hit.url)) continue;
-      seen.add(hit.url);
-      hits.push(hit);
-    }
-  }
-  return { hits, queries: uniqueStrings(jobs.map((job) => job.query)) };
-}
-
-function compactSearchPart(value: string, limit: number): string {
-  return value.replace(/\s+/g, " ").trim().slice(0, limit);
-}
-
-function urlMatchesDomain(
-  rawUrl: string | null | undefined,
-  domain: string,
-): boolean {
-  const host = safeDomain(rawUrl)?.replace(/^www\./i, "").toLowerCase();
-  return Boolean(host && (host === domain || host.endsWith(`.${domain}`)));
 }
 
 const ARTICLES_SCHEMA: Record<string, unknown> = {
@@ -340,6 +259,8 @@ async function runSearch(
   ) {
     selectedHits = priorityPlan.directUrls.map((url) => ({ url }));
   } else {
+    selectedHits.push(...priorityPlan.directUrls.map((url) => ({ url })));
+    let prioritySearchStats = { jobsAttempted: 0, jobsErrored: 0 };
     const location = parseBeatLocation(input.location);
     const scope: BeatScope = input.location && input.criteria
       ? "combined"
@@ -350,24 +271,16 @@ async function runSearch(
       ? "niche"
       : "reliable";
     const category = input.category as BeatCategory;
-    const locationLabel = location.city ||
-      (typeof input.location?.displayName === "string"
-        ? input.location.displayName
-        : null) ||
-      location.country;
     if (priorityPlan.domains.length > 0) {
       const priorityDiscovery = await discoverPriorityDomainHits({
         domains: priorityPlan.domains,
         criteria: input.criteria?.trim() || null,
-        locationLabel,
-        preferredLanguage: location.countryCode
-          ? countryPrimaryLanguage(location.countryCode)
-          : "en",
-        countryCode: location.countryCode,
+        location,
         excludedDomains: input.excluded_domains ?? [],
       });
       queries.push(...priorityDiscovery.queries);
       selectedHits.push(...priorityDiscovery.hits);
+      prioritySearchStats = priorityDiscovery;
     }
     const discoveryOpts = {
       scope,
@@ -383,27 +296,19 @@ async function runSearch(
         ? countryPrimaryLanguage(location.countryCode)
         : "en",
       excludedDomains: input.excluded_domains,
-      retrievalPort: "exa" as const,
     };
     const discovery = await discoverBeatHits(discoveryOpts);
     queries.push(...discovery.queriesUsed);
     selectedHits.push(...discovery.hits);
+    const searchStats = summarizeSearchJobs(prioritySearchStats, discovery);
     if (
-      scope === "location" &&
-      category === "news" &&
-      shouldFallbackFromExa({
-        requestedRetrieval: "exa",
-        discoveredCount: selectedHits.length,
-      })
+      searchStats.allErrored &&
+      selectedHits.length === 0
     ) {
-      const retry = await discoverBeatHits({
-        ...discoveryOpts,
-        exaType: "deep-lite",
-      });
-      queries.push(...retry.queriesUsed);
-      selectedHits.push(...retry.hits);
+      throw new Error(
+        "beat retrieval failed: every Firecrawl search query errored",
+      );
     }
-    selectedHits.push(...priorityPlan.directUrls.map((url) => ({ url })));
   }
 
   const filteredHits: BeatHit[] = [];

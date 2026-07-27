@@ -54,17 +54,10 @@ docker run --rm -it \\
 		},
 		{
 			name: 'Firecrawl API key',
-			purpose: 'Page Scout, Civic Scout, and Beat Scout fallback scraping.',
+			purpose:
+				'Beat Scout search and the managed anti-bot scrape fallback for Page, Civic, and Beat Scouts.',
 			signup: 'https://www.firecrawl.dev/',
 			signupLabel: 'firecrawl.dev'
-		},
-		{
-			name: 'Exa API key',
-			purpose:
-				'Beat Scout retrieval. Beat search is Exa-only — without this key, Beat Scout runs fail (there is no Firecrawl search fallback). Not needed if you do not use Beat Scout.',
-			signup: 'https://exa.ai/',
-			signupLabel: 'exa.ai',
-			optional: true
 		},
 		{
 			name: 'Apify API token',
