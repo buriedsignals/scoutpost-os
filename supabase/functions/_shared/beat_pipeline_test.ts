@@ -12,6 +12,8 @@ import {
   dedupeByEmbedding,
   discoverPriorityDomainHits,
   ensureBeatLocationSearchLabel,
+  expandLinkedArticleCandidates,
+  filterUsableBeatCandidates,
   getRecencyConfig,
   runSearches,
   runSearchesWithMetadata,
@@ -380,6 +382,47 @@ Deno.test("runSearches retries an empty recency-filtered search without tbs", as
     globalThis.fetch = originalFetch;
     Deno.env.delete("FIRECRAWL_API_KEY");
   }
+});
+
+Deno.test("section-page search hits promote bounded same-host article links", () => {
+  const hits = expandLinkedArticleCandidates([{
+    url: "https://www.standard.co.uk/news/london",
+    title: "London news",
+    description: [
+      "[London](https://www.standard.co.uk/news/london)",
+      "[Fire rips through London flats as crews respond](https://www.standard.co.uk/news/london/mitcham-fire-b1291323.html)",
+      "[Council approves 2,200 homes on London green belt](https://www.standard.co.uk/news/london/bromley-homes-b1291222.html)",
+      "[External London story](https://example.com/london-story)",
+      "[Read more](https://www.standard.co.uk/news/london/ignored-b1291000.html)",
+    ].join("\n"),
+    _pass: "news",
+    query: "London news",
+  }]);
+
+  assertEquals(
+    filterUsableBeatCandidates(hits).map((hit) => ({
+      url: hit.url,
+      title: hit.title,
+      pass: hit._pass,
+      query: hit.query,
+    })),
+    [
+      {
+        url:
+          "https://www.standard.co.uk/news/london/mitcham-fire-b1291323.html",
+        title: "Fire rips through London flats as crews respond",
+        pass: "news",
+        query: "London news",
+      },
+      {
+        url:
+          "https://www.standard.co.uk/news/london/bromley-homes-b1291222.html",
+        title: "Council approves 2,200 homes on London green belt",
+        pass: "news",
+        query: "London news",
+      },
+    ],
+  );
 });
 
 Deno.test("runSearches dedupes URLs across Firecrawl jobs and preserves the first pass", async () => {

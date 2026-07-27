@@ -859,6 +859,132 @@ export function filterUsableBeatCandidates(hits: BeatHit[]): BeatHit[] {
   return hits.filter((hit) => beatCandidateRejectReason(hit) === null);
 }
 
+const GENERIC_LINK_TITLES = new Set([
+  "article",
+  "home",
+  "latest",
+  "local",
+  "more",
+  "news",
+  "politics",
+  "read more",
+  "story",
+]);
+
+/**
+ * Firecrawl web search can return a current section/home page with fresh
+ * article links embedded in its Markdown-like description instead of returning
+ * those article URLs as separate SERP hits. Promote a small, same-host subset
+ * before the normal candidate filter so Beat still scrapes article pages, not
+ * listings. This remains bounded and ignores cross-domain/navigation links.
+ */
+export function expandLinkedArticleCandidates(hits: BeatHit[]): BeatHit[] {
+  const expanded: BeatHit[] = [];
+  const seen = new Set<string>();
+
+  const add = (hit: BeatHit) => {
+    if (!hit.url || seen.has(hit.url)) return;
+    seen.add(hit.url);
+    expanded.push(hit);
+  };
+
+  for (const hit of hits) {
+    const reason = beatCandidateRejectReason(hit);
+    const shortSectionPath = hasShortSectionPath(hit.url);
+    const inspectLinks = reason === "homepage" || reason === "listing_page" ||
+      shortSectionPath;
+    const linked = inspectLinks ? extractSameHostArticleLinks(hit, 3) : [];
+    for (const candidate of linked) add(candidate);
+    if (linked.length === 0 || !shortSectionPath) {
+      add(hit);
+    }
+  }
+  return expanded;
+}
+
+function hasShortSectionPath(value: string): boolean {
+  try {
+    const segments = new URL(value).pathname.split("/").filter(Boolean);
+    return segments.length <= 2;
+  } catch {
+    return false;
+  }
+}
+
+function extractSameHostArticleLinks(hit: BeatHit, limit: number): BeatHit[] {
+  const text = [hit.markdown, hit.description].filter((
+    value,
+  ): value is string => typeof value === "string" && value.length > 0).join(
+    "\n",
+  );
+  if (!text) return [];
+
+  let source: URL;
+  try {
+    source = new URL(hit.url);
+  } catch {
+    return [];
+  }
+  const sourceHost = source.hostname.toLowerCase().replace(/^www\./, "");
+  const links: BeatHit[] = [];
+  const seen = new Set<string>();
+  const markdownLink =
+    /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)(?:\s+["'][^)]*)?\)/g;
+  for (const match of text.matchAll(markdownLink)) {
+    const title = cleanLinkedTitle(match[1]);
+    if (
+      title.length < 12 ||
+      GENERIC_LINK_TITLES.has(title.toLowerCase()) ||
+      match[1].trim().startsWith("!")
+    ) {
+      continue;
+    }
+    let url: URL;
+    try {
+      url = new URL(match[2]);
+    } catch {
+      continue;
+    }
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    url.hash = "";
+    const value = url.toString();
+    const candidate: BeatHit = {
+      url: value,
+      title,
+      description: title,
+      // A section page's timestamp describes the index, not the linked story.
+      // Leave derived candidates undated so the article scrape/extraction is
+      // authoritative and the existing undated caps remain in force.
+      date: null,
+      source: hit.source,
+      _pass: hit._pass,
+      query: hit.query,
+    };
+    if (
+      host !== sourceHost ||
+      seen.has(value) ||
+      beatCandidateRejectReason(candidate) !== null
+    ) {
+      continue;
+    }
+    seen.add(value);
+    links.push(candidate);
+    if (links.length >= limit) break;
+  }
+  return links;
+}
+
+function cleanLinkedTitle(value: string): string {
+  return value
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/[*_`#]/g, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
+}
+
 export interface PriorityDomainDiscoveryOpts {
   domains: string[];
   criteria: string | null;
@@ -1061,18 +1187,26 @@ export async function discoverBeatHits(
     };
   }
 
+  const expandedRawHits = expandLinkedArticleCandidates(rawHits);
   const usableRawHits = filterLocationNewsTourism(
-    filterUsableBeatCandidates(rawHits),
+    filterUsableBeatCandidates(expandedRawHits),
     opts,
   );
-  if (usableRawHits.length !== rawHits.length) {
+  if (
+    usableRawHits.length !== rawHits.length ||
+    expandedRawHits.length !== rawHits.length
+  ) {
     logEvent({
       level: "info",
       fn: "beat-pipeline",
       event: "weak_candidates_filtered",
       raw_count: rawHits.length,
+      expanded_count: expandedRawHits.length,
       usable_count: usableRawHits.length,
-      rejected_count: rawHits.length - usableRawHits.length,
+      rejected_count: Math.max(
+        0,
+        expandedRawHits.length - usableRawHits.length,
+      ),
     });
   }
   if (usableRawHits.length === 0) {
