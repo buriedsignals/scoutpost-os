@@ -645,7 +645,7 @@ export async function runSearchesWithMetadata(
   const jobResults = new Array<BeatHit[]>(all.length);
   const runOne = async (job: typeof all[number], jobIndex: number) => {
     try {
-      const searchHits = await firecrawlSearch(job.query, {
+      const searchOpts = {
         limit: searchLimit,
         location: opts.location,
         country: opts.country,
@@ -653,7 +653,23 @@ export async function runSearchesWithMetadata(
         tbs: job.tbs,
         ignoreInvalidURLs: true,
         excludeDomains: opts.excludedDomains,
-      });
+      };
+      let searchHits = await firecrawlSearch(job.query, searchOpts);
+      if (searchHits.length === 0 && job.tbs) {
+        logEvent({
+          level: "info",
+          fn: "beat-pipeline",
+          event: "search_empty_retry_without_tbs",
+          query: job.query,
+          sources: job.sources.join(","),
+          tbs: job.tbs,
+          retrieval: "firecrawl",
+        });
+        searchHits = await firecrawlSearch(job.query, {
+          ...searchOpts,
+          tbs: undefined,
+        });
+      }
       jobResults[jobIndex] = searchHits
         .filter((h) => h.url)
         .map((h) => ({

@@ -329,6 +329,59 @@ Deno.test("runSearches passes Firecrawl location, country, and recency filters",
   }
 });
 
+Deno.test("runSearches retries an empty recency-filtered search without tbs", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<Record<string, unknown>> = [];
+  try {
+    globalThis.fetch = ((_, init) => {
+      const body = (init as { body?: BodyInit | null } | undefined)?.body;
+      const request = JSON.parse(String(body ?? "{}"));
+      requests.push(request);
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              web: request.tbs ? [] : [{
+                title: "Fresh London planning decision",
+                description: "London council approved new homes today",
+                url: "https://example.co.uk/london-planning",
+              }],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+
+    const hits = await runSearches({
+      plan: {
+        primary_language: "en",
+        queries: ["London planning news"],
+        discovery_queries: [],
+        local_domains: [],
+      },
+      location: "London United Kingdom",
+      country: "GB",
+      tbs: "sbd:1,cdr:1,cd_min:7/13/2026,cd_max:7/27/2026",
+    });
+
+    assertEquals(requests.length, 2);
+    assertEquals(
+      requests[0].tbs,
+      "sbd:1,cdr:1,cd_min:7/13/2026,cd_max:7/27/2026",
+    );
+    assertEquals("tbs" in requests[1], false);
+    assertEquals(hits.map((hit) => hit.url), [
+      "https://example.co.uk/london-planning",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Deno.env.delete("FIRECRAWL_API_KEY");
+  }
+});
+
 Deno.test("runSearches dedupes URLs across Firecrawl jobs and preserves the first pass", async () => {
   const originalFetch = globalThis.fetch;
   try {
