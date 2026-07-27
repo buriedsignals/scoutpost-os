@@ -15,6 +15,7 @@ import {
   expandLinkedArticleCandidates,
   filterUsableBeatCandidates,
   getRecencyConfig,
+  renderedArticleCandidates,
   runSearches,
   runSearchesWithMetadata,
   shouldRetrySparseSearch,
@@ -118,6 +119,10 @@ Deno.test("location-only news plans always include generic seeds within the quer
   assertEquals(
     plan.queries[1],
     "local government public services news London United Kingdom",
+  );
+  assertEquals(
+    plan.queries[2],
+    "police crime courts public safety news London United Kingdom",
   );
   assertEquals(new Set(plan.queries).size, plan.queries.length);
 });
@@ -423,6 +428,68 @@ Deno.test("section-page search hits promote bounded same-host article links", ()
         query: "London news",
       },
     ],
+  );
+});
+
+Deno.test("rendered news landing pages promote links absent from search snippets", () => {
+  const links = renderedArticleCandidates(
+    {
+      url: "https://www.bbc.co.uk/news/england/london",
+      title: "London | Latest News & Updates | BBC News",
+      description: "News for London",
+      _pass: "news",
+      query: "latest local news London",
+    },
+    {
+      markdown: [
+        "[Accessibility help](https://www.bbc.co.uk/accessibility/)",
+        "[London weather](https://www.bbc.co.uk/weather/2643743)",
+        "[Tomorrow's London weather](https://www.bbc.co.uk/weather/2643743/day1)",
+        "[Police investigate fire at London flats](/news/articles/cabc123)",
+        "[Council approves new homes](/news/articles/cdef456)",
+        "[UK](https://www.bbc.co.uk/news/uk)",
+        "[External](https://example.com/story)",
+      ].join("\n"),
+    },
+  );
+
+  assertEquals(
+    links.map((hit) => ({
+      url: hit.url,
+      title: hit.title,
+      date: hit.date,
+      pass: hit._pass,
+    })),
+    [
+      {
+        url: "https://www.bbc.co.uk/news/articles/cabc123",
+        title: "Police investigate fire at London flats",
+        date: null,
+        pass: "news",
+      },
+      {
+        url: "https://www.bbc.co.uk/news/articles/cdef456",
+        title: "Council approves new homes",
+        date: null,
+        pass: "news",
+      },
+    ],
+  );
+});
+
+Deno.test("rendered article pages do not promote related links", () => {
+  assertEquals(
+    renderedArticleCandidates(
+      {
+        url: "https://www.bbc.co.uk/news/articles/cabc123",
+        title: "Police investigate fire at London flats",
+      },
+      {
+        markdown:
+          "[Related story](https://www.bbc.co.uk/news/articles/cdef456)",
+      },
+    ),
+    [],
   );
 });
 

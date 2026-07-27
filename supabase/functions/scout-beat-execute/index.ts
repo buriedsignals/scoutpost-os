@@ -45,6 +45,7 @@ import {
   BeatSourceMode,
   discoverBeatHits,
   discoverPriorityDomainHits,
+  renderedArticleCandidates,
   summarizeSearchJobs,
 } from "../_shared/beat_pipeline.ts";
 import {
@@ -604,19 +605,26 @@ async function execute(
     }
 
     // --- Stage 2 continuation: bounded full-markdown scrapes ---
-    const scraped = await mapLimit(
+    const initialScraped = await mapLimit(
       finalUrls,
       CONCURRENCY,
       (url) => scrape(url),
     );
 
-    const succeeded: ScrapeResult[] = [];
     const failures: Array<{ url: string; error: string }> = [];
-    scraped.forEach((r, i) => {
+    const initialByUrl = new Map<string, {
+      hit: BeatHit;
+      scrape: ScrapeResult;
+    }>();
+    initialScraped.forEach((r, i) => {
       if (r.status === "fulfilled") {
         const v = r.value;
         if (v.markdown && v.markdown.trim().length > 0) {
-          succeeded.push(v);
+          const hit = beatHitByUrl.get(finalUrls[i]) ?? {
+            url: finalUrls[i],
+            title: v.title,
+          };
+          initialByUrl.set(finalUrls[i], { hit, scrape: v });
         } else {
           failures.push({ url: finalUrls[i], error: "empty markdown" });
         }
@@ -630,11 +638,76 @@ async function execute(
       }
     });
 
+    // Search snippets can omit the concrete links shown after rendering a news
+    // section. Use that first render as a bounded discovery carrier, then
+    // replace it with article-page scrapes. Explicit direct URLs remain direct
+    // and are never expanded.
+    const expandedHits: BeatHit[] = [];
+    const expandedSeen = new Set<string>();
+    const govDiscoveryUrls = new Set(govBeatHits.map((hit) => hit.url));
+    for (const [url, item] of initialByUrl) {
+      const isDiscovered = beatHitByUrl.has(url);
+      const linked = isDiscovered
+        ? renderedArticleCandidates(item.hit, item.scrape)
+        : [];
+      for (const hit of linked.length > 0 ? linked : [item.hit]) {
+        if (expandedSeen.has(hit.url)) continue;
+        expandedSeen.add(hit.url);
+        expandedHits.push(hit);
+        beatHitByUrl.set(hit.url, hit);
+        if (govDiscoveryUrls.has(url) && hit.url !== url) {
+          govBeatHits.push(hit);
+        }
+      }
+    }
+    const effectiveHits = expandedHits.slice(
+      0,
+      priorityPlan.directUrls.length > 0 && priorityPlan.domains.length === 0
+        ? MAX_SOURCES
+        : DISCOVERY_SOURCE_LIMITS[scope],
+    );
+    const followupHits = effectiveHits.filter((hit) =>
+      !initialByUrl.has(hit.url)
+    );
+    const followupScraped = await mapLimit(
+      followupHits,
+      CONCURRENCY,
+      (hit) => scrape(hit.url),
+    );
+    const followupByUrl = new Map<string, {
+      hit: BeatHit;
+      scrape: ScrapeResult;
+    }>();
+    followupScraped.forEach((r, i) => {
+      const hit = followupHits[i];
+      if (r.status === "fulfilled") {
+        if (r.value.markdown?.trim()) {
+          followupByUrl.set(hit.url, { hit, scrape: r.value });
+        } else {
+          failures.push({ url: hit.url, error: "empty markdown" });
+        }
+      } else {
+        failures.push({
+          url: hit.url,
+          error: r.reason instanceof Error
+            ? r.reason.message
+            : String(r.reason),
+        });
+      }
+    });
+    const effectiveScrapes = effectiveHits.flatMap((hit) => {
+      const item = initialByUrl.get(hit.url) ?? followupByUrl.get(hit.url);
+      return item ? [item] : [];
+    });
+    const succeeded = effectiveScrapes.map((item) => item.scrape);
+    const attemptedScrapeCount = initialScraped.length + followupScraped.length;
+    finalUrls = effectiveScrapes.map((item) => item.hit.url);
+
     // Provider telemetry (audit 2026-07-07): stamp which scraper actually
     // served each URL so beat has the same crawl4ai / anti-bot-fallback
     // visibility as web scouts (it had none before), and the benchmark can
     // assert crawl4ai instead of assuming it.
-    const scrapeServed = scraped.reduce(
+    const scrapeServed = [...initialScraped, ...followupScraped].reduce(
       (acc, r) => {
         if (r.status === "fulfilled") {
           if (r.value.served_by === "crawl4ai") acc.crawl4ai++;
@@ -652,7 +725,7 @@ async function execute(
 
     if (succeeded.length === 0) {
       throw new Error(
-        `all ${finalUrls.length} sources failed: ${
+        `all ${attemptedScrapeCount} sources failed: ${
           failures
             .map((f) => `${f.url} (${f.error})`)
             .slice(0, 3)

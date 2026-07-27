@@ -47,6 +47,7 @@ import {
   countryPrimaryLanguage,
   discoverBeatHits,
   discoverPriorityDomainHits,
+  renderedArticleCandidates,
   summarizeSearchJobs,
 } from "../_shared/beat_pipeline.ts";
 import {
@@ -348,13 +349,76 @@ async function runSearch(
     },
   );
 
-  const scrapedOk: Array<{ hit: BeatHit; scrape: ScrapeResult }> = [];
+  const initialScrapedOk: Array<{ hit: BeatHit; scrape: ScrapeResult }> = [];
   for (let i = 0; i < filteredHits.length; i++) {
     const s = scraped[i];
     if (s && s.markdown && s.markdown.trim().length > 0) {
-      scrapedOk.push({ hit: filteredHits[i], scrape: s });
+      initialScrapedOk.push({ hit: filteredHits[i], scrape: s });
     }
   }
+
+  // A rendered section page can expose fresh article links that Firecrawl's
+  // search snippet omitted. Replace that discovery carrier with a bounded set
+  // of concrete article scrapes so publication dates and source URLs come from
+  // the article itself.
+  const initialByUrl = new Map(
+    initialScrapedOk.map((item) => [item.hit.url, item]),
+  );
+  const expandedHits: BeatHit[] = [];
+  const expandedSeen = new Set<string>();
+  for (const item of initialScrapedOk) {
+    const linked = renderedArticleCandidates(item.hit, item.scrape);
+    for (const hit of linked.length > 0 ? linked : [item.hit]) {
+      if (!expandedSeen.has(hit.url)) {
+        expandedSeen.add(hit.url);
+        expandedHits.push(hit);
+      }
+    }
+  }
+  const effectiveHits = expandedHits.slice(0, MAX_SCRAPES);
+  const followupHits = effectiveHits.filter((hit) =>
+    !initialByUrl.has(hit.url)
+  );
+  const followupScrapes = await mapLimit(
+    followupHits,
+    SCRAPE_CONCURRENCY,
+    async (hit) => {
+      try {
+        return await scrape(hit.url);
+      } catch (e) {
+        logEvent({
+          level: "warn",
+          fn: "beat-search",
+          event: "article_followup_scrape_failed",
+          user_id: user.id,
+          url: hit.url,
+          msg: e instanceof Error ? e.message : String(e),
+        });
+        return null;
+      }
+    },
+  );
+  const followupByUrl = new Map<string, {
+    hit: BeatHit;
+    scrape: ScrapeResult;
+  }>();
+  for (let i = 0; i < followupHits.length; i++) {
+    const s = followupScrapes[i];
+    if (s?.markdown?.trim()) {
+      followupByUrl.set(followupHits[i].url, {
+        hit: followupHits[i],
+        scrape: s,
+      });
+    }
+  }
+  const scrapedOk = effectiveHits.flatMap((hit) => {
+    const item = initialByUrl.get(hit.url) ?? followupByUrl.get(hit.url);
+    return item ? [item] : [];
+  });
+  const attemptedScrapeUrls = [
+    ...filteredHits.map((hit) => hit.url),
+    ...followupHits.map((hit) => hit.url),
+  ];
 
   if (scrapedOk.length === 0) {
     return jsonOk(
@@ -363,7 +427,7 @@ async function runSearch(
         startedAt,
         "Sources could not be read",
         queries,
-        filteredHits.map((h) => h.url),
+        attemptedScrapeUrls,
       ),
     );
   }
@@ -427,7 +491,7 @@ async function runSearch(
       })),
       totalResults: scrapedOk.length,
       search_queries_used: queries,
-      urls_scraped: scrapedOk.map(({ hit }) => hit.url),
+      urls_scraped: attemptedScrapeUrls,
       processing_time_ms: Date.now() - startedAt,
       summary: "",
       response_markdown: "Partial results — LLM extraction failed.",
@@ -544,7 +608,7 @@ async function runSearch(
     articles,
     totalResults: articles.length,
     search_queries_used: queries,
-    urls_scraped: scrapedOk.map(({ hit }) => hit.url),
+    urls_scraped: attemptedScrapeUrls,
     processing_time_ms: Date.now() - startedAt,
     summary: finalSummary,
     response_markdown: finalSummary,

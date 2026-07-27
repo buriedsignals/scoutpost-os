@@ -429,6 +429,10 @@ export function addLocationNewsSeedQueries(
       "local government public services news",
       locationSearchLabel,
     ),
+    ensureBeatLocationSearchLabel(
+      "police crime courts public safety news",
+      locationSearchLabel,
+    ),
   ];
   const queries = [...new Set([...seeds, ...plan.queries].map((q) => q.trim()))]
     .filter(Boolean)
@@ -913,6 +917,44 @@ export function expandLinkedArticleCandidates(hits: BeatHit[]): BeatHit[] {
   return expanded;
 }
 
+/**
+ * Turn a rendered news landing page into concrete article candidates.
+ *
+ * Search snippets do not always include the links visible after rendering.
+ * Keep the search hit for the first fetch, then use its rendered markdown as a
+ * bounded discovery carrier. Article pages are never expanded, so related-link
+ * widgets cannot replace an already-concrete source.
+ */
+export function renderedArticleCandidates(
+  hit: BeatHit,
+  rendered: { title?: string; markdown?: string },
+  limit = 3,
+): BeatHit[] {
+  const carrier = {
+    ...hit,
+    title: rendered.title ?? hit.title,
+    markdown: rendered.markdown ?? hit.markdown,
+  };
+  if (!isLikelyRenderedNewsLanding(carrier)) return [];
+  return extractSameHostArticleLinks(carrier, limit);
+}
+
+function isLikelyRenderedNewsLanding(hit: BeatHit): boolean {
+  const reason = beatCandidateRejectReason(hit);
+  if (reason === "homepage" || reason === "listing_page") return true;
+
+  let segmentCount = Number.POSITIVE_INFINITY;
+  try {
+    segmentCount = new URL(hit.url).pathname.split("/").filter(Boolean).length;
+  } catch {
+    return false;
+  }
+  if (segmentCount > 3) return false;
+
+  const label = `${hit.title ?? ""} ${hit.description ?? ""}`.toLowerCase();
+  return /\b(latest news|news (?:and|&) updates|breaking news)\b/.test(label);
+}
+
 function hasShortSectionPath(value: string): boolean {
   try {
     const segments = new URL(value).pathname.split("/").filter(Boolean);
@@ -937,10 +979,12 @@ function extractSameHostArticleLinks(hit: BeatHit, limit: number): BeatHit[] {
     return [];
   }
   const sourceHost = source.hostname.toLowerCase().replace(/^www\./, "");
-  const links: BeatHit[] = [];
+  source.hash = "";
+  const sourceUrl = source.toString();
+  const links: Array<{ hit: BeatHit; score: number; index: number }> = [];
   const seen = new Set<string>();
-  const markdownLink =
-    /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)(?:\s+["'][^)]*)?\)/g;
+  const markdownLink = /\[([^\]\n]+)\]\(([^)\s]+)(?:\s+["'][^)]*)?\)/g;
+  let index = 0;
   for (const match of text.matchAll(markdownLink)) {
     const title = cleanLinkedTitle(match[1]);
     if (
@@ -952,13 +996,14 @@ function extractSameHostArticleLinks(hit: BeatHit, limit: number): BeatHit[] {
     }
     let url: URL;
     try {
-      url = new URL(match[2]);
+      url = new URL(match[2], source);
     } catch {
       continue;
     }
     const host = url.hostname.toLowerCase().replace(/^www\./, "");
     url.hash = "";
     const value = url.toString();
+    const score = linkedArticleScore(url, title);
     const candidate: BeatHit = {
       url: value,
       title,
@@ -973,16 +1018,56 @@ function extractSameHostArticleLinks(hit: BeatHit, limit: number): BeatHit[] {
     };
     if (
       host !== sourceHost ||
+      value === sourceUrl ||
       seen.has(value) ||
+      score < 3 ||
       beatCandidateRejectReason(candidate) !== null
     ) {
       continue;
     }
     seen.add(value);
-    links.push(candidate);
-    if (links.length >= limit) break;
+    links.push({ hit: candidate, score, index: index++ });
   }
-  return links;
+  return links
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, limit)
+    .map((item) => item.hit);
+}
+
+function linkedArticleScore(url: URL, title: string): number {
+  const path = url.pathname.toLowerCase().replace(/\/+$/, "");
+  const segments = path.split("/").filter(Boolean);
+  if (
+    segments.some((segment) =>
+      [
+        "accessibility",
+        "audio",
+        "iplayer",
+        "live",
+        "sport",
+        "sports",
+        "video",
+        "weather",
+      ].includes(segment)
+    )
+  ) {
+    return 0;
+  }
+
+  let score = 0;
+  if (/\/(?:articles?|stories)\//.test(path)) score += 6;
+  if (/\/20\d{2}\/(?:0?[1-9]|1[0-2])(?:\/|-\d{2}\b)/.test(path)) score += 5;
+  if (/\.(?:html?|shtml)$/.test(path)) score += 4;
+  const leaf = segments.at(-1) ?? "";
+  if (leaf.length >= 20 && leaf.includes("-")) score += 3;
+  if (segments.length >= 3) score += 2;
+  if (
+    /\b(council|court|fire|government|health|hospital|mayor|police|school|transport)\b/i
+      .test(title)
+  ) {
+    score += 1;
+  }
+  return score;
 }
 
 function cleanLinkedTitle(value: string): string {
