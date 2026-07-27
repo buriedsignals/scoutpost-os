@@ -664,6 +664,21 @@ Deno.test("performArchiveCapture: capture-fetch failure degrades to markdown_onl
   assertStringIncludes(out.status, "degraded:antibot");
 });
 
+Deno.test("performArchiveCapture: scrape capacity rejection still stores markdown_only", async () => {
+  const { svc, rows } = fakeSvc();
+  const detection = baseResult({ served_by: "crawl4ai" });
+  const out = await performArchiveCapture(svc, ctx(), detection, {
+    scrapeImpl: (() =>
+      Promise.reject(
+        new Error("crawl4ai scrape failed: 503 scrape capacity exhausted"),
+      )) as unknown as typeof import("./scrape.ts").scrape,
+  });
+  assertEquals(out.fidelity, "markdown_only");
+  assertStringIncludes(out.status, "degraded:capture_fetch");
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].fidelity, "markdown_only");
+});
+
 Deno.test("PA-CHILD-001 performArchiveCapture: child capture redirect outside scope stores only validated detection markdown", async () => {
   const { svc, rows } = fakeSvc();
   const detection = baseResult({

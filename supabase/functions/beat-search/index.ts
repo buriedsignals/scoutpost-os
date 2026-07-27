@@ -80,7 +80,8 @@ const InputSchema = z.object({
 });
 
 const MAX_SCRAPES = 8;
-const SCRAPE_CONCURRENCY = 4;
+// Keep preview bursts within the renderer's two ordinary admission slots.
+const SCRAPE_CONCURRENCY = 2;
 const MARKDOWN_PER_HIT = 6_000;
 const PROMPT_MAX = 40_000;
 const MAX_ARTICLES_OUT = 12;

@@ -1,3 +1,7 @@
+import asyncio
+
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from app import pdfparse
@@ -150,6 +154,119 @@ def test_docs_surfaces_disabled(app):
     client = TestClient(app)
     for path in ("/docs", "/redoc", "/openapi.json"):
         assert client.get(path).status_code == 404, path
+
+
+class BlockingScraper(FakeScraper):
+    def __init__(self) -> None:
+        super().__init__(result=crawl_result())
+        self.started = 0
+        self.release_event = asyncio.Event()
+
+    async def run(self, url: str, timeout_ms: int, snapshot: bool = False):
+        self.calls.append((url, timeout_ms))
+        self.snapshot_flags.append(snapshot)
+        self.started += 1
+        await self.release_event.wait()
+        return self.result
+
+
+async def wait_until_started(scraper: BlockingScraper, count: int) -> None:
+    async def wait() -> None:
+        while scraper.started < count:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(wait(), timeout=0.5)
+
+
+def scrape_request(
+    client: httpx.AsyncClient,
+    suffix: str,
+    *,
+    snapshot: bool = False,
+):
+    return client.post(
+        "/scrape",
+        json={
+            "url": f"https://example.org/{suffix}",
+            "snapshot": snapshot,
+        },
+        headers=auth_headers(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_scrape_sheds_excess_ordinary_work_and_keeps_health_responsive(app):
+    """A Beat burst must not create an unbounded queue behind two browser slots."""
+    blocker = BlockingScraper()
+    app.state.scraper = blocker
+    transport = httpx.ASGITransport(app=app)
+    requests: list[asyncio.Task[httpx.Response]] = []
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        try:
+            for suffix in ("a", "b"):
+                requests.append(
+                    asyncio.create_task(scrape_request(client, suffix))
+                )
+            await wait_until_started(blocker, 2)
+
+            health = await asyncio.wait_for(
+                client.get("/health"), timeout=0.5
+            )
+            assert health.status_code == 200
+
+            excess = await asyncio.wait_for(
+                scrape_request(client, "excess"),
+                timeout=0.5,
+            )
+            assert excess.status_code == 503
+            assert excess.headers["retry-after"] == "1"
+            assert blocker.started == 2
+        finally:
+            blocker.release_event.set()
+            if requests:
+                responses = await asyncio.gather(*requests)
+                assert all(response.status_code == 200 for response in responses)
+
+
+@pytest.mark.asyncio
+async def test_scrape_sheds_parallel_snapshot_capture_without_blocking_ordinary_slot(app):
+    """Archive batches degrade excess captures instead of monopolizing ingress."""
+    blocker = BlockingScraper()
+    app.state.scraper = blocker
+    transport = httpx.ASGITransport(app=app)
+    requests: list[asyncio.Task[httpx.Response]] = []
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        try:
+            requests.append(
+                asyncio.create_task(
+                    scrape_request(client, "archive-a", snapshot=True)
+                )
+            )
+            await wait_until_started(blocker, 1)
+
+            excess = await asyncio.wait_for(
+                scrape_request(client, "archive-b", snapshot=True),
+                timeout=0.5,
+            )
+            assert excess.status_code == 503
+
+            ordinary = asyncio.create_task(
+                scrape_request(client, "page")
+            )
+            requests.append(ordinary)
+            await wait_until_started(blocker, 2)
+            assert blocker.snapshot_flags == [True, False]
+        finally:
+            blocker.release_event.set()
+            if requests:
+                responses = await asyncio.gather(*requests)
+                assert all(response.status_code == 200 for response in responses)
 
 
 # --- PAGE-ARCHIVE-PRD U1: inline snapshot capture ---------------------------

@@ -97,7 +97,10 @@ const InputSchema = z.object({
 });
 
 const MAX_SOURCES = 20;
-const CONCURRENCY = 5;
+// The self-hosted renderer has two ordinary browser slots. Matching that
+// capacity avoids creating 125-second queues inside one Beat invocation; the
+// scrape service still sheds cross-scout bursts as a final safety boundary.
+const CONCURRENCY = 2;
 const RAW_CAPTURE_TTL_DAYS = 30;
 const DISCOVERY_SOURCE_LIMITS: Record<BeatScope, number> = {
   // Match topic coverage while keeping location extraction at two units/source.
@@ -872,7 +875,7 @@ async function execute(
       });
     }
 
-    // --- Stage 2 continuation: parallel full-markdown scrapes (concurrency 5) ---
+    // --- Stage 2 continuation: bounded full-markdown scrapes ---
     const scraped = await mapLimit(
       finalUrls,
       CONCURRENCY,

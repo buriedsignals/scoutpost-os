@@ -66,6 +66,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = resolved
     app.state.scraper = Scraper(pool_size=resolved.browser_pool_size)
+    # Bound ingress separately from the crawler's internal browser semaphore.
+    # Excess work previously waited behind the two browser slots until callers
+    # disconnected. Snapshot capture gets an independent single admission slot
+    # so an archive batch cannot consume ordinary scrape capacity.
+    app.state.scrape_slots = asyncio.Semaphore(resolved.browser_pool_size)
+    app.state.snapshot_slot = asyncio.Semaphore(1)
     # Browser-grade UA: council/document hosts 403 library-default agents
     # (observed on the U1 smoke). Firecrawl's fetcher presented a browser UA,
     # so this is behavioral parity for the PDF download path.
@@ -115,34 +121,60 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def scrape(body: ScrapeBody, request: Request):
         assert_http_url(body.url)
         cfg: Settings = request.app.state.settings
-        # SSRF guard (parity with /parse): a snapshot capture durably stores the
-        # fetched bytes behind a signed URL, so an internal-network target would
-        # become a persistent exfiltration channel. Only guards the initial URL
-        # (the browser follows redirects itself) — defense-in-depth, the bearer
-        # token is the primary control. Opt out via SCRAPE_ALLOW_PRIVATE_ADDRESSES.
-        if cfg.block_private_addresses:
-            try:
-                assert_public_host(body.url)
-            except PrivateAddressError:
-                raise HTTPException(status_code=422, detail={"error": "private_address"})
-            except PdfDownloadError as e:
-                # Reused resolver raises this class when the host won't resolve.
-                raise HTTPException(status_code=422, detail=f"cannot resolve host: {e}")
-        timeout_ms = body.timeout_ms or cfg.default_scrape_timeout_ms
+        slots: asyncio.Semaphore = (
+            request.app.state.snapshot_slot
+            if body.snapshot
+            else request.app.state.scrape_slots
+        )
         try:
-            result = await asyncio.wait_for(
-                request.app.state.scraper.run(
-                    body.url, timeout_ms=timeout_ms, snapshot=body.snapshot,
-                ),
-                # Snapshot fetches budget for crawl4ai's separately-timed
-                # capture phases (scan wait_for + MHTML readiness waits +
-                # screenshot compositor) — see scrape_fuse_seconds.
-                timeout=scrape_fuse_seconds(timeout_ms, body.snapshot),
-            )
+            await asyncio.wait_for(slots.acquire(), timeout=0.1)
         except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail=f"scrape timed out after {timeout_ms}ms")
-        except Exception as e:  # crawl4ai raises library-specific errors
-            raise HTTPException(status_code=502, detail=f"scrape failed: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail="scrape capacity exhausted",
+                headers={"Retry-After": "1"},
+            )
+        try:
+            # SSRF guard (parity with /parse): a snapshot capture durably stores
+            # fetched bytes behind a signed URL, so an internal target would
+            # become a persistent exfiltration channel. DNS resolution is
+            # synchronous, so keep it off the health endpoint's event loop.
+            if cfg.block_private_addresses:
+                try:
+                    await asyncio.to_thread(assert_public_host, body.url)
+                except PrivateAddressError:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"error": "private_address"},
+                    )
+                except PdfDownloadError as e:
+                    # Reused resolver raises this when the host will not resolve.
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"cannot resolve host: {e}",
+                    )
+            timeout_ms = body.timeout_ms or cfg.default_scrape_timeout_ms
+            try:
+                result = await asyncio.wait_for(
+                    request.app.state.scraper.run(
+                        body.url,
+                        timeout_ms=timeout_ms,
+                        snapshot=body.snapshot,
+                    ),
+                    # Snapshot fetches budget for crawl4ai's separately-timed
+                    # capture phases (scan wait_for + MHTML readiness waits +
+                    # screenshot compositor) — see scrape_fuse_seconds.
+                    timeout=scrape_fuse_seconds(timeout_ms, body.snapshot),
+                )
+            except asyncio.TimeoutError:
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"scrape timed out after {timeout_ms}ms",
+                )
+            except Exception as e:  # crawl4ai raises library-specific errors
+                raise HTTPException(status_code=502, detail=f"scrape failed: {e}")
+        finally:
+            slots.release()
         if not getattr(result, "success", False):
             raise HTTPException(status_code=502, detail=f"scrape failed: {crawl_failure_detail(result)}")
         try:
