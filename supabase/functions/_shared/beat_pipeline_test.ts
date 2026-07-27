@@ -61,7 +61,14 @@ Deno.test("buildGenerateQueriesPrompt keeps location-scoped topic scouts local",
 Deno.test("ensureBeatLocationSearchLabel appends ambiguous city disambiguator", () => {
   assertEquals(
     ensureBeatLocationSearchLabel("housing policy London", "London Ontario"),
-    'housing policy London "London Ontario"',
+    "housing policy London Ontario",
+  );
+  assertEquals(
+    ensureBeatLocationSearchLabel(
+      'housing policy "London Ontario"',
+      "London Ontario",
+    ),
+    "housing policy London Ontario",
   );
   assertEquals(
     ensureBeatLocationSearchLabel(
@@ -104,10 +111,10 @@ Deno.test("location-only news plans always include generic seeds within the quer
   );
 
   assertEquals(plan.queries.length, 3);
-  assertEquals(plan.queries[0], 'latest local news "London United Kingdom"');
+  assertEquals(plan.queries[0], "latest local news London United Kingdom");
   assertEquals(
     plan.queries[1],
-    'local government public services news "London United Kingdom"',
+    "local government public services news London United Kingdom",
   );
   assertEquals(new Set(plan.queries).size, plan.queries.length);
 });

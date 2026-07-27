@@ -443,9 +443,21 @@ export function ensureBeatLocationSearchLabel(
   const trimmed = query.trim();
   const label = locationSearchLabel?.trim();
   if (!label) return trimmed;
-  if (queryContainsLocationLabel(trimmed, label)) return trimmed;
-  const quoted = `"${label.replace(/"/g, "")}"`;
-  return trimmed ? `${trimmed} ${quoted}` : quoted;
+  const unquoted = removeExactLocationQuotes(trimmed, label);
+  if (queryContainsLocationLabel(unquoted, label)) return unquoted;
+  const present = new Set(tokenizeSearchText(unquoted));
+  const missing = label.split(/\s+/).filter((part) =>
+    tokenizeSearchText(part).some((token) => !present.has(token))
+  );
+  return unquoted ? `${unquoted} ${missing.join(" ")}`.trim() : label;
+}
+
+function removeExactLocationQuotes(query: string, label: string): string {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return query.replace(
+    new RegExp(`(?:["“”']${escaped}["“”'])`, "giu"),
+    label,
+  );
 }
 
 function enforceLocationScopeOnQueryPlan(
