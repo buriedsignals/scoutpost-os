@@ -37,6 +37,30 @@
 
 ---
 
+## Supabase CLI Authentication - IMPORTANT
+
+The Supabase CLI is already authenticated in the macOS host environment and
+the production Scoutpost project is linked. Sandboxed commands cannot access
+that host credential and may incorrectly report:
+
+```text
+Access token not provided. Supply an access token by running supabase login...
+```
+
+When that exact error appears, rerun the same Supabase command with host
+permission. Do **not** run `supabase login`, ask Tom for a token or verification
+code, or search for a plaintext credential. Confirm host authentication
+read-only with:
+
+```bash
+supabase projects list --output json
+```
+
+Authenticated Supabase operations such as `projects list`, `functions deploy`,
+and benchmark environment discovery should use host permission from the start.
+
+---
+
 ## Node Version - IMPORTANT
 
 **This project requires Node 22 LTS.** The Dockerfile and `frontend/.nvmrc` are pinned to Node 22. Using a different major version (especially Node 25+ with npm 11) will generate an incompatible `package-lock.json` that breaks the Render build (`npm ci` fails). Always run `nvm use` in `frontend/` before `npm install`.
