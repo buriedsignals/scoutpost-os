@@ -76,7 +76,8 @@ Supabase function secrets:
 
 ```bash
 scripts/benchmarks/with-linked-supabase-env.sh \
-  deno run --allow-env --allow-net --allow-read=. scripts/benchmarks/benchmark-beat.ts
+  deno run --allow-env --allow-net --allow-read=. \
+  --allow-write=scripts/reports scripts/benchmarks/benchmark-beat.ts
 ```
 
 The launcher discovers the linked Supabase project via `supabase projects list`

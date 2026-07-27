@@ -732,7 +732,11 @@ const LISTING_PATH_SEGMENTS = new Set([
   "authors",
   "category",
   "categorie",
+  "career",
+  "careers",
   "kategorie",
+  "job",
+  "jobs",
   "page",
   "search",
   "seite",
@@ -740,6 +744,8 @@ const LISTING_PATH_SEGMENTS = new Set([
   "tags",
   "topic",
   "topics",
+  "vacancies",
+  "vacancy",
 ]);
 
 const LISTING_PATH_SUFFIXES = [

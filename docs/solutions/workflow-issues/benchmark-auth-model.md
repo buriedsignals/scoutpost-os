@@ -71,7 +71,7 @@ matrix:
     - name: page
       command: deno run --allow-env --allow-net --allow-read=. scripts/benchmarks/benchmark-web.ts
     - name: beat
-      command: deno run --allow-env --allow-net --allow-read=. scripts/benchmarks/benchmark-beat.ts
+      command: deno run --allow-env --allow-net --allow-read=. --allow-write=scripts/reports scripts/benchmarks/benchmark-beat.ts
     - name: civic
       command: deno run --allow-env --allow-net --allow-read=. --allow-write=scripts/reports scripts/benchmarks/benchmark-civic.ts
     - name: social

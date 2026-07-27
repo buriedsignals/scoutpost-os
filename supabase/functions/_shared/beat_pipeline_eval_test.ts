@@ -25,6 +25,13 @@ Deno.test("beat eval: rejects weak global topic retrieval URLs before scraping",
     ],
     [
       hit(
+        "https://jobs.arup.com/jobs/senior-principal-transport-planner-33743",
+        "Senior - Principal Transport Planner",
+      ),
+      "listing_page",
+    ],
+    [
+      hit(
         "https://example.com/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1",
       ),
       "browser_challenge",

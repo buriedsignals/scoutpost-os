@@ -298,15 +298,18 @@ and canonical-unit merge data through `_shared/unit_dedup.ts`.
 Run the Supabase-era Beat health benchmark to exercise the real discovery path:
 
 ```bash
-deno run --allow-env --allow-net --allow-read=. scripts/benchmarks/benchmark-beat.ts
-deno run --allow-env --allow-net --allow-read=. scripts/benchmarks/benchmark-beat.ts --scout-id <existing-beat-scout-uuid>
-deno run --allow-env --allow-net --allow-read=. scripts/benchmarks/benchmark-beat.ts --timeout-min 8
-deno run --allow-env --allow-net --allow-read=. scripts/benchmarks/benchmark-beat.ts --scenario ai-journalism --timeout-min 10 --verbose
+deno run --allow-env --allow-net --allow-read=. --allow-write=scripts/reports scripts/benchmarks/benchmark-beat.ts
+deno run --allow-env --allow-net --allow-read=. --allow-write=scripts/reports scripts/benchmarks/benchmark-beat.ts --scout-id <existing-beat-scout-uuid>
+deno run --allow-env --allow-net --allow-read=. --allow-write=scripts/reports scripts/benchmarks/benchmark-beat.ts --timeout-min 8
+deno run --allow-env --allow-net --allow-read=. --allow-write=scripts/reports scripts/benchmarks/benchmark-beat.ts --scenario ai-journalism --timeout-min 10 --verbose
 ```
 
-The default run checks the first two fixed canaries through both preview search
-and scheduled execution. Set `SCOUT_FULL_BEAT_BENCHMARK=1` to run all eight,
-including the priority-domain canary.
+The default run checks the first two fixed canaries through preview search, the
+full silent baseline execution, and a user-authenticated Run Now execution. A
+quiet zero on the immediate Run Now is valid when the baseline already observed
+the same stable URLs; relevance and source-link gates use units from both runs.
+Set `SCOUT_FULL_BEAT_BENCHMARK=1` to run all eight, including the
+priority-domain canary.
 Each canary runs once: zero-result, timeout, provider-path, and semantic-drift
 failures remain visible instead of being hidden by a retry.
 `--scout-id` replays one existing Beat scout configuration on a temporary
