@@ -17,6 +17,7 @@ import {
   getRecencyConfig,
   runSearches,
   runSearchesWithMetadata,
+  shouldRetrySparseSearch,
   summarizeSearchJobs,
 } from "./beat_pipeline.ts";
 
@@ -422,6 +423,40 @@ Deno.test("section-page search hits promote bounded same-host article links", ()
         query: "London news",
       },
     ],
+  );
+});
+
+Deno.test("sparse usable search results trigger one relaxed recall pass", () => {
+  assertEquals(
+    shouldRetrySparseSearch({
+      usableCount: 2,
+      tbs: "qdr:w",
+      allErrored: false,
+    }),
+    true,
+  );
+  assertEquals(
+    shouldRetrySparseSearch({
+      usableCount: 3,
+      tbs: "qdr:w",
+      allErrored: false,
+    }),
+    false,
+  );
+  assertEquals(
+    shouldRetrySparseSearch({
+      usableCount: 0,
+      allErrored: false,
+    }),
+    false,
+  );
+  assertEquals(
+    shouldRetrySparseSearch({
+      usableCount: 0,
+      tbs: "qdr:w",
+      allErrored: true,
+    }),
+    false,
   );
 });
 

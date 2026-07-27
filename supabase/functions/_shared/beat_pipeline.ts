@@ -601,6 +601,17 @@ export function summarizeSearchJobs(
 }
 
 type FirecrawlSearchSource = "web" | "news";
+const MIN_USABLE_CANDIDATES_BEFORE_RELAXED_SEARCH = 3;
+
+export function shouldRetrySparseSearch(opts: {
+  usableCount: number;
+  tbs?: string;
+  allErrored: boolean;
+}): boolean {
+  return opts.usableCount < MIN_USABLE_CANDIDATES_BEFORE_RELAXED_SEARCH &&
+    Boolean(opts.tbs) &&
+    !opts.allErrored;
+}
 
 interface SearchJob {
   query: string;
@@ -1153,7 +1164,7 @@ export async function discoverBeatHits(
   }
 
   const recency = getRecencyConfig(opts.scope, opts.category, opts.sourceMode);
-  const searchResult = await runSearchesWithMetadata({
+  const searchOpts: SearchOpts = {
     plan,
     location: buildBeatLocationSearchLabel({
       city: opts.city,
@@ -1167,12 +1178,13 @@ export async function discoverBeatHits(
     tbs: buildFirecrawlRecencyTbs(
       Math.max(recency.news_days, recency.discovery_days),
     ),
-  });
-  const rawHits = searchResult.hits;
+  };
+  let searchResult = await runSearchesWithMetadata(searchOpts);
+  let rawHits = searchResult.hits;
   // A total provider failure (every job threw) is distinct from a quiet day.
-  const searchErrored = searchResult.jobsAttempted > 0 &&
+  let searchErrored = searchResult.jobsAttempted > 0 &&
     searchResult.jobsErrored === searchResult.jobsAttempted;
-  const searchStats = {
+  let searchStats = {
     jobsAttempted: searchResult.jobsAttempted,
     jobsErrored: searchResult.jobsErrored,
   };
@@ -1187,11 +1199,48 @@ export async function discoverBeatHits(
     };
   }
 
-  const expandedRawHits = expandLinkedArticleCandidates(rawHits);
-  const usableRawHits = filterLocationNewsTourism(
+  let expandedRawHits = expandLinkedArticleCandidates(rawHits);
+  let usableRawHits = filterLocationNewsTourism(
     filterUsableBeatCandidates(expandedRawHits),
     opts,
   );
+  if (
+    shouldRetrySparseSearch({
+      usableCount: usableRawHits.length,
+      tbs: searchOpts.tbs,
+      allErrored: searchErrored,
+    })
+  ) {
+    logEvent({
+      level: "info",
+      fn: "beat-pipeline",
+      event: "search_sparse_retry_without_tbs",
+      usable_count: usableRawHits.length,
+      minimum_count: MIN_USABLE_CANDIDATES_BEFORE_RELAXED_SEARCH,
+      retrieval: "firecrawl",
+    });
+    const relaxed = await runSearchesWithMetadata({
+      ...searchOpts,
+      tbs: undefined,
+    });
+    searchResult = {
+      hits: mergeBeatHits(rawHits, relaxed.hits),
+      jobsAttempted: searchResult.jobsAttempted + relaxed.jobsAttempted,
+      jobsErrored: searchResult.jobsErrored + relaxed.jobsErrored,
+    };
+    rawHits = searchResult.hits;
+    searchErrored = searchResult.jobsAttempted > 0 &&
+      searchResult.jobsErrored === searchResult.jobsAttempted;
+    searchStats = {
+      jobsAttempted: searchResult.jobsAttempted,
+      jobsErrored: searchResult.jobsErrored,
+    };
+    expandedRawHits = expandLinkedArticleCandidates(rawHits);
+    usableRawHits = filterLocationNewsTourism(
+      filterUsableBeatCandidates(expandedRawHits),
+      opts,
+    );
+  }
   if (
     usableRawHits.length !== rawHits.length ||
     expandedRawHits.length !== rawHits.length
@@ -1262,6 +1311,17 @@ export async function discoverBeatHits(
   });
 
   return { hits, plan, rawHits, queriesUsed, ...searchStats };
+}
+
+function mergeBeatHits(primary: BeatHit[], fallback: BeatHit[]): BeatHit[] {
+  const merged: BeatHit[] = [];
+  const seen = new Set<string>();
+  for (const hit of [...primary, ...fallback]) {
+    if (!hit.url || seen.has(hit.url)) continue;
+    seen.add(hit.url);
+    merged.push(hit);
+  }
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
