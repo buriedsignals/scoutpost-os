@@ -133,9 +133,13 @@ sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" docs/architect
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" AGENTS.md
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" CLAUDE.md
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" docs/architecture/developer-guide.md
-sed_if_exists -i "/hosted AI Lab subscribers/,+4d" backend/app/config.py
+sed_if_exists -i "/^DEFAULT_BEEHIIV_LAB_TIER_ID = /d" backend/app/config.py
+sed_if_exists -i "/^    # Beehiiv \\/ Indicator entitlement lookup/,+8d" backend/app/config.py
 sed_if_exists -i "s|, apply hosted entitlements including ${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER_TITLE} AI Lab Pro||" docs/architecture/fastapi-endpoints.md
 rm -f supabase/migrations/00065_indicator_claims.sql
+rm -f supabase/migrations/00108_indicator_access_window.sql
+rm -f supabase/tests/indicator_access_window.sql
+rm -f docs/operations/indicator-access-window.md
 
 # -------------------------------------------------------------------
 # CI/CD: remove workflows that reference the dev repo
@@ -281,6 +285,51 @@ def rewrite(path: str, replacements: list[tuple[str, str, int]]) -> None:
     for pattern, repl, flags in replacements:
         src = re.sub(pattern, repl, src, flags=flags)
     p.write_text(src)
+
+rewrite(
+    "supabase/functions/_shared/auth.ts",
+    [
+        (
+            r'import \{ AdmissionError, AuthError \} from "\./errors\.ts";',
+            'import { AuthError } from "./errors.ts";',
+            0,
+        ),
+        (r"\n  await requireCurrentIndicatorAccess\(user\.id\);", "", 0),
+        (
+            r"\nexport async function requireCurrentIndicatorAccess\(.*?^\}\n",
+            "\n",
+            re.DOTALL | re.MULTILINE,
+        ),
+    ],
+)
+
+rewrite(
+    "supabase/functions/_shared/auth_test.ts",
+    [
+        (
+            r"import \{\n  assertEquals,\n  assertRejects,\n  assertThrows,\n\}",
+            "import {\n  assertEquals,\n  assertThrows,\n}",
+            0,
+        ),
+        (
+            r'import type \{ SupabaseClient \} from "https://esm\.sh/@supabase/supabase-js@2";\n',
+            "",
+            0,
+        ),
+        (r"\n  requireCurrentIndicatorAccess,", "", 0),
+        (
+            r'import \{ AdmissionError, AuthError \} from "\./errors\.ts";',
+            'import { AuthError } from "./errors.ts";',
+            0,
+        ),
+        (r'\n  "BEEHIIV_PUBLICATION_ID",', "", 0),
+        (
+            r'\nDeno\.test\("Indicator access check denies.*?^async function withAsyncEnv\(.*?^\}\n',
+            "\n",
+            re.DOTALL | re.MULTILINE,
+        ),
+    ],
+)
 
 
 rewrite(

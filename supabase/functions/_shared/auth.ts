@@ -33,7 +33,7 @@ export interface AuthedUser {
   apiKeyName?: string;
 }
 
-export async function requireUser(req: Request): Promise<AuthedUser> {
+export async function requireIdentity(req: Request): Promise<AuthedUser> {
   const header = req.headers.get("authorization") ??
     req.headers.get("Authorization");
   if (!header || !header.toLowerCase().startsWith("bearer ")) {
@@ -60,10 +60,17 @@ export async function requireUser(req: Request): Promise<AuthedUser> {
   };
 }
 
+export async function requireUser(req: Request): Promise<AuthedUser> {
+  const user = await requireIdentity(req);
+  return user;
+}
+
 /** Like requireUser, but also accepts `Authorization: Bearer cj_<key>`
  *  agent API keys validated via the validate_api_key RPC. Use this on
  *  read-only public routes that agents (CLI, MCP, third-party) need. */
-export async function requireUserOrApiKey(req: Request): Promise<AuthedUser> {
+export async function requireIdentityOrApiKey(
+  req: Request,
+): Promise<AuthedUser> {
   const forwardedApiKey = req.headers.get("x-cojo-api-key") ??
     req.headers.get("X-Cojo-Api-Key");
   const header = req.headers.get("authorization") ??
@@ -97,8 +104,14 @@ export async function requireUserOrApiKey(req: Request): Promise<AuthedUser> {
   }
 
   // Fall through to session-JWT path.
-  return requireUser(req);
+  return requireIdentity(req);
 }
+
+export async function requireUserOrApiKey(req: Request): Promise<AuthedUser> {
+  const user = await requireIdentityOrApiKey(req);
+  return user;
+}
+
 
 /** Returns a Supabase client scoped to the caller. For session auth this is
  *  the user-JWT client (RLS-enforced). For API-key auth there's no JWT, so

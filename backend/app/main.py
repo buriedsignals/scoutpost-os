@@ -318,6 +318,11 @@ async def add_security_headers(request: Request, call_next):
     if "text/html" in content_type:
         script_src = ["'self'", "'unsafe-inline'"]
         style_src = ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"]
+        frame_src = (
+            ["https://www.youtube-nocookie.com"]
+            if request.url.path == "/login"
+            else ["'none'"]
+        )
         if request.url.path == "/swagger" or request.url.path.startswith("/swagger/"):
             script_src.append("https://unpkg.com")
             style_src.append("https://unpkg.com")
@@ -328,7 +333,7 @@ async def add_security_headers(request: Request, call_next):
             "img-src 'self' https: data:; "
             "font-src 'self' https://fonts.gstatic.com; "
             "connect-src 'self' https://*.maptiler.com https://*.supabase.co; "
-            "frame-src 'none'"
+            f"frame-src {' '.join(frame_src)}"
         )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"

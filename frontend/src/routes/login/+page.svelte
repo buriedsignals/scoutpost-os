@@ -285,17 +285,22 @@
 				<hr class="works-with-divider" />
 				<div class="works-with">
 					<span class="works-with-label">Works with</span>
+					<!-- Marketing surface names; setup recipes retain client-specific labels. -->
 					<span class="agent-pill">
 						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
 						Claude Code
 					</span>
 					<span class="agent-pill">
 						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .962L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
-						Claude Cowork
+						Claude Desktop
 					</span>
 					<span class="agent-pill">
 						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-						Codex
+						ChatGPT Desktop
+					</span>
+					<span class="agent-pill">
+						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/><circle cx="18" cy="7" r="3"/></svg>
+						OpenCode
 					</span>
 					<span class="agent-pill">
 						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3L9.5 9.5 3 12l6.5 2.5L12 21l2.5-6.5L21 12l-6.5-2.5z"/></svg>
@@ -310,6 +315,20 @@
 						API
 					</span>
 				</div>
+
+				<section class="demo-section" aria-labelledby="product-demo-heading">
+					<p id="product-demo-heading" class="section-eyebrow">See Scoutpost in action</p>
+					<div class="demo-video-frame">
+						<iframe
+							src="https://www.youtube-nocookie.com/embed/SzRd9R4_fs8?rel=0"
+							title="Scoutpost product demo"
+							loading="lazy"
+							referrerpolicy="strict-origin-when-cross-origin"
+							allow="encrypted-media; picture-in-picture"
+							allowfullscreen
+						></iframe>
+					</div>
+				</section>
 
 				<div class="section-eyebrow section-eyebrow-first">How it works</div>
 				<div class="feature-list">
@@ -1165,6 +1184,31 @@
 	.agent-pill svg {
 		color: var(--color-primary);
 		flex-shrink: 0;
+	}
+
+	.demo-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.demo-section .section-eyebrow {
+		margin-bottom: 0;
+	}
+
+	.demo-video-frame {
+		aspect-ratio: 16 / 9;
+		width: 100%;
+		overflow: hidden;
+		background: var(--color-ink);
+		border: 1px solid var(--color-border-strong);
+	}
+
+	.demo-video-frame iframe {
+		display: block;
+		width: 100%;
+		height: 100%;
+		border: 0;
 	}
 
 	.description-block {

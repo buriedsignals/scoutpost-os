@@ -24,6 +24,13 @@ export class AuthError extends ApiError {
   }
 }
 
+export class AdmissionError extends ApiError {
+  constructor(message = "Indicator access has expired") {
+    super(message, 403, "indicator_access_required");
+    this.name = "AdmissionError";
+  }
+}
+
 export class NotFoundError extends ApiError {
   constructor(resource: string) {
     super(`${resource} not found`, 404, "not_found");

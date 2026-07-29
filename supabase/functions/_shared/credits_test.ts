@@ -1,5 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals.ts";
+import { assertRejects } from "https://deno.land/std@0.224.0/assert/assert_rejects.ts";
 import { decrementOrThrow } from "./credits.ts";
+import { AdmissionError } from "./errors.ts";
 
 function restoreEnv(name: string, value: string | undefined) {
   if (value === undefined) Deno.env.delete(name);
@@ -29,6 +31,34 @@ Deno.test("decrementOrThrow no-ops unless credits are explicitly enabled", async
   assertEquals(result.owner, "user");
   assertEquals(result.balance, Number.MAX_SAFE_INTEGER);
   restoreEnv("COJO_CREDITS_ENABLED", prior);
+});
+
+Deno.test("decrementOrThrow maps expired Indicator access to 403", async () => {
+  const prior = Deno.env.get("COJO_CREDITS_ENABLED");
+  Deno.env.set("COJO_CREDITS_ENABLED", "true");
+  const client = {
+    rpc() {
+      return Promise.resolve({
+        data: null,
+        error: { code: "P0003", message: "indicator_access_expired" },
+      });
+    },
+  };
+  try {
+    await assertRejects(
+      () =>
+        decrementOrThrow(client as never, {
+          userId: "expired-user",
+          cost: 1,
+          scoutId: null,
+          scoutType: "web",
+          operation: "website_extraction",
+        }),
+      AdmissionError,
+    );
+  } finally {
+    restoreEnv("COJO_CREDITS_ENABLED", prior);
+  }
 });
 
 Deno.test("decrementOrThrow uses the decrement_credits RPC when credits are enabled", async () => {
@@ -71,7 +101,9 @@ Deno.test("decrementOrThrow uses the decrement_credits RPC when credits are enab
 });
 
 Deno.test("calculateMonitoringCost covers the transport sub-daily window", async () => {
-  const { calculateMonitoringCost, getTransportCost } = await import("./credits.ts");
+  const { calculateMonitoringCost, getTransportCost } = await import(
+    "./credits.ts"
+  );
   assertEquals(calculateMonitoringCost(1, "3h"), 240);
   assertEquals(calculateMonitoringCost(1, "6h"), 120);
   assertEquals(calculateMonitoringCost(1, "12h"), 60);

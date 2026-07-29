@@ -11,6 +11,7 @@
  */
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { AdmissionError } from "./errors.ts";
 
 /** Credit cost per operation — $0.01/credit at MuckRock Pro ($10 / 1000). */
 export const CREDIT_COSTS = {
@@ -169,6 +170,12 @@ export async function decrementOrThrow(
   });
 
   if (error) {
+    if (
+      error.code === "P0003" ||
+      (error.message ?? "").toLowerCase().includes("indicator_access_expired")
+    ) {
+      throw new AdmissionError();
+    }
     // P0002 is the sqlstate raised by the RPC on insufficient credits.
     // Postgres error payloads over postgrest use `code` or nested `details`.
     if (

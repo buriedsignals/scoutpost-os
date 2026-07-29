@@ -2,7 +2,10 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { internalServiceAuthHeaders, requireServiceKey } from "./auth.ts";
+import {
+  internalServiceAuthHeaders,
+  requireServiceKey,
+} from "./auth.ts";
 import { AuthError } from "./errors.ts";
 
 const ENV_NAMES = [
@@ -40,6 +43,7 @@ Deno.test("requireServiceKey accepts X-Service-Key internal secret", () => {
     requireServiceKey(req);
   });
 });
+
 
 Deno.test("requireServiceKey accepts service-role bearer fallback", () => {
   withEnv({ SUPABASE_SERVICE_ROLE_KEY: "service-role-secret" }, () => {

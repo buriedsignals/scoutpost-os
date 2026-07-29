@@ -14,9 +14,10 @@
 import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
 import {
-  AuthedUser,
+  type AuthedUser,
+  requireIdentity,
+  requireIdentityOrApiKey,
   requireUser,
-  requireUserOrApiKey,
 } from "../_shared/auth.ts";
 import { getServiceClient, getUserClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
@@ -43,7 +44,9 @@ Deno.serve(async (req): Promise<Response> => {
 
   let user: AuthedUser;
   try {
-    user = await requireUser(req);
+    user = req.method === "POST"
+      ? await requireUser(req)
+      : await requireIdentity(req);
   } catch (e) {
     return jsonFromError(e);
   }
@@ -148,7 +151,7 @@ async function createKey(req: Request, user: AuthedUser): Promise<Response> {
 }
 
 async function revokeSelf(req: Request): Promise<Response> {
-  const user = await requireUserOrApiKey(req);
+  const user = await requireIdentityOrApiKey(req);
   if (user.authMethod !== "api_key" || !user.apiKeyId) {
     return jsonError(
       "API-key authentication required",

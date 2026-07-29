@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -73,6 +75,41 @@ def test_swagger_route_serves_prerendered_html_and_allows_unpkg(monkeypatch, tmp
     assert res.status_code == 200
     assert "swagger" in res.text
     assert "https://unpkg.com" in res.headers["content-security-policy"]
+
+
+def test_login_route_allows_privacy_enhanced_youtube_embed(monkeypatch, tmp_path):
+    _write(tmp_path / "login/index.html", "<html>login</html>")
+    monkeypatch.setattr(main, "FRONTEND_DIST", tmp_path)
+
+    res = TestClient(app).get("/login")
+
+    assert res.status_code == 200
+    frame_src = res.headers["content-security-policy"].split("frame-src ", 1)[1]
+    assert frame_src == "https://www.youtube-nocookie.com"
+
+
+def test_non_login_html_routes_continue_to_block_frames(monkeypatch, tmp_path):
+    _write(tmp_path / "docs/index.html", "<html>docs</html>")
+    monkeypatch.setattr(main, "FRONTEND_DIST", tmp_path)
+
+    res = TestClient(app).get("/docs")
+
+    assert res.status_code == 200
+    assert "frame-src 'none'" in res.headers["content-security-policy"]
+
+
+def test_nested_login_paths_continue_to_block_frames():
+    nested_app = FastAPI()
+    nested_app.middleware("http")(main.add_security_headers)
+
+    @nested_app.get("/login/unrelated")
+    async def nested_login():
+        return HTMLResponse("<html>nested</html>")
+
+    res = TestClient(nested_app).get("/login/unrelated")
+
+    assert res.status_code == 200
+    assert "frame-src 'none'" in res.headers["content-security-policy"]
 
 
 def test_legacy_cojournalist_host_redirects_to_scoutpost():

@@ -11,9 +11,9 @@
 import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
 import {
-  AuthedUser,
+  type AuthedUser,
+  requireIdentityOrApiKey,
   requireUser,
-  requireUserOrApiKey,
 } from "../_shared/auth.ts";
 import { getServiceClient, getUserClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
@@ -79,7 +79,7 @@ Deno.serve(async (req): Promise<Response> => {
   let user: AuthedUser;
   try {
     user = path === "/me" && isRead
-      ? await requireUserOrApiKey(req)
+      ? await requireIdentityOrApiKey(req)
       : await requireUser(req);
   } catch (e) {
     return jsonFromError(e);
