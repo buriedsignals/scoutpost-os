@@ -318,7 +318,8 @@
 
 				<section class="demo-section" aria-labelledby="product-demo-heading">
 					<p id="product-demo-heading" class="section-eyebrow">See Scoutpost in action</p>
-					<div class="demo-video-frame">
+					<!-- YouTube requires a 200px-tall player; 16:9 falls below that on common iPhone widths. -->
+					<div class="demo-video-frame" style="min-height: 200px">
 						<iframe
 							src="https://www.youtube-nocookie.com/embed/SzRd9R4_fs8?rel=0"
 							title="Scoutpost product demo"
