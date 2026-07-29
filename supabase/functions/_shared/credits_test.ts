@@ -33,7 +33,7 @@ Deno.test("decrementOrThrow no-ops unless credits are explicitly enabled", async
   restoreEnv("COJO_CREDITS_ENABLED", prior);
 });
 
-Deno.test("decrementOrThrow maps expired Indicator access to 403", async () => {
+Deno.test("decrementOrThrow maps revoked Indicator access to 403", async () => {
   const prior = Deno.env.get("COJO_CREDITS_ENABLED");
   Deno.env.set("COJO_CREDITS_ENABLED", "true");
   const client = {

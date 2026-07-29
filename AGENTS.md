@@ -540,6 +540,7 @@ dependency manifest before chasing them.
 - `RESEND_API_KEY` - Email notifications
 - `INTERNAL_SERVICE_KEY` - internal Edge Function service auth
 
+
 All OpenRouter requests restrict routing to `only: ["google-vertex"]`, require
 ZDR, deny provider data collection, and send `X-OpenRouter-Cache: false`.
 Account-level OpenRouter logging/data-sharing controls are defense in depth.

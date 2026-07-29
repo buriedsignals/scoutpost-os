@@ -20,11 +20,7 @@
  * the advertised contract.
  */
 
-import {
-  type AuthedUser,
-  requireIdentityOrApiKey,
-  requireUserOrApiKey,
-} from "../_shared/auth.ts";
+import { type AuthedUser, requireUserOrApiKey } from "../_shared/auth.ts";
 import { logEvent } from "../_shared/log.ts";
 import { baseUrl } from "./oauth/metadata.ts";
 
@@ -1172,9 +1168,7 @@ export async function handleRpc(
   let user: AuthedUser;
   let token: string;
   try {
-    user = body.method === "tools/call"
-      ? await requireIdentityOrApiKey(req)
-      : await requireUserOrApiKey(req);
+    user = await requireUserOrApiKey(req);
     const header = req.headers.get("authorization") ??
       req.headers.get("Authorization") ?? "";
     const forwardedApiKey = req.headers.get("x-cojo-api-key") ??

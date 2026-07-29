@@ -133,13 +133,15 @@ sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" docs/architect
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" AGENTS.md
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" CLAUDE.md
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" docs/architecture/developer-guide.md
+sed_if_exists -i "/^Indicator eligibility mode is a reviewed source-code decision, not an$/,+3d" AGENTS.md
 sed_if_exists -i "/^DEFAULT_BEEHIIV_LAB_TIER_ID = /d" backend/app/config.py
 sed_if_exists -i "/^    # Beehiiv \\/ Indicator entitlement lookup/,+8d" backend/app/config.py
-sed_if_exists -i "s|, apply hosted entitlements including ${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER_TITLE} AI Lab Pro||" docs/architecture/fastapi-endpoints.md
+sed_if_exists -i "s|, apply hosted entitlements including ${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER_TITLE} Indicator paid or Lab Pro||" docs/architecture/fastapi-endpoints.md
 rm -f supabase/migrations/00065_indicator_claims.sql
 rm -f supabase/migrations/00108_indicator_access_window.sql
-rm -f supabase/tests/indicator_access_window.sql
-rm -f docs/operations/indicator-access-window.md
+rm -f supabase/migrations/00109_indicator_manual_access_policy.sql
+rm -f supabase/tests/indicator_access_policy.sql
+rm -f docs/operations/indicator-access-policy.md
 
 # -------------------------------------------------------------------
 # CI/CD: remove workflows that reference the dev repo

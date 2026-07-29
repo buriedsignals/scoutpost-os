@@ -13,6 +13,13 @@ deployment's approval page, and polls at the server-provided interval. The user
 must deliberately allow the request even when the browser already has a valid
 session.
 
+On hosted Scoutpost, that browser sign-in applies the same Indicator
+eligibility policy as the web app. Under the current `paid` policy, an active
+paid Indicator member receives Scoutpost Pro and the generated `cj_…` key
+belongs to that Pro account. A future manual Lab-only switch also applies to
+existing CLI keys through the shared admission check; see
+`docs/operations/indicator-access-policy.md`.
+
 After approval, the first valid redemption atomically creates one independently
 revocable `cj_…` API key. The raw key is returned once to the requesting CLI,
 verified with `GET /user/me`, and written to `~/.scoutpost/config.json` with

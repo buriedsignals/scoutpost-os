@@ -25,7 +25,7 @@ export class AuthError extends ApiError {
 }
 
 export class AdmissionError extends ApiError {
-  constructor(message = "Indicator access has expired") {
+  constructor(message = "Indicator access is no longer available") {
     super(message, 403, "indicator_access_required");
     this.name = "AdmissionError";
   }
