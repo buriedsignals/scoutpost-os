@@ -83,6 +83,10 @@ Functions.
 - **Local pre-push MuckRock auth:** `local_auth.py` is mounted only with
   `LOCAL_MUCKROCK_AUTH_BROKER=true` and must keep the browser on
   `http://localhost:5173` while talking to hosted Supabase.
+- **CLI browser approval:** FastAPI has no credential-minting route. The
+  frontend preserves its strict CLI approval return in session storage and
+  reuses the unchanged hosted/local callback above; `cli-auth` and key
+  redemption live in Supabase Edge Functions.
 
 ## Local development
 

@@ -117,6 +117,23 @@ Deno.test("buildBeatLocationMatcher accepts UK coverage and rejects Montreal dri
   );
 });
 
+Deno.test("buildBeatLocationMatcher rejects another Swedish city", () => {
+  const matcher = buildBeatLocationMatcher({
+    city: "Stockholm",
+    state: null,
+    country: "Sweden",
+    countryCode: "SE",
+  });
+
+  assert(matcher);
+  assert(matcher("Stockholm council approved a new local transport plan."));
+  assert(
+    !matcher(
+      "Kvinna åtalas för kränkande fotografering på äldreboende i Umeå.",
+    ),
+  );
+});
+
 Deno.test("buildBeatLocationMatcher requires subdivision context for ambiguous state-scoped cities", () => {
   const matcher = buildBeatLocationMatcher(
     parseBeatLocation({

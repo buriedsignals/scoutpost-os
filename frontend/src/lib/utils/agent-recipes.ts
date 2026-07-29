@@ -23,7 +23,7 @@
  * a toggle when both are available.
  */
 
-import type { AgentSlug } from "./agent-icons";
+import { getAgent, type AgentSlug } from "./agent-icons";
 import { type AgentTargetContext, HOSTED_AGENT_TARGET } from "./agent-targets";
 
 export type InstallPath = "cli" | "mcp";
@@ -90,8 +90,6 @@ export interface Recipe {
 
 export const CLI_README_URL =
   "https://github.com/buriedsignals/scoutpost-os/blob/master/cli/README.md";
-const CLI_DENO_INSTALL_URL =
-  "https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts";
 export const MCP_URL = HOSTED_AGENT_TARGET.mcpUrl;
 export const SKILL_URL = HOSTED_AGENT_TARGET.skillUrl;
 
@@ -108,25 +106,12 @@ function fill(tpl: string, target: AgentTargetContext): string {
 }
 
 // ----- Shared CLI recipe ----------------------------------------------------
-// All shell-capable agents use the same install + config steps. The only
-// per-agent variation is where skill.md is persisted (see SKILL_PROMPTS).
-
-const CLI_INSTALL_DEFAULT =
-  `deno install -A -g -n scout ${CLI_DENO_INSTALL_URL}`;
-
-const CLI_CONFIG_COMMANDS = [
-  "scout config set api_url={{API_BASE_URL}}",
-  "{{SUPABASE_ANON_KEY_COMMAND}}",
-  "scout config set api_key=<paste cj_... key from the API panel>",
-];
 
 const sharedCliRecipe: Recipe = {
   tagline:
-    "Install the scout CLI — your agent shells out to it. No MCP server to manage, commands stay visible in the transcript.",
+    "Install Scout and approve the connection in your browser. The credential is stored locally and never needs to be pasted into chat.",
   setupKind: "automated-cli",
-  mode: "cli-install",
-  installCommand: CLI_INSTALL_DEFAULT,
-  configCommands: CLI_CONFIG_COMMANDS,
+  mode: "cli-command",
   docsUrl: CLI_README_URL,
   docsLabel: "CLI install + other platforms",
   verifyPrompt: "Run `scout scouts list` and tell me what I’m monitoring.",
@@ -380,6 +365,7 @@ const CLI_CAPABLE: AgentSlug[] = [
   "gemini-cli",
   "goose",
   "hermes",
+  "openclaw",
 ];
 
 const CLI_ONLY: AgentSlug[] = ["codex-cli"];
@@ -409,38 +395,46 @@ export function getAgentRecipes(
 
   if (includeCli) {
     paths.push("cli");
-    recipes.cli = fillRecipe(sharedCliRecipe, target);
+    recipes.cli = {
+      ...fillRecipe(sharedCliRecipe, target),
+      command: buildCliLoginCommand(slug, target),
+    };
   }
   if (hasMcp) {
     paths.push("mcp");
     recipes.mcp = fillRecipe(mcpRecipes[slug]!, target);
   }
 
-  const defaultPath: InstallPath = includeCli && !MCP_ONLY.includes(slug)
-    ? "cli"
-    : "mcp";
+  const defaultPath: InstallPath =
+    includeCli && !MCP_ONLY.includes(slug) && slug !== "other" ? "cli" : "mcp";
   return { paths, default: defaultPath, recipes };
 }
 
 function fillRecipe(r: Recipe, target: AgentTargetContext): Recipe {
-  const configCommands = r.configCommands
-    ?.map((command) =>
-      command === "{{SUPABASE_ANON_KEY_COMMAND}}"
-        ? target.deploymentKind === "supabase"
-          ? `scout config set supabase_anon_key=${
-            target.supabaseAnonKey || "<SUPABASE_ANON_KEY>"
-          }`
-          : null
-        : fill(command, target)
-    )
-    .filter((command): command is string => Boolean(command));
-
   return {
     ...r,
     command: r.command ? fill(r.command, target) : undefined,
-    configCommands,
+    configCommands: r.configCommands?.map((command) => fill(command, target)),
     configSnippet: r.configSnippet ? fill(r.configSnippet, target) : undefined,
   };
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
+/** Secret-free terminal command shown in the agent connection modal. */
+export function buildCliLoginCommand(
+  slug: AgentSlug,
+  target: AgentTargetContext = HOSTED_AGENT_TARGET,
+): string {
+  const label = getAgent(slug).name;
+  return [
+    "npm install --global scoutpost-cli",
+    `scout auth login --site ${shellSingleQuote(target.appUrl)} --label ${
+      shellSingleQuote(label)
+    }`,
+  ].join(" && ");
 }
 
 /**
@@ -456,14 +450,12 @@ export function getRecipe(
     fillRecipe(mcpRecipes[slug] ?? sharedCliRecipe, target);
 }
 
-const CLI_INSTALL_LINE = `deno install -A -g -n scout ${CLI_DENO_INSTALL_URL}`;
-
 /**
  * Build a short setup prompt that connects and verifies the selected path.
  * Detailed client walkthroughs and troubleshooting stay in the docs.
  */
 export function getSetupPrompt(
-  _slug: AgentSlug,
+  slug: AgentSlug,
   path: InstallPath = "cli",
   target: AgentTargetContext = HOSTED_AGENT_TARGET,
 ): string {
@@ -483,23 +475,7 @@ export function getSetupPrompt(
     ].join("\n");
   }
 
-  return [
-    `Connect yourself to Scoutpost with the scout CLI.${selfHostedNote}`,
-    ``,
-    `1. Read the product instructions at ${target.skillUrl}.`,
-    `2. Install the CLI: ${CLI_INSTALL_LINE}`,
-    `3. Ask me to create a key at ${target.apiKeyCreateUrl} → Connect Agent → API keys & REST. Never ask me to paste the key into chat. Have me run these locally:`,
-    `   scout config set api_url=${target.apiBaseUrl}`,
-    ...(target.deploymentKind === "supabase"
-      ? [
-        `   scout config set supabase_anon_key=${
-          target.supabaseAnonKey || "<SUPABASE_ANON_KEY>"
-        }`,
-      ]
-      : []),
-    `   scout config set api_key=cj_...`,
-    `4. Verify with: scout scouts list`,
-  ].join("\n");
+  return buildCliLoginCommand(slug, target);
 }
 
 /** Backwards-compatible alias. */

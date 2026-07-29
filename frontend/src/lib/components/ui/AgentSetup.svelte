@@ -5,13 +5,20 @@
 	export let recipe: Recipe;
 
 	let copied: string | null = null;
+	let copyFallback = '';
 
-	function copy(key: string, text: string) {
-		navigator.clipboard.writeText(text);
-		copied = key;
-		setTimeout(() => {
-			if (copied === key) copied = null;
-		}, 1500);
+	async function copy(key: string, text: string) {
+		copyFallback = '';
+		try {
+			await navigator.clipboard.writeText(text);
+			copied = key;
+			setTimeout(() => {
+				if (copied === key) copied = null;
+			}, 1500);
+		} catch {
+			copied = null;
+			copyFallback = text;
+		}
 	}
 </script>
 
@@ -168,6 +175,17 @@
 		</div>
 	{/if}
 
+	{#if copyFallback}
+		<div class="copy-fallback" role="alert">
+			<p>Clipboard access is blocked. Select and copy this value:</p>
+			<textarea
+				readonly
+				value={copyFallback}
+				on:focus={(event) => event.currentTarget.select()}
+			></textarea>
+		</div>
+	{/if}
+
 	<div class="verify">
 		<span class="verify-label">Verify it works</span>
 		{#if recipe.verifySteps?.length}
@@ -205,6 +223,31 @@
 		color: var(--color-ink);
 		margin: 0;
 		line-height: 1.5;
+	}
+
+	.copy-fallback {
+		display: grid;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		border: 1px solid var(--color-warning);
+		border-radius: var(--radius-md);
+	}
+	.copy-fallback p {
+		margin: 0;
+		font-size: 0.8125rem;
+		color: var(--color-ink-muted);
+	}
+	.copy-fallback textarea {
+		width: 100%;
+		min-height: 4.5rem;
+		padding: 0.625rem;
+		resize: vertical;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		color: var(--color-ink);
+		background: var(--color-bg);
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-md);
 	}
 
 	.warning {

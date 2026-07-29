@@ -77,7 +77,7 @@ jobs:
       # the absence of --allow-net denies runtime fetch() — so a test that
       # forgets to stub fetch fails loudly instead of making a live call.
       - name: Deno unit tests (stack-free set, network-isolated)
-        run: cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ scout-transport-execute/ transport-sampler/ transport-test/ resend-webhook/_test.ts
+        run: cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ cli-auth/ scout-transport-execute/ transport-sampler/ transport-test/ resend-webhook/_test.ts
       - name: Page Scout worker contract check
         run: cd supabase/functions && deno check --allow-import scout-web-execute/index.ts scouts/index.ts
       - name: Benchmark truth unit tests
@@ -253,6 +253,7 @@ jobs:
           source /tmp/scout-supabase.env
           set +a
           SCOUT_SELFHOST_RUNTIME_SMOKE=1 deno test --allow-env --allow-net supabase/functions/_shared/selfhost_runtime_smoke_test.ts
+          SCOUT_CLI_AUTH_RUNTIME_SMOKE=1 deno test --allow-env --allow-net supabase/functions/cli-auth/_integration_test.ts
 
       - name: Stop local Supabase
         if: always()
@@ -266,7 +267,7 @@ jobs:
         with:
           deno-version: v2.x
       - name: Run CLI unit tests (offline)
-        run: cd cli && deno test --allow-read --allow-write --allow-env --allow-net commands/_test.ts
+        run: cd cli && deno task test
 
   cli-smoke:
     name: scout live smoke

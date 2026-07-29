@@ -7,14 +7,17 @@ import { assertFalse } from "https://deno.land/std@0.208.0/assert/assert_false.t
 import {
   addLocationNewsSeedQueries,
   aiFilterResults,
+  BEAT_RECENCY_DAYS,
   buildFirecrawlRecencyTbs,
   buildGenerateQueriesPrompt,
+  compactBeatSearchPlan,
   dedupeByEmbedding,
   discoverPriorityDomainHits,
   ensureBeatLocationSearchLabel,
   expandLinkedArticleCandidates,
+  filterStaleDatedCandidates,
   filterUsableBeatCandidates,
-  getRecencyConfig,
+  isKnownStaleBeatDate,
   renderedArticleCandidates,
   runSearches,
   runSearchesWithMetadata,
@@ -115,31 +118,96 @@ Deno.test("location-only news plans always include generic seeds within the quer
   );
 
   assertEquals(plan.queries.length, 3);
-  assertEquals(plan.queries[0], "latest local news London United Kingdom");
   assertEquals(
-    plan.queries[1],
-    "local government public services news London United Kingdom",
+    plan.queries[0],
+    "police crime courts public safety news London United Kingdom",
   );
+  assertEquals(plan.queries[1], "latest local news London United Kingdom");
   assertEquals(
     plan.queries[2],
-    "police crime courts public safety news London United Kingdom",
+    "local government public services news London United Kingdom",
   );
   assertEquals(new Set(plan.queries).size, plan.queries.length);
 });
 
-Deno.test("reliable location news keeps only a small undated fallback", () => {
-  const recency = getRecencyConfig("location", "news", "reliable");
-  assertEquals(recency.max_undated_news, 2);
-  assertEquals(recency.max_undated_discovery, 2);
+Deno.test("reliable location news skips redundant source-discovery queries", () => {
+  const plan = {
+    primary_language: "de",
+    queries: ["Zürich local news", "Zürich police"],
+    discovery_queries: [
+      "Tages-Anzeiger Zürich",
+      "Neue Zürcher Zeitung Zürich",
+    ],
+    local_domains: ["tagesanzeiger.ch", "nzz.ch"],
+  };
+
+  assertEquals(
+    compactBeatSearchPlan(plan, {
+      scope: "location",
+      sourceMode: "reliable",
+      category: "news",
+    }).discovery_queries,
+    [],
+  );
+  assertEquals(
+    compactBeatSearchPlan(plan, {
+      scope: "location",
+      sourceMode: "niche",
+      category: "news",
+    }).discovery_queries,
+    plan.discovery_queries,
+  );
+});
+
+Deno.test("provider-windowed web results keep undated candidates while rejecting known stale dates", () => {
+  const candidates = [
+    ...Array.from({ length: 4 }, (_, index) => ({
+      url: `https://local.example/news/${index}`,
+      date: null,
+      _pass: "news" as const,
+    })),
+    ...Array.from({ length: 3 }, (_, index) => ({
+      url: `https://local.example/discovery/${index}`,
+      date: null,
+      _pass: "discovery" as const,
+    })),
+    {
+      url: "https://local.example/fresh",
+      date: "2026-07-20",
+      _pass: "news" as const,
+    },
+    {
+      url: "https://local.example/relaxed",
+      date: "2026-07-10",
+      _pass: "news" as const,
+    },
+    {
+      url: "https://local.example/stale",
+      date: "2000-01-01",
+      _pass: "news" as const,
+    },
+  ];
+
+  assertEquals(
+    filterStaleDatedCandidates(
+      candidates,
+      new Date("2026-07-27T12:00:00Z"),
+    ).map((hit) => hit.url),
+    candidates.slice(0, -1).map((hit) => hit.url),
+  );
+});
+
+Deno.test("rendered source dates reject known stale pages but preserve unknown dates", () => {
+  const now = new Date("2026-07-27T12:00:00Z");
+  assertEquals(isKnownStaleBeatDate(null, now), false);
+  assertEquals(isKnownStaleBeatDate("2026-07-20", now), false);
+  assertEquals(isKnownStaleBeatDate("2026-06-01", now), true);
 });
 
 Deno.test("buildFirecrawlRecencyTbs preserves the configured 14-day provider window", () => {
   assertEquals(
     buildFirecrawlRecencyTbs(
-      Math.max(
-        getRecencyConfig("combined", "news", "reliable").news_days,
-        getRecencyConfig("combined", "news", "reliable").discovery_days,
-      ),
+      BEAT_RECENCY_DAYS,
       new Date("2026-06-15T12:00:00Z"),
     ),
     "sbd:1,cdr:1,cd_min:6/1/2026,cd_max:6/15/2026",

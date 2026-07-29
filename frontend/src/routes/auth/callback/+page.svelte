@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
+	import { consumeAuthReturn } from '$lib/utils/auth-return';
 
 	let status: 'loading' | 'error' = 'loading';
 	let errorMessage = '';
@@ -40,8 +41,9 @@
 		}
 
 		// Strip tokens from visible URL before navigating
-		history.replaceState({}, '', '/');
-		await goto('/');
+		const destination = consumeAuthReturn();
+		history.replaceState({}, '', destination);
+		await goto(destination);
 	});
 </script>
 

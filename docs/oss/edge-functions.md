@@ -30,6 +30,7 @@ Source files: `supabase/functions/`
 | `civic-execute` | Civic run kickoff and document queueing. |
 | `civic-extract-worker` | Civic queue worker that extracts promises and writes units. |
 | `units`, `projects`, `entities`, `reflections`, `ingest`, `runs`, `user`, `api-keys` | Product API resources used by UI, CLI, and MCP. |
+| `cli-auth` | Short-lived browser approval and one-time CLI API-key redemption. |
 | `mcp-server` | Remote MCP JSON-RPC endpoint for self-hosted deployments. |
 | `scout-health-monitor` | Scheduled scout failure notifications. |
 
@@ -61,6 +62,10 @@ This replaces EventBridge/Lambda scheduling. Do not add new EventBridge or Lambd
 ## Auth
 
 - User-facing requests use Supabase Auth JWTs or Scoutpost API keys (`cj_...`) depending on surface.
+- Interactive CLI login discovers the newsroom frontend, approves through its
+  existing Supabase Auth session, and stores a dedicated API key locally
+  without displaying it. Self-hosters use the existing `PUBLIC_APP_URL` or set
+  the narrower `SCOUTPOST_SITE_URL` override to the public frontend origin.
 - Internal scheduled/worker requests use the shared internal service-key boundary and Supabase service-role access where needed.
 - MCP requests use `mcp-server` with the self-hosted auth/API-key boundary.
 - Hosted Fleet live tests reuse the same Pro/Team entitlement gate as Fleet creation; self-hosted deployments with credits disabled skip that commercial gate.

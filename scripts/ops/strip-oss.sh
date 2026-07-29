@@ -606,6 +606,16 @@ src = src.replace("Sign in with MuckRock", "Sign in")
 # Collapse the MuckRock-authenticate prompt + signup link (post-2026-04-22 copy)
 src = re.sub(r'<p class="auth-prompt">Authenticate with MuckRock to continue</p>', '<p class="auth-prompt">Sign in</p>', src)
 src = re.sub(r'<a\s+class="auth-signup-link"[^>]*>.*?</a>', '', src, flags=re.DOTALL)
+# Indicator membership help belongs to the hosted OAuth branch. Remove the
+# toggle and its conditional copy together so the shared login source remains
+# free of hosted account instructions in the OSS mirror.
+src = re.sub(
+    r'\s*<button\b[^>]*class="indicator-login-help-toggle"[^>]*>.*?</button>\s*'
+    r'\{#if showIndicatorLoginHelp\}.*?\{/if\}',
+    '',
+    src,
+    flags=re.DOTALL,
+)
 src = src.replace(
     "This MuckRock account is not enabled yet; if you expected access, contact the Scoutpost team.",
     "This hosted account is not enabled yet; if you expected access, contact the Scoutpost team.",

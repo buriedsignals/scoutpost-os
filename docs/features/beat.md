@@ -40,21 +40,22 @@ Both flows expose a source mode toggle so users can switch between niche and rel
 │  ├─ LLM generates queries in local language + English            │
 │  ├─ Also returns canonical/localized query text                  │
 │  ├─ Also returns required_concepts and weak_terms for filtering  │
-│  ├─ News category: can generate discovery_queries                │
-│  │   (community events, civic groups, local blogs)               │
+│  ├─ Niche/government plans can include discovery_queries         │
+│  ├─ Reliable location news uses only the primary query set       │
 │  ├─ Government category: discovery_queries for public sector     │
 │  └─ Categories: news, government, analysis                       │
 │           │                                                      │
 │           ▼                                                      │
 │  Step 2: Retrieval                                               │
-│  ├─ Firecrawl Cloud: /v2/search with geography and dates         │
+│  ├─ Firecrawl Cloud web search with geography + 14-day tbs       │
+│  ├─ Web hits are normally date-less; do not cap them as stale    │
 │  ├─ Scrape URLs via Crawl4AI (Firecrawl anti-bot fallback)       │
 │  └─ Preserve quiet-zero versus all-query-failed semantics        │
 │           │                                                      │
 │           ▼                                                      │
-│  Step 3: Legacy filter/ranking path                              │
-│  ├─ Scope-aware date windows (7d–21d depending on config)        │
-│  ├─ Undated cap, tourism filter, embedding dedup, clusters       │
+│  Step 3: Filter/ranking path                                     │
+│  ├─ Reject known-stale dates; preserve provider-windowed unknowns│
+│  ├─ Tourism filter, embedding dedup, clusters                    │
 │  ├─ Filter by relevance to location/topic/criteria               │
 │  ├─ Enforce required concepts for compound topics                │
 │  └─ Target: 5-6 (niche) or 6-8 (reliable) articles              │
@@ -103,7 +104,8 @@ Both flows expose a source mode toggle so users can switch between niche and rel
 
 ## v1 → v2 parity notes
 
-The v2 port preserves all 8 pipeline stages with these clarifications:
+The v2 port preserves the useful legacy stages while removing provider-specific
+assumptions:
 
 - **Stage 1 (query gen):** `google/gemini-2.5-flash-lite` through OpenRouter's Google Vertex-only ZDR route. Output uses strict JSON Schema and OpenRouter response caching is disabled. Historical v1/direct-Google implementations are comparison context, not the current runtime.
 - **Stage 5 (tourism pre-filter):** identical 11-domain + 6-title pattern list.
@@ -120,11 +122,14 @@ The v2 port preserves all 8 pipeline stages with these clarifications:
 - Search requests forward applicable date, geography, `includeDomains`, and
   `excludeDomains` options; local filters still reject unsuitable URLs and
   sources.
+- Firecrawl web search results do not normally include publication dates.
+  Their server-side 14-day `tbs` window is therefore the initial recency gate;
+  date-less hits remain eligible for rendering instead of being capped.
 - Source dates are normalized through
   `_shared/atomic_extract.ts::sourcePublishedDate`: scraper metadata first,
   visible date near the top of scraped markdown second, and the search hit date
-  last. This feeds extraction prompts and `information_units.occurred_at`
-  fallback, but it is not a hard relevance gate.
+  last. Known dates older than the 28-day relaxed window are rejected after
+  rendering; preview applies the same check to dates found during extraction.
 - **Homepage/index rejection**: bare `/`, `/blog`, `/news` etc. are dropped (`is_index_or_homepage`)
 - **Standing page rejection**: institutional/section pages with short paths and no numeric IDs (`is_likely_standing_page`) — catches gov landing pages, stats dashboards, agenda indexes
 - Removes exact duplicate URLs from multiple queries
@@ -186,7 +191,7 @@ shape. Firecrawl Cloud is the search boundary for all Beat discovery — see
 | Mode | Discovery | Date Window | AI Target | Domain Cap |
 |---|---|---|---|---|
 | **niche** | LLM-generated community/local-source queries | 14d (28d fallback) | 5-6 | 2/domain |
-| **reliable** | Limited discovery, depending on generated query plan | 14d (28d fallback) | 6-8 | 3/domain |
+| **reliable** | Primary queries only for location news; other scopes keep their generated plan | 14d (28d fallback) | 6-8 | 3/domain |
 
 ## Retrieval
 
@@ -195,7 +200,10 @@ discovery. Preview and scheduled execution share the same adapter and filtering
 pipeline:
 
 - **Generated queries** use web results and the configured geography, recency,
-  and excluded domains.
+  and excluded domains. Reliable location-news runs skip the five
+  source-discovery queries: live Zürich, London, and Stockholm permutations
+  preserved the eight-candidate ranking target while reducing search jobs from
+  12 to 7.
 - **Priority domains** use Firecrawl's `includeDomains` option, with the same
   behavior in preview and scheduled execution.
 - **Explicit source URLs** bypass search and go directly to rendering.
@@ -221,8 +229,9 @@ See `docs/architecture/retrieval-ports.md`.
 
 The production default is intentionally simpler than the earlier fan-out design:
 
-- Run all generated and discovery queries through Firecrawl Cloud search (the
-  sole search boundary; see [Retrieval](#retrieval)).
+- Run the primary query set through Firecrawl Cloud web search. Keep
+  discovery-query fan-out for niche and government modes where source
+  discovery is intentional.
 - Forward the scout's geography through the supported Firecrawl request fields
   when the scout has a location.
 - Let the LLM query plan translate/localize queries for non-English locations instead of hardcoding country-specific terms.
@@ -236,13 +245,15 @@ Future experiments may reintroduce `news` only as a separately ranked freshness 
 
 ### Recency Config by Scope
 
-All scope/mode combinations use a **standard 14-day initial window**. When all dated articles fall outside this window, a **28-day relaxed fallback** is applied (capped at the 90-day absolute floor).
+All scope/mode combinations use a **standard 14-day provider window**. Known
+dated articles can use a **28-day relaxed fallback**. Date-less Firecrawl web
+hits remain eligible until rendering because the web result contract does not
+include a publication date; once rendering or extraction finds a known date
+older than 28 days, the source is rejected.
 
 | Scope | Mode | Initial Window | Relaxed Fallback |
 |-------|------|----------------|------------------|
 | all | all | 14 days | 28 days |
-
-All dated articles must also pass a **90-day absolute staleness floor** regardless of the window.
 
 ## Multi-Language Search
 

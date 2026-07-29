@@ -13,6 +13,7 @@ Migration files live in `supabase/migrations/`. They run in order:
 | `00004_rls.sql` | Row Level Security policies |
 | `00005_triggers.sql` | `updated_at` auto-update triggers |
 | `00006_cron_cleanup.sql` | TTL cleanup functions + pg_cron schedules |
+| `00098`–`00107` CLI device auth migrations | Hashed short-lived authorizations, atomic API-key lifecycle, service-only RPC grants, cleanup cron, and scoped default-privilege restoration |
 
 ---
 
@@ -218,6 +219,18 @@ tier                       TEXT DEFAULT 'free'           -- added by 00025_credi
 active_org_id              UUID → orgs(id)                -- added by 00025_credits.sql
 created_at / updated_at    TIMESTAMPTZ
 ```
+
+### `api_keys` and `cli_device_authorizations`
+
+`api_keys` stores the SHA-256 hash, display prefix, owner, label, source
+(`manual` or `cli_device`), and optional consumed device-request ID. The raw
+`cj_…` value is returned once by an atomic service-role RPC.
+
+`cli_device_authorizations` stores only SHA-256 hashes of the opaque device code
+and short user code, along with sanitized labels, site origin, expiry, polling
+state, decision metadata, and terminal status. `cli_auth_rate_limits` stores
+hashed short-lived action buckets. Both device tables have RLS enabled and no
+client policy.
 
 ---
 

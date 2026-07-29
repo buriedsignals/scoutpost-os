@@ -20,6 +20,8 @@ import {
   writeConfigFile,
 } from "../lib/client.ts";
 import { VERSION } from "../lib/version.ts";
+import { authUsageExitCode } from "./auth.ts";
+import { run as runConfig } from "./config.ts";
 import { run as runIngest } from "./ingest.ts";
 import { resolveSocialMonitorMode, run as runScouts } from "./scouts.ts";
 import { run as runSnapshots } from "./snapshots.ts";
@@ -46,6 +48,12 @@ async function withTempHome(
     }
   }
 }
+
+Deno.test("auth --help is successful while a missing subcommand is an error", () => {
+  assertEquals(authUsageExitCode(undefined, { help: true }), 0);
+  assertEquals(authUsageExitCode(undefined, {}), 1);
+  assertEquals(authUsageExitCode("login", {}), null);
+});
 
 Deno.test("config set + get round-trip", async () => {
   await withTempHome(() => {
@@ -90,6 +98,23 @@ Deno.test("config write uses private POSIX permissions when modes are available"
     if (fileMode !== null) {
       assertEquals(fileMode & 0o777, 0o600);
     }
+  });
+});
+
+Deno.test("config get never prints a complete credential", async () => {
+  await withTempHome(() => {
+    const secret = "cj_SUPERSECRET012345678901234";
+    writeConfigFile({ api_key: secret });
+    const output: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => output.push(String(message ?? ""));
+    try {
+      runConfig(["get", "api_key"]);
+    } finally {
+      console.log = originalLog;
+    }
+    assertEquals(output.join("\n").includes(secret), false);
+    assertStringIncludes(output.join("\n"), "cj_S");
   });
 });
 
@@ -196,6 +221,70 @@ Deno.test("unwrapItems — accepts Edge items envelopes and legacy data envelope
     id: "data",
   }]);
   assertEquals(unwrapItems<{ id: string }>({ ok: true }), []);
+});
+
+Deno.test("scouts list follows pagination so scout 51 is included", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+    const originalFetch = globalThis.fetch;
+    const lines: string[] = [];
+    const originalLog = console.log;
+    let requestCount = 0;
+    console.log = (...args: unknown[]) =>
+      lines.push(args.map(String).join(" "));
+    globalThis.fetch = ((input: string | URL | Request) => {
+      requestCount += 1;
+      const url = input instanceof Request ? input.url : String(input);
+      if (requestCount === 1) {
+        assertStringIncludes(url, "limit=50");
+        assertStringIncludes(url, "offset=0");
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: Array.from(
+                { length: 50 },
+                (_, index) => ({
+                  id: `s${index}`,
+                  name: `Scout ${index}`,
+                  type: "web",
+                  is_active: true,
+                }),
+              ),
+              pagination: { total: 51, offset: 0, limit: 50, has_more: true },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      assertStringIncludes(url, "offset=50");
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            items: [{
+              id: "s50",
+              name: "Scout 51",
+              type: "web",
+              is_active: true,
+            }],
+            pagination: { total: 51, offset: 50, limit: 50, has_more: false },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    try {
+      await runScouts(["list"]);
+      assertEquals(requestCount, 2);
+      assert(lines.some((line) => line.includes("Scout 51")));
+    } finally {
+      globalThis.fetch = originalFetch;
+      console.log = originalLog;
+    }
+  });
 });
 
 Deno.test("VERSION — exports a non-empty string", () => {

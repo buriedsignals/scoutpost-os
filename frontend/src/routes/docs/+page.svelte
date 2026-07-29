@@ -302,7 +302,9 @@
 								<h4>Connect an AI assistant (optional)</h4>
 								<p>
 									Click <strong>Connect Agent</strong> in the topbar and choose your assistant.
-									Scoutpost shows its recommended CLI or MCP path; REST keys remain under
+									For shell-capable agents, copy the secret-free terminal command and run it
+									yourself. Scoutpost opens a browser for approval and stores the credential
+									locally. MCP-only clients keep their OAuth path; REST keys remain under
 									<strong>API keys &amp; REST</strong>.
 								</p>
 							</div>
@@ -515,7 +517,7 @@
 						<SharpPanel href="#cli" className="surface">
 							<div class="surface-icon"><Terminal size={18} /></div>
 							<h4>CLI (<code>scout</code>)</h4>
-							<p>Deno-based binary for terminal workflows and shell automation.</p>
+							<p>Signed native binary with browser-approved login for terminal workflows.</p>
 						</SharpPanel>
 					</div>
 
@@ -580,29 +582,36 @@ curl "https://scoutpost.ai/functions/v1/units?verified=false&limit=20" \\
 
 					<h3 id="cli">CLI</h3>
 					<p>
-						<code>scout</code> is a tiny Deno-based binary that speaks the same REST API. Useful for
-						shell pipelines, nightly scripts, and direct unit triage workflows.
+						<code>scout</code> is a small native binary that speaks the same REST API. Browser
+						login creates and stores a dedicated revocable key without showing it or asking you
+						to paste it into an agent chat. On a remote shell, open the printed URL in any browser
+						and confirm the matching code.
 					</p>
 
 					<SharpCodeBlock
 						ariaLabel="Copy CLI install"
-						copyValue={`deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts
-scout config set api_url=https://scoutpost.ai/functions/v1
-scout config set api_key=<cj_... API key>
+						copyValue={`npm install --global scoutpost-cli
+scout auth login --site https://scoutpost.ai
 scout scouts list`}
-						code={`# Install (requires Deno 2.x)
-deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts
-
-# Configure (generate a cj_... API key in the app: Connect Agent → API keys & REST → Create key)
-scout config set api_url=https://scoutpost.ai/functions/v1
-scout config set api_key=<cj_... API key>
+						code={`# Install and authenticate
+npm install --global scoutpost-cli
+scout auth login --site https://scoutpost.ai
+scout auth status
 
 # Use
 scout scouts list
 scout units list --verified
 scout units verify <id> --notes "Cross-checked with minutes"
-scout units search --query "zoning variance" --mode hybrid --project <id>`}
+scout units search --query "zoning variance" --mode hybrid --project <id>
+
+# Revoke this CLI key and remove it locally
+scout auth logout`}
 					/>
+					<p>
+						Deno source installation and manual API-key configuration remain available under
+						<strong>Connect Agent → Other install methods</strong> and
+						<strong>API keys &amp; REST</strong> for CI, scripts, and recovery.
+					</p>
 				</section>
 
 				<!-- COOKBOOK -->
@@ -702,10 +711,11 @@ scout units delete <unit-id>`}</code></pre>
 
 					<h3 id="ref-auth">Authentication</h3>
 					<p>
-						<strong>REST / CLI</strong>: <code>cj_…</code> API key in the <code>Authorization: Bearer</code>
-						header. Generate keys from <strong>Connect Agent → API keys &amp; REST</strong> in the app — they are scoped to
-						your account and revocable from the same modal. <strong>MCP</strong>: OAuth via the
-						connector; no manual token handling.
+						<strong>CLI</strong>: run <code>scout auth login</code> and explicitly approve the
+						browser request. The generated <code>cj_…</code> key is stored locally and never
+						displayed. <strong>REST</strong>: manually generated <code>cj_…</code> API key in the
+						<code>Authorization: Bearer</code> header. Manage manual and CLI keys under
+						<strong>Connect Agent → API keys &amp; REST</strong>.
 					</p>
 					<p>
 						<strong>MCP</strong>: full OAuth 2.1 with PKCE, RFC 8414 metadata, and RFC 7591 dynamic

@@ -14,19 +14,24 @@ import {
 	workspaceApi as defaultApi,
 	ApiError,
 	type WorkspaceScout,
-	type WorkspaceCreateScoutInput
+	type WorkspaceCreateScoutInput,
+	type WorkspacePaginatedScouts
 } from '$lib/api-client';
 import { DEMO_SCOUTS, demoDismissed, isDemoScout } from '$lib/demo/seed';
 import { IS_LOCAL_DEMO_MODE } from '$lib/demo/state';
 
 export interface ScoutsState {
 	scouts: WorkspaceScout[];
+	cursor: string | null;
+	hasMore: boolean;
+	loadingMore: boolean;
+	total: number;
 	loading: boolean;
 	error: string | null;
 }
 
 export interface ScoutsApi {
-	listScouts: (projectId?: string) => Promise<WorkspaceScout[]>;
+	listScouts: (projectId?: string, cursor?: string | null) => Promise<WorkspacePaginatedScouts>;
 	createScout: (data: WorkspaceCreateScoutInput) => Promise<WorkspaceScout>;
 	// Optional; not on the exported workspaceApi today — tests pass stubs.
 	updateScout?: (id: string, patch: Partial<WorkspaceScout>) => Promise<WorkspaceScout>;
@@ -35,6 +40,10 @@ export interface ScoutsApi {
 
 const initialState: ScoutsState = {
 	scouts: [],
+	cursor: null,
+	hasMore: false,
+	loadingMore: false,
+	total: 0,
 	loading: false,
 	error: null
 };
@@ -65,16 +74,51 @@ export function createScoutsStore(api: ScoutsApi = defaultApi as unknown as Scou
 					...s,
 					loading: false,
 					error: null,
-					scouts: demoDismissed() ? [] : [...DEMO_SCOUTS]
+					scouts: demoDismissed() ? [] : [...DEMO_SCOUTS],
+					total: demoDismissed() ? 0 : DEMO_SCOUTS.length,
+					cursor: null,
+					hasMore: false
 				}));
 				return;
 			}
 			update((s) => ({ ...s, loading: true, error: null }));
 			try {
-				const scouts = await api.listScouts(projectId ?? undefined);
-				update((s) => ({ ...s, scouts, loading: false }));
+				const page = await api.listScouts(projectId ?? undefined);
+				update((s) => ({
+					...s,
+					scouts: page.scouts,
+					cursor: page.next_cursor,
+					hasMore: page.next_cursor !== null,
+					total: page.total,
+					loading: false
+				}));
 			} catch (e) {
 				update((s) => ({ ...s, loading: false, error: errorMessage(e) }));
+			}
+		},
+
+		async loadMore(projectId?: string | null): Promise<void> {
+			let current: ScoutsState = { ...initialState };
+			const unsubscribe = subscribe((state) => (current = state));
+			unsubscribe();
+			if (!current.hasMore || current.loading || current.loadingMore) return;
+
+			update((s) => ({ ...s, loadingMore: true, error: null }));
+			try {
+				const page = await api.listScouts(projectId ?? undefined, current.cursor);
+				update((s) => ({
+					...s,
+					scouts: [
+						...s.scouts,
+						...page.scouts.filter((scout) => !s.scouts.some((existing) => existing.id === scout.id))
+					],
+					cursor: page.next_cursor,
+					hasMore: page.next_cursor !== null,
+					total: page.total,
+					loadingMore: false
+				}));
+			} catch (e) {
+				update((s) => ({ ...s, loadingMore: false, error: errorMessage(e) }));
 			}
 		},
 
@@ -110,7 +154,12 @@ export function createScoutsStore(api: ScoutsApi = defaultApi as unknown as Scou
 				last_run: null,
 				created_at: new Date().toISOString()
 			};
-			update((s) => ({ ...s, scouts: [optimistic, ...s.scouts], error: null }));
+			update((s) => ({
+				...s,
+				scouts: [optimistic, ...s.scouts],
+				total: s.total + 1,
+				error: null
+			}));
 
 			try {
 				const created = await api.createScout(input);
@@ -124,6 +173,7 @@ export function createScoutsStore(api: ScoutsApi = defaultApi as unknown as Scou
 				update((s) => ({
 					...s,
 					scouts: s.scouts.filter((row) => row.id !== tmpId),
+					total: Math.max(0, s.total - 1),
 					error: errorMessage(e)
 				}));
 				return null;
@@ -141,6 +191,7 @@ export function createScoutsStore(api: ScoutsApi = defaultApi as unknown as Scou
 				return {
 					...s,
 					scouts: s.scouts.filter((x) => x.id !== id),
+					total: removed ? Math.max(0, s.total - 1) : s.total,
 					error: null
 				};
 			});
@@ -152,6 +203,7 @@ export function createScoutsStore(api: ScoutsApi = defaultApi as unknown as Scou
 				update((s) => ({
 					...s,
 					scouts: removed ? [removed, ...s.scouts] : s.scouts,
+					total: removed ? s.total + 1 : s.total,
 					error: errorMessage(e)
 				}));
 			}
@@ -199,7 +251,7 @@ export function createScoutsStore(api: ScoutsApi = defaultApi as unknown as Scou
 			if (demoDismissed()) return;
 			update((s) => {
 				if (s.scouts.length > 0) return s;
-				return { ...s, scouts: [...DEMO_SCOUTS] };
+				return { ...s, scouts: [...DEMO_SCOUTS], total: DEMO_SCOUTS.length };
 			});
 		},
 
@@ -211,7 +263,8 @@ export function createScoutsStore(api: ScoutsApi = defaultApi as unknown as Scou
 		clearDemo(): void {
 			update((s) => ({
 				...s,
-				scouts: s.scouts.filter((row) => !isDemoScout(row))
+				scouts: s.scouts.filter((row) => !isDemoScout(row)),
+				total: s.scouts.filter((row) => !isDemoScout(row)).length
 			}));
 		},
 

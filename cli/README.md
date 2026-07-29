@@ -5,7 +5,17 @@ key or legacy JWT bearer token.
 
 ## Install
 
-### From source via Deno (recommended until public release assets exist)
+### npm package (recommended)
+
+The package downloads the signed native binary for supported macOS and Linux
+platforms:
+
+```bash
+npm install --global scoutpost-cli
+scout --version
+```
+
+### From source via Deno
 
 Requires [Deno](https://deno.com) v2.x on `$PATH`.
 
@@ -47,11 +57,36 @@ mirror starts publishing signed assets.
 
 Coming soon.
 
-## Configure
+## Sign in
+
+Browser login is the recommended interactive setup:
+
+```bash
+scout auth login --site https://scoutpost.ai --label "My terminal"
+scout auth status
+```
+
+The CLI opens a Scoutpost approval page or prints its URL for a remote/headless
+shell. Approval creates a dedicated API key, but the key is never displayed.
+It is verified and stored with private permissions in
+`~/.scoutpost/config.json`.
+
+Re-running login against the same site is a no-op while the credential remains
+valid. Use `--switch` to explicitly replace a configuration for another site,
+or `--no-browser` to suppress browser launch.
+
+```bash
+scout auth logout
+```
+
+Logout revokes the current API key before removing it locally. If remote
+revocation fails, the CLI says so and gives a key-management recovery link.
+
+## Manual configuration and recovery
 
 Config lives at `~/.scoutpost/config.json`. Set an api_url and **either** an
-`api_key` (preferred — generated in the app at /api → Connect Agent → API keys & REST → Create key)
-or a legacy `auth_token` JWT.
+`api_key` (created under Connect Agent → API keys & REST) or a legacy
+`auth_token` JWT. This path remains for scripts, CI, and recovery:
 
 ```bash
 # Hosted Scoutpost — recommended
@@ -83,7 +118,8 @@ scout config show
 If both are set, `api_key` wins. If neither is set, every command exits with a
 setup hint.
 
-No OAuth flow in the CLI — tokens are pasted manually.
+See [browser authentication](../docs/features/cli-browser-auth.md) for the
+device flow, self-host discovery, key limits, and security contract.
 
 ## Quick start
 

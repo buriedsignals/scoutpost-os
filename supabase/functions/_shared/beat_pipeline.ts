@@ -1,16 +1,15 @@
 /**
- * Beat / Location search pipeline — the 8-stage legacy pulse_orchestrator
+ * Beat / Location search pipeline — the legacy pulse_orchestrator
  * ported from cojournalist/backend/app/services/pulse_orchestrator.py.
  *
  * Stage flow:
  *   1. generateQueries           — LLM query gen (multilingual, category-aware)
  *   2. runSearches               — explicit Firecrawl web search per query
- *   3. applyDateFilter           — date window + staleness floor (90d)
- *   4. capUndatedResults         — two-bucket cap (news vs discovery)
- *   5. tourismPrefilter          — drop travel/tourism hits (niche+location only)
- *   6. dedupeByEmbedding         — cosine dedup with +8 local-language bonus
- *   7. clusterFilter             — niche-only: drop mainstream clusters
- *   8. aiFilterResults           — LLM picks top-N against criteria
+ *   3. filterStaleDatedCandidates — keep date-less web hits, reject stale dates
+ *   4. tourismPrefilter           — drop travel/tourism hits
+ *   5. dedupeByEmbedding          — cosine dedup with local-language bonus
+ *   6. clusterFilter              — niche-only mainstream-cluster removal
+ *   7. aiFilterResults            — LLM picks top-N against criteria
  *
  * Each stage is a pure function or thin shared helper; scout-beat-execute
  * threads hits through them linearly. For parallel gov+news category runs,
@@ -424,13 +423,13 @@ export function addLocationNewsSeedQueries(
   if (!locationSearchLabel) return plan;
 
   const seeds = [
+    ensureBeatLocationSearchLabel(
+      "police crime courts public safety news",
+      locationSearchLabel,
+    ),
     ensureBeatLocationSearchLabel("latest local news", locationSearchLabel),
     ensureBeatLocationSearchLabel(
       "local government public services news",
-      locationSearchLabel,
-    ),
-    ensureBeatLocationSearchLabel(
-      "police crime courts public safety news",
       locationSearchLabel,
     ),
   ];
@@ -1217,6 +1216,20 @@ function urlMatchesDomain(rawUrl: string, domain: string): boolean {
   }
 }
 
+export function compactBeatSearchPlan(
+  plan: BeatQueryPlan,
+  opts: Pick<BeatDiscoveryOpts, "scope" | "sourceMode" | "category">,
+): BeatQueryPlan {
+  if (
+    opts.scope !== "location" ||
+    opts.sourceMode !== "reliable" ||
+    opts.category !== "news"
+  ) {
+    return plan;
+  }
+  return { ...plan, discovery_queries: [] };
+}
+
 /**
  * Shared Beat Scout discovery pipeline used by both preview (`beat-search`)
  * and scheduled execution (`scout-beat-execute`).
@@ -1224,18 +1237,21 @@ function urlMatchesDomain(rawUrl: string, domain: string): boolean {
 export async function discoverBeatHits(
   opts: BeatDiscoveryOpts,
 ): Promise<BeatDiscoveryResult> {
-  const plan = await generateQueries({
-    city: opts.city,
-    state: opts.state ?? null,
-    country: opts.country,
-    countryCode: opts.countryCode,
-    displayName: opts.displayName ?? null,
-    criteria: opts.criteria,
-    category: opts.category,
-    usage: opts.usage
-      ? { ...opts.usage, operation: "beat_generate_queries" }
-      : undefined,
-  });
+  const plan = compactBeatSearchPlan(
+    await generateQueries({
+      city: opts.city,
+      state: opts.state ?? null,
+      country: opts.country,
+      countryCode: opts.countryCode,
+      displayName: opts.displayName ?? null,
+      criteria: opts.criteria,
+      category: opts.category,
+      usage: opts.usage
+        ? { ...opts.usage, operation: "beat_generate_queries" }
+        : undefined,
+    }),
+    opts,
+  );
   const queriesUsed = [...plan.queries, ...plan.discovery_queries];
   if (queriesUsed.length === 0) {
     return {
@@ -1248,7 +1264,6 @@ export async function discoverBeatHits(
     };
   }
 
-  const recency = getRecencyConfig(opts.scope, opts.category, opts.sourceMode);
   const searchOpts: SearchOpts = {
     plan,
     location: buildBeatLocationSearchLabel({
@@ -1260,26 +1275,21 @@ export async function discoverBeatHits(
     }) ?? undefined,
     country: opts.countryCode ?? undefined,
     excludedDomains: opts.excludedDomains,
-    tbs: buildFirecrawlRecencyTbs(
-      Math.max(recency.news_days, recency.discovery_days),
-    ),
+    tbs: buildFirecrawlRecencyTbs(BEAT_RECENCY_DAYS),
   };
   let searchResult = await runSearchesWithMetadata(searchOpts);
   let rawHits = searchResult.hits;
   // A total provider failure (every job threw) is distinct from a quiet day.
-  let searchErrored = searchResult.jobsAttempted > 0 &&
+  const searchErrored = searchResult.jobsAttempted > 0 &&
     searchResult.jobsErrored === searchResult.jobsAttempted;
-  let searchStats = {
-    jobsAttempted: searchResult.jobsAttempted,
-    jobsErrored: searchResult.jobsErrored,
-  };
   if (rawHits.length === 0) {
     return {
       hits: [],
       plan,
       rawHits,
       queriesUsed,
-      ...searchStats,
+      jobsAttempted: searchResult.jobsAttempted,
+      jobsErrored: searchResult.jobsErrored,
       searchErrored,
     };
   }
@@ -1314,12 +1324,6 @@ export async function discoverBeatHits(
       jobsErrored: searchResult.jobsErrored + relaxed.jobsErrored,
     };
     rawHits = searchResult.hits;
-    searchErrored = searchResult.jobsAttempted > 0 &&
-      searchResult.jobsErrored === searchResult.jobsAttempted;
-    searchStats = {
-      jobsAttempted: searchResult.jobsAttempted,
-      jobsErrored: searchResult.jobsErrored,
-    };
     expandedRawHits = expandLinkedArticleCandidates(rawHits);
     usableRawHits = filterLocationNewsTourism(
       filterUsableBeatCandidates(expandedRawHits),
@@ -1343,13 +1347,15 @@ export async function discoverBeatHits(
       ),
     });
   }
+  const searchStats = {
+    jobsAttempted: searchResult.jobsAttempted,
+    jobsErrored: searchResult.jobsErrored,
+  };
   if (usableRawHits.length === 0) {
     return { hits: [], plan, rawHits, queriesUsed, ...searchStats };
   }
 
-  const { dated, undated } = applyDateFilter(usableRawHits, recency);
-  const capped = capUndatedResults(undated, recency);
-  let hits = [...dated, ...capped];
+  let hits = filterStaleDatedCandidates(usableRawHits);
   if (hits.length === 0) {
     return { hits: [], plan, rawHits, queriesUsed, ...searchStats };
   }
@@ -1410,70 +1416,11 @@ function mergeBeatHits(primary: BeatHit[], fallback: BeatHit[]): BeatHit[] {
 }
 
 // ---------------------------------------------------------------------------
-// Stage 3 + 4: date filter and undated cap
+// Stage 3: recency
 // ---------------------------------------------------------------------------
 
-interface RecencyConfig {
-  news_days: number;
-  discovery_days: number;
-  max_undated_news: number;
-  max_undated_discovery: number;
-}
-
-const RECENCY_TABLE: Record<string, RecencyConfig> = {
-  "location:niche": {
-    news_days: 14,
-    discovery_days: 14,
-    max_undated_news: 10,
-    max_undated_discovery: 10,
-  },
-  "location:reliable": {
-    news_days: 14,
-    discovery_days: 14,
-    max_undated_news: 2,
-    max_undated_discovery: 2,
-  },
-  "topic:niche": {
-    news_days: 14,
-    discovery_days: 14,
-    max_undated_news: 20,
-    max_undated_discovery: 20,
-  },
-  "topic:reliable": {
-    news_days: 14,
-    discovery_days: 14,
-    max_undated_news: 25,
-    max_undated_discovery: 25,
-  },
-  "combined:niche": {
-    news_days: 14,
-    discovery_days: 14,
-    max_undated_news: 15,
-    max_undated_discovery: 15,
-  },
-  "combined:reliable": {
-    news_days: 14,
-    discovery_days: 14,
-    max_undated_news: 20,
-    max_undated_discovery: 20,
-  },
-};
-
-const ABSOLUTE_STALENESS_DAYS = 90;
+export const BEAT_RECENCY_DAYS = 14;
 const RELAXED_WINDOW_DAYS = 28;
-
-export function getRecencyConfig(
-  scope: BeatScope,
-  category: BeatCategory,
-  sourceMode: BeatSourceMode,
-): RecencyConfig {
-  const base = RECENCY_TABLE[`${scope}:${sourceMode}`] ??
-    RECENCY_TABLE["location:niche"];
-  if (category === "government") {
-    return { ...base, max_undated_news: 25, max_undated_discovery: 25 };
-  }
-  return base;
-}
 
 /** Build Firecrawl's documented custom date range, sorted newest first. */
 export function buildFirecrawlRecencyTbs(
@@ -1490,76 +1437,47 @@ export function buildFirecrawlRecencyTbs(
 /** Parse a search-hit date string. Handles ISO + a few common English forms. */
 export function parsePublishedDate(
   raw: string | null | undefined,
+  now = new Date(),
 ): Date | null {
   if (!raw) return null;
   const lower = raw.toLowerCase().trim();
-  const now = Date.now();
+  const nowMs = now.getTime();
+  if (lower === "yesterday") return new Date(nowMs - 86_400_000);
   if (lower.includes("ago")) {
     const n = parseInt(lower.replace(/[^0-9]/g, ""), 10) || 1;
-    if (lower.includes("hour")) return new Date(now - n * 3600_000);
-    if (lower.includes("day")) return new Date(now - n * 86400_000);
-    if (lower.includes("week")) return new Date(now - n * 7 * 86400_000);
-    if (lower.includes("month")) return new Date(now - n * 30 * 86400_000);
-    if (lower.includes("yesterday")) return new Date(now - 86400_000);
+    if (lower.includes("hour")) return new Date(nowMs - n * 3600_000);
+    if (lower.includes("day")) return new Date(nowMs - n * 86400_000);
+    if (lower.includes("week")) return new Date(nowMs - n * 7 * 86400_000);
+    if (lower.includes("month")) return new Date(nowMs - n * 30 * 86400_000);
   }
   const d = new Date(raw);
   return isNaN(d.getTime()) ? null : d;
 }
 
-export function applyDateFilter(
-  results: BeatHit[],
-  recency: RecencyConfig,
-): { dated: BeatHit[]; undated: BeatHit[] } {
-  const now = Date.now();
-  const cutoffNews = now - recency.news_days * 86400_000;
-  const cutoffDiscovery = now - recency.discovery_days * 86400_000;
-  const absoluteCutoff = now - ABSOLUTE_STALENESS_DAYS * 86400_000;
-
-  const dated: BeatHit[] = [];
-  const undated: BeatHit[] = [];
-  for (const item of results) {
-    const parsed = parsePublishedDate(item.date);
-    const cutoff = item._pass === "discovery" ? cutoffDiscovery : cutoffNews;
-    if (parsed) {
-      const ts = parsed.getTime();
-      if (ts >= cutoff && ts >= absoluteCutoff) dated.push(item);
-    } else {
-      undated.push(item);
-    }
-  }
-
-  // Progressive relaxation — if every dated article is too old, try a 28-day
-  // fallback bounded by the absolute 90-day floor.
-  if (dated.length === 0) {
-    const relaxed = now -
-      Math.min(RELAXED_WINDOW_DAYS, ABSOLUTE_STALENESS_DAYS) * 86400_000;
-    for (const item of results) {
-      const parsed = parsePublishedDate(item.date);
-      if (!parsed) continue;
-      const ts = parsed.getTime();
-      if (ts >= relaxed && ts >= absoluteCutoff) dated.push(item);
-    }
-  }
-  return { dated, undated };
+export function isKnownStaleBeatDate(
+  raw: string | null | undefined,
+  now = new Date(),
+): boolean {
+  const published = parsePublishedDate(raw, now);
+  if (!published) return false;
+  return published.getTime() <
+    now.getTime() - RELAXED_WINDOW_DAYS * 86_400_000;
 }
 
-export function capUndatedResults(
-  undated: BeatHit[],
-  recency: RecencyConfig,
+/**
+ * Firecrawl applies the requested recency window before returning web results,
+ * but its web result shape does not include publication dates. Preserve those
+ * provider-windowed candidates while still rejecting known stale dates.
+ */
+export function filterStaleDatedCandidates(
+  results: BeatHit[],
+  now = new Date(),
 ): BeatHit[] {
-  const discovery = undated.filter((r) => r._pass === "discovery").slice(
-    0,
-    recency.max_undated_discovery,
-  );
-  const other = undated.filter((r) => r._pass !== "discovery").slice(
-    0,
-    recency.max_undated_news,
-  );
-  return [...other, ...discovery];
+  return results.filter((hit) => !isKnownStaleBeatDate(hit.date, now));
 }
 
 // ---------------------------------------------------------------------------
-// Stage 5: tourism pre-filter (niche + location + news only)
+// Stage 4: tourism pre-filter (niche + location + news only)
 // ---------------------------------------------------------------------------
 
 const TOURISM_DOMAIN_PATTERNS = [
@@ -1608,7 +1526,7 @@ export function filterLocationNewsTourism(
 }
 
 // ---------------------------------------------------------------------------
-// Stage 6: embedding dedup + local-language + rarity scoring
+// Stage 5: embedding dedup + local-language + rarity scoring
 // ---------------------------------------------------------------------------
 
 export interface DedupeOpts {
@@ -1737,7 +1655,7 @@ export async function dedupeByEmbedding(
 }
 
 // ---------------------------------------------------------------------------
-// Stage 7: cluster filter (niche mode only)
+// Stage 6: cluster filter (niche mode only)
 // ---------------------------------------------------------------------------
 
 /** Drop mainstream news clusters (cluster_size > 2 for news, > 4 for discovery). */
@@ -1750,7 +1668,7 @@ export function clusterFilter(hits: BeatHit[]): BeatHit[] {
 }
 
 // ---------------------------------------------------------------------------
-// Stage 8: AI relevance filter
+// Stage 7: AI relevance filter
 // ---------------------------------------------------------------------------
 
 export interface AiFilterOpts {

@@ -113,7 +113,7 @@
 		return days === 1 ? '1d ago' : `${days}d ago`;
 	}
 
-	$: lastRunLabel = scout.last_run?.started_at ? `Last run ${timeSince(scout.last_run.started_at)}` : 'Awaiting first run';
+	$: lastRunLabel = scout.last_run?.started_at ? `Last run ${timeSince(scout.last_run.started_at)}` : 'Baseline ready';
 	$: articleCount = scout.last_run?.articles_count ?? null;
 	$: knownCount = scout.last_run?.merged_existing_count ?? 0;
 

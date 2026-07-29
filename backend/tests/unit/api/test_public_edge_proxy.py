@@ -123,6 +123,32 @@ def test_functions_proxy_preserves_caller_apikey(monkeypatch):
     assert fake.calls[0]["headers"]["apikey"] == "caller-apikey"
 
 
+def test_functions_proxy_rebuilds_client_ip_instead_of_forwarding_spoofed_headers(
+    monkeypatch,
+):
+    monkeypatch.setattr(public_edge_proxy.settings, "supabase_url", "https://proj.supabase.co")
+    monkeypatch.setattr(public_edge_proxy.settings, "supabase_anon_key", "anon-from-settings")
+    fake = _FakeClient(_FakeResp(200, b'{"ok":true}'))
+
+    with patch("app.routers.public_edge_proxy.httpx.AsyncClient", return_value=fake):
+        client = _mount()
+        res = client.post(
+            "/functions/v1/cli-auth/v1/device/authorize",
+            headers={
+                "x-forwarded-for": "203.0.113.10, 198.51.100.20",
+                "x-real-ip": "203.0.113.11",
+                "cf-connecting-ip": "203.0.113.12",
+            },
+            json={"site_origin": "https://scoutpost.ai"},
+        )
+
+    assert res.status_code == 200
+    headers = {k.lower(): v for k, v in fake.calls[0]["headers"].items()}
+    assert headers["x-forwarded-for"] == "testclient"
+    assert "x-real-ip" not in headers
+    assert "cf-connecting-ip" not in headers
+
+
 def test_mcp_proxy_serves_authorization_metadata_without_upstream(monkeypatch):
     monkeypatch.setattr(public_edge_proxy.settings, "supabase_url", "https://proj.supabase.co")
     monkeypatch.setattr(public_edge_proxy.settings, "supabase_anon_key", "anon-from-settings")

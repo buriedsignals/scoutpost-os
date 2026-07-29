@@ -51,9 +51,9 @@
 	}
 
 	$: lastRunText = (() => {
-		if (!scout.last_run?.started_at) return 'Awaiting first run';
+		if (!scout.last_run?.started_at) return 'Baseline ready';
 		const rel = timeSince(scout.last_run.started_at);
-		return rel ? `Last run ${rel}` : 'Awaiting first run';
+		return rel ? `Last run ${rel}` : 'Baseline ready';
 	})();
 
 	$: status = getScoutStatus({ type: normalizedType, last_run: scout.last_run });

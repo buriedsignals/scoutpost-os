@@ -266,6 +266,14 @@
 	let bootstrapped = false;
 	$: demoActive = IS_LOCAL_DEMO_MODE || isDemoWorkspace(scoutsState.scouts);
 	onMount(() => {
+		const connectParam = new URLSearchParams(window.location.search).get('connect');
+		if (connectParam === 'api') {
+			agentsApiOnly = true;
+			agentsOpen = true;
+			const url = new URL(window.location.href);
+			url.searchParams.delete('connect');
+			history.replaceState(history.state, '', url);
+		}
 		const handlePopState = () => {
 			if (!unitDetailHistoryActive) return;
 			closeActiveUnit(false);
@@ -498,6 +506,10 @@
 		void unitsStore.loadMore();
 	}
 
+	function handleLoadMoreScouts() {
+		void scoutsStore.loadMore();
+	}
+
 	// Search (debounced via FilterBar)
 	async function handleSearch(query: string) {
 		unitDeleteCandidateId = null;
@@ -655,7 +667,7 @@
 			<!-- SCOUTS GRID -->
 			<div class="scouts-section">
 				<div class="section-heading">
-					<h2>Scouts · {scoutsState.scouts.length}</h2>
+					<h2>Scouts · {scoutsState.total}</h2>
 					<span class="hint">Click a scout to scope the feed.</span>
 				</div>
 				{#if demoActive}
@@ -699,6 +711,13 @@
 							/>
 						{/each}
 					</div>
+					{#if scoutsState.hasMore}
+						<div class="scouts-load-more">
+							<Button variant="outline" onclick={handleLoadMoreScouts} disabled={scoutsState.loadingMore}>
+								{scoutsState.loadingMore ? 'Loading scouts…' : 'Load more scouts'}
+							</Button>
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/if}

@@ -91,6 +91,18 @@ asserts Beat execution used Firecrawl Cloud search via
 functions need their own env file if you intentionally serve them with
 `scripts/ops/serve-functions-local.sh`.
 
+### Beat testing loop — local first
+
+Do not use PR CI as the debugging loop for Beat, Firecrawl-search, or Crawl4AI
+changes. Iterate locally until the focused tests, Edge Function type-check, and
+offline quality benchmark are green. The exact commands and live-result
+interpretation are in `docs/supabase/benchmarks.md`.
+
+Use a deployed live canary only when the remaining risk crosses the real
+Firecrawl/OpenRouter/Crawl4AI or Supabase runtime boundary. Run the narrowest
+scenario first; run the full live matrix before release when retrieval behavior
+changed. CI remains the mandatory final gate after the local loop is green.
+
 ---
 
 ## Occasional User Update Emails
@@ -217,6 +229,12 @@ Also confirm manually:
 - `/login` on localhost shows the MuckRock branch
 - `/docs` and `/skills` stay on localhost
 - `GET /api/auth/login` on localhost 302s to MuckRock with `redirect_uri=http://localhost:5173/api/auth/callback`
+
+CLI browser login adds one narrow exception to the public-route boundary:
+`/cli/authorize` may load signed out, remember only its validated same-origin
+user-code URL in session storage, and then use the normal auth path above. It
+must never change the MuckRock callback URL, accept an arbitrary return URL, or
+approve a request merely because a session exists.
 
 ### Local launch and browser smoke scripts
 

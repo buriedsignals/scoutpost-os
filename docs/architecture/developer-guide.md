@@ -270,6 +270,13 @@ systems.
 `Authorization` header. `auth-muckrock.ts` relies on a session cookie set by the FastAPI
 backend's OAuth callback.
 
+The public `/cli/authorize` route is allowed while signed out so the user can
+start the normal deployment login. It stores only a validated same-origin
+`/cli/authorize?user_code=…` path in session storage and consumes it once after
+the existing callback. Do not generalize this into an arbitrary `next` URL.
+Hosted and local MuckRock callback URLs remain unchanged. See
+`docs/features/cli-browser-auth.md`.
+
 ---
 
 ## Mirror CI/CD: What Gets Stripped

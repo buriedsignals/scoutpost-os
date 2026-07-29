@@ -9,6 +9,14 @@ export interface Config {
   // Required by Supabase Edge Functions when sending a non-anon Bearer token.
   // Set alongside api_key when api_url points at hosted or raw Edge Functions.
   supabase_anon_key?: string;
+  /** Public site used by browser-assisted login. */
+  site_url?: string;
+  /** Non-secret metadata for status/logout output. */
+  api_key_id?: string;
+  api_key_prefix?: string;
+  api_key_name?: string;
+  account_user_id?: string;
+  account_email?: string;
 }
 
 export const KNOWN_HOSTED_SUPABASE_PROJECT_REF = "gfmdziplticfoak" + "hrfpt";
@@ -43,13 +51,25 @@ export function writeConfigFile(cfg: Config): void {
     // Non-POSIX platforms may not support chmod; the mode option above is
     // still applied where the runtime supports it.
   }
-  Deno.writeTextFileSync(path, JSON.stringify(cfg, null, 2) + "\n", {
+  const temporaryPath = `${path}.tmp-${crypto.randomUUID()}`;
+  Deno.writeTextFileSync(temporaryPath, JSON.stringify(cfg, null, 2) + "\n", {
     mode: 0o600,
   });
   try {
-    Deno.chmodSync(path, 0o600);
+    Deno.chmodSync(temporaryPath, 0o600);
   } catch {
     // See directory chmod note.
+  }
+  try {
+    Deno.renameSync(temporaryPath, path);
+  } catch (error) {
+    try {
+      Deno.removeSync(temporaryPath);
+    } catch {
+      // Preserve the original write error. The temporary file was created
+      // with mode 0600 even if cleanup is unavailable.
+    }
+    throw error;
   }
 }
 
@@ -117,7 +137,9 @@ export function loadConfig(): ResolvedConfig {
   }
   if (!cfg.api_key && !cfg.auth_token) {
     throw new Error(
-      "No credential set. Generate an API key at https://scoutpost.ai → Connect Agent → API → Create key, then:\n" +
+      "No credential set. Run browser authentication:\n" +
+        "  scout auth login --site https://scoutpost.ai\n" +
+        "For manual REST/CI recovery, generate a key under Connect Agent → API keys & REST, then:\n" +
         "  scout config set api_key=cj_xxx\n" +
         "  scout config set api_url=https://scoutpost.ai/functions/v1\n" +
         "  For hosted or raw Edge Functions, also set:\n" +

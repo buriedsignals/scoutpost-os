@@ -19,7 +19,7 @@ function usage(): void {
     [
       "Usage: scout config <subcommand>",
       "",
-      "  get <key>            Print value of a config key",
+      "  get <key>            Print a config value (credentials are redacted)",
       "  set <key>=<value>    Write key/value to config",
       "  show                 Show the full config (secrets redacted)",
       "",
@@ -86,7 +86,7 @@ export function run(argv: string[]): void {
       console.error(`${key} is not set`);
       Deno.exit(1);
     }
-    console.log(val);
+    console.log(SECRET_KEYS.has(key as Key) ? redact(val) : val);
     return;
   }
 

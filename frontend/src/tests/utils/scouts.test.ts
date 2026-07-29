@@ -341,6 +341,7 @@ describe('getScoutStatus', () => {
 
 describe('getScoutStatusLabel', () => {
 	it('maps status keys to user-facing labels', () => {
+		expect(getScoutStatusLabel('awaitingFirstRun')).toBe('Baseline ready');
 		expect(getScoutStatusLabel('alreadyKnown')).toBe('Already known');
 		expect(getScoutStatusLabel({ variant: 'neutral', key: 'noSavedFindings' })).toBe(
 			'No findings saved'

@@ -103,6 +103,12 @@ inside `auth-supabase.ts -> login()`. Do not route hosted production through
 `auth-muckrock.ts`, and do not collapse `auth-supabase.ts -> login()` to
 plain `/login`.
 
+`/cli/authorize` is a public shell around an authenticated approval action. A
+signed-out user may enter the normal login flow, but the only remembered return
+value is a validated same-origin `/cli/authorize?user_code=XXXX-XXXX` path in
+session storage. The page must never approve on load or expose the generated
+API key.
+
 ## i18n (Paraglide)
 
 Internationalization uses [Paraglide JS](https://inlang.com/m/gerre34r) with inlang message format.

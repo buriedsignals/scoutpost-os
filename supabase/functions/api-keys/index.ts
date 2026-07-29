@@ -13,8 +13,12 @@
 
 import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
-import { AuthedUser, requireUser } from "../_shared/auth.ts";
-import { getUserClient } from "../_shared/supabase.ts";
+import {
+  AuthedUser,
+  requireUser,
+  requireUserOrApiKey,
+} from "../_shared/auth.ts";
+import { getServiceClient, getUserClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
@@ -23,27 +27,19 @@ const CreateSchema = z.object({
   name: z.string().min(1).max(100),
 });
 
-function generateKey(): string {
-  // 24 url-safe random chars after the cj_ prefix → ~143 bits of entropy.
-  const bytes = new Uint8Array(18);
-  crypto.getRandomValues(bytes);
-  const b64 = btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-  return `cj_${b64}`;
-}
-
-async function sha256Hex(input: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 Deno.serve(async (req): Promise<Response> => {
   const cors = handleCors(req);
   if (cors) return cors;
+
+  const url = new URL(req.url);
+  const path = url.pathname.replace(/^.*\/api-keys/, "") || "/";
+  if (path === "/self" && req.method === "DELETE") {
+    try {
+      return await revokeSelf(req);
+    } catch (e) {
+      return jsonFromError(e, req);
+    }
+  }
 
   let user: AuthedUser;
   try {
@@ -52,15 +48,17 @@ Deno.serve(async (req): Promise<Response> => {
     return jsonFromError(e);
   }
 
-  const url = new URL(req.url);
-  const path = url.pathname.replace(/^.*\/api-keys/, "") || "/";
   const idMatch = path.match(/^\/([0-9a-f-]{36})$/i);
   const isRead = req.method === "GET" || req.method === "HEAD";
 
   try {
     if (path === "/" && isRead) return await listKeys(user);
-    if (path === "/" && req.method === "POST") return await createKey(req, user);
-    if (idMatch && req.method === "DELETE") return await revokeKey(user, idMatch[1]);
+    if (path === "/" && req.method === "POST") {
+      return await createKey(req, user);
+    }
+    if (idMatch && req.method === "DELETE") {
+      return await revokeKey(user, idMatch[1]);
+    }
     return jsonError("method not allowed", 405);
   } catch (e) {
     logEvent({
@@ -103,45 +101,94 @@ async function createKey(req: Request, user: AuthedUser): Promise<Response> {
   const parsed = CreateSchema.safeParse(body);
   if (!parsed.success) {
     throw new ValidationError(
-      parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+      parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(
+        "; ",
+      ),
     );
   }
 
-  const rawKey = generateKey();
-  const keyHash = await sha256Hex(rawKey);
-  const keyPrefix = rawKey.slice(0, 11);
-
-  const db = getUserClient(user.token);
-  const { data, error } = await db
-    .from("api_keys")
-    .insert({
-      user_id: user.id,
-      key_hash: keyHash,
-      key_prefix: keyPrefix,
-      name: parsed.data.name,
-    })
-    .select("id, key_prefix, name, created_at")
-    .single();
+  const svc = getServiceClient();
+  const { data, error } = await svc.rpc("create_api_key_atomic", {
+    p_user_id: user.id,
+    p_name: parsed.data.name,
+    p_source: "manual",
+  });
   if (error) throw new Error(error.message);
+  const created = Array.isArray(data) ? data[0] : data;
+  if (created?.result === "key_limit_reached") {
+    return jsonError(
+      "A maximum of five API keys is allowed. Revoke one before creating another.",
+      409,
+      "api_key_limit_reached",
+      req,
+    );
+  }
+  if (!created?.api_key || !created?.key_id) {
+    throw new Error("API key creation failed");
+  }
 
   logEvent({
     level: "info",
     fn: "api-keys",
     event: "created",
     user_id: user.id,
-    key_id: data.id,
+    key_id: created.key_id,
   });
 
   return jsonOk(
     {
-      key: rawKey,
-      key_id: data.id,
-      key_prefix: data.key_prefix,
-      name: data.name,
-      created_at: data.created_at,
+      key: created.api_key,
+      key_id: created.key_id,
+      key_prefix: created.key_prefix,
+      name: created.key_name,
+      created_at: created.created_at,
     },
     201,
   );
+}
+
+async function revokeSelf(req: Request): Promise<Response> {
+  const user = await requireUserOrApiKey(req);
+  if (user.authMethod !== "api_key" || !user.apiKeyId) {
+    return jsonError(
+      "API-key authentication required",
+      401,
+      "api_key_required",
+      req,
+    );
+  }
+
+  const forwardedApiKey = req.headers.get("x-cojo-api-key") ??
+    req.headers.get("X-Cojo-Api-Key");
+  const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  const rawKey = forwardedApiKey?.trim() || bearer?.trim();
+  if (!rawKey?.startsWith("cj_")) {
+    return jsonError(
+      "API-key authentication required",
+      401,
+      "api_key_required",
+      req,
+    );
+  }
+
+  const svc = getServiceClient();
+  const { data, error } = await svc.rpc("revoke_current_api_key", {
+    p_key: rawKey,
+  });
+  if (error) throw new Error(error.message);
+  if (data !== user.apiKeyId) throw new NotFoundError("api_key");
+
+  logEvent({
+    level: "info",
+    fn: "api-keys",
+    event: "self_revoked",
+    user_id: user.id,
+    key_id: user.apiKeyId,
+  });
+  return new Response(null, {
+    status: 204,
+    headers: { "Access-Control-Allow-Origin": "*" },
+  });
 }
 
 async function revokeKey(user: AuthedUser, id: string): Promise<Response> {

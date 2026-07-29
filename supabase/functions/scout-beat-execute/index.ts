@@ -45,6 +45,7 @@ import {
   BeatSourceMode,
   discoverBeatHits,
   discoverPriorityDomainHits,
+  isKnownStaleBeatDate,
   renderedArticleCandidates,
   summarizeSearchJobs,
 } from "../_shared/beat_pipeline.ts";
@@ -695,10 +696,17 @@ async function execute(
         });
       }
     });
-    const effectiveScrapes = effectiveHits.flatMap((hit) => {
+    const readableScrapes = effectiveHits.flatMap((hit) => {
       const item = initialByUrl.get(hit.url) ?? followupByUrl.get(hit.url);
       return item ? [item] : [];
     });
+    const effectiveScrapes = readableScrapes.filter(({ hit, scrape }) =>
+      !isKnownStaleBeatDate(
+        sourcePublishedDate({ scrape, searchDate: hit.date }),
+      )
+    );
+    const staleSourcesFiltered = readableScrapes.length -
+      effectiveScrapes.length;
     const succeeded = effectiveScrapes.map((item) => item.scrape);
     const attemptedScrapeCount = initialScraped.length + followupScraped.length;
     finalUrls = effectiveScrapes.map((item) => item.hit.url);
@@ -721,6 +729,7 @@ async function execute(
       scrape_provider: scrapeProvider(),
       scrape_served_crawl4ai: scrapeServed.crawl4ai,
       scrape_served_firecrawl: scrapeServed.firecrawl,
+      stale_sources_filtered: staleSourcesFiltered,
     });
 
     if (succeeded.length === 0) {

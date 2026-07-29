@@ -4,9 +4,11 @@
 	import { auth } from '$lib/stores/auth';
 	import { IS_LOCAL_DEMO_MODE } from '$lib/demo/state';
 	import { onMount } from 'svelte';
+	import { consumeAuthReturn } from '$lib/utils/auth-return';
 
 	let mounted = false;
 	let featureListEl: HTMLElement;
+	let postLoginNavigationStarted = false;
 	const isSupabaseDeployment = import.meta.env.PUBLIC_DEPLOYMENT_TARGET === 'supabase';
 	const selfHostLoginNote = (import.meta.env.PUBLIC_SELF_HOST_LOGIN_NOTE ?? '').trim();
 	const showSupabaseAuth = () =>
@@ -18,6 +20,13 @@
 	let password = '';
 	let authError = '';
 	let authLoading = false;
+	let showIndicatorLoginHelp = false;
+
+	async function navigateAfterLogin() {
+		if (postLoginNavigationStarted) return;
+		postLoginNavigationStarted = true;
+		await goto(consumeAuthReturn());
+	}
 
 	type NewsletterId = 'buried_signals' | 'indicator_media';
 
@@ -95,14 +104,14 @@
 				const { data, error } = await supabase.auth.signUp({ email, password });
 				if (error) throw error;
 				if (data?.session) {
-					await goto('/');
+					await navigateAfterLogin();
 				} else {
 					authError = 'Check your email to confirm your account.';
 				}
 			} else {
 				const { error } = await supabase.auth.signInWithPassword({ email, password });
 				if (error) throw error;
-				await goto('/');
+				await navigateAfterLogin();
 			}
 		} catch (e: any) {
 			authError = e.message || 'Authentication failed';
@@ -118,7 +127,7 @@
 
 		const unsubscribe = auth.subscribe(async (state) => {
 			if (state.authenticated) {
-				await goto('/');
+				await navigateAfterLogin();
 			}
 		});
 
@@ -212,7 +221,8 @@
 								<button class="sign-in-button" onclick={() => auth.login()}>
 									Sign in
 								</button>
-								
+								<div class="auth-account-options">
+								</div>
 								<div class="auth-cta-row">
 									
 									<span class="auth-cta-sep">·</span>
@@ -730,6 +740,49 @@
 	}
 
 	
+
+	.auth-account-options {
+		margin-top: 0.875rem;
+		text-align: center;
+	}
+
+	.auth-account-options .auth-signup-link,
+	.indicator-login-help-toggle {
+		white-space: nowrap;
+	}
+
+	.auth-account-options 
+
+	.indicator-login-help-toggle {
+		height: auto;
+		min-height: 0;
+		border: 1px dashed var(--color-ink-muted);
+		padding: 0.25rem 0.375rem;
+		background: var(--color-paper);
+		color: var(--color-ink);
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		font-weight: 500;
+		letter-spacing: 0.08em;
+		line-height: 1;
+		text-transform: uppercase;
+		cursor: pointer;
+	}
+
+	.indicator-login-help-toggle:hover,
+	.indicator-login-help-toggle:focus-visible {
+		border-color: var(--color-primary);
+		color: var(--color-primary);
+		outline-offset: 0.25rem;
+	}
+
+	.indicator-login-help-copy {
+		max-width: 21rem;
+		margin: 0.5rem auto 0;
+		color: var(--color-ink-muted);
+		font-size: 0.75rem;
+		line-height: 1.45;
+	}
 
 	
 

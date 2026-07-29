@@ -27,6 +27,10 @@ export interface AuthedUser {
   token: string;
   /** Auth path used: "session" (Supabase JWT) or "api_key" (cj_… token). */
   authMethod?: "session" | "api_key";
+  /** Present for API-key auth so a key can revoke only itself. */
+  apiKeyId?: string;
+  apiKeyPrefix?: string;
+  apiKeyName?: string;
 }
 
 export async function requireUser(req: Request): Promise<AuthedUser> {
@@ -72,16 +76,24 @@ export async function requireUserOrApiKey(req: Request): Promise<AuthedUser> {
 
   if (token.startsWith("cj_")) {
     const svc = getServiceClient();
-    const { data: userId, error } = await svc.rpc("validate_api_key", {
+    const { data, error } = await svc.rpc("validate_api_key_identity", {
       p_key: token,
     });
     if (error) {
       throw new AuthError(`api key validation failed: ${error.message}`);
     }
-    if (!userId || typeof userId !== "string") {
+    const identity = Array.isArray(data) ? data[0] : data;
+    if (!identity?.user_id || !identity?.key_id) {
       throw new AuthError("invalid api key");
     }
-    return { id: userId, token: "", authMethod: "api_key" };
+    return {
+      id: identity.user_id,
+      token: "",
+      authMethod: "api_key",
+      apiKeyId: identity.key_id,
+      apiKeyPrefix: identity.key_prefix,
+      apiKeyName: identity.key_name,
+    };
   }
 
   // Fall through to session-JWT path.

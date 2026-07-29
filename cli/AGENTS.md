@@ -120,7 +120,18 @@ or Supabase, for example `https://scoutpost.ai/functions/v1` or
 Supabase hosts and FastAPI `/api` bases so existing scripts do not fail during
 the migration.
 
-## Auth — api_key vs auth_token
+## Auth — browser login, api_key, and auth_token
+
+`scout auth login` is the primary interactive path. It loads the versioned
+site discovery document, uses the device authorization endpoints, stores the
+one-time `cj_…` result privately, and verifies `/user/me`. `auth status` must
+remain redacted. `auth logout` self-revokes the current key before clearing
+local credentials.
+
+Browser launch is intentionally limited to `open <url>` on macOS and
+`xdg-open <url>` on graphical Linux. Compiled targets must not gain general
+`--allow-run` permission. Discovery requires HTTPS except loopback and forbids
+redirects and unadvertised origins.
 
 Two credentials are accepted:
 
@@ -136,8 +147,10 @@ Two credentials are accepted:
 If both are set, `api_key` wins. Both can coexist for fallback flexibility
 during migration.
 
-The four valid config keys are: `api_url`, `auth_token`, `api_key`,
-`supabase_anon_key`. `scout config show` redacts all credentials.
+Browser login also records the non-secret `site_url`, key ID/prefix/name, and
+account metadata. The credential-bearing config keys remain `auth_token`,
+`api_key`, and the public gateway value `supabase_anon_key`.
+`scout config show` redacts all credential values.
 
 ## Secrets
 

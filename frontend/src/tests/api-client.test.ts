@@ -44,7 +44,7 @@ describe('getActiveJobs', () => {
 		await apiClient.getActiveJobs();
 
 		expect(fetchSpy).toHaveBeenCalledWith(
-			'/api/scouts',
+			'/api/scouts?limit=100&offset=0',
 			expect.objectContaining({
 				method: 'GET',
 				headers: expect.objectContaining({ 'Content-Type': 'application/json' })

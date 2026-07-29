@@ -1,7 +1,8 @@
-#!/usr/bin/env -S deno run --allow-net --allow-env --allow-read --allow-write
+#!/usr/bin/env -S deno run --allow-net --allow-env --allow-read --allow-write --allow-run=/usr/bin/open,/usr/bin/xdg-open
 // scout — Scoutpost CLI
 // Entry point: dispatches subcommands to commands/<name>.ts
 
+import * as auth from "./commands/auth.ts";
 import * as config from "./commands/config.ts";
 import * as ingest from "./commands/ingest.ts";
 import * as projects from "./commands/projects.ts";
@@ -13,6 +14,7 @@ import { VERSION } from "./lib/version.ts";
 
 const SUBCOMMANDS = [
   "config",
+  "auth",
   "projects",
   "scouts",
   "units",
@@ -28,6 +30,7 @@ const COMMANDS: Record<
   { run: (argv: string[]) => void | Promise<void> }
 > = {
   config,
+  auth,
   projects,
   scouts,
   units,
@@ -43,6 +46,7 @@ function printUsage(): void {
     "Usage: scout <command> [args...]",
     "",
     "Commands:",
+    "  auth       Sign in, check status, or revoke the local CLI credential",
     "  config     Manage ~/.scoutpost/config.json (api_url, api_key, auth_token)",
     "  projects   List, add, show, delete projects",
     "  scouts     List, add, show, update, run, pause, resume, delete scouts",

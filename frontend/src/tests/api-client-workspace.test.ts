@@ -216,19 +216,25 @@ describe('getProject', () => {
 });
 
 // ===========================================================================
-// listScouts — GET /scouts?project_id=
+// listScouts — GET /scouts?project_id=&limit=&offset=
 // ===========================================================================
 
 describe('listScouts', () => {
-	it('unwraps Edge Function items envelope', async () => {
+	it('preserves pagination metadata so the workspace can load more scouts', async () => {
 		const items = [{ id: 's1', name: 'Scout 1', type: 'pulse', is_active: true }];
-		fetchSpy = mockFetchResponse({ items, pagination: { has_more: false } });
+		fetchSpy = mockFetchResponse({
+			items,
+			pagination: { total: 51, offset: 0, limit: 50, has_more: true }
+		});
 		vi.stubGlobal('fetch', fetchSpy);
-		const scouts = await workspaceApi.listScouts('p1');
+		const page = await workspaceApi.listScouts('p1');
 		const { url } = getLastRequest();
 		expect(url).toContain('/api/scouts');
 		expect(url).toContain('project_id=p1');
-		expect(scouts).toEqual(items);
+		expect(url).toContain('limit=50');
+		expect(page.scouts).toEqual(items);
+		expect(page.next_cursor).toBe('50');
+		expect(page.total).toBe(51);
 	});
 
 	it('tolerates FastAPI {scouts: [...], count} envelope', async () => {
@@ -236,7 +242,8 @@ describe('listScouts', () => {
 		fetchSpy = mockFetchResponse({ scouts, count: 1 });
 		vi.stubGlobal('fetch', fetchSpy);
 		const got = await workspaceApi.listScouts();
-		expect(got).toEqual(scouts);
+		expect(got.scouts).toEqual(scouts);
+		expect(got.next_cursor).toBeNull();
 	});
 
 	it('normalizes legacy scout types from live data', async () => {
@@ -246,14 +253,14 @@ describe('listScouts', () => {
 		});
 		vi.stubGlobal('fetch', fetchSpy);
 		const got = await workspaceApi.listScouts();
-		expect(got[0].type).toBe('pulse');
+		expect(got.scouts[0].type).toBe('pulse');
 	});
 
 	it('omits project_id when not supplied', async () => {
 		fetchSpy = mockFetchResponse({ items: [], pagination: { has_more: false } });
 		vi.stubGlobal('fetch', fetchSpy);
 		await workspaceApi.listScouts();
-		expect(getLastRequest().url).toBe('/api/scouts');
+		expect(getLastRequest().url).toBe('/api/scouts?limit=50&offset=0');
 	});
 });
 

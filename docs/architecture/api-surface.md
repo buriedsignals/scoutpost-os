@@ -22,6 +22,7 @@ Auth: Bearer JWT (Supabase auth) **or** Bearer `cj_…` API key plus
 |---|---|---|
 | `_shared/` | Internal helpers (auth, db, firecrawl, OpenRouter, notifications) | Live (not an endpoint) |
 | `api-keys` | CRUD for `cj_…` API keys (per-user, max 5) | Live (PR #71) |
+| `cli-auth` | Short-lived browser approval and one-time API-key redemption for Scout CLI | Live |
 | `apify-callback` | Apify webhook target — completes social runs | Live |
 | `apify-reconcile` | Periodic backfill for stuck Apify jobs | Live (cron) |
 | `beat-search` | Beat Scout AI search — direct call surface | Live |

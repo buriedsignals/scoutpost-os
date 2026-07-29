@@ -228,20 +228,42 @@ function buildQueryString(params: Record<string, string | number | undefined | n
 // in module scope so a sequence of run-now/delete calls only pays the
 // lookup once. Cache invalidates on any list refetch.
 let _scoutNameToIdCache: Map<string, string> | null = null;
+
+type ListedScout = Record<string, unknown> & { id: string; name: string };
+
+/** Fetch every scout page for legacy callers that still operate by scout name. */
+async function fetchAllScouts(): Promise<ListedScout[]> {
+	const { authStore } = await import('$lib/stores/auth');
+	const token = await authStore.getToken();
+	const items: ListedScout[] = [];
+	let offset = 0;
+
+	while (true) {
+		const response = await fetch(buildApiUrl(`/scouts?limit=100&offset=${offset}`), {
+			method: 'GET',
+			headers: { ...JSON_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+		});
+		if (!response.ok) {
+			throw new Error(normalizeErrorDetail(undefined, `API error: ${response.status}`));
+		}
+		const body = (await response.json()) as {
+			items?: ListedScout[];
+			pagination?: { has_more?: boolean; offset?: number; limit?: number };
+		};
+		const page = body.items ?? [];
+		items.push(...page);
+		if (!body.pagination?.has_more || page.length === 0) return items;
+		offset = (body.pagination.offset ?? offset) + (body.pagination.limit ?? page.length);
+	}
+}
+
 async function resolveScoutId(scraperName: string): Promise<string> {
 	if (_scoutNameToIdCache?.has(scraperName)) {
 		return _scoutNameToIdCache.get(scraperName)!;
 	}
-	const { authStore } = await import('$lib/stores/auth');
-	const token = await authStore.getToken();
-	const response = await fetch(buildApiUrl('/scouts'), {
-		method: 'GET',
-		headers: { ...JSON_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-	});
-	if (!response.ok) throw new Error(`Failed to resolve scout name "${scraperName}"`);
-	const body = (await response.json()) as { items?: Array<{ id: string; name: string }> };
+	const items = await fetchAllScouts();
 	const cache = new Map<string, string>();
-	for (const item of body.items ?? []) cache.set(item.name, item.id);
+	for (const item of items) cache.set(item.name, item.id);
 	_scoutNameToIdCache = cache;
 	const id = cache.get(scraperName);
 	if (!id) throw new Error(`Scout "${scraperName}" not found`);
@@ -258,20 +280,7 @@ export const apiClient = {
 	 * name→id resolve cache on every list fetch.
 	 */
 	async getActiveJobs(): Promise<import('$lib/types').ActiveJobsResponse> {
-		const { authStore } = await import('$lib/stores/auth');
-		const token = await authStore.getToken();
-		const response = await fetch(buildApiUrl('/scouts'), {
-			method: 'GET',
-			headers: { ...JSON_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-		});
-		if (!response.ok) {
-			throw new Error(normalizeErrorDetail(undefined, `API error: ${response.status}`));
-		}
-		const body = (await response.json()) as {
-			items?: Array<Record<string, unknown> & { id: string; name: string }>;
-			pagination?: { total?: number };
-		};
-		const items = body.items ?? [];
+		const items = await fetchAllScouts();
 		// Refresh the resolve cache as a side effect.
 		const cache = new Map<string, string>();
 		for (const item of items) cache.set(item.name, item.id);
@@ -691,12 +700,36 @@ export const apiClient = {
 	 */
 	async revokeApiKey(keyId: string): Promise<void> {
 		return apiRequest('DELETE', `/api-keys/${keyId}`);
+	},
+
+	// ==================== CLI Browser Authorization ====================
+
+	async getCliAuthorizationRequest(userCode: string): Promise<CliAuthorizationRequest> {
+		return apiRequest('POST', '/cli-auth/v1/device/lookup', { user_code: userCode });
+	},
+
+	async decideCliAuthorization(
+		userCode: string,
+		decision: 'approve' | 'deny'
+	): Promise<{ status: 'approved' | 'denied' }> {
+		return apiRequest('POST', `/cli-auth/v1/device/${decision}`, { user_code: userCode });
 	}
 };
 
 // ---------------------------------------------------------------------------
 // Shared types
 // ---------------------------------------------------------------------------
+
+export interface CliAuthorizationRequest {
+	client_name: string;
+	agent_label: string | null;
+	device_label: string | null;
+	site_origin: string;
+	user_code: string;
+	status: 'pending' | 'approved' | 'denied' | 'expired' | 'consumed';
+	expires_at: string;
+	access: string;
+}
 
 /**
  * Atomic information unit from scout execution.
@@ -741,7 +774,8 @@ import type {
 	Reflection as _WorkspaceReflection,
 	Entity as _WorkspaceEntity,
 	CreateScoutInput as _WorkspaceCreateScoutInput,
-	PaginatedUnits as _WorkspacePaginatedUnits
+	PaginatedUnits as _WorkspacePaginatedUnits,
+	PaginatedScouts as _WorkspacePaginatedScouts
 } from '$lib/types/workspace';
 
 export type WorkspaceProject = _WorkspaceProject;
@@ -751,6 +785,7 @@ export type WorkspaceReflection = _WorkspaceReflection;
 export type WorkspaceEntity = _WorkspaceEntity;
 export type WorkspaceCreateScoutInput = _WorkspaceCreateScoutInput;
 export type WorkspacePaginatedUnits = _WorkspacePaginatedUnits;
+export type WorkspacePaginatedScouts = _WorkspacePaginatedScouts;
 
 function normalizeWorkspaceScout(scout: WorkspaceScout): WorkspaceScout {
 	return {
@@ -967,21 +1002,46 @@ export const workspaceApi = {
 	/**
 	 * List scouts, optionally scoped to a project.
 	 *
-	 * The Edge Function returns `{items, pagination}`; FastAPI `/v1/scouts`
-	 * returns `{scouts: [...], count}`. The shared unwrap handles the Edge
-	 * Function shape — for the FastAPI shape, callers see an array when
-	 * `data.items` is absent but `scouts` is present, we still return `[]`.
-	 * See the shape-mismatch note in the PR description.
+	 * Returns a page plus a cursor derived from the Edge Function's
+	 * `{offset, limit, has_more}` envelope. Legacy FastAPI envelopes remain
+	 * readable as one complete page.
 	 */
-	async listScouts(projectId?: string): Promise<WorkspaceScout[]> {
-		const query = projectId ? { project_id: projectId } : undefined;
-		const res = await workspaceRequest<unknown>('GET', '/scouts', { query });
-		if (Array.isArray(res)) return (res as WorkspaceScout[]).map(normalizeWorkspaceScout);
-		// Tolerate FastAPI `{scouts: [...], count}` shape.
-		if (res && typeof res === 'object' && Array.isArray((res as { scouts?: unknown }).scouts)) {
-			return (res as { scouts: WorkspaceScout[] }).scouts.map(normalizeWorkspaceScout);
+	async listScouts(
+		projectId?: string,
+		cursor?: string | null
+	): Promise<WorkspacePaginatedScouts> {
+		const offset = cursor ? parseInt(cursor, 10) || 0 : 0;
+		const query: Record<string, string | number | undefined | null> = { limit: 50, offset };
+		if (projectId) query.project_id = projectId;
+
+		const auth = await workspaceAuthHeaders();
+		const qs = buildQueryString(query);
+		const response = await fetch(buildApiUrl(`/scouts${qs ? `?${qs}` : ''}`), {
+			method: 'GET',
+			headers: { ...JSON_HEADERS, ...auth }
+		});
+		if (!response.ok) {
+			const body = await parseJsonSafe(response);
+			const { message, code } = normalizeApiError(response, body);
+			throw new ApiError(message, code, response.status);
 		}
-		return [];
+		const body = (await parseJsonSafe(response)) as Record<string, unknown> | null;
+		let scouts: WorkspaceScout[] = [];
+		if (body && Array.isArray(body.items)) scouts = body.items as WorkspaceScout[];
+		else if (body && Array.isArray(body.data)) scouts = body.data as WorkspaceScout[];
+		else if (body && Array.isArray(body.scouts)) scouts = body.scouts as WorkspaceScout[];
+
+		const pg = body?.pagination as
+			| { has_more?: boolean; offset?: number; limit?: number; total?: number }
+			| undefined;
+		const next_cursor = pg?.has_more
+			? String((pg.offset ?? offset) + (pg.limit ?? scouts.length))
+			: null;
+		return {
+			scouts: scouts.map(normalizeWorkspaceScout),
+			next_cursor,
+			total: pg?.total ?? scouts.length
+		};
 	},
 
 	/**

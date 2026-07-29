@@ -12,7 +12,7 @@ function usage(): void {
     [
       "Usage: scout scouts <subcommand>",
       "",
-      "  list",
+      "  list [--offset N] [--limit N]",
       "  test-transport --mode aircraft|vessel|satellite --watch-ids <id,id>",
       "                 --center-lat <n> --center-lon <n> --radius-km <n>",
       "                 [--area-name <name>] [--categories <cat,cat>] [--criteria <text>]",
@@ -308,10 +308,35 @@ export async function run(argv: string[]): Promise<void> {
 
   switch (sub) {
     case "list": {
-      const data = await apiFetch<Scout[] | { data: Scout[] }>(
-        "/functions/v1/scouts",
-      );
-      const rows = unwrapItems<Scout>(data);
+      const pageSize = typeof flags.limit === "string"
+        ? Number(flags.limit)
+        : 50;
+      let offset = typeof flags.offset === "string" ? Number(flags.offset) : 0;
+      const rows: Scout[] = [];
+      let hasMore = true;
+      while (hasMore) {
+        const data = await apiFetch<unknown>(
+          `/functions/v1/scouts?offset=${
+            encodeURIComponent(String(offset))
+          }&limit=${encodeURIComponent(String(pageSize))}`,
+        );
+        const page = unwrapItems<Scout>(data);
+        rows.push(...page);
+        const pagination = data && typeof data === "object"
+          ? (data as {
+            pagination?: {
+              has_more?: boolean;
+              offset?: number;
+              limit?: number;
+            };
+          }).pagination
+          : undefined;
+        hasMore = pagination?.has_more === true && page.length > 0;
+        if (hasMore) {
+          offset = (pagination?.offset ?? offset) +
+            (pagination?.limit ?? page.length);
+        }
+      }
       printTable(
         rows as unknown as Record<string, unknown>[],
         ["id", "name", "type", "is_active", "consecutive_failures"],

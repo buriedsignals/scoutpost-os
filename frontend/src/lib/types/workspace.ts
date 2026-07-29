@@ -301,6 +301,13 @@ export interface PaginatedUnits {
   next_cursor: string | null;
 }
 
+/** Paginated scout page used by the workspace scout index. */
+export interface PaginatedScouts {
+  scouts: Scout[];
+  next_cursor: string | null;
+  total: number;
+}
+
 /**
  * Generic Edge Function pagination envelope. Exported for tests that want to
  * assert on the raw shape before helper unwrap.

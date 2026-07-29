@@ -13,7 +13,7 @@ Scoutpost. For day-to-day newsroom use, prefer the product skill at
 
 ## Public surfaces
 
-For hosted SaaS, the public app is `https://www.scoutpost.ai`.
+For hosted SaaS, the canonical public app is `https://scoutpost.ai`.
 
 For self-hosted deployments, use the newsroom's own deployed app URL and the
 API/MCP targets generated during setup. Supabase is the supported managed setup
@@ -23,47 +23,48 @@ hosted scoutpost.ai Supabase project.
 
 ## Hosted agent setup
 
-1. Open Scoutpost, choose **Connect Agent**, then create a `cj_...` API key from the API panel.
-2. Configure the agent to use either MCP or the CLI.
+1. Open Scoutpost, choose **Connect Agent**, and select the assistant.
+2. For a shell-capable assistant, copy the terminal command and run it yourself;
+   approve the matching browser request. For an MCP-only assistant, use its
+   OAuth connector.
 3. Verify with a read-only operation first: list scouts or list units.
 4. Do not run scouts or create scheduled monitors until the user confirms credit
    spend.
 
 ## CLI setup
 
-Use Deno 2.x to install directly from the public mirror:
-
 Hosted example:
 
 ```bash
-deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts
-scout config set api_url=https://www.scoutpost.ai/functions/v1
-scout config set api_key=<cj_... API key>
+npm install --global scoutpost-cli
+scout auth login --site https://scoutpost.ai --label "My agent"
 scout scouts list
 ```
 
 Self-hosted example:
 
 ```bash
-scout config set api_url=https://<project-ref>.supabase.co/functions/v1
-scout config set supabase_anon_key=<SUPABASE_ANON_KEY>
-scout config set api_key=<cj_... API key>
+scout auth login --site https://newsroom.example --label "My agent"
 scout scouts list
 ```
+
+The site publishes API/discovery configuration. The generated `cj_…` key is
+stored locally and never shown. Manual key configuration remains available
+under **API keys & REST** for CI and recovery.
 
 ## MCP setup
 
 Hosted remote MCP endpoint:
 
 ```text
-https://www.scoutpost.ai/mcp
+https://scoutpost.ai/mcp
 ```
 
 The MCP server uses OAuth discovery at:
 
 ```text
-https://www.scoutpost.ai/mcp/.well-known/oauth-authorization-server
-https://www.scoutpost.ai/mcp/.well-known/oauth-protected-resource
+https://scoutpost.ai/mcp/.well-known/oauth-authorization-server
+https://scoutpost.ai/mcp/.well-known/oauth-protected-resource
 ```
 
 If OAuth is unavailable in the client, use a `cj_...` API key through the CLI or
@@ -92,7 +93,9 @@ Before treating a Supabase self-hosted install as ready:
 - open `/setup` and verify the instructions match the target deployment
 - verify REST list endpoints return `{ "items": [...], "pagination": ... }`
 - verify MCP `initialize` and `tools/list` against the self-hosted MCP URL
-- verify a read-only CLI call with a `cj_...` API key
+- ensure `PUBLIC_APP_URL` (or the `SCOUTPOST_SITE_URL` override) matches the
+  newsroom's public app origin
+- verify CLI browser approval, then a read-only `scout scouts list`
 
 ## Manual provider setup
 

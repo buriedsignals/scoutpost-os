@@ -255,7 +255,7 @@ export interface ScoutStatusResult {
 }
 
 export const SCOUT_STATUS_LABELS: Record<StatusKey, string> = {
-	awaitingFirstRun: 'Awaiting first run',
+	awaitingFirstRun: 'Baseline ready',
 	running: 'Running',
 	skipped: 'Skipped',
 	runFailed: 'Run failed',

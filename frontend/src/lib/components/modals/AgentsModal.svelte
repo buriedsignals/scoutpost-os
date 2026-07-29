@@ -1,12 +1,11 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { X, Eye, Copy, Check, Code2 } from 'lucide-svelte';
 	import AgentSelect from '$lib/components/ui/AgentSelect.svelte';
 	import AgentSetup from '$lib/components/ui/AgentSetup.svelte';
 	import ApiView from '$lib/components/views/ApiView.svelte';
 	import {
 		getAgentRecipes,
-		getSkillPrompt,
 		type InstallPath
 	} from '$lib/utils/agent-recipes';
 	import { resolveAgentTargetContext } from '$lib/utils/agent-targets';
@@ -20,13 +19,15 @@
 	export let onClose: () => void = () => {};
 
 	const STORAGE_KEY = 'scout:lastAgent';
-	const PATH_STORAGE_KEY = 'scout:lastPath';
-
 	let agent: AgentSlug = 'claude-code';
 	let view: 'agents' | 'api' = 'agents';
 	let skillCopied = false;
 	let copyError = false;
 	let path: InstallPath = 'cli';
+	let dialogEl: HTMLElement;
+	let previousFocus: HTMLElement | null = null;
+	let wasOpen = false;
+	let closing = false;
 	$: agentTarget = resolveAgentTargetContext({
 		deploymentTarget: import.meta.env.PUBLIC_DEPLOYMENT_TARGET,
 		supabaseUrl: import.meta.env.PUBLIC_SUPABASE_URL,
@@ -41,11 +42,13 @@
 	// Snap path to an available one whenever the agent changes.
 	$: if (!availablePaths.includes(path)) path = agentRecipes.default;
 	$: recipe = agentRecipes.recipes[path] ?? agentRecipes.recipes[agentRecipes.default]!;
-	$: showSetupPrompt = recipe.setupKind === 'automated-cli';
-	$: skillPrompt = getSkillPrompt(agent, path, agentTarget);
+	$: showCliCommand = path === 'cli' && recipe.setupKind === 'automated-cli';
+	$: terminalCommand = recipe.command ?? '';
 
 	function close() {
+		closing = true;
 		onClose();
+		previousFocus?.focus();
 	}
 
 	function handleBackdrop(event: MouseEvent) {
@@ -55,11 +58,33 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
+		if (!open) return;
 		if (event.key === 'Escape') close();
+		if (event.key !== 'Tab' || !dialogEl) return;
+		const focusable = Array.from(
+			dialogEl.querySelectorAll<HTMLElement>(
+				'button:not([disabled]), a[href], textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+			)
+		);
+		if (focusable.length === 0) {
+			event.preventDefault();
+			dialogEl.focus();
+			return;
+		}
+		const first = focusable[0];
+		const last = focusable[focusable.length - 1];
+		if (event.shiftKey && document.activeElement === first) {
+			event.preventDefault();
+			last.focus();
+		} else if (!event.shiftKey && document.activeElement === last) {
+			event.preventDefault();
+			first.focus();
+		}
 	}
 
 	function handleAgentChange(next: AgentSlug) {
 		agent = next;
+		path = getAgentRecipes(next, agentTarget).default;
 		try {
 			localStorage.setItem(STORAGE_KEY, agent);
 		} catch {
@@ -69,17 +94,12 @@
 
 	function handlePathChange(next: InstallPath) {
 		path = next;
-		try {
-			localStorage.setItem(PATH_STORAGE_KEY, next);
-		} catch {
-			// ignore
-		}
 	}
 
 	async function copySkillPrompt() {
 		copyError = false;
 		try {
-			await navigator.clipboard.writeText(skillPrompt);
+			await navigator.clipboard.writeText(terminalCommand);
 			skillCopied = true;
 			setTimeout(() => {
 				skillCopied = false;
@@ -97,8 +117,7 @@
 				agent = normalizeAgentSlug(last);
 				if (agent !== last) localStorage.setItem(STORAGE_KEY, agent);
 			}
-			const lastPath = localStorage.getItem(PATH_STORAGE_KEY) as InstallPath | null;
-			if (lastPath === 'cli' || lastPath === 'mcp') path = lastPath;
+			path = getAgentRecipes(agent, agentTarget).default;
 		} catch {
 			// ignore
 		}
@@ -106,6 +125,17 @@
 	});
 
 	$: if (open) view = apiOnly ? 'api' : initialView;
+	$: if (open && !wasOpen && typeof document !== 'undefined') {
+		wasOpen = true;
+		closing = false;
+		path = getAgentRecipes(agent, agentTarget).default;
+		previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		void tick().then(() => {
+			if (!closing) dialogEl?.focus();
+		});
+	} else if (!open && wasOpen) {
+		wasOpen = false;
+	}
 
 	$: if (typeof document !== 'undefined') {
 		document.body.style.overflow = open ? 'hidden' : '';
@@ -124,7 +154,14 @@
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div class="agents-backdrop" on:click={handleBackdrop}>
-		<div class="agents-modal" role="dialog" aria-modal="true" aria-label="Connect an agent">
+		<div
+			class="agents-modal"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Connect an agent"
+			tabindex="-1"
+			bind:this={dialogEl}
+		>
 			<div class="agents-header">
 				<div>
 					<h2>
@@ -170,51 +207,31 @@
 						<ApiView />
 					</div>
 				{:else}
-					{#if availablePaths.length > 1}
-						<div class="path-tabs" role="tablist" aria-label="Connection path">
-							{#each availablePaths as p}
-								<button
-									type="button"
-									role="tab"
-									aria-selected={path === p}
-									class="path-tab"
-									class:active={path === p}
-									on:click={() => handlePathChange(p)}
-								>
-									<span class="path-label">{p === 'cli' ? 'CLI' : 'MCP'}</span>
-									{#if p === agentRecipes.default}
-										<span class="path-badge">Recommended</span>
-									{/if}
-								</button>
-							{/each}
-						</div>
-					{/if}
-
-					{#if showSetupPrompt}
-						<!-- One primary action; manual commands stay available on demand. -->
+					{#if showCliCommand}
 						<section class="skill">
 							<div class="skill-head">
 								<span class="skill-eyebrow">Recommended · CLI</span>
-								<h3>Let {selectedAgent.name} connect itself</h3>
+								<h3>Connect {selectedAgent.name}</h3>
 								<p>
-									Paste one short prompt into {selectedAgent.name}. It installs <code>scout</code>,
-									keeps your API key on this computer, and checks the connection.
+									Run this in your terminal—not in the agent chat. It installs <code>scout</code>,
+									opens a browser for approval, and stores the credential on this computer.
 								</p>
 								{#if agentTarget.deploymentKind === 'supabase'}
 									<p class="target-note">Connecting to <code>{agentTarget.appUrl}</code></p>
 								{/if}
 							</div>
+							<pre class="terminal-command"><code>{terminalCommand}</code></pre>
 							<button type="button" class="primary-copy" on:click={copySkillPrompt}>
 								{#if skillCopied}
-									<Check size={15} /><span>Setup prompt copied</span>
+									<Check size={15} /><span>Terminal command copied</span>
 								{:else}
-									<Copy size={15} /><span>Copy setup prompt</span>
+									<Copy size={15} /><span>Copy terminal command</span>
 								{/if}
 							</button>
 							{#if copyError}
 								<div class="copy-fallback" role="alert">
-									<p>Clipboard access is blocked. Select and copy this prompt:</p>
-									<textarea readonly value={skillPrompt} on:focus={(event) => event.currentTarget.select()}></textarea>
+									<p>Clipboard access is blocked. Select and copy this command:</p>
+									<textarea readonly value={terminalCommand} on:focus={(event) => event.currentTarget.select()}></textarea>
 								</div>
 							{/if}
 							<p class="verification-line">
@@ -224,14 +241,27 @@
 						</section>
 
 						<details class="manual-details">
-							<summary>Manual CLI setup</summary>
-							<div class="manual-content"><AgentSetup {recipe} /></div>
+							<summary>Other install methods</summary>
+							<div class="manual-content">
+								<p>With Deno 2.x:</p>
+								<pre class="terminal-command"><code>deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts &amp;&amp; scout auth login --site '{agentTarget.appUrl}' --label '{selectedAgent.name}'</code></pre>
+							</div>
 						</details>
 					{:else}
 						<section class="fallback">
 							<span class="skill-eyebrow">Connect with {path.toUpperCase()}</span>
 							<AgentSetup {recipe} />
 						</section>
+					{/if}
+
+					{#if availablePaths.length > 1}
+						<button
+							type="button"
+							class="path-alternative"
+							on:click={() => handlePathChange(path === 'cli' ? 'mcp' : 'cli')}
+						>
+							{path === 'cli' ? 'Use MCP instead' : 'Use Scout CLI instead'}
+						</button>
 					{/if}
 
 					<div class="agents-footer">
@@ -371,63 +401,6 @@
 		font-weight: 500;
 	}
 
-	.path-tabs {
-		display: inline-flex;
-		gap: 0;
-		margin-bottom: 1rem;
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
-		overflow: hidden;
-	}
-	.path-tab {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.4375rem 0.875rem;
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--color-ink-muted);
-		background: var(--color-surface-alt);
-		border: none;
-		border-right: 1px solid var(--color-border);
-		cursor: pointer;
-		transition: background 150ms ease, color 150ms ease;
-	}
-	.path-tab:last-child { border-right: none; }
-	.path-tab:hover:not(.active) {
-		color: var(--color-ink);
-		background: var(--color-bg);
-	}
-	.path-tab.active {
-		background: oklch(0.48 0.035 205 / 34%);
-		color: var(--color-ink);
-	}
-	.path-badge {
-		font-family: var(--font-mono);
-		font-size: 0.5625rem;
-		font-weight: 500;
-		text-transform: uppercase;
-		letter-spacing: 0.1em;
-		color: var(--color-secondary);
-		background: var(--color-secondary-soft);
-		border: 1px solid var(--color-secondary);
-		padding: 0.0625rem 0.3125rem;
-		border-radius: var(--radius-pill);
-	}
-	.path-tab.active .path-badge {
-		color: var(--color-bg);
-		background: var(--color-secondary);
-		border-color: var(--color-secondary);
-	}
-	.path-tab:not(.active) .path-badge {
-		color: var(--color-ink-muted);
-		background: var(--color-surface);
-		border-color: var(--color-border-strong);
-	}
-
 	.skill {
 		display: grid;
 		gap: 1rem;
@@ -501,6 +474,31 @@
 		cursor: pointer;
 		box-shadow: 0 8px 24px oklch(0.18 0.025 220 / 28%);
 		transition: transform 150ms ease, filter 150ms ease, box-shadow 150ms ease;
+	}
+
+	.terminal-command {
+		margin: 0;
+		padding: 0.875rem 1rem;
+		background: color-mix(in oklab, var(--color-background) 90%, black);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
+		overflow-x: auto;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		line-height: 1.55;
+	}
+
+	.path-alternative {
+		align-self: flex-start;
+		border: 0;
+		background: transparent;
+		color: var(--color-ink-muted);
+		text-decoration: underline;
+		cursor: pointer;
+		font-size: 0.8125rem;
+		padding: 0.25rem 0;
 	}
 	.primary-copy:hover {
 		filter: brightness(1.08);

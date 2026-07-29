@@ -47,6 +47,7 @@ import {
   countryPrimaryLanguage,
   discoverBeatHits,
   discoverPriorityDomainHits,
+  isKnownStaleBeatDate,
   renderedArticleCandidates,
   summarizeSearchJobs,
 } from "../_shared/beat_pipeline.ts";
@@ -411,10 +412,16 @@ async function runSearch(
       });
     }
   }
-  const scrapedOk = effectiveHits.flatMap((hit) => {
+  const readableScrapes = effectiveHits.flatMap((hit) => {
     const item = initialByUrl.get(hit.url) ?? followupByUrl.get(hit.url);
     return item ? [item] : [];
   });
+  const scrapedOk = readableScrapes.filter(({ hit, scrape }) =>
+    !isKnownStaleBeatDate(
+      sourcePublishedDate({ scrape, searchDate: hit.date }),
+    )
+  );
+  const staleFilteredOut = readableScrapes.length - scrapedOk.length;
   const attemptedScrapeUrls = [
     ...filteredHits.map((hit) => hit.url),
     ...followupHits.map((hit) => hit.url),
@@ -502,7 +509,6 @@ async function runSearch(
   const extractedArticles = Array.isArray(extraction.articles)
     ? extraction.articles
     : [];
-  const rawSourceTextByUrl = new Map<string, string>();
   const scrapedByUrl = new Map<
     string,
     { hit: BeatHit; scrape: ScrapeResult }
@@ -510,19 +516,6 @@ async function runSearch(
   for (const { hit, scrape } of scrapedOk) {
     scrapedByUrl.set(hit.url, { hit, scrape });
     scrapedByUrl.set(scrape.source_url, { hit, scrape });
-    rawSourceTextByUrl.set(
-      hit.url,
-      [
-        scrape.title,
-        hit.title,
-        hit.description,
-        safeDomain(hit.url),
-        hit.url,
-        (scrape.markdown ?? "").slice(0, MARKDOWN_PER_HIT),
-      ].filter((value): value is string =>
-        typeof value === "string" && value.trim().length > 0
-      ).join(" "),
-    );
   }
   const seenUrls = new Set<string>();
   const articles = [] as Array<{
@@ -534,7 +527,7 @@ async function runSearch(
     imageUrl: string | null;
     verified: boolean;
   }>;
-  let filteredOut = 0;
+  let filteredOut = staleFilteredOut;
   for (const a of extractedArticles) {
     if (!a || typeof a.url !== "string" || !a.url.trim()) continue;
     if (seenUrls.has(a.url)) continue;
@@ -550,14 +543,12 @@ async function runSearch(
       input.location &&
       locationMatcher &&
       !locationMatcher(
-        rawSourceTextByUrl.get(a.url) ??
-          [a.title, a.summary, a.source, a.url].filter(Boolean).join(" "),
+        [a.title, a.summary, a.source, a.url].filter(Boolean).join(" "),
       )
     ) {
       filteredOut += 1;
       continue;
     }
-    seenUrls.add(a.url);
     const source = scrapedByUrl.get(a.url);
     const fallbackDate = source
       ? sourcePublishedDate({
@@ -565,12 +556,21 @@ async function runSearch(
         searchDate: source.hit.date,
       })
       : null;
+    const publishedDate = preferSourcePublishedDate(
+      fallbackDate,
+      a.date ?? null,
+    );
+    if (isKnownStaleBeatDate(publishedDate)) {
+      filteredOut += 1;
+      continue;
+    }
+    seenUrls.add(a.url);
     articles.push({
       title: String(a.title ?? "").slice(0, 300) || a.url,
       url: a.url,
       source: a.source ?? safeDomain(a.url) ?? "",
       summary: String(a.summary ?? ""),
-      date: preferSourcePublishedDate(fallbackDate, a.date ?? null),
+      date: publishedDate,
       imageUrl: null,
       verified: true,
     });

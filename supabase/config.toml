@@ -418,6 +418,9 @@ verify_jwt = false
 [functions.api-keys]
 verify_jwt = false
 
+[functions.cli-auth]
+verify_jwt = false
+
 
 
 [functions.entities]

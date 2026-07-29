@@ -55,6 +55,11 @@ _STRIP_HEADERS = {
     "trailer",
     "transfer-encoding",
     "upgrade",
+    # Rebuild client provenance below. Forwarding caller-supplied values lets
+    # public clients manufacture rate-limit buckets in Edge Functions.
+    "x-forwarded-for",
+    "x-real-ip",
+    "cf-connecting-ip",
 }
 
 _RELAY_RESPONSE_HEADERS = {
@@ -126,6 +131,8 @@ def _forward_headers(request: Request) -> dict[str, str]:
             headers[auth_key] = f"Bearer {settings.supabase_anon_key}"
     if "apikey" not in {key.lower() for key in headers} and settings.supabase_anon_key:
         headers["apikey"] = settings.supabase_anon_key
+    if request.client and request.client.host:
+        headers["x-forwarded-for"] = request.client.host
     return headers
 
 

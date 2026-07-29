@@ -35,7 +35,7 @@ describe('workspace scouts store', () => {
 	it('load() populates scouts and clears loading/error', async () => {
 		const scouts = [row({ id: 's1', name: 'A' }), row({ id: 's2', name: 'B' })];
 		const api = {
-			listScouts: vi.fn(async () => scouts),
+			listScouts: vi.fn(async () => ({ scouts, next_cursor: null, total: 2 })),
 			createScout: vi.fn()
 		};
 		const store = createScoutsStore(api as unknown as ScoutsApi);
@@ -48,6 +48,29 @@ describe('workspace scouts store', () => {
 		expect(store.getState().scouts).toEqual(scouts);
 		expect(store.getState().error).toBeNull();
 		expect(api.listScouts).toHaveBeenCalledWith('p1');
+	});
+
+	it('loadMore() appends a second scout page instead of stopping at 50', async () => {
+		const firstPage = Array.from({ length: 50 }, (_, i) => row({ id: `s${i}` }));
+		const secondPage = [row({ id: 's50', name: 'Scout 51' })];
+		const api = {
+			listScouts: vi
+				.fn()
+				.mockResolvedValueOnce({ scouts: firstPage, next_cursor: '50', total: 51 })
+				.mockResolvedValueOnce({ scouts: secondPage, next_cursor: null, total: 51 }),
+			createScout: vi.fn()
+		};
+		const store = createScoutsStore(api as unknown as ScoutsApi);
+
+		await store.load();
+		expect(store.getState().scouts).toHaveLength(50);
+		expect(store.getState().hasMore).toBe(true);
+
+		await store.loadMore();
+		expect(api.listScouts).toHaveBeenLastCalledWith(undefined, '50');
+		expect(store.getState().scouts).toHaveLength(51);
+		expect(store.getState().scouts.at(-1)?.name).toBe('Scout 51');
+		expect(store.getState().hasMore).toBe(false);
 	});
 
 	it('load() surfaces errors without crashing', async () => {
@@ -127,7 +150,7 @@ describe('workspace scouts store', () => {
 		const a = row({ id: 'a' });
 		const b = row({ id: 'b' });
 		const api = {
-			listScouts: vi.fn(async () => [a, b]),
+			listScouts: vi.fn(async () => ({ scouts: [a, b], next_cursor: null, total: 2 })),
 			createScout: vi.fn(),
 			deleteScout: vi.fn(async () => undefined)
 		};
@@ -144,7 +167,7 @@ describe('workspace scouts store', () => {
 		const a = row({ id: 'a' });
 		const b = row({ id: 'b' });
 		const api = {
-			listScouts: vi.fn(async () => [a, b]),
+			listScouts: vi.fn(async () => ({ scouts: [a, b], next_cursor: null, total: 2 })),
 			createScout: vi.fn(),
 			deleteScout: vi.fn(async () => {
 				throw new Error('cannot delete');
@@ -166,7 +189,7 @@ describe('workspace scouts store', () => {
 		const a = row({ id: 'a', name: 'Old' });
 		const server = row({ id: 'a', name: 'New' });
 		const api = {
-			listScouts: vi.fn(async () => [a]),
+			listScouts: vi.fn(async () => ({ scouts: [a], next_cursor: null, total: 1 })),
 			createScout: vi.fn(),
 			updateScout: vi.fn(async () => server)
 		};
@@ -180,7 +203,7 @@ describe('workspace scouts store', () => {
 	it('update() rolls back to the prior row on error', async () => {
 		const a = row({ id: 'a', name: 'Old' });
 		const api = {
-			listScouts: vi.fn(async () => [a]),
+			listScouts: vi.fn(async () => ({ scouts: [a], next_cursor: null, total: 1 })),
 			createScout: vi.fn(),
 			updateScout: vi.fn(async () => {
 				throw new Error('update failed');
@@ -199,22 +222,34 @@ describe('workspace scouts store', () => {
 
 	it('reset() clears scouts / loading / error', async () => {
 		const api = {
-			listScouts: vi.fn(async () => [row({ id: 'x' })]),
+			listScouts: vi.fn(async () => ({ scouts: [row({ id: 'x' })], next_cursor: null, total: 1 })),
 			createScout: vi.fn()
 		};
 		const store = createScoutsStore(api as unknown as ScoutsApi);
 		await store.load();
 		expect(store.getState().scouts.length).toBe(1);
 		store.reset();
-		expect(store.getState()).toEqual({ scouts: [], loading: false, error: null });
+		expect(store.getState()).toEqual({
+			scouts: [],
+			cursor: null,
+			hasMore: false,
+			loadingMore: false,
+			total: 0,
+			loading: false,
+			error: null
+		});
 	});
 
 	it('clearDemo() removes hosted onboarding demo rows as well as local demo ids', async () => {
 		const api = {
-			listScouts: vi.fn(async () => [
-				row({ id: 'onboarding-demo', name: 'Seeded demo scout', is_demo: true }),
-				row({ id: 'real-1', name: 'Real scout' })
-			]),
+			listScouts: vi.fn(async () => ({
+				scouts: [
+					row({ id: 'onboarding-demo', name: 'Seeded demo scout', is_demo: true }),
+					row({ id: 'real-1', name: 'Real scout' })
+				],
+				next_cursor: null,
+				total: 2
+			})),
 			createScout: vi.fn()
 		};
 		const store = createScoutsStore(api as unknown as ScoutsApi);

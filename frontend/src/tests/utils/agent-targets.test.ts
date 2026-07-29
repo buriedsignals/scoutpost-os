@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getAgentRecipes, getSetupPrompt } from "$lib/utils/agent-recipes";
+import {
+  buildCliLoginCommand,
+  getAgentRecipes,
+  getSetupPrompt,
+} from "$lib/utils/agent-recipes";
 import { resolveAgentTargetContext } from "$lib/utils/agent-targets";
 import { normalizeAgentSlug } from "$lib/utils/agent-icons";
 
@@ -39,23 +43,19 @@ describe("agent target resolution", () => {
     });
 
     const recipes = getAgentRecipes("codex-cli", target);
-    const cliConfig = recipes.recipes.cli?.configCommands?.join("\n") ?? "";
+    const cliCommand = recipes.recipes.cli?.command ?? "";
     const prompt = getSetupPrompt("codex-cli", "cli", target);
     const mcpRecipes = getAgentRecipes("codex-mcp", target);
     const mcpSnippet = mcpRecipes.recipes.mcp?.configSnippet ?? "";
 
-    expect(cliConfig).toContain(
-      "scout config set api_url=https://newsroom.supabase.co/functions/v1",
+    expect(cliCommand).toBe(
+      "npm install --global scoutpost-cli && scout auth login --site 'https://newsroom.example.com' --label 'Codex CLI'",
     );
-    expect(cliConfig).toContain(
-      "scout config set supabase_anon_key=anon-newsroom",
-    );
-    expect(prompt).toContain("https://newsroom.example.com");
-    expect(prompt).toContain("https://newsroom.supabase.co/functions/v1");
+    expect(prompt).toBe(cliCommand);
     expect(mcpSnippet).toContain(
       "https://newsroom.supabase.co/functions/v1/mcp-server",
     );
-    expect(`${cliConfig}\n${prompt}\n${mcpSnippet}`).not.toContain(
+    expect(`${cliCommand}\n${prompt}\n${mcpSnippet}`).not.toContain(
       "www.scoutpost.ai",
     );
   });
@@ -79,9 +79,8 @@ describe("agent target resolution", () => {
     const cliPrompt = getSetupPrompt("codex-cli", "cli");
     const mcpPrompt = getSetupPrompt("claude-code", "mcp");
 
-    expect(cliPrompt).toContain("Never ask me to paste the key into chat");
-    expect(cliPrompt).toContain("API keys & REST");
-    expect(cliPrompt).toContain("scout scouts list");
+    expect(cliPrompt).toContain("npm install --global scoutpost-cli");
+    expect(cliPrompt).toContain("scout auth login");
     expect(mcpPrompt).toContain("Use OAuth");
     expect(mcpPrompt).toContain("Do not ask me for a JWT or API key");
 
@@ -90,6 +89,14 @@ describe("agent target resolution", () => {
       expect(prompt).not.toContain("Summarise what Scoutpost lets you do");
       expect(prompt).not.toContain("From now on");
     }
+  });
+
+  it("builds a shell-safe command without credentials or manual config", () => {
+    const command = buildCliLoginCommand("claude-code");
+    expect(command).toBe(
+      "npm install --global scoutpost-cli && scout auth login --site 'https://scoutpost.ai' --label 'Claude Code'",
+    );
+    expect(command).not.toMatch(/cj_|api_key|anon_key|auth_token/i);
   });
 
   it("normalizes the legacy Codex selector value to Codex CLI", () => {
@@ -148,5 +155,12 @@ describe("agent target resolution", () => {
     expect(recipe?.configSnippet).toBe("https://scoutpost.ai/mcp");
     expect(recipe?.tagline).toContain("Dynamic Client Registration");
     expect(recipe?.uiSteps?.join("\n")).toContain("OAuth authentication");
+  });
+
+  it("keeps the unknown generic MCP client on the MCP-first path", () => {
+    const recipes = getAgentRecipes("other");
+
+    expect(recipes.paths).toEqual(["cli", "mcp"]);
+    expect(recipes.default).toBe("mcp");
   });
 });

@@ -65,6 +65,29 @@ See `docs/features/page-archive.md` for the retrieval + toggle contract and
 
 ---
 
+## Scout CLI browser authorization
+
+The CLI device flow is Edge-Function-served. Discovery advertises the public
+Supabase API origin and anon gateway key directly. The existing same-origin
+`/functions/v1/*` proxy remains compatible for callers that use it, but
+FastAPI does not mint or store the credential.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/.well-known/scoutpost-cli.json` | Public | Versioned site/API endpoint discovery and public gateway configuration |
+| POST | `/functions/v1/cli-auth/v1/device/authorize` | Public | Create a short-lived authorization request |
+| POST | `/functions/v1/cli-auth/v1/device/token` | Public | Poll/redeem the opaque device code once |
+| POST | `/functions/v1/cli-auth/v1/device/lookup` | User JWT | Load the request shown in `/cli/authorize` |
+| POST | `/functions/v1/cli-auth/v1/device/approve` | User JWT + matching `Origin` | Explicitly allow the pending request |
+| POST | `/functions/v1/cli-auth/v1/device/deny` | User JWT + matching `Origin` | Explicitly deny the pending request |
+| DELETE | `/functions/v1/api-keys/self` | `cj_…` API key | Revoke exactly the current CLI credential |
+
+The approval page reuses hosted MuckRock/Supabase auth or OSS Supabase Auth.
+Across sign-in it preserves only the strict same-origin CLI authorization
+return path. See `docs/features/cli-browser-auth.md`.
+
+---
+
 ## Auth Endpoints
 
 ### Hosted Production (MuckRock OAuth proxy)
