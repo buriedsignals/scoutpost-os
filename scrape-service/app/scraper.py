@@ -7,6 +7,111 @@ exercised by the `live`-marked tests and the container healthcheck instead.
 
 import asyncio
 from typing import Any
+from urllib.parse import urlparse
+
+
+DISCLOSURE_SCRIPT_START = """
+const MAX_DISCLOSURES = 32;
+let expanded = 0;
+
+for (const details of document.querySelectorAll("details:not([open])")) {
+    if (expanded >= MAX_DISCLOSURES) {
+        break;
+    }
+    details.open = true;
+    expanded += 1;
+}
+"""
+
+TIKTOK_DISCLOSURE_SCRIPT = """
+const finalHostname = window.location.hostname;
+const finalHostnameLength = finalHostname.length;
+const hasTrailingDot =
+    finalHostnameLength > 0 &&
+    finalHostname[finalHostnameLength - 1] === ".";
+const normalizedHostnameLength =
+    finalHostnameLength - (hasTrailingDot ? 1 : 0);
+const tiktokHostname = "tiktok.com";
+const suffixStart = normalizedHostnameLength - tiktokHostname.length;
+let isTikTokSubdomain = suffixStart > 1;
+if (isTikTokSubdomain && finalHostname[suffixStart - 1] === ".") {
+    for (let index = 0; index < tiktokHostname.length; index += 1) {
+        if (finalHostname[suffixStart + index] !== tiktokHostname[index]) {
+            isTikTokSubdomain = false;
+            break;
+        }
+    }
+} else {
+    isTikTokSubdomain = false;
+}
+const isTikTokFinalHost =
+    finalHostname === "tiktok.com" ||
+    finalHostname === "tiktok.com." ||
+    isTikTokSubdomain;
+if (isTikTokFinalHost) {
+const waitForDisclosureRender = () => new Promise((resolve) => {
+    let resolved = false;
+    const finish = () => {
+        if (!resolved) {
+            resolved = true;
+            resolve();
+        }
+    };
+    const deadline = setTimeout(finish, 75);
+    requestAnimationFrame(() => {
+        clearTimeout(deadline);
+        finish();
+    });
+});
+
+let panelIndex = 0;
+while (expanded < MAX_DISCLOSURES) {
+    const buttons = document.querySelectorAll(
+        '[data-testid="marcom-web-collapse-panel"] > button'
+    );
+    if (panelIndex >= buttons.length) {
+        break;
+    }
+
+    const button = buttons[panelIndex];
+    const panel = button.parentElement;
+    panelIndex += 1;
+    if (
+        !panel ||
+        panel.children.length > 1 ||
+        !(button instanceof HTMLButtonElement) ||
+        button.parentElement !== panel ||
+        button.type !== "button" ||
+        button.form !== null ||
+        button.disabled ||
+        !button.isConnected
+    ) {
+        continue;
+    }
+    button.click();
+    expanded += 1;
+    await waitForDisclosureRender();
+}
+}
+"""
+
+DISCLOSURE_SCRIPT_END = """
+if (expanded > 0) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+}
+"""
+
+
+def _disclosure_js_for_url(url: str) -> str:
+    """Build the bounded disclosure pass for the requested origin."""
+    try:
+        normalized_url = url.replace("\\", "/")
+        hostname = (urlparse(normalized_url).hostname or "").lower().rstrip(".")
+    except ValueError:
+        hostname = ""
+    is_tiktok = hostname == "tiktok.com" or hostname.endswith(".tiktok.com")
+    site_script = TIKTOK_DISCLOSURE_SCRIPT if is_tiktok else ""
+    return DISCLOSURE_SCRIPT_START + site_script + DISCLOSURE_SCRIPT_END
 
 
 class Scraper:
@@ -83,12 +188,19 @@ class Scraper:
         # default) — verified against 0.8.9's take_screenshot kwargs. It also
         # scrolls the page pre-capture, which pulls lazy-loaded content into
         # the MHTML. max_scroll_steps bounds infinite-scroll pages.
+        #
+        # js_code opens bounded native disclosures on every host immediately
+        # before crawl4ai retrieves HTML and captures MHTML/screenshots.
+        # TikTok's host-scoped marcom pass also clicks its collapse panels:
+        # their bodies mount only after a click, so scrolling cannot make that
+        # policy text observable.
         run_config = CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,
             page_timeout=timeout_ms,
             magic=True,
             simulate_user=True,
             override_navigator=True,
+            js_code=_disclosure_js_for_url(url),
             capture_mhtml=snapshot,
             screenshot=snapshot,
             scan_full_page=snapshot,

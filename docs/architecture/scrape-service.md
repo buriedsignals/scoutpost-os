@@ -104,6 +104,16 @@ screenshots ship verbatim as rendered (PNG, no transcode — Decision 9). The
 service keeps **zero snapshot state** — no tmp files, no pickup endpoint —
 so horizontal scaling stays safe.
 
+Every browser scrape runs a disclosure pass, capped at 32 total interactions,
+immediately before extraction. It opens native `details` elements on any host.
+Only requests classified as `tiktok.com` and still on `tiktok.com` after
+redirects get the additional `marcom-web-collapse-panel` click pass, and that
+pass rejects form-associated buttons, generic buttons, and `aria-expanded`
+controls. Ordinary change-detection scrapes and snapshot scrapes therefore
+see the same interaction-mounted disclosure text. This is separate from
+`scan_full_page`, which is snapshot-only and loads content triggered by
+scrolling rather than clicking.
+
 Caps (R8): 25 MB per artifact, 30 MB combined, with cheap pre-materialization
 guards. Over-cap, incomplete, or non-genuine captures never fail the scrape:
 the response carries a structured `snapshot_error` instead of a payload and
@@ -120,14 +130,23 @@ Integrity and fidelity notes (U1 review findings, all confirmed):
   segments** into the final PNG (Decision 10b disclosure): the hash covers
   exactly the stored bytes, but the pixels are not lossless; MHTML is the
   primary fidelity artifact.
-- The capture fetch's markdown includes lazy-loaded content (scan_full_page
-  scrolls before HTML retrieval) and therefore **must not feed change
-  detection** — it is the snapshot's `.md` record only (Decision 10a).
+- The capture fetch's markdown can include additional scroll-triggered content
+  because `scan_full_page` scrolls before HTML retrieval. That snapshot-only
+  content **must not feed change detection** — it is the snapshot's `.md`
+  record only (Decision 10a). Disclosure content is different: the bounded
+  disclosure pass runs in both scrape modes and intentionally feeds change
+  detection.
 - Snapshot scrapes get a larger outer fuse (`scrape_fuse_seconds`: 2x
   timeout + 20 s) because crawl4ai times the scan/capture phases separately
   from `page_timeout`; and they serialize on a dedicated single-slot
   semaphore so long captures cannot starve ordinary scrapes out of the
   browser pool.
+
+Renderer corrections can produce a one-time content uplift for existing
+scouts whose baselines omitted interaction-mounted text. Treat that first
+known transition as an extraction correction, not evidence of a publisher
+policy change, and deliberately establish a corrected baseline where needed.
+Scoutpost does not rewrite or silently recapture historical baselines.
 
 Verification: `pytest -m live --no-cov` includes a snapshot capture probe
 that must pass under the production browser config (UndetectedAdapter +
