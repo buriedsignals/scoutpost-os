@@ -7,6 +7,13 @@ import ScoutScheduleModal from '$lib/components/modals/ScoutScheduleModal.svelte
 import { apiClient } from '$lib/api-client';
 import type { Scout, Unit } from '$lib/types/workspace';
 
+type AuthVal = {
+	authenticated: boolean;
+	user: { credits: number; tier: string; timezone: string };
+};
+const mockAuth = vi.hoisted(() => ({
+	store: null as unknown as { set: (value: AuthVal) => void }
+}));
 vi.mock('$lib/stores/auth', async () => {
 	const { writable } = await import('svelte/store');
 	const authState = writable({
@@ -17,6 +24,7 @@ vi.mock('$lib/stores/auth', async () => {
 			timezone: 'UTC'
 		}
 	});
+	mockAuth.store = authState;
 
 	return {
 		authStore: {
@@ -28,6 +36,14 @@ vi.mock('$lib/stores/auth', async () => {
 	};
 });
 
+vi.mock('$lib/utils/agent-targets', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/utils/agent-targets')>();
+	return {
+		...actual,
+		isHostedScoutpostHost: () => true
+	};
+});
+
 vi.mock('$lib/api-client', () => ({
 	apiClient: {
 		getActiveJobs: vi.fn().mockResolvedValue({ scrapers: [] }),
@@ -36,9 +52,17 @@ vi.mock('$lib/api-client', () => ({
 	}
 }));
 
+function setTier(tier: 'free' | 'pro' | 'team') {
+	mockAuth.store.set({
+		authenticated: true,
+		user: { credits: 1000, tier, timezone: 'UTC' }
+	});
+}
+
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
+	setTier('pro');
 });
 
 function makeScout(): Scout {
@@ -82,6 +106,24 @@ function makeUnit(): Unit {
 }
 
 describe('callback props for workspace components', () => {
+	it('groups the Pro-gated Fleet and Civic scouts at the bottom for Free users', async () => {
+		setTier('free');
+		render(NewScoutDropdown);
+
+		await fireEvent.click(screen.getByRole('button', { name: /new scout/i }));
+		const menuItems = screen.getAllByRole('menuitem');
+
+		expect(menuItems.map((item) => item.querySelector('strong')?.firstChild?.textContent?.trim())).toEqual([
+			'Track a Page',
+			'Track a Profile',
+			'Track a Beat',
+			'Track a Fleet',
+			'Track a Council'
+		]);
+		expect(menuItems.slice(-2).every((item) => item.classList.contains('scout-option--pro'))).toBe(true);
+		expect(screen.getAllByText('PRO')).toHaveLength(2);
+	});
+
 	it('calls the NewScoutDropdown selection callback for each scout type', async () => {
 		const options: Array<[RegExp, string]> = [
 			[/track a page/i, 'web'],

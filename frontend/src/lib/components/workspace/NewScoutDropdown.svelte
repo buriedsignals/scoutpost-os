@@ -68,15 +68,6 @@
 		</DropdownMenu.Item>
 		<DropdownMenu.Separator class="mx-3" />
 
-		<DropdownMenu.Item class={`scout-option scout-option--pro${fleetLocked ? ' scout-option--locked' : ''}`} onSelect={handleTransportScout}>
-			<span class="option-icon"><ShipWheel size={20} /></span>
-			<span class="option-content">
-				<strong>{m.transport_trackTitle()}{#if fleetLocked}<span class="pro-badge">PRO</span>{/if}</strong>
-				<small>{m.newScout_fleetDescription()}</small>
-			</span>
-		</DropdownMenu.Item>
-		<DropdownMenu.Separator class="mx-3" />
-
 		<DropdownMenu.Item class="scout-option" onSelect={() => select('social')}>
 			<span class="option-icon"><Users size={20} /></span>
 			<span class="option-content">
@@ -91,6 +82,15 @@
 			<span class="option-content">
 				<strong>{m.newScout_beatScoutTitle()}</strong>
 				<small>{m.newScout_beatScoutDescription()}</small>
+			</span>
+		</DropdownMenu.Item>
+		<DropdownMenu.Separator class="mx-3" />
+
+		<DropdownMenu.Item class={`scout-option scout-option--pro${fleetLocked ? ' scout-option--locked' : ''}`} onSelect={handleTransportScout}>
+			<span class="option-icon"><ShipWheel size={20} /></span>
+			<span class="option-content">
+				<strong>{m.transport_trackTitle()}{#if fleetLocked}<span class="pro-badge">PRO</span>{/if}</strong>
+				<small>{m.newScout_fleetDescription()}</small>
 			</span>
 		</DropdownMenu.Item>
 		<DropdownMenu.Separator class="mx-3" />

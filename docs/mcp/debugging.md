@@ -13,6 +13,7 @@ What each failure mode looks like and how to triage.
 | OAuth runs but ends on a non-redirecting page on scoutpost.ai                                         | Old client-side HTML bounce path is still serving / `/authorize-callback` route exists | The 2026-05-04 server-side mint flow eliminates the bounce. If a client lands on a `/authorize-callback` URL, the broker isn't using the new `mcp-auth` function                                                      |
 | `redirect URL not allowed` on the Supabase verify endpoint                                               | `PUBLIC_APP_URL` is not on Supabase Auth's allowlist                                   | Dashboard → Authentication → URL Configuration → Redirect URLs → add the app origin used by `PUBLIC_APP_URL`                                                                                                          |
 | Token exchange returns `invalid_grant`                                                                   | Code was already used, expired (>10min), or PKCE verifier doesn't match the challenge  | Check `mcp_oauth_codes` row: `used_at` non-null = replay; `expires_at < NOW()` = expired                                                                                                                              |
+| Connector worked, then tool calls surface as 502 after a Scoutpost browser logout                       | An old global browser sign-out revoked the connector's Supabase refresh token          | Look for `refresh_token_not_found` on `/mcp/token`. Reconnect once; browser logout uses local scope after PR #368 and no longer revokes MCP or CLI sessions.                                                            |
 | Connector works on Cowork but fails in Codex Desktop                                                     | Codex defaulted to STDIO tab in the connect dialog                                     | Switch to the **Streamable HTTP** tab; STDIO doesn't apply to remote servers                                                                                                                                          |
 | Issuer mismatch warning                                                                                  | `MCP_SERVER_BASE_URL` not set, function self-references via `SUPABASE_URL`             | `supabase secrets set MCP_SERVER_BASE_URL=https://<host>/mcp --project-ref <ref>` then redeploy                                                                                                                       |
 
@@ -122,6 +123,11 @@ Common cases:
 - **2026-05-05 — `WWW-Authenticate` advertised internal Supabase host.** First
   HEAD-gate fix used `url.origin` instead of `baseUrl()`. Fix: switched to
   `baseUrl()` (PR #156).
+- **2026-07-30 — Claude Desktop surfaced 502s after a browser logout.** The
+  browser's global Supabase sign-out revoked the connector's independent
+  refresh token, so `/mcp/token` returned `refresh_token_not_found` and the
+  expired bearer was rejected before `create_scout` ran. Fix: local-scope
+  browser sign-out (PR #368). Already-broken connectors must reconnect once.
 
 The `MCP_SPECFILE.md` at repo root carries the raw debug log from this period;
 it's untracked and useful as a primary-source dump if you're trying to reproduce
