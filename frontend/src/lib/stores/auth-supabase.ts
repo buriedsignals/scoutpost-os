@@ -218,7 +218,7 @@ export function createAuthStore(
 		 */
 		async signOut() {
 			const sb = getSupabase();
-			await sb.auth.signOut();
+			await sb.auth.signOut({ scope: 'local' });
 			set({ authenticated: false, user: null });
 			initialized = false;
 			if (browser && redirectLocation) {

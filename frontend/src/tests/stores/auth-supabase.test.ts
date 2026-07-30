@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { createClientMock } = vi.hoisted(() => ({
+	createClientMock: vi.fn()
+}));
+
+vi.mock('@supabase/supabase-js', () => ({
+	createClient: createClientMock
+}));
+
 async function loadAuthStore() {
 	vi.resetModules();
 	return import('$lib/stores/auth-supabase');
@@ -8,6 +16,7 @@ async function loadAuthStore() {
 describe('auth-supabase login', () => {
 	beforeEach(() => {
 		vi.unstubAllEnvs();
+		createClientMock.mockReset();
 	});
 
 	afterEach(() => {
@@ -119,5 +128,21 @@ describe('auth-supabase login', () => {
 		expect(user.needs_initialization).toBe(false);
 		expect(user.onboarding_completed).toBe(true);
 		expect(user.tier).toBe('free');
+	});
+
+	it('signs out only the browser session so MCP and CLI sessions stay valid', async () => {
+		vi.stubEnv('PUBLIC_SUPABASE_URL', 'https://newsroom-project.supabase.co');
+		vi.stubEnv('PUBLIC_SUPABASE_ANON_KEY', 'test-anon-key');
+		const signOut = vi.fn().mockResolvedValue({ error: null });
+		createClientMock.mockReturnValue({ auth: { signOut } });
+
+		const { createAuthStore } = await loadAuthStore();
+		const redirectLocation = { href: '' };
+		const auth = createAuthStore(redirectLocation);
+
+		await auth.signOut();
+
+		expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
+		expect(redirectLocation.href).toBe('/login');
 	});
 });
