@@ -7,7 +7,7 @@
  * provider path rather than fixtures:
  *
  *   aircraft  — probe adsb.lol over Dover, then watch observed ICAO hexes.
- *   vessel    — sample AIS over Malacca, then watch newly cached MMSIs.
+ *   vessel    — refresh exact MMSIs, then watch a provider-returned position.
  *   satellite — refresh CelesTrak GP data, then predict ISS passes.
  *
  * Usage:
@@ -31,6 +31,9 @@ import {
   userFetch,
   waitForScoutRun,
 } from "./_bench_shared.ts";
+import {
+  POSITION_MAX_AGE_MINUTES,
+} from "../../supabase/functions/scout-transport-execute/vessel.ts";
 
 export type TransportMode = "aircraft" | "vessel" | "satellite";
 
@@ -82,6 +85,7 @@ export interface VesselPositionRow {
   lat: number;
   lon: number;
   seen_at: string;
+  updated_at: string;
 }
 
 interface GpCacheRow {
@@ -101,6 +105,7 @@ export interface SamplerRunRow {
   items_written: number;
   error_code: string | null;
   error_message: string | null;
+  started_at: string;
 }
 
 export function samplerRunFailureMessage(run: SamplerRunRow): string | null {
@@ -116,30 +121,6 @@ export function samplerRunFailureMessage(run: SamplerRunRow): string | null {
     `parsed=${run.items_parsed}; written=${run.items_written}`;
 }
 
-export type VesselSamplerOutcome =
-  | "ok"
-  | "sampler_empty"
-  | "positions_stale"
-  | "no_candidates"
-  | "no_geo_matches";
-
-export function classifyVesselSamplerOutcome(input: {
-  newestSeenAt: string | null;
-  sampledAfter: Date;
-  freshCandidateCount: number;
-  freshGeofenceCount: number;
-}): VesselSamplerOutcome {
-  if (!input.newestSeenAt) return "sampler_empty";
-  if (
-    new Date(input.newestSeenAt).getTime() < input.sampledAfter.getTime()
-  ) {
-    return "positions_stale";
-  }
-  if (input.freshCandidateCount === 0) return "no_candidates";
-  if (input.freshGeofenceCount === 0) return "no_geo_matches";
-  return "ok";
-}
-
 const DORMANT_CRON = "0 0 1 1 *";
 const DAILY_CRON = "0 0 * * *";
 const RUN_TIMEOUT_MS = 4 * 60_000;
@@ -150,8 +131,8 @@ const MAX_WATCH_IDS = 20;
 const DOVER_PRESET = "dover-strait";
 const DOVER_PROBE = { lat: 51.0, lon: 1.5, distNm: 60 };
 const MALACCA_PRESET = "strait-of-malacca";
-const MALACCA_BOUNDS = { minLat: 1, maxLat: 6.5, minLon: 98, maxLon: 104 };
 const BOOTSTRAP_MMSI = "563024500";
+const VESSEL_CANARY_RADIUS_KM = 25;
 const ISS_NORAD_ID = "25544";
 const ISS_GEOFENCE = {
   center: { lat: 0, lon: 0 },
@@ -162,21 +143,45 @@ export function modeScheduleCron(mode: TransportMode): string {
   return mode === "satellite" ? DAILY_CRON : DORMANT_CRON;
 }
 
-export function selectFreshMalaccaVessels(
+export function selectRuntimeFreshVessels(
   rows: VesselPositionRow[],
-  sampledAfter: Date,
+  refreshedAfter: Date,
+  now: Date,
 ): VesselPositionRow[] {
+  const positionCutoff = now.getTime() - POSITION_MAX_AGE_MINUTES * 60_000;
   const seen = new Set<string>();
   return rows.filter((row) => {
     if (seen.has(row.mmsi) || !/^[2-7]\d{8}$/.test(row.mmsi)) return false;
-    if (new Date(row.seen_at).getTime() < sampledAfter.getTime()) return false;
+    if (!Number.isFinite(row.lat) || !Number.isFinite(row.lon)) return false;
     if (
-      row.lat < MALACCA_BOUNDS.minLat || row.lat > MALACCA_BOUNDS.maxLat ||
-      row.lon < MALACCA_BOUNDS.minLon || row.lon > MALACCA_BOUNDS.maxLon
-    ) return false;
+      row.lat < -90 || row.lat > 90 || row.lon < -180 || row.lon > 180
+    ) {
+      return false;
+    }
+    const updatedAt = Date.parse(row.updated_at);
+    const seenAt = Date.parse(row.seen_at);
+    if (
+      !Number.isFinite(updatedAt) || updatedAt < refreshedAfter.getTime() ||
+      !Number.isFinite(seenAt) || seenAt < positionCutoff
+    ) {
+      return false;
+    }
     seen.add(row.mmsi);
     return true;
   }).slice(0, MAX_WATCH_IDS);
+}
+
+export function vesselCanaryConfig(
+  vessel: VesselPositionRow,
+): TransportConfig {
+  return {
+    mode: "vessel",
+    geofence: {
+      center: { lat: vessel.lat, lon: vessel.lon },
+      radius_km: VESSEL_CANARY_RADIUS_KM,
+    },
+    watch_ids: [vessel.mmsi],
+  };
 }
 
 export function reAlertedObjectIds(
@@ -286,7 +291,7 @@ async function waitForSamplerRun(
       ctx,
       "transport_sampler_runs",
       "select=id,task,status,connected,provider_errored,frames_received," +
-        "items_parsed,items_written,error_code,error_message" +
+        "items_parsed,items_written,error_code,error_message,started_at" +
         `&id=eq.${runId}`,
     );
     latest = rows[0] ?? null;
@@ -310,70 +315,91 @@ async function requireSuccessfulSamplerRun(
   return run;
 }
 
-async function waitForFreshMalaccaVessels(
+async function listRuntimeFreshVessels(
   ctx: BenchCtx,
-  sampledAfter: Date,
+  refreshedAfter: Date,
+  now: Date,
+  watchIds?: string[],
 ): Promise<VesselPositionRow[]> {
-  const deadline = Date.now() + SAMPLER_TIMEOUT_MS;
-  const after = encodeURIComponent(sampledAfter.toISOString());
-  while (Date.now() < deadline) {
-    const rows = await pgList<VesselPositionRow>(
-      ctx,
-      "transport_positions",
-      `select=mmsi,lat,lon,seen_at&lat=gte.${MALACCA_BOUNDS.minLat}` +
-        `&lat=lte.${MALACCA_BOUNDS.maxLat}&lon=gte.${MALACCA_BOUNDS.minLon}` +
-        `&lon=lte.${MALACCA_BOUNDS.maxLon}&seen_at=gte.${after}` +
-        "&order=seen_at.desc",
-    );
-    const selected = selectFreshMalaccaVessels(rows, sampledAfter);
-    if (selected.length > 0) return selected;
-    await delay(POLL_INTERVAL_MS);
-  }
+  const positionCutoff = new Date(
+    now.getTime() - POSITION_MAX_AGE_MINUTES * 60_000,
+  ).toISOString();
+  const idFilter = watchIds?.length ? `&mmsi=in.(${watchIds.join(",")})` : "";
+  const rows = await pgList<VesselPositionRow>(
+    ctx,
+    "transport_positions",
+    "select=mmsi,lat,lon,seen_at,updated_at" +
+      `&seen_at=gte.${encodeURIComponent(positionCutoff)}` +
+      `&updated_at=gte.${encodeURIComponent(refreshedAfter.toISOString())}` +
+      idFilter +
+      "&order=updated_at.desc",
+  );
+  return selectRuntimeFreshVessels(rows, refreshedAfter, now);
+}
 
-  const newest = await pgList<VesselPositionRow>(
+async function initialVesselCanaryConfig(
+  ctx: BenchCtx,
+): Promise<TransportConfig> {
+  const candidates = await listRuntimeFreshVessels(
     ctx,
-    "transport_positions",
-    "select=mmsi,lat,lon,seen_at&order=seen_at.desc",
+    new Date(0),
+    new Date(),
   );
-  const recent = await pgList<VesselPositionRow>(
-    ctx,
-    "transport_positions",
-    `select=mmsi,lat,lon,seen_at&seen_at=gte.${after}` +
-      "&order=seen_at.desc",
-  );
-  const freshInMalacca = selectFreshMalaccaVessels(recent, sampledAfter);
-  const outcome = classifyVesselSamplerOutcome({
-    newestSeenAt: newest[0]?.seen_at ?? null,
-    sampledAfter,
-    freshCandidateCount: recent.length,
-    freshGeofenceCount: freshInMalacca.length,
-  });
-  throw new Error(
-    `[${outcome}] VesselAPI sampler wrote no fresh vessel positions in Malacca before timeout; ` +
-      `newest_seen_at=${newest[0]?.seen_at ?? "none"}; ` +
-      `fresh_candidates=${recent.length}; fresh_malacca=${freshInMalacca.length}`,
-  );
+  if (candidates.length === 0) {
+    console.log(
+      `vessel seed cache empty; falling back to bootstrap MMSI ${BOOTSTRAP_MMSI}`,
+    );
+    return {
+      mode: "vessel",
+      geofence: { preset_id: MALACCA_PRESET },
+      watch_ids: [BOOTSTRAP_MMSI],
+    };
+  }
+  return {
+    ...vesselCanaryConfig(candidates[0]),
+    watch_ids: candidates.map((row) => row.mmsi),
+  };
 }
 
 async function prepareVesselCanary(
   ctx: BenchCtx,
   scoutId: string,
 ): Promise<TransportConfig> {
-  const sampledAfter = new Date(Date.now() - 1_000);
+  const scout = await pgSelectOne<{ config: TransportConfig }>(
+    ctx,
+    "scouts",
+    { id: scoutId },
+    "config",
+  );
+  const watchIds = scout?.config.watch_ids ?? [];
+  if (watchIds.length === 0) {
+    throw new Error("vessel benchmark scout has no watch IDs");
+  }
   const sampler = await requireSuccessfulSamplerRun(
     ctx,
     await triggerSampler(ctx, { task: "ais" }),
   );
-  const vessels = await waitForFreshMalaccaVessels(ctx, sampledAfter);
-  const config: TransportConfig = {
-    mode: "vessel",
-    geofence: { preset_id: MALACCA_PRESET },
-    watch_ids: vessels.map((row) => row.mmsi),
-  };
+  const refreshedAfter = new Date(sampler.started_at);
+  const vessels = await listRuntimeFreshVessels(
+    ctx,
+    refreshedAfter,
+    new Date(),
+    watchIds,
+  );
+  if (vessels.length === 0) {
+    throw new Error(
+      `[sampler_empty] VesselAPI refreshed no runtime-fresh watched positions; ` +
+        `requested=${watchIds.length}; rows=${sampler.frames_received}; ` +
+        `parsed=${sampler.items_parsed}; written=${sampler.items_written}`,
+    );
+  }
+  const config = vesselCanaryConfig(vessels[0]);
   await updateTransportConfig(ctx, scoutId, config);
   console.log(
     `vessel sampler: connected=${sampler.connected} rows=${sampler.frames_received} ` +
-      `written=${sampler.items_written}; ${vessels.length} fresh MMSI(s) over ${MALACCA_PRESET}`,
+      `written=${sampler.items_written}; watching refreshed MMSI ${
+        vessels[0].mmsi
+      }`,
   );
   return config;
 }
@@ -562,11 +588,7 @@ async function main() {
       ...await runCanary(
         ctx,
         "vessel",
-        () => ({
-          mode: "vessel",
-          geofence: { preset_id: MALACCA_PRESET },
-          watch_ids: [BOOTSTRAP_MMSI],
-        }),
+        () => initialVesselCanaryConfig(ctx),
         prepareVesselCanary,
       ),
     );

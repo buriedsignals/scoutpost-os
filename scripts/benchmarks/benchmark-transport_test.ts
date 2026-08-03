@@ -1,13 +1,13 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   aircraftCanaryConfig,
-  classifyVesselSamplerOutcome,
   modeScheduleCron,
   reAlertedObjectIds,
   samplerRunFailureMessage,
   type SamplerRunRow,
   selectedTransportModes,
-  selectFreshMalaccaVessels,
+  selectRuntimeFreshVessels,
+  vesselCanaryConfig,
 } from "./benchmark-transport.ts";
 
 Deno.test("weekly transport benchmark can report each mode independently", () => {
@@ -31,6 +31,7 @@ function samplerRun(overrides: Partial<SamplerRunRow>): SamplerRunRow {
     items_written: 4,
     error_code: null,
     error_message: null,
+    started_at: "2026-08-03T10:25:00Z",
     ...overrides,
   };
 }
@@ -52,37 +53,6 @@ Deno.test("sampler heartbeat exposes the asynchronous transport failure", () => 
   );
 });
 
-Deno.test("vessel sampler diagnostics separate stale cache from empty geography", () => {
-  const sampledAfter = new Date("2026-07-20T09:30:00Z");
-  assertEquals(
-    classifyVesselSamplerOutcome({
-      newestSeenAt: null,
-      sampledAfter,
-      freshCandidateCount: 0,
-      freshGeofenceCount: 0,
-    }),
-    "sampler_empty",
-  );
-  assertEquals(
-    classifyVesselSamplerOutcome({
-      newestSeenAt: "2026-07-20T09:29:59Z",
-      sampledAfter,
-      freshCandidateCount: 0,
-      freshGeofenceCount: 0,
-    }),
-    "positions_stale",
-  );
-  assertEquals(
-    classifyVesselSamplerOutcome({
-      newestSeenAt: "2026-07-20T09:30:01Z",
-      sampledAfter,
-      freshCandidateCount: 4,
-      freshGeofenceCount: 0,
-    }),
-    "no_geo_matches",
-  );
-});
-
 Deno.test("aircraft canary follows live identities without a transient geofence", () => {
   assertEquals(aircraftCanaryConfig(["abc123"]), {
     mode: "aircraft",
@@ -96,45 +66,67 @@ Deno.test("satellite canary uses a daily schedule while other modes stay dormant
   assertEquals(modeScheduleCron("aircraft"), "0 0 1 1 *");
 });
 
-Deno.test("vessel canary selects newly sampled valid Malacca MMSIs", () => {
-  const sampledAfter = new Date("2026-07-13T12:00:00Z");
+Deno.test("vessel canary accepts provider positions refreshed by this sample", () => {
+  const sampledAfter = new Date("2026-08-03T10:25:00Z");
+  const now = new Date("2026-08-03T10:26:00Z");
   const rows = [
     {
       mmsi: "563024500",
       lat: 1.2,
       lon: 103.8,
-      seen_at: "2026-07-13T12:00:01Z",
+      seen_at: "2026-08-03T10:21:33Z",
+      updated_at: "2026-08-03T10:25:09Z",
     },
     {
       mmsi: "563024500",
       lat: 1.3,
       lon: 103.7,
-      seen_at: "2026-07-13T12:00:02Z",
+      seen_at: "2026-08-03T10:22:00Z",
+      updated_at: "2026-08-03T10:25:10Z",
     },
     {
       mmsi: "111111111",
       lat: 1.2,
       lon: 103.8,
-      seen_at: "2026-07-13T12:00:03Z",
+      seen_at: "2026-08-03T10:24:00Z",
+      updated_at: "2026-08-03T10:25:11Z",
     },
     {
       mmsi: "247416500",
-      lat: 0.9,
-      lon: 103.8,
-      seen_at: "2026-07-13T12:00:04Z",
+      lat: 51,
+      lon: 1.5,
+      seen_at: "2026-08-03T10:24:00Z",
+      updated_at: "2026-08-03T10:24:59Z",
     },
     {
       mmsi: "636020726",
-      lat: 1.2,
-      lon: 103.8,
-      seen_at: "2026-07-13T11:59:59Z",
+      lat: 35.9,
+      lon: -5.5,
+      seen_at: "2026-08-03T08:20:59Z",
+      updated_at: "2026-08-03T10:25:12Z",
     },
-    { mmsi: "566496000", lat: 6.5, lon: 98, seen_at: "2026-07-13T12:00:05Z" },
   ];
 
   assertEquals(
-    selectFreshMalaccaVessels(rows, sampledAfter).map((row) => row.mmsi),
-    ["563024500", "566496000"],
+    selectRuntimeFreshVessels(rows, sampledAfter, now).map((row) => row.mmsi),
+    ["563024500"],
+  );
+});
+
+Deno.test("vessel canary centers its geofence on the sampled vessel", () => {
+  assertEquals(
+    vesselCanaryConfig({
+      mmsi: "563024500",
+      lat: 1.2,
+      lon: 103.8,
+      seen_at: "2026-08-03T10:21:33Z",
+      updated_at: "2026-08-03T10:25:09Z",
+    }),
+    {
+      mode: "vessel",
+      geofence: { center: { lat: 1.2, lon: 103.8 }, radius_km: 25 },
+      watch_ids: ["563024500"],
+    },
   );
 });
 
