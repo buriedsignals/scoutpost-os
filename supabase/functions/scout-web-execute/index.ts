@@ -71,7 +71,10 @@ import {
   decidePageScoutAlert,
   type PageContentDiff,
 } from "../_shared/page_scout_change.ts";
-import { evaluatePageScoutCriteria } from "../_shared/page_scout_criteria.ts";
+import {
+  evaluatePageScoutCriteria,
+  type PageScoutCriteriaFinding,
+} from "../_shared/page_scout_criteria.ts";
 import {
   applyEffectiveCandidateUrls,
   candidateUrlValuesDiffer,
@@ -1106,8 +1109,10 @@ async function runPipeline(
   });
   let alertEligible = rootAlertEligible;
   let alertHasChild = false;
-  const alertDiffSummaries: string[] = rootAlertEligible && rootDiff.summary
-    ? [`${scout.url}\n${rootDiff.summary}`]
+  const alertDiffSummaries: string[] = rootAlertEligible
+    ? [hasCriteria
+      ? renderCriteriaFindings(scout.url, rootCriteriaDecision?.acceptedFindings ?? [])
+      : `${scout.url}\n${rootDiff.summary || "The page content changed."}`]
     : [];
   const archiveContexts: PipelineResult["archiveContexts"] = rootArchiveContext
     ? [rootArchiveContext]
@@ -1333,6 +1338,22 @@ function renderDiffForCriteria(diff: PageContentDiff): string {
     removed,
     added,
   ].filter(Boolean).join("\n\n");
+}
+
+function renderCriteriaFindings(
+  sourceUrl: string,
+  findings: PageScoutCriteriaFinding[],
+): string {
+  return [sourceUrl, ...findings.slice(0, 3).map((finding) => [
+    `**What changed:** ${escapeMarkdown(finding.explanation)}`,
+    `**Criterion:** ${escapeMarkdown(finding.criterion)}`,
+    finding.beforeQuote ? `**Before:** ${escapeMarkdown(finding.beforeQuote)}` : "",
+    finding.afterQuote ? `**After:** ${escapeMarkdown(finding.afterQuote)}` : "",
+  ].filter(Boolean).join("\n"))].join("\n\n");
+}
+
+function escapeMarkdown(value: string): string {
+  return value.replace(/[\\`*_{}\[\]<>()#+.!|-]/g, "\\$&");
 }
 
 function withHeadlineFallback(
@@ -1869,9 +1890,9 @@ async function runPhaseB(
       });
       if (childAlertEligible) {
         alertEligible = true;
-        alertSummaries.push(
-          `${subSourceUrl}\n${subDiff.summary || "The page content changed."}`,
-        );
+        alertSummaries.push(hasCriteria
+          ? renderCriteriaFindings(subSourceUrl, criteriaDecision?.acceptedFindings ?? [])
+          : `${subSourceUrl}\n${subDiff.summary || "The page content changed."}`);
         if (!firstMatchedUrl) {
           firstMatchedUrl = subSourceUrl;
           firstMatchedTitle = subScrape.title ?? null;
