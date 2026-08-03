@@ -31,10 +31,15 @@ Deno.test("PS-SPEC-001b only a grounded finding accepted by the verifier matches
     delta: "REMOVED: Opens 1 August\nADDED: Opens 15 August",
     timeoutMs: 100,
   }, {
-    candidateExtract: () => Promise.resolve({ findings: [{
-      before_quote: "Opens 1 August", after_quote: "Opens 15 August",
-      criterion: "registration date changes", explanation: "The opening date changed.",
-    }] }),
+    candidateExtract: () =>
+      Promise.resolve({
+        findings: [{
+          before_quote: "Opens 1 August",
+          after_quote: "Opens 15 August",
+          criterion: "registration date changes",
+          explanation: "The opening date changed.",
+        }],
+      }),
     verifyExtract: () => Promise.resolve({ verdict: "accept" }),
   });
   assertEquals(result.matches, true);
@@ -47,14 +52,52 @@ Deno.test("PS-SPEC-001c verifier rejection is silent", async () => {
     delta: "REMOVED: Opens 1 August\nADDED: Opens 15 August",
     timeoutMs: 100,
   }, {
-    candidateExtract: () => Promise.resolve({ findings: [{
-      before_quote: "Opens 1 August", after_quote: "Opens 15 August",
-      criterion: "registration date changes", explanation: "The opening date changed.",
-    }] }),
+    candidateExtract: () =>
+      Promise.resolve({
+        findings: [{
+          before_quote: "Opens 1 August",
+          after_quote: "Opens 15 August",
+          criterion: "registration date changes",
+          explanation: "The opening date changed.",
+        }],
+      }),
     verifyExtract: () => Promise.resolve({ verdict: "reject" }),
   });
   assertEquals(result.matches, false);
   assertEquals(result.acceptedFindings, []);
+});
+
+Deno.test("PS-SPEC-001d reserves verification time after a Neunkirch-length candidate call", async () => {
+  let now = 0;
+  let candidateAbortAfterMs = 0;
+  let verifierAbortAfterMs = 0;
+  const result = await evaluatePageScoutCriteria({
+    criteria: "Veranstaltungen, Termine, Aktualitäten",
+    delta:
+      "REMOVED: Veranstaltung am 1. August\nADDED: Veranstaltung am 15. August",
+    timeoutMs: 20_000,
+  }, {
+    now: () => now,
+    candidateExtract: (_prompt, _schema, request) => {
+      candidateAbortAfterMs = request.abortAfterMs ?? 0;
+      now += 6_371;
+      return Promise.resolve({
+        findings: [{
+          before_quote: "Veranstaltung am 1. August",
+          after_quote: "Veranstaltung am 15. August",
+          criterion: "Veranstaltungen, Termine, Aktualitäten",
+          explanation: "The event date changed.",
+        }],
+      });
+    },
+    verifyExtract: (_prompt, _schema, request) => {
+      verifierAbortAfterMs = request.abortAfterMs ?? 0;
+      return Promise.resolve({ verdict: "accept" as const });
+    },
+  });
+  assertEquals(candidateAbortAfterMs >= 15_000, true);
+  assertEquals(verifierAbortAfterMs > 0, true);
+  assertEquals(result.matches, true);
 });
 
 Deno.test("PS-SPEC-002 criteria evaluator rejects hallucinated passages and false decisions", async () => {
@@ -105,7 +148,8 @@ Deno.test("criteria evaluator can match removals without a generated description
 
 Deno.test("Google-style opaque numeric churn is a valid silent non-match", async () => {
   const result = await evaluatePageScoutCriteria({
-    criteria: "Report only substantive policy wording changes; ignore navigation and boilerplate.",
+    criteria:
+      "Report only substantive policy wording changes; ignore navigation and boilerplate.",
     delta: "REMOVED: 2507032178178457788\nADDED: 5763032717498889961",
     timeoutMs: 100,
   }, {
@@ -115,10 +159,12 @@ Deno.test("Google-style opaque numeric churn is a valid silent non-match", async
 });
 
 Deno.test("Meta-style link spelling churn is a valid silent non-match", async () => {
-  const sentence = "Ads cannot contain content debunked by third-party fact checkers.";
+  const sentence =
+    "Ads cannot contain content debunked by third-party fact checkers.";
   const result = await evaluatePageScoutCriteria({
     criteria: "Report only substantive policy wording changes; ignore markup.",
-    delta: `REMOVED: [${sentence}](https://example.com/policy)\nADDED: [${sentence}](https://example.com/policy/)`,
+    delta:
+      `REMOVED: [${sentence}](https://example.com/policy)\nADDED: [${sentence}](https://example.com/policy/)`,
     timeoutMs: 100,
   }, {
     extract: () => Promise.resolve({ matches: false, matching_passages: [] }),
@@ -149,7 +195,10 @@ Deno.test("criteria evaluation reaches matching changes beyond the first bounded
     },
   );
   assertEquals(calls > 1, true);
-  assertEquals(result, { matches: true, matchingPassages: [`REMOVED: ${sentinel}`] });
+  assertEquals(result, {
+    matches: true,
+    matchingPassages: [`REMOVED: ${sentinel}`],
+  });
 });
 
 Deno.test("oversized unmatched criteria deltas fail instead of silently advancing the baseline", async () => {
