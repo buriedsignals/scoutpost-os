@@ -105,7 +105,7 @@ async def test_task_wrapper_enters_display_and_egress(monkeypatch):
             ),
         )
 
-    async def guarded(batch_id, proxy_url):
+    async def guarded(batch_id, proxy_url, _stats):
         return {"batch_id": batch_id, "proxy": proxy_url}
 
     monkeypatch.setattr(workflow, "virtual_display", display)
@@ -202,6 +202,8 @@ async def test_batch_commits_each_job_and_returns_only_counters(monkeypatch):
 
 
 async def test_batch_maps_snapshot_and_upload_failures(monkeypatch):
+    egress_stats = SimpleNamespace(blocked=0)
+
     class FakeClient:
         execution_id = "execution"
         completions: ClassVar[list[dict]] = []
@@ -215,6 +217,7 @@ async def test_batch_maps_snapshot_and_upload_failures(monkeypatch):
                 job("large"),
                 job("transport"),
                 job("crawl"),
+                job("blocked"),
             ]
 
         async def upload(self, item, _result):
@@ -231,6 +234,9 @@ async def test_batch_maps_snapshot_and_upload_failures(monkeypatch):
             pass
 
     async def run(_scraper, item, **_kwargs):
+        if item.id == "blocked":
+            egress_stats.blocked += 1
+            return {"ok": False, "error_class": "retryable"}
         if item.id == "crawl":
             return {"ok": False, "error_class": "timeout"}
         return {
@@ -254,13 +260,16 @@ async def test_batch_maps_snapshot_and_upload_failures(monkeypatch):
     monkeypatch.setattr(workflow, "load_settings", lambda: SimpleNamespace())
     monkeypatch.setattr(workflow, "run_item_safely", run)
     monkeypatch.setattr(workflow, "cgroup_peak_bytes", lambda: None)
-    report = await workflow._crawl_batch_guarded("batch", "http://proxy")
-    assert report["processed"] == 4
+    report = await workflow._crawl_batch_guarded(
+        "batch", "http://proxy", egress_stats
+    )
+    assert report["processed"] == 5
     assert [item["error_class"] for item in FakeClient.completions] == [
         "retryable",
         "terminal",
         "retryable",
         "timeout",
+        "terminal",
     ]
 
 

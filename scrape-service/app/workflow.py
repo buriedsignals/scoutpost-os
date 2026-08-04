@@ -11,7 +11,7 @@ from render_sdk import Retry, Workflows
 
 from .config import load_settings
 from .crawl_runner import CrawlItem, run_item_safely
-from .network_policy import guarded_egress
+from .network_policy import EgressStats, guarded_egress
 from .scraper import Scraper
 from .workflow_client import (
     ArtifactLimitError,
@@ -80,14 +80,16 @@ async def crawl_batch(batch_id: str) -> dict:
 
 async def _crawl_batch(batch_id: str) -> dict:
     async with virtual_display(), guarded_egress() as egress:
-        result = await _crawl_batch_guarded(batch_id, egress.proxy_url)
+        result = await _crawl_batch_guarded(batch_id, egress.proxy_url, egress.stats)
         result["outbound_bytes"] = egress.stats.outbound_bytes
         result["allowed_connections"] = egress.stats.allowed
         result["blocked_connections"] = egress.stats.blocked
         return result
 
 
-async def _crawl_batch_guarded(batch_id: str, proxy_url: str) -> dict:
+async def _crawl_batch_guarded(
+    batch_id: str, proxy_url: str, egress_stats: EgressStats | None = None
+) -> dict:
     client = WorkflowClient(proxy_url)
     scraper = Scraper(pool_size=1, proxy_server=proxy_url)
     settings = load_settings()
@@ -108,6 +110,7 @@ async def _crawl_batch_guarded(batch_id: str, proxy_url: str) -> dict:
         jobs = await client.claim(batch_id)
         for job in jobs:
             item_started = time.monotonic()
+            blocked_before = egress_stats.blocked if egress_stats else 0
             outcome = await run_item_safely(
                 scraper,
                 CrawlItem(
@@ -119,6 +122,12 @@ async def _crawl_batch_guarded(batch_id: str, proxy_url: str) -> dict:
                 pdf_client=pdf_client,
                 settings=settings,
             )
+            if (
+                not outcome["ok"]
+                and egress_stats
+                and egress_stats.blocked > blocked_before
+            ):
+                outcome["error_class"] = "terminal"
             await _apply_benchmark_delay(
                 job.get("minimum_duration_ms", 0), item_started
             )
