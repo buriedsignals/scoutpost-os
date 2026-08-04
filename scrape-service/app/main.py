@@ -46,7 +46,9 @@ from .pdfparse import (
 from .scraper import Scraper
 
 _bearer = HTTPBearer(auto_error=False)
-_operation_log = logging.getLogger("crawler.operation")
+# Uvicorn configures this logger's INFO handler in production. A standalone
+# application logger would otherwise be dropped by Uvicorn's logging config.
+_operation_log = logging.getLogger("uvicorn.error")
 _workload_classes = frozenset({"scout", "utility", "system"})
 
 

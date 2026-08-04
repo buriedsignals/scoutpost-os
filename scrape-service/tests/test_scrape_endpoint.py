@@ -30,7 +30,7 @@ def test_operation_counter_is_content_free(app, caplog):
     app.state.scraper = FakeScraper(result=crawl_result())
     secret_url = "https://example.org/private-user-path"
     headers = auth_headers() | {"X-Scoutpost-Workload-Class": "scout"}
-    with caplog.at_level(logging.INFO, logger="crawler.operation"):
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
         res = TestClient(app).post(
             "/scrape", json={"url": secret_url}, headers=headers
         )
