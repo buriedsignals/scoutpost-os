@@ -8,10 +8,22 @@ from urllib.parse import urlsplit
 
 _seen: dict[str, int] = {}
 _lock = threading.Lock()
-_stable = b"""<!doctype html><title>Scoutpost Gate B</title>
-<main><h1>Owned crawler fixture</h1><p>stable fixture content v1</p></main>"""
-_network = b"""<!doctype html><title>Scoutpost Gate B network</title>
-<main><h1>Network isolation fixture</h1><p>public content remains readable</p></main>
+_visible_copy = (
+    "This owned page provides deterministic public text for the crawler capacity "
+    "test. It contains no external content and changes only when the fixture is "
+    "deliberately updated. "
+) * 16
+_stable = (
+    b"""<!doctype html><title>Scoutpost Gate B</title>
+<main><h1>Owned crawler fixture</h1><p>"""
+    + _visible_copy.encode()
+    + b"</p></main>"
+)
+_network = (
+    b"""<!doctype html><title>Scoutpost Gate B network</title>
+<main><h1>Network isolation fixture</h1><p>"""
+    + _visible_copy.encode()
+    + b"""</p></main>
 <script>
 for (const target of ['http://127.0.0.1:9/private',
                       'http://10.0.0.1/private',
@@ -21,6 +33,7 @@ for (const target of ['http://127.0.0.1:9/private',
 }
 try { new WebSocket('ws://127.0.0.1:9/socket'); } catch (_) {}
 </script>"""
+)
 
 
 class Handler(BaseHTTPRequestHandler):
