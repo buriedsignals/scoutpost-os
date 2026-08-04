@@ -215,6 +215,62 @@ async def test_claim_rejects_oversized_response(client):
         await client.claim("batch")
 
 
+async def test_claim_retries_transient_control_response(client, monkeypatch):
+    responses = [FakeResponse(status=503), FakeResponse(body={"jobs": []})]
+    sleeps = []
+
+    async def post(*_args, **_kwargs):
+        return responses.pop(0)
+
+    async def sleep(delay):
+        sleeps.append(delay)
+
+    first_response = responses[0]
+    client.control_http.post = post
+    monkeypatch.setattr(workflow_client.asyncio, "sleep", sleep)
+
+    assert await client.claim("batch") == []
+    assert first_response.closed is True
+    assert sleeps == [0.25]
+
+
+async def test_claim_does_not_retry_client_error(client, monkeypatch):
+    calls = 0
+
+    async def post(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return FakeResponse(status=400)
+
+    client.control_http.post = post
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.claim("batch")
+    assert calls == 1
+
+
+async def test_claim_stops_after_bounded_retries(client, monkeypatch):
+    responses = [FakeResponse(status=503) for _ in range(4)]
+    calls = 0
+
+    async def post(*_args, **_kwargs):
+        nonlocal calls
+        response = responses[calls]
+        calls += 1
+        return response
+
+    async def sleep(_delay):
+        pass
+
+    client.control_http.post = post
+    monkeypatch.setattr(workflow_client.asyncio, "sleep", sleep)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.claim("batch")
+    assert calls == 4
+    assert all(response.closed for response in responses[:3])
+    assert responses[3].closed is False
+
+
 async def test_complete_posts_one_result(client):
     await client.complete("batch", {"job_id": "job", "ok": False})
     assert client.control_http.posts[-1][1] == {

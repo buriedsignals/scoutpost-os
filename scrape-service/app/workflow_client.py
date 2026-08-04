@@ -1,5 +1,6 @@
 """Narrow client for the crawler-worker control boundary and signed uploads."""
 
+import asyncio
 import base64
 import binascii
 import gzip
@@ -16,6 +17,7 @@ COMPRESSED_ARTIFACT_MAX = 50 * MiB
 RESULT_JSON_DECODED_MAX = 16 * MiB
 SNAPSHOT_ARTIFACT_DECODED_MAX = 25 * MiB
 SNAPSHOT_COMBINED_DECODED_MAX = 30 * MiB
+CONTROL_RETRY_DELAYS_SECONDS = (0.25, 0.5, 1.0)
 
 
 class SignedUploadError(RuntimeError):
@@ -43,14 +45,29 @@ class WorkflowClient:
         # This client intentionally has no default Authorization header.
         self.upload_http = httpx.AsyncClient(timeout=120, proxy=proxy_url)
 
+    async def _control_post(
+        self, body: dict[str, Any], timeout_seconds: float | None
+    ) -> httpx.Response:
+        for attempt in range(len(CONTROL_RETRY_DELAYS_SECONDS) + 1):
+            response = await self.control_http.post(
+                self.base,
+                json=body,
+                timeout=timeout_seconds,
+            )
+            retryable = response.status_code == 429 or 500 <= response.status_code < 600
+            if not retryable or attempt == len(CONTROL_RETRY_DELAYS_SECONDS):
+                return response
+            await response.aclose()
+            await asyncio.sleep(CONTROL_RETRY_DELAYS_SECONDS[attempt])
+
     async def claim(self, batch_id: str) -> list[dict[str, Any]]:
-        response = await self.control_http.post(
-            self.base,
-            json={
+        response = await self._control_post(
+            {
                 "action": "claim",
                 "batch_id": batch_id,
                 "execution_id": self.execution_id,
             },
+            60,
         )
         response.raise_for_status()
         jobs = response.json().get("jobs")
@@ -159,11 +176,7 @@ class WorkflowClient:
         if response_delay_ms:
             body["response_delay_ms"] = response_delay_ms
         try:
-            response = await self.control_http.post(
-                self.base,
-                json=body,
-                timeout=timeout_seconds,
-            )
+            response = await self._control_post(body, timeout_seconds)
         except httpx.TimeoutException:
             raise CallbackTimeoutError("crawler_callback_timeout") from None
         response.raise_for_status()
