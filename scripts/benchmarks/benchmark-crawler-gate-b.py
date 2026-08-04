@@ -62,14 +62,19 @@ class GateBClient:
             "content-type": "application/json",
         }
 
-    def rpc(self, name: str, body: dict | None = None):
+    def rpc_response(
+        self, name: str, body: dict | None = None
+    ) -> httpx.Response:
         response = self.http.post(
             f"{self.base}/rest/v1/rpc/{name}",
             headers=self.rest_headers,
             json=body or {},
         )
         response.raise_for_status()
-        return response.json()
+        return response
+
+    def rpc(self, name: str, body: dict | None = None):
+        return self.rpc_response(name, body).json()
 
     def insert_jobs(self, rows: list[dict]) -> None:
         response = self.http.post(
@@ -610,8 +615,12 @@ def reservation_count(result: dict) -> int:
 
 def timed_rpc(client: GateBClient, name: str, body: dict | None = None):
     started = time.perf_counter()
-    result = client.rpc(name, body)
-    return result, (time.perf_counter() - started) * 1_000
+    response = client.rpc_response(name, body)
+    end_to_end_ms = (time.perf_counter() - started) * 1_000
+    upstream = response.headers.get("x-envoy-upstream-service-time")
+    if upstream is None:
+        raise RuntimeError("Supabase response omitted upstream service timing")
+    return response.json(), float(upstream), end_to_end_ms
 
 
 def run_boundaries(args: argparse.Namespace) -> dict:
@@ -651,6 +660,7 @@ def run_boundaries(args: argparse.Namespace) -> dict:
         concurrent = list(pool.map(form_batches, range(2)))
     responses = [item[0] for item in concurrent]
     dispatch_ms = [item[1] for item in concurrent]
+    dispatch_end_to_end_ms = [item[2] for item in concurrent]
     assigned = [
         job_id
         for response in responses
@@ -671,17 +681,20 @@ def run_boundaries(args: argparse.Namespace) -> dict:
     }
 
     claim_ms = []
+    claim_end_to_end_ms = []
     completion_ms = []
+    completion_end_to_end_ms = []
     completion_changed = []
     for batch_id in sorted(batch_ids):
-        claims, elapsed = timed_rpc(
+        claims, upstream_ms, end_to_end_ms = timed_rpc(
             client,
             "claim_crawler_batch",
             {"p_batch_id": batch_id, "p_lease_seconds": 600},
         )
-        claim_ms.append(elapsed)
+        claim_ms.append(upstream_ms)
+        claim_end_to_end_ms.append(end_to_end_ms)
         for claim in claims:
-            changed, elapsed = timed_rpc(
+            changed, upstream_ms, end_to_end_ms = timed_rpc(
                 client,
                 "complete_crawler_job",
                 {
@@ -691,15 +704,17 @@ def run_boundaries(args: argparse.Namespace) -> dict:
                     "p_manifest": {"artifacts": []},
                 },
             )
-            completion_ms.append(elapsed)
+            completion_ms.append(upstream_ms)
+            completion_end_to_end_ms.append(end_to_end_ms)
             completion_changed.append(bool(changed))
     for _ in range(98):
-        _, elapsed = timed_rpc(
+        _, upstream_ms, end_to_end_ms = timed_rpc(
             client,
             "create_crawler_batches",
             {"p_operation": "scrape", "p_batch_size": 20, "p_job_limit": 293},
         )
-        dispatch_ms.append(elapsed)
+        dispatch_ms.append(upstream_ms)
+        dispatch_end_to_end_ms.append(end_to_end_ms)
 
     tenant_key = f"gate-b-utility:{run_id}"
     utility_key = f"gate-b-utility:{run_id}"
@@ -786,6 +801,11 @@ def run_boundaries(args: argparse.Namespace) -> dict:
         "claim": round(percentile(claim_ms, 0.95), 3),
         "completion": round(percentile(completion_ms, 0.95), 3),
     }
+    rpc_end_to_end_p95 = {
+        "dispatch": round(percentile(dispatch_end_to_end_ms, 0.95), 3),
+        "claim": round(percentile(claim_end_to_end_ms, 0.95), 3),
+        "completion": round(percentile(completion_end_to_end_ms, 0.95), 3),
+    }
     checks = {
         "two_dispatchers_one_winner": sorted(len(item) for item in responses)
         == [0, 15],
@@ -814,6 +834,8 @@ def run_boundaries(args: argparse.Namespace) -> dict:
         "run_id": run_id,
         "checks": checks,
         "rpc_p95_ms": rpc_p95,
+        "rpc_end_to_end_p95_ms": rpc_end_to_end_p95,
+        "rpc_timing_source": "x-envoy-upstream-service-time",
         "jobs": 293,
         "render_reservations": 0,
     }
