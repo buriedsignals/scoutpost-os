@@ -399,6 +399,74 @@ def concatenated_json(raw: str) -> list[dict]:
     return values
 
 
+def fetch_render_log_slice(
+    service_id: str,
+    start: datetime,
+    end: datetime,
+    limit: int,
+) -> list[dict]:
+    """Fetch one bounded Render log interval.
+
+    Render's Logs API rejects limits above 1,000.  Keep that provider limit
+    local to the collector rather than relying on a caller to know it.
+    """
+    command = [
+        "render",
+        "logs",
+        "--resources",
+        service_id,
+        "--start",
+        start.isoformat(),
+        "--end",
+        end.isoformat(),
+        "--text",
+        "workload_class",
+        "--direction",
+        "forward",
+        "--limit",
+        str(limit),
+        "--output",
+        "json",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Render content-free log export timed out") from exc
+    if result.returncode:
+        raise RuntimeError("Render content-free log export failed")
+    return concatenated_json(result.stdout)
+
+
+def fetch_render_logs(
+    service_id: str,
+    start: datetime,
+    end: datetime,
+    limit: int,
+) -> list[dict]:
+    """Fetch an interval, splitting it when it reaches the provider limit."""
+    records = fetch_render_log_slice(service_id, start, end, limit)
+    if len(records) < limit:
+        return records
+    if end - start <= timedelta(minutes=1):
+        raise RuntimeError(
+            "Render log volume exceeds the limit in a one-minute slice; "
+            "increase observability granularity before collecting arrivals"
+        )
+    midpoint = start + (end - start) / 2
+    midpoint = midpoint.replace(second=0, microsecond=0)
+    if midpoint <= start or midpoint >= end:
+        raise RuntimeError("could not split Render log interval at a minute boundary")
+    return fetch_render_logs(service_id, start, midpoint, limit) + fetch_render_logs(
+        service_id, midpoint, end, limit
+    )
+
+
 def collect_arrivals(args: argparse.Namespace) -> dict:
     start = iso(args.start)
     end = iso(args.end)
@@ -419,41 +487,9 @@ def collect_arrivals(args: argparse.Namespace) -> dict:
     cursor = start
     while cursor < end:
         slice_end = min(end, cursor + timedelta(hours=1))
-        command = [
-            "render",
-            "logs",
-            "--resources",
-            args.service_id,
-            "--start",
-            cursor.isoformat(),
-            "--end",
-            slice_end.isoformat(),
-            "--text",
-            "workload_class",
-            "--direction",
-            "forward",
-            "--limit",
-            str(args.slice_limit),
-            "--output",
-            "json",
-        ]
-        try:
-            result = subprocess.run(
-                command,
-                text=True,
-                capture_output=True,
-                check=False,
-                timeout=120,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("Render content-free log export timed out") from exc
-        if result.returncode:
-            raise RuntimeError("Render content-free log export failed")
-        records = concatenated_json(result.stdout)
-        if len(records) >= args.slice_limit:
-            raise RuntimeError(
-                "Render log slice reached its limit; use a smaller slice"
-            )
+        records = fetch_render_logs(
+            args.service_id, cursor, slice_end, args.slice_limit
+        )
         for record in records:
             record_id = record.get("id")
             if not isinstance(record_id, str) or record_id in log_ids:
@@ -1742,13 +1778,24 @@ def gate_b_verdict(args: argparse.Namespace) -> dict:
 
 
 def parse_args() -> argparse.Namespace:
+    def render_log_limit(value: str) -> int:
+        limit = int(value)
+        if not 2 <= limit <= 1_000:
+            raise argparse.ArgumentTypeError("must be between 2 and 1000")
+        return limit
+
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     collect = sub.add_parser("collect")
     collect.add_argument("--service-id", required=True)
     collect.add_argument("--start", required=True)
     collect.add_argument("--end", required=True)
-    collect.add_argument("--slice-limit", type=int, default=50_000)
+    collect.add_argument(
+        "--slice-limit",
+        type=render_log_limit,
+        default=1_000,
+        help="Render log limit per request (2-1000; full slices split automatically)",
+    )
     collect.add_argument(
         "--report", type=Path, default=Path("/tmp/scoutpost-gate-b-arrivals.json")
     )
