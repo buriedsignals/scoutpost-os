@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
+  evaluateCrawlerWorkflowIncident,
   evaluateQueueIncident,
   evaluateVesselSamplerIncident,
 } from "./operations_health.ts";
@@ -76,4 +77,46 @@ Deno.test("recent successful vessel sampler is healthy", () => {
     latestSuccessAt: "2026-07-20T19:07:00Z",
   }, NOW);
   assertEquals(incident.active, false);
+});
+
+Deno.test("crawler workflow health opens on delay, expiry, or recent terminal failure", () => {
+  const base = {
+    dispatchEligible: 4,
+    oldestWaitSeconds: 60,
+    running: 2,
+    expiredRunning: 0,
+    p95TotalSeconds: 90,
+    fallbackRequired: 0,
+    terminalFailedRecent: 0,
+    taskRuns24h: 12,
+    taskQueueP95Seconds: 1.5,
+    taskDurationP95Seconds: 30,
+    taskMemoryPeakBytes: 256 * 1024 * 1024,
+    taskRetryRate: 0,
+    taskOutboundBytes24h: 4096,
+    estimatedMonthlyComputeDollars: 6,
+  };
+  assertEquals(evaluateCrawlerWorkflowIncident(base).active, false);
+  assertEquals(
+    evaluateCrawlerWorkflowIncident({
+      ...base,
+      oldestWaitSeconds: 601,
+    }).active,
+    true,
+  );
+  const expired = evaluateCrawlerWorkflowIncident({
+    ...base,
+    expiredRunning: 1,
+  });
+  assertEquals(expired.active, true);
+  assertEquals(expired.severity, "critical");
+  assertEquals(expired.details.task_runs_24h, 12);
+  assertEquals(expired.details.estimated_monthly_compute_dollars, 6);
+  assertEquals(
+    evaluateCrawlerWorkflowIncident({
+      ...base,
+      terminalFailedRecent: 1,
+    }).active,
+    true,
+  );
 });

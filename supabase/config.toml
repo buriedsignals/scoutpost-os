@@ -498,3 +498,9 @@ verify_jwt = false
 verify_jwt = false
 
 
+
+[functions.crawler-worker]
+verify_jwt = false
+
+[functions.crawler-dispatch]
+verify_jwt = false

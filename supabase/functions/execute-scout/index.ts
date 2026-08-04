@@ -39,6 +39,10 @@ import {
   ValidationError,
 } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
+import {
+  crawlerPipelineForScoutType,
+  selectCrawlerBackend,
+} from "../_shared/crawler_routing.ts";
 
 const DispatchSchema = z.object({
   scout_id: z.string().uuid(),
@@ -124,6 +128,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (queueEnabledFor(scout.type as string)) {
       const source = trigger_source ??
         (isServiceCaller ? "scheduled" : "manual");
+      const crawlerBackend = selectCrawlerBackend(
+        scout_id,
+        crawlerPipelineForScoutType(scout.type as string),
+      );
       const { data: queued, error: queueError } = await svc.rpc(
         "enqueue_scout_dispatch",
         {
@@ -131,6 +139,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           p_run_id: run_id ?? null,
           p_source: source,
           p_priority: source === "manual" ? 100 : 0,
+          p_crawler_backend: crawlerBackend,
         },
       );
       if (queueError) throw new Error(queueError.message);
@@ -142,6 +151,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const enqueued = queueResult && typeof queueResult === "object"
         ? (queueResult as { enqueued?: boolean }).enqueued === true
         : false;
+      const pinnedCrawlerBackend =
+        queueResult && typeof queueResult === "object"
+          ? (queueResult as { crawler_backend?: string }).crawler_backend ??
+            crawlerBackend
+          : crawlerBackend;
       if (!queuedRunId) throw new Error("queue did not return a run id");
 
       logEvent({
@@ -153,6 +167,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         scout_type: scout.type,
         source,
         caller: callerId,
+        crawler_backend: pinnedCrawlerBackend,
       });
 
       return jsonOk({
@@ -160,6 +175,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         scout_id,
         run_id: queuedRunId,
         enqueued,
+        crawler_backend: pinnedCrawlerBackend,
       }, 202);
     }
 

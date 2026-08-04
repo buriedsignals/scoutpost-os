@@ -7,8 +7,10 @@ import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { getServiceClient, type SupabaseClient } from "../_shared/supabase.ts";
 import { logEvent } from "../_shared/log.ts";
 import {
+  type CrawlerWorkflowObservation,
   DEFAULT_QUEUE_DELAY_MS,
   DEFAULT_SAMPLER_STALE_MS,
+  evaluateCrawlerWorkflowIncident,
   evaluateQueueIncident,
   evaluateVesselSamplerIncident,
   type OperationalIncident,
@@ -124,14 +126,16 @@ async function collectIncidents(
     86400,
   ) * 1000;
 
-  const [dispatch, civic, latestSampler, latestSuccess] = await Promise.all([
-    queueObservation(svc, "scout_dispatch_queue", ["queued"], ["leased"]),
-    queueObservation(svc, "civic_extraction_queue", ["pending"], [
-      "processing",
-    ]),
-    latestSamplerRow(svc, false),
-    latestSamplerRow(svc, true),
-  ]);
+  const [dispatch, civic, crawler, latestSampler, latestSuccess] = await Promise
+    .all([
+      queueObservation(svc, "scout_dispatch_queue", ["queued"], ["leased"]),
+      queueObservation(svc, "civic_extraction_queue", ["pending"], [
+        "processing",
+      ]),
+      crawlerObservation(svc),
+      latestSamplerRow(svc, false),
+      latestSamplerRow(svc, true),
+    ]);
 
   return [
     evaluateQueueIncident(
@@ -154,6 +158,7 @@ async function collectIncidents(
       now,
       queueThreshold,
     ),
+    evaluateCrawlerWorkflowIncident(crawler, queueThreshold),
     evaluateVesselSamplerIncident(
       {
         latestStartedAt: latestSampler?.started_at ?? null,
@@ -165,6 +170,42 @@ async function collectIncidents(
       samplerThreshold,
     ),
   ];
+}
+
+async function crawlerObservation(
+  svc: SupabaseClient,
+): Promise<CrawlerWorkflowObservation> {
+  const { data, error } = await svc.rpc("crawler_operations_health");
+  if (error) throw new Error(error.message);
+  const row = (Array.isArray(data) ? data[0] : data) ?? {};
+  return {
+    dispatchEligible: Number(row.dispatch_eligible ?? 0),
+    oldestWaitSeconds: row.oldest_wait_seconds === null ||
+        row.oldest_wait_seconds === undefined
+      ? null
+      : Number(row.oldest_wait_seconds),
+    running: Number(row.running ?? 0),
+    expiredRunning: Number(row.expired_running ?? 0),
+    p95TotalSeconds: row.p95_total_seconds === null ||
+        row.p95_total_seconds === undefined
+      ? null
+      : Number(row.p95_total_seconds),
+    fallbackRequired: Number(row.fallback_required ?? 0),
+    terminalFailedRecent: Number(row.terminal_failed_recent ?? 0),
+    taskRuns24h: Number(row.task_runs_24h ?? 0),
+    taskQueueP95Seconds: nullableNumber(row.task_queue_p95_seconds),
+    taskDurationP95Seconds: nullableNumber(row.task_duration_p95_seconds),
+    taskMemoryPeakBytes: nullableNumber(row.task_memory_peak_bytes),
+    taskRetryRate: nullableNumber(row.task_retry_rate),
+    taskOutboundBytes24h: Number(row.task_outbound_bytes_24h ?? 0),
+    estimatedMonthlyComputeDollars: Number(
+      row.estimated_monthly_compute_dollars ?? 0,
+    ),
+  };
+}
+
+function nullableNumber(value: unknown): number | null {
+  return value === null || value === undefined ? null : Number(value);
 }
 
 async function queueObservation(

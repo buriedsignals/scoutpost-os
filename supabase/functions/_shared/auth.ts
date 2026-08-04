@@ -127,7 +127,7 @@ export function getCallerClient(
   return { db: getUserClient(user.token), needsExplicitScope: false };
 }
 
-function timingSafeEqual(
+export function timingSafeEqual(
   a: string | undefined | null,
   b: string | undefined | null,
 ): boolean {

@@ -115,7 +115,7 @@ def _disclosure_js_for_url(url: str) -> str:
 
 
 class Scraper:
-    def __init__(self, pool_size: int) -> None:
+    def __init__(self, pool_size: int, proxy_server: str | None = None) -> None:
         self._semaphore = asyncio.Semaphore(pool_size)
         # Snapshot fetches hold a browser slot far longer than ordinary
         # scrapes (scan + MHTML + compositor). Serializing them keeps at most
@@ -124,6 +124,7 @@ class Scraper:
         self._snapshot_semaphore = asyncio.Semaphore(1)
         self._crawler: Any = None
         self._lock = asyncio.Lock()
+        self._proxy_server = proxy_server
 
     async def _ensure_crawler(self) -> Any:  # pragma: no cover - live path
         async with self._lock:
@@ -146,8 +147,21 @@ class Scraper:
                 # headless itself is the detection vector. The container runs
                 # the process under xvfb-run (see Dockerfile CMD) so the headed
                 # browser has a display.
+                proxy_args = (
+                    [
+                        "--disable-quic",
+                        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                        "--proxy-bypass-list=<-loopback>",
+                    ]
+                    if self._proxy_server
+                    else []
+                )
                 browser_config = BrowserConfig(
-                    headless=False, verbose=False, enable_stealth=True
+                    headless=False,
+                    verbose=False,
+                    enable_stealth=True,
+                    proxy=self._proxy_server,
+                    extra_args=proxy_args,
                 )
                 crawler = AsyncWebCrawler(
                     crawler_strategy=AsyncPlaywrightCrawlerStrategy(

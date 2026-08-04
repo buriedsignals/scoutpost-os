@@ -1,6 +1,7 @@
 export type IncidentKind =
   | "dispatch_queue_delay"
   | "civic_queue_delay"
+  | "crawler_workflow_health"
   | "vessel_sampler_health";
 
 export interface OperationalIncident {
@@ -27,6 +28,23 @@ export interface VesselSamplerObservation {
   latestStatus: string | null;
   latestErrorCode: string | null;
   latestSuccessAt: string | null;
+}
+
+export interface CrawlerWorkflowObservation {
+  dispatchEligible: number;
+  oldestWaitSeconds: number | null;
+  running: number;
+  expiredRunning: number;
+  p95TotalSeconds: number | null;
+  fallbackRequired: number;
+  terminalFailedRecent: number;
+  taskRuns24h: number;
+  taskQueueP95Seconds: number | null;
+  taskDurationP95Seconds: number | null;
+  taskMemoryPeakBytes: number | null;
+  taskRetryRate: number | null;
+  taskOutboundBytes24h: number;
+  estimatedMonthlyComputeDollars: number;
 }
 
 export const DEFAULT_QUEUE_DELAY_MS = 10 * 60_000;
@@ -116,6 +134,57 @@ export function evaluateVesselSamplerIncident(
       latest_success_at: observation.latestSuccessAt,
       latest_success_age_minutes: ageMinutes(successAgeMs),
       stale_after_minutes: Math.floor(staleMs / 60_000),
+    },
+  };
+}
+
+export function evaluateCrawlerWorkflowIncident(
+  observation: CrawlerWorkflowObservation,
+  thresholdMs = DEFAULT_QUEUE_DELAY_MS,
+): OperationalIncident {
+  const oldestWaitMs = observation.oldestWaitSeconds === null
+    ? null
+    : observation.oldestWaitSeconds * 1000;
+  const delayed = observation.dispatchEligible > 0 && oldestWaitMs !== null &&
+    oldestWaitMs >= thresholdMs;
+  const active = delayed || observation.expiredRunning > 0 ||
+    observation.terminalFailedRecent > 0;
+  const severity = observation.expiredRunning > 0 ||
+      observation.terminalFailedRecent > 0 ||
+      (oldestWaitMs !== null && oldestWaitMs >= thresholdMs * 3)
+    ? "critical"
+    : "warning";
+  const oldestMinutes = oldestWaitMs === null
+    ? null
+    : Math.floor(oldestWaitMs / 60_000);
+  return {
+    key: "crawler_workflow_health",
+    kind: "crawler_workflow_health",
+    active,
+    severity,
+    summary: active
+      ? `Crawler Workflow has ${observation.dispatchEligible} dispatch-eligible item(s); ` +
+        `oldest wait ${oldestMinutes ?? "unknown"} minute(s), ` +
+        `${observation.expiredRunning} expired lease(s), ` +
+        `${observation.terminalFailedRecent} recent terminal failure(s)`
+      : "Crawler Workflow queue and leases are healthy",
+    details: {
+      dispatch_eligible: observation.dispatchEligible,
+      oldest_wait_seconds: observation.oldestWaitSeconds,
+      running: observation.running,
+      expired_running: observation.expiredRunning,
+      p95_total_seconds: observation.p95TotalSeconds,
+      fallback_required: observation.fallbackRequired,
+      terminal_failed_recent: observation.terminalFailedRecent,
+      task_runs_24h: observation.taskRuns24h,
+      task_queue_p95_seconds: observation.taskQueueP95Seconds,
+      task_duration_p95_seconds: observation.taskDurationP95Seconds,
+      task_memory_peak_bytes: observation.taskMemoryPeakBytes,
+      task_retry_rate: observation.taskRetryRate,
+      task_outbound_bytes_24h: observation.taskOutboundBytes24h,
+      estimated_monthly_compute_dollars:
+        observation.estimatedMonthlyComputeDollars,
+      threshold_minutes: Math.floor(thresholdMs / 60_000),
     },
   };
 }

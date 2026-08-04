@@ -2,8 +2,8 @@
 # a bearer-authed FastAPI app. See SCRAPING-MIGRATION-PRD.md (U1/KTD5).
 #
 # Version bumps: monthly per docs/architecture/scrape-service.md runbook.
-# crawl4ai is pinned in requirements.txt; Playwright/Chromium version rides
-# with crawl4ai's pinned playwright dependency.
+# crawl4ai is pinned in requirements.txt; its UndetectedAdapter uses Patchright,
+# so Chromium must match the pinned Patchright driver revision.
 
 FROM python:3.12-slim-bookworm
 
@@ -23,12 +23,14 @@ WORKDIR /srv
 
 COPY requirements.txt ./
 RUN pip install -r requirements.txt \
-    && playwright install --with-deps chromium \
+    && patchright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 
 COPY app ./app
 
-RUN useradd --create-home scraper \
+RUN mkdir -p /tmp/.X11-unix \
+    && chmod 1777 /tmp/.X11-unix \
+    && useradd --create-home scraper \
     && chown -R scraper:scraper /srv
 USER scraper
 

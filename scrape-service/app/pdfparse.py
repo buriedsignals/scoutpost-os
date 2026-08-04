@@ -12,13 +12,18 @@ as a primary parser).
 """
 
 import asyncio
-import ipaddress
-import socket
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import httpx
+
+from . import network_policy
+from .network_policy import is_public_address, resolve_addresses
+
+# Compatibility alias for existing focused DNS-policy tests. Both code paths
+# still mutate/use the same socket module owned by network_policy.
+socket = network_policy.socket
 
 
 class PdfDownloadError(Exception):
@@ -80,18 +85,11 @@ def assert_public_host(url: str) -> None:
         raise PrivateAddressError()
     host = parsed.hostname or ""
     try:
-        infos = socket.getaddrinfo(host, None)
+        addresses = resolve_addresses(host)
     except OSError as e:
         raise PdfDownloadError(f"download failed: cannot resolve {host}: {e}") from e
-    for info in infos:
-        address = ipaddress.ip_address(info[4][0])
-        if (
-            address.is_private
-            or address.is_loopback
-            or address.is_link_local
-            or address.is_reserved
-            or address.is_multicast
-        ):
+    for address in addresses:
+        if not is_public_address(address):
             raise PrivateAddressError()
 
 
