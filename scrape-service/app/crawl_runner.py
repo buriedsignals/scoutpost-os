@@ -1,6 +1,7 @@
 """Transport-neutral crawl execution shared by HTTP and Workflow tasks."""
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -160,6 +161,8 @@ def classify_failure(item_id: str, error: object) -> dict[str, Any]:
         ),
     ):
         error_class = "terminal"
+    elif re.search(r"\bstatus 5\d\d\b", lowered):
+        error_class = "retryable"
     elif any(word in lowered for word in ("anti-bot", "captcha", "challenge")):
         error_class = "anti_bot"
     elif any(word in lowered for word in ("timeout", "timed out")):
