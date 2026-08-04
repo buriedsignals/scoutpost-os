@@ -530,6 +530,111 @@ def collect_arrivals(args: argparse.Namespace) -> dict:
     return report
 
 
+def assert_complete_calendar_month(start: datetime, end: datetime) -> None:
+    if (
+        start.utcoffset() != timedelta(0)
+        or end.utcoffset() != timedelta(0)
+        or any((start.day != 1, start.hour, start.minute, start.second, start.microsecond))
+        or any((end.day != 1, end.hour, end.minute, end.second, end.microsecond))
+        or end.year * 12 + end.month != start.year * 12 + start.month + 1
+    ):
+        raise SystemExit("bandwidth window must be one complete UTC calendar month")
+
+
+def collect_render_bandwidth(args: argparse.Namespace) -> dict:
+    start = iso(args.start)
+    end = iso(args.end)
+    assert_complete_calendar_month(start, end)
+    headers = {
+        "authorization": f"Bearer {required_env('RENDER_WORKFLOW_API_KEY')}",
+        "accept": "application/json",
+    }
+    client = httpx.Client(
+        base_url="https://api.render.com/v1", headers=headers, timeout=60
+    )
+    services = []
+    cursor = None
+    while True:
+        params = {"ownerId": args.workspace_id, "limit": 100}
+        if cursor:
+            params["cursor"] = cursor
+        response = client.get("/services", params=params)
+        response.raise_for_status()
+        page = response.json()
+        if not isinstance(page, list):
+            raise RuntimeError("Render services response was not a list")
+        for item in page:
+            service = item.get("service") if isinstance(item, dict) else None
+            if not isinstance(service, dict):
+                raise RuntimeError("Render services response omitted a service")
+            service_id = service.get("id")
+            name = service.get("name")
+            if not isinstance(service_id, str) or not isinstance(name, str):
+                raise RuntimeError("Render service identity was invalid")
+            services.append({"id": service_id, "name": name})
+        if len(page) < 100:
+            break
+        cursor = page[-1].get("cursor") if isinstance(page[-1], dict) else None
+        if not isinstance(cursor, str) or not cursor:
+            raise RuntimeError("Render services pagination omitted a cursor")
+
+    totals = defaultdict(float)
+    for service_chunk in chunks(services, 20):
+        params = [
+            ("startTime", start.isoformat()),
+            ("endTime", end.isoformat()),
+            *(("resource", service["id"]) for service in service_chunk),
+        ]
+        response = client.get("/metrics/bandwidth", params=params)
+        response.raise_for_status()
+        series = response.json()
+        if not isinstance(series, list):
+            raise RuntimeError("Render bandwidth response was not a list")
+        for item in series:
+            if not isinstance(item, dict) or item.get("unit") != "GB":
+                raise RuntimeError("Render bandwidth response did not use GB")
+            labels = {
+                label.get("field"): label.get("value")
+                for label in item.get("labels", [])
+                if isinstance(label, dict)
+            }
+            resource_id = labels.get("resource") or labels.get("service")
+            if not isinstance(resource_id, str):
+                raise RuntimeError("Render bandwidth series omitted its resource")
+            for value in item.get("values", []):
+                if not isinstance(value, dict) or not isinstance(
+                    value.get("value"), (int, float)
+                ):
+                    raise RuntimeError("Render bandwidth datapoint was invalid")
+                if value.get("unit", "GB") != "GB" or value["value"] < 0:
+                    raise RuntimeError("Render bandwidth datapoint was not non-negative GB")
+                totals[resource_id] += float(value["value"])
+
+    names = {service["id"]: service["name"] for service in services}
+    resource_totals = [
+        {
+            "resource_id": service["id"],
+            "name": service["name"],
+            "outbound_gb": round(totals.get(service["id"], 0.0), 9),
+        }
+        for service in sorted(services, key=lambda value: value["name"])
+    ]
+    unknown = set(totals) - set(names)
+    if unknown:
+        raise RuntimeError("Render bandwidth returned an unknown resource")
+    report = {
+        "source": "Render Public API GET /v1/metrics/bandwidth",
+        "workspace_id": args.workspace_id,
+        "window_start": start.isoformat(),
+        "window_end": end.isoformat(),
+        "complete_calendar_month": True,
+        "resource_totals": resource_totals,
+        "workspace_outbound_gb": round(sum(totals.values()), 9),
+    }
+    args.report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    return report
+
+
 def run_full(args: argparse.Namespace) -> dict:
     expected_host = required_env("GATE_B_FIXTURE_HOST")
     if urlsplit(args.fixture_url).hostname != expected_host:
@@ -1541,8 +1646,17 @@ def summarize_full(
 
 
 def replay_arrivals(args: argparse.Namespace) -> dict:
-    if args.existing_workspace_outbound_gb < 0:
-        raise SystemExit("existing workspace outbound must be non-negative")
+    bandwidth = json.loads(args.bandwidth_report.read_text())
+    bandwidth_start = iso(str(bandwidth.get("window_start", "")))
+    bandwidth_end = iso(str(bandwidth.get("window_end", "")))
+    assert_complete_calendar_month(bandwidth_start, bandwidth_end)
+    if (
+        bandwidth.get("source") != "Render Public API GET /v1/metrics/bandwidth"
+        or bandwidth.get("complete_calendar_month") is not True
+        or not isinstance(bandwidth.get("workspace_outbound_gb"), (int, float))
+        or bandwidth["workspace_outbound_gb"] < 0
+    ):
+        raise SystemExit("replay requires a measured Render bandwidth report")
     export = json.loads(args.arrivals.read_text())
     start = iso(str(export.get("window_start", "")))
     end = iso(str(export.get("window_end", "")))
@@ -1654,7 +1768,7 @@ def replay_arrivals(args: argparse.Namespace) -> dict:
     workflow_outbound_gb = (
         outbound_bytes / measured_pages * monthly_jobs / 1_000_000_000
     )
-    existing_outbound = args.existing_workspace_outbound_gb
+    existing_outbound = float(bandwidth["workspace_outbound_gb"])
     prior_overage = max(0.0, existing_outbound - PRO_INCLUDED_OUTBOUND_GB)
     combined_overage = max(
         0.0,
@@ -1764,6 +1878,13 @@ def parse_args() -> argparse.Namespace:
     collect.add_argument(
         "--report", type=Path, default=Path("/tmp/scoutpost-gate-b-arrivals.json")
     )
+    bandwidth = sub.add_parser("bandwidth")
+    bandwidth.add_argument("--workspace-id", required=True)
+    bandwidth.add_argument("--start", required=True)
+    bandwidth.add_argument("--end", required=True)
+    bandwidth.add_argument(
+        "--report", type=Path, default=Path("/tmp/scoutpost-gate-b-bandwidth.json")
+    )
     full = sub.add_parser("full")
     full.add_argument("--fixture-url", required=True)
     full.add_argument("--pages", type=int, default=PEAK_PAGES)
@@ -1792,7 +1913,7 @@ def parse_args() -> argparse.Namespace:
     replay = sub.add_parser("replay")
     replay.add_argument("--arrivals", type=Path, required=True)
     replay.add_argument("--full-report", type=Path, required=True)
-    replay.add_argument("--existing-workspace-outbound-gb", type=float, required=True)
+    replay.add_argument("--bandwidth-report", type=Path, required=True)
     replay.add_argument(
         "--report", type=Path, default=Path("/tmp/scoutpost-gate-b-replay.json")
     )
@@ -1812,6 +1933,8 @@ def main() -> None:
     args = parse_args()
     if args.command == "collect":
         report = collect_arrivals(args)
+    elif args.command == "bandwidth":
+        report = collect_render_bandwidth(args)
     elif args.command == "full":
         if not 1 <= args.pages <= PEAK_PAGES:
             raise SystemExit(f"pages must be 1..{PEAK_PAGES}")
