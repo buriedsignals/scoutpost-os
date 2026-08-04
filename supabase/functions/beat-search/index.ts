@@ -335,7 +335,7 @@ async function runSearch(
     SCRAPE_CONCURRENCY,
     async (h) => {
       try {
-        return await scrape(h.url);
+        return await scrape(h.url, { workloadClass: "scout" });
       } catch (e) {
         logEvent({
           level: "warn",
@@ -385,7 +385,7 @@ async function runSearch(
     SCRAPE_CONCURRENCY,
     async (hit) => {
       try {
-        return await scrape(hit.url);
+        return await scrape(hit.url, { workloadClass: "scout" });
       } catch (e) {
         logEvent({
           level: "warn",

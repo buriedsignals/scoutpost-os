@@ -14,8 +14,11 @@ oversized PDF → 413, non-PDF → 415, bad token → 401.
 """
 
 import asyncio
+import json
+import logging
 import secrets as secrets_mod
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import httpx
@@ -44,6 +47,26 @@ from .scraper import Scraper
 from .snapshots import build_snapshot_payload, scrape_fuse_seconds
 
 _bearer = HTTPBearer(auto_error=False)
+_operation_log = logging.getLogger("crawler.operation")
+_workload_classes = frozenset({"scout", "utility", "system"})
+
+
+def record_operation(operation: str, workload_class: str) -> None:
+    """Emit only the content-free fields used to size Gate B traffic."""
+    if workload_class not in _workload_classes:
+        raise ValueError("invalid workload class")
+    _operation_log.info(
+        json.dumps(
+            {
+                "minute": datetime.now(timezone.utc)
+                .replace(second=0, microsecond=0)
+                .isoformat(),
+                "operation": operation,
+                "workload_class": workload_class,
+            },
+            separators=(",", ":"),
+        )
+    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -113,6 +136,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if scheme not in ("http", "https"):
             raise HTTPException(status_code=422, detail=f"unsupported URL scheme: {scheme or '(none)'}")
 
+    def trusted_workload_class(request: Request) -> str:
+        value = request.headers.get("x-scoutpost-workload-class", "")
+        if value not in _workload_classes:
+            raise HTTPException(status_code=422, detail="invalid workload class")
+        return value
+
     @app.get("/health")
     async def health(request: Request):
         return {"status": "ok", "browser": "warm" if request.app.state.scraper.warm else "cold"}
@@ -120,6 +149,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/scrape", dependencies=[Depends(require_token)])
     async def scrape(body: ScrapeBody, request: Request):
         assert_http_url(body.url)
+        workload_class = trusted_workload_class(request)
+        record_operation("snapshot" if body.snapshot else "scrape", workload_class)
         cfg: Settings = request.app.state.settings
         slots: asyncio.Semaphore = (
             request.app.state.snapshot_slot
@@ -204,6 +235,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/parse", dependencies=[Depends(require_token)])
     async def parse(body: ParseBody, request: Request):
         assert_http_url(body.url)
+        record_operation("parse_pdf", trusted_workload_class(request))
         cfg: Settings = request.app.state.settings
 
         # parse_pdf_url always tries pdftotext first. Only a low-yield result

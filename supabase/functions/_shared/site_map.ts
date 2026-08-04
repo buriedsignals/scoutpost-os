@@ -177,7 +177,11 @@ export async function mapSite(
 
   // 3. Fallback: harvest links from the root page via the scrape port.
   try {
-    const page = await scrape(target, { formats: ["rawHtml"], timeoutMs });
+    const page = await scrape(target, {
+      formats: ["rawHtml"],
+      timeoutMs,
+      workloadClass: "utility",
+    });
     const html = page.rawHtml ?? "";
     const hrefRe = /href\s*=\s*["']([^"'#]+)["']/gi;
     let m: RegExpExecArray | null;

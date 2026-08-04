@@ -246,6 +246,7 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
       try {
         // Fresh scrape via the port (dark: firecrawl; U7: crawl4ai).
         result = await scrape(url, {
+          workloadClass: "scout",
           formats: ["markdown", "rawHtml"],
           onlyMainContent: true,
         });

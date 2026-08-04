@@ -499,6 +499,7 @@ export async function performArchiveCapture(
   try {
     capture = await scrapeImpl(ctx.requestedUrl, {
       ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
+      workloadClass: ctx.captureKind === "baseline" ? "utility" : "scout",
       snapshot: true,
       noAntibotFallback: true,
       timeoutMs: CAPTURE_FETCH_TIMEOUT_MS,

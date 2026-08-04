@@ -31,6 +31,8 @@ export interface DocParseResult {
 }
 
 export interface DocParseOptions {
+  /** Fixed by the authenticated calling route, never a user body field. */
+  workloadClass?: "scout" | "utility" | "system";
   /** Server-side timeout in ms (default 120_000 for large civic PDFs). */
   timeoutMs?: number;
   /** Client-side abort fuse in ms; defaults to timeoutMs + 5000. */
@@ -78,6 +80,7 @@ async function parseViaService(
       headers: {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json",
+        "X-Scoutpost-Workload-Class": opts.workloadClass ?? "system",
       },
       body: JSON.stringify({ url }),
       signal: ac.signal,
@@ -142,6 +145,7 @@ export async function parseDocument(
 
   // Not a PDF → the document is an HTML page (e.g. an agenda). Render it.
   const r = await scrape(url, {
+    workloadClass: opts.workloadClass,
     formats: ["markdown"],
     timeoutMs: opts.timeoutMs,
     abortAfterMs: opts.abortAfterMs,

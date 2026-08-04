@@ -49,6 +49,7 @@ export async function crawl4aiScrape(
       headers: {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json",
+        "X-Scoutpost-Workload-Class": opts.workloadClass ?? "system",
       },
       body: JSON.stringify({
         url,

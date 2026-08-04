@@ -130,7 +130,7 @@ export async function establishWebBaseline(
     // (captureWebBaselineSnapshot).
     const scrape = await deps.scrape(
       scout.url,
-      WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
+      { ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS, workloadClass: "utility" },
     );
     if (!isConfiguredPageUrl(scrape.source_url ?? scout.url, scout.url)) {
       throw new ValidationError(
@@ -255,6 +255,7 @@ export async function captureWebBaselineSnapshot(
   try {
     detection = await deps.scrape(scout.url, {
       ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
+      workloadClass: "utility",
       snapshot: "on_fallback",
     });
   } catch (e) {

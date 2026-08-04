@@ -65,6 +65,9 @@ export interface ScrapeResult {
 }
 
 export interface ScrapeOptions {
+  /** Content-free operations counter classification. Fixed by the calling
+   * route; it is never read from an end-user request body. */
+  workloadClass?: "scout" | "utility" | "system";
   formats?: Array<"markdown" | "html" | "rawHtml">;
   onlyMainContent?: boolean;
   /**
@@ -172,6 +175,7 @@ export interface PrimaryPageScrapeDeps {
 
 export interface PrimaryPageScrapeOptions {
   url: string;
+  workloadClass?: "scout" | "utility" | "system";
   changeTrackingTag?: string;
   onlyMainContent?: boolean;
   timeoutMs?: number;

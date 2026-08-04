@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import load_settings
-from app.main import create_app
+from app.main import create_app, record_operation
 from tests.conftest import TEST_TOKEN, auth_headers, make_settings
 
 
@@ -38,8 +38,35 @@ def test_anon_mode_allows_requests_when_opted_in():
 
     app = create_app(make_settings(token=None, allow_anon=True))
     app.state.scraper = FakeScraper(result=crawl_result())
-    res = TestClient(app).post("/scrape", json={"url": "https://example.org"})
+    res = TestClient(app).post(
+        "/scrape",
+        json={"url": "https://example.org"},
+        headers={"X-Scoutpost-Workload-Class": "system"},
+    )
     assert res.status_code == 200
+
+
+def test_authenticated_request_requires_trusted_workload_class(app):
+    res = TestClient(app).post(
+        "/scrape",
+        json={"url": "https://example.org"},
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+    assert res.status_code == 422
+    assert res.json()["detail"] == "invalid workload class"
+
+
+def test_workload_class_rejects_arbitrary_values(app):
+    headers = auth_headers() | {"X-Scoutpost-Workload-Class": "customer-value"}
+    res = TestClient(app).post(
+        "/scrape", json={"url": "https://example.org"}, headers=headers
+    )
+    assert res.status_code == 422
+
+
+def test_operation_counter_rejects_arbitrary_values():
+    with pytest.raises(ValueError, match="invalid workload class"):
+        record_operation("scrape", "customer-value")
 
 
 def test_load_settings_refuses_open_proxy():

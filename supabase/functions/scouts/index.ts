@@ -789,6 +789,7 @@ async function establishCivicBaseline(
     let scraped;
     try {
       scraped = await scrape(url, {
+        workloadClass: "utility",
         formats: ["markdown"],
         onlyMainContent: true,
       });

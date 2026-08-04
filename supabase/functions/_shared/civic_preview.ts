@@ -77,7 +77,7 @@ export async function previewCivicTrackedUrls(
     try {
       // Doc-parse port: PDF → text, HTML → markdown. A scanned PDF throws
       // NeedsOcrError, caught here and skipped like any other parse failure.
-      scraped = await parseDocument(documentUrl);
+      scraped = await parseDocument(documentUrl, { workloadClass: "utility" });
     } catch {
       continue;
     }

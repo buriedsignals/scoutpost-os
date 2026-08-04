@@ -708,6 +708,7 @@ async function runPipeline(
   if (scout.provider === "firecrawl_plain") {
     const plain = await scrapePrimaryPageResilient({
       url: scout.url,
+      workloadClass: "scout",
       timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
       abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
       snapshot: snapshotHint,
@@ -726,6 +727,7 @@ async function runPipeline(
     try {
       const ct = await scrapePrimaryPageResilient({
         url: scout.url,
+        workloadClass: "scout",
         changeTrackingTag: tag,
         timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
         abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
@@ -750,6 +752,7 @@ async function runPipeline(
       });
       const plain = await scrapePrimaryPageResilient({
         url: scout.url,
+        workloadClass: "scout",
         timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
         abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
         snapshot: snapshotHint,
@@ -1691,6 +1694,7 @@ async function runPhaseB(
     try {
       const subScrape = await scrapePrimaryPageResilient({
         url: subUrl,
+        workloadClass: "scout",
         timeoutMs: SUBPAGE_SCRAPE_TIMEOUT_MS,
         abortAfterMs: SUBPAGE_SCRAPE_ABORT_AFTER_MS,
         snapshot: archiveGateOn ? "on_fallback" : undefined,

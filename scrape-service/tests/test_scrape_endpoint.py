@@ -1,4 +1,6 @@
 import asyncio
+import json
+import logging
 
 import httpx
 import pytest
@@ -22,6 +24,22 @@ def test_scrape_happy_path(app):
     assert body["requested_url"] == "https://example.org"
     # default timeout from settings is forwarded to the scraper
     assert fake.calls == [("https://example.org", 25_000)]
+
+
+def test_operation_counter_is_content_free(app, caplog):
+    app.state.scraper = FakeScraper(result=crawl_result())
+    secret_url = "https://example.org/private-user-path"
+    headers = auth_headers() | {"X-Scoutpost-Workload-Class": "scout"}
+    with caplog.at_level(logging.INFO, logger="crawler.operation"):
+        res = TestClient(app).post(
+            "/scrape", json={"url": secret_url}, headers=headers
+        )
+    assert res.status_code == 200
+    records = [json.loads(record.message) for record in caplog.records]
+    assert records[-1].keys() == {"minute", "operation", "workload_class"}
+    assert records[-1]["operation"] == "scrape"
+    assert records[-1]["workload_class"] == "scout"
+    assert secret_url not in caplog.text
 
 
 def test_scrape_custom_timeout_forwarded(app):

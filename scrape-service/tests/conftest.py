@@ -131,7 +131,10 @@ def app():
 
 
 def auth_headers() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TEST_TOKEN}"}
+    return {
+        "Authorization": f"Bearer {TEST_TOKEN}",
+        "X-Scoutpost-Workload-Class": "system",
+    }
 
 
 def mock_http_client(handler) -> httpx.AsyncClient:

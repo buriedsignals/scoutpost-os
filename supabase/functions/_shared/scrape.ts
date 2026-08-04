@@ -130,6 +130,7 @@ export async function scrapePrimaryPageResilient(
     ...opts.deps,
   };
   const baseOpts = {
+    workloadClass: opts.workloadClass,
     onlyMainContent: opts.onlyMainContent,
     timeoutMs: opts.timeoutMs,
     abortAfterMs: opts.abortAfterMs,

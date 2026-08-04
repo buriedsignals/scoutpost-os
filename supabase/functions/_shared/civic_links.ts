@@ -249,6 +249,7 @@ export async function discoverCivicDocumentsFromTrackedPages(
       // production civic-execute already routes through the port — preview was
       // the last firecrawl-direct holdout (#233).
       const scraped = await scrape(trackedUrl, {
+        workloadClass: "scout",
         formats: ["rawHtml"],
         onlyMainContent: false,
       });
