@@ -65,7 +65,7 @@ class WorkflowClient:
             raise ArtifactLimitError("compressed artifact outside limit")
         try:
             response = await self.upload_http.put(
-                target["url"], body, headers={"content-type": content_type}
+                target["url"], content=body, headers={"content-type": content_type}
             )
         except (httpx.HTTPError, KeyError):
             # HTTPX exceptions can include the full signed query string.

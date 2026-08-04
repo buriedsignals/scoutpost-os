@@ -45,8 +45,8 @@ class FakeHttp:
         self.posts.append((url, json))
         return self.post_response
 
-    async def put(self, url, body, headers):
-        self.puts.append((url, body, headers))
+    async def put(self, url, *, content, headers):
+        self.puts.append((url, content, headers))
         return self.put_response
 
     async def aclose(self):
