@@ -17,7 +17,7 @@ import asyncio
 import json
 import logging
 import secrets as secrets_mod
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -70,14 +70,28 @@ def record_operation(operation: str, workload_class: str) -> None:
     )
 
 
+async def emit_operation_heartbeats() -> None:
+    """Prove every minute of the content-free arrival window is observable."""
+    while True:
+        record_operation("heartbeat", "system")
+        now = datetime.now(timezone.utc)
+        await asyncio.sleep(60 - now.second - now.microsecond / 1_000_000)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings if settings is not None else load_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        yield
-        await app.state.scraper.close()
-        await app.state.http_client.aclose()
+        heartbeat = asyncio.create_task(emit_operation_heartbeats())
+        try:
+            yield
+        finally:
+            heartbeat.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat
+            await app.state.scraper.close()
+            await app.state.http_client.aclose()
 
     # No unauthenticated surfaces on an internet-facing arbitrary-URL renderer:
     # docs/redoc/openapi are disabled outright.

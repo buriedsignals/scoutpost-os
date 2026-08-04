@@ -84,6 +84,15 @@ class GateBClient:
         )
         response.raise_for_status()
 
+    def update_job(self, job_id: str, values: dict) -> None:
+        response = self.http.patch(
+            f"{self.base}/rest/v1/crawler_jobs",
+            headers={**self.rest_headers, "prefer": "return=minimal"},
+            params={"id": f"eq.{job_id}"},
+            json=values,
+        )
+        response.raise_for_status()
+
     def dispatch(self, mode: str = "scheduled", operation: str = "scrape") -> dict:
         body = {"mode": mode}
         if mode == "single":
@@ -406,6 +415,7 @@ def collect_arrivals(args: argparse.Namespace) -> dict:
         raise SystemExit("collect requires seven complete aligned UTC days")
 
     counts = Counter()
+    heartbeat_minutes = set()
     log_ids = set()
     cursor = start
     while cursor < end:
@@ -469,13 +479,33 @@ def collect_arrivals(args: argparse.Namespace) -> dict:
             if (
                 minute < start
                 or minute >= end
-                or operation not in {"scrape", "snapshot", "parse_pdf"}
+                or operation not in {
+                    "scrape",
+                    "snapshot",
+                    "parse_pdf",
+                    "heartbeat",
+                }
                 or workload not in {"scout", "utility", "system"}
             ):
                 continue
             log_ids.add(record_id)
+            if operation == "heartbeat":
+                if workload != "system":
+                    raise RuntimeError("operation heartbeat has an invalid workload")
+                heartbeat_minutes.add(minute)
+                continue
             counts[(minute.isoformat(), operation, workload)] += 1
         cursor = slice_end
+
+    expected_heartbeats = {
+        start + timedelta(minutes=offset)
+        for offset in range(7 * 24 * 60)
+    }
+    if heartbeat_minutes != expected_heartbeats:
+        raise RuntimeError(
+            "content-free counter heartbeat coverage is incomplete: "
+            f"expected {len(expected_heartbeats)}, observed {len(heartbeat_minutes)}"
+        )
 
     client = GateBClient()
     preflight = first(client.rpc("crawler_gate_b_preflight"))
@@ -483,7 +513,7 @@ def collect_arrivals(args: argparse.Namespace) -> dict:
     report = {
         "window_start": start.isoformat(),
         "window_end": end.isoformat(),
-        "complete_minutes": 10_080,
+        "complete_minutes": len(heartbeat_minutes),
         "observed_active_scouts": int(preflight["observed_active_scouts"]),
         "observed_users": int(preflight["observed_users"]),
         "rows": [
@@ -1068,6 +1098,7 @@ def tampered_completion(
     decoded: bytes,
     *,
     wrong_hash: bool = False,
+    declared_bytes_delta: int = 0,
 ) -> int:
     compressed = gzip.compress(decoded, 9)
     upload = client.http.put(
@@ -1093,7 +1124,7 @@ def tampered_completion(
                             "sha256": "0" * 64
                             if wrong_hash
                             else hashlib.sha256(compressed).hexdigest(),
-                            "bytes": len(compressed),
+                            "bytes": len(compressed) + declared_bytes_delta,
                         }
                     ],
                 }
@@ -1101,6 +1132,17 @@ def tampered_completion(
         }
     )
     return response.status_code
+
+
+def failed_completion(job: dict) -> dict:
+    return {
+        "job_id": job["id"],
+        "attempt_id": job["attempt_id"],
+        "execution_id": job["execution_id"],
+        "ok": False,
+        "error_class": "terminal",
+        "error": "Gate B boundary completion",
+    }
 
 
 def run_security(args: argparse.Namespace) -> dict:
@@ -1209,6 +1251,7 @@ def run_security(args: argparse.Namespace) -> dict:
 
     boundary_rows = [
         benchmark_job(continuation, "hash_tamper", 0, f"{base}/stable"),
+        benchmark_job(continuation, "size_tamper", 0, f"{base}/stable"),
         benchmark_job(continuation, "schema_tamper", 0, f"{base}/stable"),
         benchmark_job(continuation, "decompression_bomb", 0, f"{base}/stable"),
     ]
@@ -1239,6 +1282,19 @@ def run_security(args: argparse.Namespace) -> dict:
                 ).encode(),
                 wrong_hash=True,
             )
+        elif row["pipeline_stage"] == "size_tamper":
+            boundary_status["size_tamper"] = tampered_completion(
+                client,
+                batch_id,
+                job,
+                json.dumps(
+                    {
+                        "markdown": "fixture",
+                        "source_url": f"{base}/stable",
+                    }
+                ).encode(),
+                declared_bytes_delta=1,
+            )
         elif row["pipeline_stage"] == "schema_tamper":
             boundary_status["schema_tamper"] = tampered_completion(
                 client,
@@ -1253,6 +1309,97 @@ def run_security(args: argparse.Namespace) -> dict:
                 job,
                 b"x" * (16 * 1024 * 1024 + 1),
             )
+
+    duplicate_batch, duplicate_job = create_and_claim_boundary_job(
+        client,
+        benchmark_job(continuation, "duplicate_completion", 0, f"{base}/stable"),
+    )
+    cleanup_batch_ids.add(duplicate_batch)
+    duplicate_payload = {
+        "action": "complete",
+        "batch_id": duplicate_batch,
+        "results": [failed_completion(duplicate_job)],
+    }
+    duplicate_first = client.worker(duplicate_payload)
+    duplicate_first.raise_for_status()
+    duplicate_second = client.worker(duplicate_payload)
+    duplicate_second.raise_for_status()
+    boundary_status["duplicate_first"] = duplicate_first.json()
+    boundary_status["duplicate_second"] = duplicate_second.json()
+
+    stale_batch, stale_job = create_and_claim_boundary_job(
+        client,
+        benchmark_job(continuation, "stale_lease", 0, f"{base}/stable"),
+    )
+    cleanup_batch_ids.add(stale_batch)
+    stale_started = time.monotonic()
+    client.update_job(
+        stale_job["id"],
+        {
+            "lease_expires_at": (
+                datetime.now(timezone.utc) - timedelta(seconds=1)
+            ).isoformat()
+        },
+    )
+    client.rpc("reconcile_crawler_jobs")
+    stale_completion = client.worker(
+        {
+            "action": "complete",
+            "batch_id": stale_batch,
+            "results": [failed_completion(stale_job)],
+        }
+    )
+    stale_completion.raise_for_status()
+    client.update_job(
+        stale_job["id"],
+        {
+            "available_at": (
+                datetime.now(timezone.utc) - timedelta(seconds=1)
+            ).isoformat()
+        },
+    )
+    retry_batches = client.rpc(
+        "create_crawler_batches",
+        {"p_operation": "scrape", "p_batch_size": 1, "p_job_limit": 1},
+    )
+    if len(retry_batches) != 1:
+        raise RuntimeError("stale lease did not re-enter dispatch")
+    retry_batch = retry_batches[0]["batch_id"]
+    cleanup_batch_ids.add(retry_batch)
+    retry_claim = client.worker(
+        {
+            "action": "claim",
+            "batch_id": retry_batch,
+            "execution_id": str(uuid.uuid4()),
+        }
+    )
+    retry_claim.raise_for_status()
+    retry_jobs = retry_claim.json().get("jobs")
+    if not isinstance(retry_jobs, list) or len(retry_jobs) != 1:
+        raise RuntimeError("stale lease retry did not claim one job")
+    stale_retry = retry_jobs[0]
+    stale_final = client.worker(
+        {
+            "action": "complete",
+            "batch_id": retry_batch,
+            "results": [failed_completion(stale_retry)],
+        }
+    )
+    stale_final.raise_for_status()
+    stale_state = client.rows(
+        "crawler_jobs",
+        params={
+            "select": "id,attempts,status",
+            "id": f"eq.{stale_job['id']}",
+        },
+    )[0]
+    boundary_status["stale_completion"] = stale_completion.json()
+    boundary_status["stale_final"] = stale_final.json()
+    boundary_status["stale_reentry_seconds"] = round(
+        time.monotonic() - stale_started, 3
+    )
+    boundary_status["stale_attempts"] = int(stale_state["attempts"])
+    boundary_status["stale_status"] = stale_state["status"]
 
     by_stage = {job["pipeline_stage"]: job for job in live}
     checks = {
@@ -1287,8 +1434,20 @@ def run_security(args: argparse.Namespace) -> dict:
         "signed_path_substitution_rejected": boundary_status["path_substitution"]
         not in {200, 201, 204},
         "hash_tamper_rejected": boundary_status["hash_tamper"] == 500,
+        "size_tamper_rejected": boundary_status["size_tamper"] == 500,
         "schema_tamper_rejected": boundary_status["schema_tamper"] == 500,
         "decompression_bomb_rejected": boundary_status["decompression_bomb"] == 500,
+        "duplicate_completion_rejected": boundary_status["duplicate_first"]
+        == {"ok": True, "accepted": 1, "rejected": 0}
+        and boundary_status["duplicate_second"]
+        == {"ok": True, "accepted": 0, "rejected": 1},
+        "stale_lease_recovered": boundary_status["stale_completion"]
+        == {"ok": True, "accepted": 0, "rejected": 1}
+        and boundary_status["stale_reentry_seconds"] < 60
+        and boundary_status["stale_attempts"] == 2
+        and boundary_status["stale_status"] == "terminal_failed",
+        "stale_retry_completed_once": boundary_status["stale_final"]
+        == {"ok": True, "accepted": 1, "rejected": 0},
     }
     report = {
         "gate_b_security_pass": all(checks.values()),

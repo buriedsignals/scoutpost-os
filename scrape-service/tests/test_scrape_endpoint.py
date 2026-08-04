@@ -6,10 +6,10 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import pdfparse
+from app import main, pdfparse
+from app.main import create_app
 from app.scraper import Scraper
 from tests.conftest import FakeScraper, auth_headers, crawl_result, make_settings
-from app.main import create_app
 
 
 def test_scrape_happy_path(app):
@@ -40,6 +40,22 @@ def test_operation_counter_is_content_free(app, caplog):
     assert records[-1]["operation"] == "scrape"
     assert records[-1]["workload_class"] == "scout"
     assert secret_url not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_operation_counter_heartbeat_is_content_free(monkeypatch):
+    records = []
+
+    async def stop_after_first(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        main, "record_operation", lambda *args: records.append(args)
+    )
+    monkeypatch.setattr(main.asyncio, "sleep", stop_after_first)
+    with pytest.raises(asyncio.CancelledError):
+        await main.emit_operation_heartbeats()
+    assert records == [("heartbeat", "system")]
 
 
 def test_scrape_custom_timeout_forwarded(app):
