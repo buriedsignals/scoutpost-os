@@ -75,7 +75,9 @@ async def emit_operation_heartbeats() -> None:
     while True:
         record_operation("heartbeat", "system")
         now = datetime.now(timezone.utc)
-        await asyncio.sleep(60 - now.second - now.microsecond / 1_000_000)
+        # Wake inside the next minute, not on its boundary. Otherwise the log
+        # timestamp can advance before the separately sampled bucket timestamp.
+        await asyncio.sleep(61 - now.second - now.microsecond / 1_000_000)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

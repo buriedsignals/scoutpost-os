@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 
 import httpx
 import pytest
@@ -45,17 +46,26 @@ def test_operation_counter_is_content_free(app, caplog):
 @pytest.mark.asyncio
 async def test_operation_counter_heartbeat_is_content_free(monkeypatch):
     records = []
+    sleep_delays = []
 
-    async def stop_after_first(_seconds):
+    class NearBoundaryDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 8, 4, 8, 41, 59, 999_000, tzinfo=timezone.utc)
+
+    async def stop_after_first(seconds):
+        sleep_delays.append(seconds)
         raise asyncio.CancelledError
 
     monkeypatch.setattr(
         main, "record_operation", lambda *args: records.append(args)
     )
+    monkeypatch.setattr(main, "datetime", NearBoundaryDatetime)
     monkeypatch.setattr(main.asyncio, "sleep", stop_after_first)
     with pytest.raises(asyncio.CancelledError):
         await main.emit_operation_heartbeats()
     assert records == [("heartbeat", "system")]
+    assert sleep_delays == [pytest.approx(1.001)]
 
 
 def test_scrape_custom_timeout_forwarded(app):
