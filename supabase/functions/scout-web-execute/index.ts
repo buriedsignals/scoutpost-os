@@ -41,6 +41,7 @@ import {
 } from "../_shared/canonical_baseline.ts";
 import type {
   ChangeTrackingResult,
+  PrimaryPageScrapeOptions,
   PrimaryPageScrapeResult,
 } from "../_shared/scrape_types.ts";
 import {
@@ -120,11 +121,18 @@ import {
 } from "../_shared/web_content_canonical.ts";
 import {
   CREDIT_COSTS,
+  decrementOnceOrThrow,
   decrementOrThrow,
   InsufficientCreditsError,
   insufficientCreditsResponse,
   refundCredits,
+  refundCreditsOnce,
 } from "../_shared/credits.ts";
+import {
+  childStage,
+  PageWorkflowPending,
+  PageWorkflowTransport,
+} from "../_shared/page_workflow_transport.ts";
 import { sendPageScoutAlert } from "../_shared/notifications.ts";
 import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
 import {
@@ -226,6 +234,41 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const runId = run_id as string;
   await markRunStage(svc, runId, "dispatch");
 
+  const { data: runState, error: runStateError } = await svc
+    .from("scout_runs")
+    .select("status,crawler_backend")
+    .eq("id", runId)
+    .single();
+  if (runStateError) return jsonFromError(new Error(runStateError.message));
+  if ((runState as { status: string }).status !== "running") {
+    await svc.rpc("finish_waiting_scout_dispatch", { p_run_id: runId });
+    return jsonOk({ status: "already_terminal", run_id: runId });
+  }
+  const workflowEnabled = (runState as { crawler_backend?: string })
+    .crawler_backend === "workflow";
+  let workflowLeaseToken: string | null = null;
+  let workflowTransport: PageWorkflowTransport | null = null;
+  if (workflowEnabled) {
+    const { data: claim, error: claimError } = await svc.rpc(
+      "claim_page_workflow_run",
+      { p_run_id: runId, p_lease_seconds: 300 },
+    );
+    if (claimError) return jsonFromError(new Error(claimError.message));
+    const row = Array.isArray(claim) ? claim[0] : claim;
+    workflowLeaseToken =
+      (row as { lease_token?: string } | null)?.lease_token ??
+        null;
+    if (!workflowLeaseToken) {
+      return jsonOk({ status: "workflow_busy", run_id: runId }, 202);
+    }
+    workflowTransport = new PageWorkflowTransport(svc, {
+      id: runId,
+      scoutId: scout.id as string,
+      userId: scout.user_id as string,
+      tenantKey: scout.user_id as string,
+    });
+  }
+
   let chargedCredits = false;
 
   try {
@@ -238,13 +281,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // 3. Decrement credits before any billable work.
     try {
       await markRunStage(svc, runId, "credits");
-      await decrementOrThrow(svc, {
-        userId: scout.user_id,
-        cost: CREDIT_COSTS.website_extraction,
-        scoutId: scout.id,
-        scoutType: "web",
-        operation: "website_extraction",
-      });
+      await (workflowEnabled
+        ? decrementOnceOrThrow(svc, {
+          idempotencyKey: `page:${runId}:charge`,
+          userId: scout.user_id,
+          cost: CREDIT_COSTS.website_extraction,
+          scoutId: scout.id,
+          scoutType: "web",
+          operation: "website_extraction",
+        })
+        : decrementOrThrow(svc, {
+          userId: scout.user_id,
+          cost: CREDIT_COSTS.website_extraction,
+          scoutId: scout.id,
+          scoutType: "web",
+          operation: "website_extraction",
+        }));
       chargedCredits = true;
     } catch (e) {
       if (e instanceof InsufficientCreditsError) {
@@ -265,7 +317,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonFromError(e);
     }
 
-    const result = await runPipeline(svc, scout, runId);
+    const result = await runPipeline(
+      svc,
+      scout,
+      runId,
+      workflowTransport,
+    );
     const effectiveNotificationMode = resolvePageScoutNotificationMode(
       notification_mode,
       scout.metadata,
@@ -448,6 +505,39 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
     }
 
+    if (workflowEnabled) {
+      if (workflowLeaseToken) {
+        const completed = await svc.rpc("set_page_workflow_stage", {
+          p_run_id: runId,
+          p_lease_token: workflowLeaseToken,
+          p_stage: "done",
+          p_release: true,
+        });
+        if (completed.error || completed.data !== true) {
+          logEvent({
+            level: "warn",
+            fn: "scout-web-execute",
+            event: "workflow_stage_completion_failed",
+            scout_id: scout.id,
+            run_id: runId,
+          });
+        }
+      }
+      await svc.rpc("finish_waiting_scout_dispatch", { p_run_id: runId });
+      await workflowTransport?.cleanup().catch((cleanupError) =>
+        logEvent({
+          level: "warn",
+          fn: "scout-web-execute",
+          event: "workflow_result_cleanup_failed",
+          scout_id: scout.id,
+          run_id: runId,
+          msg: cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError),
+        })
+      );
+    }
+
     // Archive capture (PAGE-ARCHIVE-PRD U3) — scheduled AFTER the run is
     // marked success and the notification is sent, so a capture fetch that
     // takes tens of seconds never delays or endangers either (R11). The row
@@ -549,6 +639,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
       coverage_complete: result.coverage_complete,
     });
   } catch (e) {
+    if (e instanceof PageWorkflowPending && workflowLeaseToken) {
+      const released = await svc.rpc("set_page_workflow_stage", {
+        p_run_id: runId,
+        p_lease_token: workflowLeaseToken,
+        p_stage: e.stage,
+        p_release: true,
+      });
+      if (released.error || released.data !== true) {
+        return jsonFromError(new Error("page workflow lease release failed"));
+      }
+      return jsonOk({ status: "waiting", stage: e.stage, run_id: runId }, 202);
+    }
     const msg = e instanceof Error ? e.message : String(e);
     const classified = classifyRunError(e, "finalize");
     try {
@@ -569,13 +671,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (chargedCredits) {
         // Refund the pre-run charge on failure — users shouldn't pay for
         // scheduled scrapes that never produced billable output.
-        await refundCredits(svc, {
-          userId: scout.user_id as string,
-          cost: CREDIT_COSTS.website_extraction,
-          scoutId: scout.id as string,
-          scoutType: "web",
-          operation: "website_extraction",
-        });
+        await (workflowEnabled
+          ? refundCreditsOnce(svc, {
+            idempotencyKey: `page:${runId}:refund`,
+            userId: scout.user_id as string,
+            cost: CREDIT_COSTS.website_extraction,
+            scoutId: scout.id as string,
+            scoutType: "web",
+            operation: "website_extraction",
+          })
+          : refundCredits(svc, {
+            userId: scout.user_id as string,
+            cost: CREDIT_COSTS.website_extraction,
+            scoutId: scout.id as string,
+            scoutType: "web",
+            operation: "website_extraction",
+          }));
+      }
+      if (workflowEnabled) {
+        await svc.rpc("finish_waiting_scout_dispatch", { p_run_id: runId });
       }
     } catch (cleanupErr) {
       logEvent({
@@ -690,6 +804,7 @@ async function runPipeline(
   svc: SupabaseClient,
   scout: ScoutRow,
   runId: string,
+  workflowTransport: PageWorkflowTransport | null = null,
 ): Promise<PipelineResult> {
   await markRunStage(svc, runId, "scrape");
   // Stamp which scrape backend serves this run (firecrawl | crawl4ai) so the
@@ -727,14 +842,17 @@ async function runPipeline(
   let detectionResult: PrimaryPageScrapeResult | null = null;
 
   if (scout.provider === "firecrawl_plain") {
-    const plain = await scrapePrimaryPageResilient({
+    const primaryOptions = {
       url: scout.url,
       workloadClass: "scout",
       timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
       abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
       snapshot: snapshotHint,
       ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
-    });
+    } satisfies PrimaryPageScrapeOptions;
+    const plain = workflowTransport
+      ? await workflowTransport.scrape(primaryOptions, "root")
+      : await scrapePrimaryPageResilient(primaryOptions);
     detectionResult = plain;
     markdown = plain.markdown ?? "";
     rawHtml = plain.rawHtml ?? null;
@@ -941,6 +1059,9 @@ async function runPipeline(
         sourceDomain: deriveSourceDomain(scout.url),
         markdown,
         contentHash,
+        workflowEffectKey: workflowTransport
+          ? `page:${runId}:root:${normalizeUrlKey(scout.url)}`
+          : null,
       });
       if (scout.provider !== "firecrawl_plain") {
         await markScoutCanonicalProvider(svc, scout.id);
@@ -997,6 +1118,9 @@ async function runPipeline(
     sourceDomain,
     markdown,
     contentHash,
+    workflowEffectKey: workflowTransport
+      ? `page:${runId}:root:${normalizeUrlKey(scout.url)}`
+      : null,
   });
 
   // Archive capture context (R4): built only for gated changed/new runs.
@@ -1068,6 +1192,17 @@ async function runPipeline(
   });
   const indexIsListingPage = deterministicListingPage || knownIndexPage ||
     (extracted.diagnostics.outcome !== "failed" && extracted.isListingPage);
+  if (workflowTransport && indexIsListingPage && phaseBCandidates.length > 0) {
+    const orderedChildren = await orderCandidatesByOldestCheck(
+      svc,
+      scout.id,
+      phaseBCandidates,
+    );
+    await workflowTransport.prepareChildren(
+      orderedChildren.slice(0, SUBPAGE_FETCH_CAP),
+      SUBPAGE_SCRAPE_TIMEOUT_MS,
+    );
+  }
   const activeMembershipChanged = persistedActiveCandidates === null ||
     dedupeUrls(persistedActiveCandidates).map(normalizeUrlKey).join("\n") !==
       phaseBCandidates.map(normalizeUrlKey).join("\n");
@@ -1231,6 +1366,7 @@ async function runPipeline(
         initialRootCandidates,
         archiveGateOn,
         Date.now() + PHASE_B_TOTAL_BUDGET_MS,
+        workflowTransport,
       );
       inserted += subpageResult.totalInserted;
       mergedExisting += subpageResult.totalMergedExisting;
@@ -1643,6 +1779,7 @@ async function runPhaseB(
   initialRootCandidates: Set<string>,
   archiveGateOn: boolean,
   deadlineMs: number,
+  workflowTransport: PageWorkflowTransport | null = null,
 ): Promise<{
   linksFound: number;
   candidates: number;
@@ -1709,17 +1846,25 @@ async function runPhaseB(
     }
     const subUrl = processable[i];
     attemptedUrls.push(subUrl);
-    if (i > 0) await new Promise((r) => setTimeout(r, FIRECRAWL_STAGGER_MS));
+    if (i > 0 && !workflowTransport) {
+      await new Promise((r) => setTimeout(r, FIRECRAWL_STAGGER_MS));
+    }
 
     try {
-      const subScrape = await scrapePrimaryPageResilient({
+      const subpageOptions = {
         url: subUrl,
         workloadClass: "scout",
         timeoutMs: SUBPAGE_SCRAPE_TIMEOUT_MS,
         abortAfterMs: SUBPAGE_SCRAPE_ABORT_AFTER_MS,
         snapshot: archiveGateOn ? "on_fallback" : undefined,
         ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
-      });
+      } satisfies PrimaryPageScrapeOptions;
+      const subScrape = workflowTransport
+        ? await workflowTransport.scrape(
+          subpageOptions,
+          childStage(subUrl),
+        )
+        : await scrapePrimaryPageResilient(subpageOptions);
 
       if (!subScrape.markdown?.trim()) {
         failed++;
@@ -1835,6 +1980,9 @@ async function runPhaseB(
         sourceDomain: subSourceDomain,
         markdown: subScrape.markdown,
         contentHash: subContentHash,
+        workflowEffectKey: workflowTransport
+          ? `page:${runId}:child:${normalizeUrlKey(subSourceUrl)}`
+          : null,
       });
 
       const childWasArchived = archivedChildUrls.has(effectiveKey);
@@ -2028,8 +2176,17 @@ async function insertRawCapture(
     sourceDomain: string | null;
     markdown: string;
     contentHash: string;
+    workflowEffectKey?: string | null;
   },
 ): Promise<string> {
+  if (input.workflowEffectKey) {
+    const existing = await svc.from("raw_captures")
+      .select("id")
+      .eq("workflow_effect_key", input.workflowEffectKey)
+      .maybeSingle();
+    if (existing.error) throw new Error(existing.error.message);
+    if (existing.data?.id) return existing.data.id as string;
+  }
   const { data: capture, error } = await svc
     .from("raw_captures")
     .insert({
@@ -2045,6 +2202,7 @@ async function insertRawCapture(
       token_count: Math.ceil(input.markdown.length / 4),
       captured_at: new Date().toISOString(),
       expires_at: rawCaptureExpiresAt(),
+      workflow_effect_key: input.workflowEffectKey ?? null,
     })
     .select("id")
     .single();

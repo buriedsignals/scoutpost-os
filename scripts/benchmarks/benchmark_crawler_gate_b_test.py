@@ -1,5 +1,7 @@
 import importlib.util
+import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,6 +23,15 @@ def sample(cpu_seconds: float) -> dict:
 
 
 class GateBReportTest(unittest.TestCase):
+    def test_paid_full_command_is_retired(self) -> None:
+        with (
+            patch.object(sys, "argv", [str(SCRIPT), "full"]),
+            patch("sys.stderr", new=io.StringIO()),
+        ):
+            with self.assertRaises(SystemExit) as stopped:
+                gate_b.parse_args()
+        self.assertEqual(stopped.exception.code, 2)
+
     def test_cached_samples_do_not_count_as_intervals(self) -> None:
         samples = [sample(0), sample(0), sample(1), sample(2)]
 

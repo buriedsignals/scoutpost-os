@@ -192,6 +192,49 @@ export async function decrementOrThrow(
   return { balance: row.balance, owner: row.owner };
 }
 
+/** Idempotent variant for resumable pipelines. */
+export async function decrementOnceOrThrow(
+  client: SupabaseClient,
+  params: {
+    idempotencyKey: string;
+    userId: string;
+    cost: number;
+    scoutId: string | null;
+    scoutType: string | null;
+    operation: CreditOperation;
+  },
+): Promise<DecrementResult> {
+  if (!creditsEnabled()) {
+    return { balance: Number.MAX_SAFE_INTEGER, owner: "user" };
+  }
+  const { data, error } = await client.rpc("decrement_credits_once", {
+    p_idempotency_key: params.idempotencyKey,
+    p_user_id: params.userId,
+    p_cost: params.cost,
+    p_scout_id: params.scoutId,
+    p_scout_type: params.scoutType,
+    p_operation: params.operation,
+  });
+  if (error) {
+    if (
+      error.code === "P0003" ||
+      (error.message ?? "").toLowerCase().includes("indicator_access_expired")
+    ) throw new AdmissionError();
+    if (
+      error.code === "P0002" ||
+      (error.message ?? "").toLowerCase().includes("insufficient_credits")
+    ) {
+      throw new InsufficientCreditsError(
+        params.cost,
+        await fetchCurrentBalance(client, params.userId),
+      );
+    }
+    throw error;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return { balance: row.balance, owner: row.owner };
+}
+
 /**
  * Undo a prior decrementOrThrow for the same (user, cost, operation). Safe to
  * call on any error path — the RPC silently no-ops when the account is gone,
@@ -227,6 +270,42 @@ export async function refundCredits(
   } catch (e) {
     console.warn(
       `[credits] refund_credits threw for ${params.userId}: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+}
+
+/** Best-effort idempotent refund for resumable pipelines. */
+export async function refundCreditsOnce(
+  client: SupabaseClient,
+  params: {
+    idempotencyKey: string;
+    userId: string;
+    cost: number;
+    scoutId: string | null;
+    scoutType: string | null;
+    operation: CreditOperation;
+  },
+): Promise<void> {
+  if (!creditsEnabled()) return;
+  try {
+    const { error } = await client.rpc("refund_credits_once", {
+      p_idempotency_key: params.idempotencyKey,
+      p_user_id: params.userId,
+      p_cost: params.cost,
+      p_scout_id: params.scoutId,
+      p_scout_type: params.scoutType,
+      p_operation: params.operation,
+    });
+    if (error) {
+      console.warn(
+        `[credits] refund_credits_once failed for ${params.userId}: ${error.message}`,
+      );
+    }
+  } catch (e) {
+    console.warn(
+      `[credits] refund_credits_once threw for ${params.userId}: ${
         e instanceof Error ? e.message : String(e)
       }`,
     );

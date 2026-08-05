@@ -1,6 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals.ts";
 import { assertRejects } from "https://deno.land/std@0.224.0/assert/assert_rejects.ts";
-import { decrementOrThrow } from "./credits.ts";
+import { decrementOnceOrThrow, decrementOrThrow } from "./credits.ts";
 import { AdmissionError } from "./errors.ts";
 
 function restoreEnv(name: string, value: string | undefined) {
@@ -95,6 +95,44 @@ Deno.test("decrementOrThrow uses the decrement_credits RPC when credits are enab
         p_operation: "beat",
       },
     }]);
+  } finally {
+    restoreEnv("COJO_CREDITS_ENABLED", prior);
+  }
+});
+
+Deno.test("decrementOnceOrThrow sends the durable run key", async () => {
+  const prior = Deno.env.get("COJO_CREDITS_ENABLED");
+  Deno.env.set("COJO_CREDITS_ENABLED", "true");
+  let call: { fn: string; args: Record<string, unknown> } | null = null;
+  const client = {
+    rpc(fn: string, args: Record<string, unknown>) {
+      call = { fn, args };
+      return Promise.resolve({
+        data: [{ balance: 99, owner: "user" }],
+        error: null,
+      });
+    },
+  };
+  try {
+    await decrementOnceOrThrow(client as never, {
+      idempotencyKey: "page:run-1:charge",
+      userId: "user-1",
+      cost: 1,
+      scoutId: "scout-1",
+      scoutType: "web",
+      operation: "website_extraction",
+    });
+    assertEquals(call, {
+      fn: "decrement_credits_once",
+      args: {
+        p_idempotency_key: "page:run-1:charge",
+        p_user_id: "user-1",
+        p_cost: 1,
+        p_scout_id: "scout-1",
+        p_scout_type: "web",
+        p_operation: "website_extraction",
+      },
+    });
   } finally {
     restoreEnv("COJO_CREDITS_ENABLED", prior);
   }

@@ -152,7 +152,9 @@ export type PrimaryScrapeStrategy =
   | "combined"
   | "combined_retry"
   | "split"
-  | "markdown_only_fallback";
+  | "markdown_only_fallback"
+  | "workflow"
+  | "workflow_antibot_fallback";
 
 export interface PrimaryPageScrapeResult extends ScrapeResult {
   change_status?: ChangeTrackingResult["change_status"];

@@ -874,7 +874,14 @@ async function guarded(
 
     const { subject, html } = await render(ctx);
 
-    const sent = await sendWithRetry(resendKey, ctx.email, subject, html);
+    const sent = await sendWithRetry(
+      resendKey,
+      ctx.email,
+      subject,
+      html,
+      3,
+      scoutType === "page" ? `page/${runId}/notification` : undefined,
+    );
     if (!sent.ok) return sent;
 
     const { error: updateErr } = await svc
@@ -973,12 +980,14 @@ export async function resolveUserContext(
 // Resend transport
 // ---------------------------------------------------------------------------
 
-async function sendWithRetry(
+export async function sendWithRetry(
   resendKey: string,
   toEmail: string,
   subject: string,
   html: string,
   maxRetries = 3,
+  idempotencyKey?: string,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<NotificationSendResult> {
   const body = JSON.stringify({
     from: FROM,
@@ -992,11 +1001,12 @@ async function sendWithRetry(
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const res = await fetch(RESEND_URL, {
+      const res = await fetchImpl(RESEND_URL, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${resendKey}`,
           "Content-Type": "application/json",
+          ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
         },
         body,
       });

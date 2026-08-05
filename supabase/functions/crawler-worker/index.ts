@@ -1,5 +1,6 @@
 import { z } from "https://esm.sh/zod@3";
 import { timingSafeEqual } from "../_shared/auth.ts";
+import { resumePageRuns } from "../_shared/page_workflow_resume.ts";
 import { sha256HexBytes } from "../_shared/snapshot_store.ts";
 import type { SupabaseClient } from "../_shared/supabase.ts";
 import { getServiceClient } from "../_shared/supabase.ts";
@@ -71,8 +72,13 @@ interface JobState {
   status: string;
   request_kind: string;
   continuation_key: string;
+  scout_id?: string | null;
   result_manifest?: Record<string, unknown> | null;
 }
+
+declare const EdgeRuntime:
+  | { waitUntil(promise: Promise<unknown>): void }
+  | undefined;
 
 const encoder = new TextEncoder();
 export { timingSafeEqual };
@@ -405,7 +411,7 @@ async function loadJob(
 ): Promise<JobState | null> {
   const { data, error } = await svc.from("crawler_jobs")
     .select(
-      "id,batch_id,lease_token,operation,status,request_kind,continuation_key,result_manifest",
+      "id,batch_id,lease_token,operation,status,request_kind,continuation_key,scout_id,result_manifest",
     )
     .eq("id", completion.job_id)
     .eq("batch_id", batchId)
@@ -438,9 +444,14 @@ export async function completeBatch(
   svc: SupabaseClient,
   batchId: string,
   results: CompletionInput[],
-): Promise<{ accepted: number; rejected: number }> {
+): Promise<{
+  accepted: number;
+  rejected: number;
+  resumeRuns: Array<{ runId: string; scoutId: string }>;
+}> {
   let accepted = 0;
   let rejected = 0;
+  const resumeRuns = new Map<string, string>();
   for (const completion of results) {
     const job = await loadJob(svc, batchId, completion);
     if (
@@ -494,10 +505,18 @@ export async function completeBatch(
     if (!changed && paths.length > 0) {
       await svc.storage.from("crawler-results").remove(paths);
     }
-    if (changed) accepted++;
-    else rejected++;
+    if (changed) {
+      accepted++;
+      if (job.request_kind === "scout_run" && job.scout_id) {
+        resumeRuns.set(job.continuation_key, job.scout_id);
+      }
+    } else rejected++;
   }
-  return { accepted, rejected };
+  return {
+    accepted,
+    rejected,
+    resumeRuns: [...resumeRuns].map(([runId, scoutId]) => ({ runId, scoutId })),
+  };
 }
 
 export async function handleCrawlerWorker(
@@ -523,6 +542,12 @@ export async function handleCrawlerWorker(
       await assertBenchmarkResponseDelay(svc, input.batch_id, input.results);
     }
     const completed = await completeBatch(svc, input.batch_id, input.results);
+    const resume = resumePageRuns(completed.resumeRuns);
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+      EdgeRuntime.waitUntil(resume);
+    } else {
+      await resume;
+    }
     if (input.response_delay_ms) {
       await new Promise((resolve) =>
         setTimeout(resolve, input.response_delay_ms)
@@ -530,7 +555,8 @@ export async function handleCrawlerWorker(
     }
     return jsonOk({
       ok: true,
-      ...completed,
+      accepted: completed.accepted,
+      rejected: completed.rejected,
     });
   } catch {
     return jsonError("crawler worker failed", 500);

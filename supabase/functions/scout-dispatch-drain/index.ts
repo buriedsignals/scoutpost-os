@@ -168,7 +168,11 @@ async function dispatchClaim(
     }
 
     await response.body?.cancel();
-    await finishDispatch(svc, workerId, claim, true);
+    if (response.status === 202) {
+      await parkDispatch(svc, workerId, claim);
+    } else {
+      await finishDispatch(svc, workerId, claim, true);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await finishDispatch(svc, workerId, claim, false, {
@@ -179,6 +183,36 @@ async function dispatchClaim(
       p_scout_id: claim.scout_id,
     });
   }
+}
+
+async function parkDispatch(
+  svc: SupabaseClient,
+  workerId: string,
+  claim: DispatchClaim,
+): Promise<void> {
+  const { data, error } = await svc.rpc("park_scout_dispatch", {
+    p_queue_id: claim.queue_id,
+    p_worker_id: workerId,
+  });
+  if (error || data !== true) {
+    logEvent({
+      level: "error",
+      fn: "scout-dispatch-drain",
+      event: "park_failed",
+      queue_id: claim.queue_id,
+      run_id: claim.run_id,
+      msg: error?.message ?? "lease no longer owned by this worker",
+    });
+    return;
+  }
+  logEvent({
+    level: "info",
+    fn: "scout-dispatch-drain",
+    event: "worker_waiting",
+    queue_id: claim.queue_id,
+    run_id: claim.run_id,
+    scout_id: claim.scout_id,
+  });
 }
 
 async function finishDispatch(

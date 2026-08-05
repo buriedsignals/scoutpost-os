@@ -39,10 +39,7 @@ import {
   ValidationError,
 } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
-import {
-  crawlerPipelineForScoutType,
-  selectCrawlerBackend,
-} from "../_shared/crawler_routing.ts";
+import { selectScoutCrawlerBackend } from "../_shared/crawler_routing.ts";
 
 const DispatchSchema = z.object({
   scout_id: z.string().uuid(),
@@ -108,7 +105,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   try {
     const { data: scout, error: scoutErr } = await svc
       .from("scouts")
-      .select("id, type, is_active, user_id")
+      .select("id, type, is_active, user_id, provider, archive_enabled")
       .eq("id", scout_id)
       .maybeSingle();
     if (scoutErr) throw new Error(scoutErr.message);
@@ -128,10 +125,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (queueEnabledFor(scout.type as string)) {
       const source = trigger_source ??
         (isServiceCaller ? "scheduled" : "manual");
-      const crawlerBackend = selectCrawlerBackend(
-        scout_id,
-        crawlerPipelineForScoutType(scout.type as string),
-      );
+      const crawlerBackend = selectScoutCrawlerBackend(scout);
       const { data: queued, error: queueError } = await svc.rpc(
         "enqueue_scout_dispatch",
         {

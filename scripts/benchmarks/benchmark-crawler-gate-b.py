@@ -287,30 +287,6 @@ def iso(value: str) -> datetime:
     return datetime.fromisoformat(normalized)
 
 
-def build_jobs(run_id: str, fixture_url: str, pages: int) -> list[dict]:
-    continuation = f"gate-b:{run_id}"
-    return [
-        {
-            "dedupe_key": f"{continuation}:{index}",
-            "request_kind": "benchmark",
-            "tenant_key": f"gate-b-tenant:{index % 326}",
-            "continuation_key": continuation,
-            "operation": "scrape",
-            "pipeline_stage": "gate_b_peak",
-            "url": fixture_url,
-            "options": {
-                "timeout_ms": 25_000,
-                "minimum_duration_ms": MONDAY_LATENCY_MS[
-                    index % len(MONDAY_LATENCY_MS)
-                ],
-            },
-            "priority": 0,
-            "max_attempts": 3,
-        }
-        for index in range(pages)
-    ]
-
-
 def assert_preflight(client: GateBClient) -> None:
     row = first(client.rpc("crawler_gate_b_preflight"))
     if row.get("recurring_cron_exists"):
@@ -607,143 +583,6 @@ def refresh_full_inputs(path: Path, inputs: dict) -> dict:
     inputs["stage"] = "refreshed"
     write_full_inputs(path, inputs)
     return inputs
-
-
-def run_full(args: argparse.Namespace) -> dict:
-    expected_host = required_env("GATE_B_FIXTURE_HOST")
-    if urlsplit(args.fixture_url).hostname != expected_host:
-        raise SystemExit(f"fixture must use owned host {expected_host}")
-    expected_batches = math.ceil(args.pages / BATCH_SIZE)
-    if expected_batches + args.fault_reservations > MAX_RESERVATIONS:
-        raise SystemExit("Gate B reservation liability exceeds 400")
-    if MAX_RESERVATIONS * 540 * STANDARD_DOLLARS_PER_SECOND > MAX_TEST_DOLLARS:
-        raise SystemExit("Gate B configured liability exceeds $12")
-
-    client = GateBClient()
-    assert_preflight(client)
-    run_id = str(uuid.uuid4())
-    continuation = f"gate-b:{run_id}"
-    enqueued_at = datetime.now(timezone.utc)
-    resource_samples = [client.resource_sample()]
-    inputs_path = args.report.with_suffix(".inputs.json")
-    inputs = {
-        "run_id": run_id,
-        "release": release_id(),
-        "continuation_key": continuation,
-        "enqueued_at": enqueued_at.isoformat(),
-        "stage": "initialized",
-        "jobs": None,
-        "batches": None,
-        "batch_ids": [],
-        "reservations": 0,
-        "expected_pages": args.pages,
-        "resource_samples": resource_samples,
-    }
-    write_full_inputs(inputs_path, inputs)
-    for chunk in chunks(build_jobs(run_id, args.fixture_url, args.pages), 250):
-        client.insert_jobs(chunk)
-
-    reservations = 0
-    batch_ids: set[str] = set()
-    minute = 0
-    next_minute_at = time.monotonic() + 60
-    while True:
-        counts = {
-            status: client.count_jobs(continuation, status) for status in ALL_STATUSES
-        }
-        if sum(counts[status] for status in TERMINAL) == args.pages:
-            break
-        if (
-            datetime.now(timezone.utc) - enqueued_at
-        ).total_seconds() >= MAX_DRAIN_SECONDS:
-            raise RuntimeError(f"drain deadline exceeded: {counts}")
-        calls = [client.dispatch("scheduled")]
-        calls.extend(client.dispatch("single") for _ in range(6))
-        for call in calls:
-            remember_batches(batch_ids, call)
-        reservations += sum(reservation_count(item) for item in calls)
-        if reservations > MAX_RESERVATIONS:
-            raise RuntimeError("Gate B reservation budget exceeded")
-        inputs.update(
-            stage="running",
-            batch_ids=sorted(batch_ids),
-            reservations=reservations,
-        )
-        write_full_inputs(inputs_path, inputs)
-        print(
-            json.dumps(
-                {
-                    "stage": "dispatch",
-                    "minute": minute,
-                    "reservations": reservations,
-                    "counts": counts,
-                }
-            ),
-            flush=True,
-        )
-        minute += 1
-        remaining = next_minute_at - time.monotonic()
-        if remaining > 0:
-            time.sleep(remaining)
-        # Sample at the end of the minute, not immediately after the initial
-        # sample. The absolute schedule prevents sample latency from
-        # accumulating into every subsequent dispatch interval.
-        resource_samples.append(client.resource_sample())
-        inputs["resource_samples"] = resource_samples
-        write_full_inputs(inputs_path, inputs)
-        next_minute_at += 60
-
-    jobs = client.rows(
-        "crawler_jobs",
-        params={
-            "select": "id,batch_id,status,attempts,available_at,batched_at,started_at,completed_at,error_class",
-            "continuation_key": f"eq.{continuation}",
-            "order": "created_at.asc",
-        },
-    )
-    inputs.update(stage="drained", jobs=jobs)
-    write_full_inputs(inputs_path, inputs)
-
-    # Preserve the first available batch evidence before any polling or
-    # reconciliation so a transient reporting failure cannot lose the run.
-    inputs["batches"] = client.batch_rows(batch_ids)
-    write_full_inputs(inputs_path, inputs)
-    batches = wait_render_metrics(client, batch_ids)
-    inputs.update(stage="collected", batches=batches)
-    write_full_inputs(inputs_path, inputs)
-    assert_preflight(client)
-    try:
-        report = summarize_full(
-            run_id,
-            continuation,
-            enqueued_at,
-            jobs,
-            batches,
-            reservations,
-            args.pages,
-            resource_samples,
-        )
-    except Exception as exc:
-        args.report.with_suffix(".failure.json").write_text(
-            json.dumps(
-                {
-                    "run_id": run_id,
-                    "continuation_key": continuation,
-                    "counts": Counter(row["status"] for row in jobs),
-                    "reservations": reservations,
-                    "error": str(exc),
-                    "report_inputs": str(inputs_path),
-                },
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n"
-        )
-        raise
-    args.report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-    if args.cleanup:
-        client.delete_gate_rows(continuation, batch_ids)
-    return report
 
 
 def run_full_report(args: argparse.Namespace) -> dict:
@@ -1924,14 +1763,6 @@ def parse_args() -> argparse.Namespace:
     collect.add_argument(
         "--report", type=Path, default=Path("/tmp/scoutpost-gate-b-arrivals.json")
     )
-    full = sub.add_parser("full")
-    full.add_argument("--fixture-url", required=True)
-    full.add_argument("--pages", type=int, default=PEAK_PAGES)
-    full.add_argument("--fault-reservations", type=int, default=15)
-    full.add_argument("--cleanup", action="store_true")
-    full.add_argument(
-        "--report", type=Path, default=Path("/tmp/scoutpost-gate-b-full.json")
-    )
     full_report = sub.add_parser("full-report")
     full_report.add_argument("--inputs", type=Path, required=True)
     full_report.add_argument(
@@ -1981,10 +1812,6 @@ def main() -> None:
     args = parse_args()
     if args.command == "collect":
         report = collect_arrivals(args)
-    elif args.command == "full":
-        if not 1 <= args.pages <= PEAK_PAGES:
-            raise SystemExit(f"pages must be 1..{PEAK_PAGES}")
-        report = run_full(args)
     elif args.command == "full-report":
         report = run_full_report(args)
     elif args.command == "faults":

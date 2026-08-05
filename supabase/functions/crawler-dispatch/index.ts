@@ -8,6 +8,11 @@ import {
   startCrawlerTask,
 } from "../_shared/render_workflows.ts";
 import type { SupabaseClient } from "../_shared/supabase.ts";
+import { resumePageRuns } from "../_shared/page_workflow_resume.ts";
+
+declare const EdgeRuntime:
+  | { waitUntil(promise: Promise<unknown>): void }
+  | undefined;
 
 const Input = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("scheduled") }),
@@ -93,6 +98,36 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
   }
   const { error: reconcileError } = await svc.rpc("reconcile_crawler_jobs");
   if (reconcileError) return jsonError("crawler reconciliation failed", 500);
+  const { error: waitingError } = await svc.rpc(
+    "reconcile_waiting_scout_dispatches",
+  );
+  if (waitingError) {
+    console.warn("crawler waiting-run reconciliation failed");
+  }
+  let pageResumes = 0;
+  if (input.mode === "scheduled") {
+    const { data: pendingResumes, error: resumeError } = await svc.rpc(
+      "pending_page_workflow_resumes",
+      { p_limit: 20 },
+    );
+    if (!resumeError && Array.isArray(pendingResumes)) {
+      const runs = pendingResumes.map((row) => ({
+        runId: row.run_id as string,
+        scoutId: row.scout_id as string,
+      }));
+      pageResumes = runs.length;
+      const resume = resumePageRuns(runs).catch(() => {
+        console.warn("crawler Page resume delivery failed");
+      });
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+        EdgeRuntime.waitUntil(resume);
+      } else {
+        await resume;
+      }
+    } else if (resumeError) {
+      console.warn("crawler Page resume reconciliation failed");
+    }
+  }
   const plans = input.mode === "single"
     ? scheduledPlans.filter((plan) => plan.operation === input.operation).map(
       (plan) => ({ ...plan, maxBatches: 1 }),
@@ -199,6 +234,7 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
     deferred,
     ambiguous,
     reconciled,
+    page_resumes: pageResumes,
     batch_ids: batchIds,
   });
 }

@@ -20,6 +20,7 @@ import {
   renderArticleCards,
   resolveUserContext,
   sendBeatAlert,
+  sendWithRetry,
 } from "./notifications.ts";
 import {
   EMAIL_STRINGS,
@@ -57,6 +58,26 @@ function renderPageScoutHtml(lang = "en"): string {
     language: lang,
   });
 }
+
+Deno.test("Resend transport sends the stable Page idempotency key", async () => {
+  let key: string | null = null;
+  const result = await sendWithRetry(
+    "resend-key",
+    "reader@example.com",
+    "Subject",
+    "<p>Body</p>",
+    1,
+    "page/run-1/notification",
+    async (_input, init) => {
+      key = new Request("https://api.resend.com/emails", init).headers.get(
+        "Idempotency-Key",
+      );
+      return Response.json({ id: "email-1" });
+    },
+  );
+  assertEquals(key, "page/run-1/notification");
+  assertEquals(result, { ok: true, providerId: "email-1" });
+});
 
 function renderBeatScoutHtml(lang = "en"): string {
   return buildBaseHtml({
