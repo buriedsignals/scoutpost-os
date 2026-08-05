@@ -65,7 +65,10 @@ import {
   loadFactCheckConfig,
 } from "../_shared/fact_check.ts";
 import { isWithinRunDuplicateWithGuards } from "../_shared/dedup.ts";
-import { planPageScoutNotification } from "../_shared/page_scout_notifications.ts";
+import {
+  planPageScoutNotification,
+  resolvePageScoutNotificationMode,
+} from "../_shared/page_scout_notifications.ts";
 import {
   buildPageContentDiff,
   type PageContentDiff,
@@ -263,9 +266,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const result = await runPipeline(svc, scout, runId);
+    const effectiveNotificationMode = resolvePageScoutNotificationMode(
+      notification_mode,
+      scout.metadata,
+    );
     const notificationPlan = planPageScoutNotification(
       result,
-      notification_mode,
+      effectiveNotificationMode,
     );
     const willNotify = notificationPlan.shouldSend;
 
@@ -280,7 +287,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     await mergeRunMetadata(svc, runId, {
       page_scout_alert: {
         eligible: notificationPlan.alertEligible,
-        notification_mode,
+        notification_mode: effectiveNotificationMode,
         suppression_reason: notificationPlan.suppressionReason,
       },
     });

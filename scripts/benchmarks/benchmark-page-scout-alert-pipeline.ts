@@ -24,9 +24,9 @@ import {
   getBenchCtx,
   pgDelete,
   pgInsert,
-  pgSelectOne,
   purgeScoutUnits,
-  serviceFunctionFetch,
+  triggerScoutRun,
+  waitForScoutRun,
 } from "./_bench_shared.ts";
 import {
   PAGE_SCOUT_ALERT_FIXTURES,
@@ -87,7 +87,7 @@ const fixtures = pattern
   : PAGE_SCOUT_ALERT_FIXTURES;
 if (fixtures.length === 0) throw new Error(`no fixture matched ${pattern}`);
 
-const ctx = await getBenchCtx();
+const ctx = await getBenchCtx({ userToken: true });
 console.log(
   `Page Scout alert pipeline: ${fixtures.length} cases as ${ctx.ownerEmail}; email delivery disabled`,
 );
@@ -127,6 +127,9 @@ for (const fixture of fixtures) {
       baseline_established_at: new Date().toISOString(),
       is_active: false,
       archive_enabled: false,
+      metadata: {
+        page_scout_benchmark: { notification_mode: "disabled" },
+      },
     });
     scoutId = scout.id;
     await seedBaseline(ctx, scoutId, sourceUrl, fixture.before);
@@ -276,31 +279,26 @@ async function runWithoutEmail(
   bench: BenchCtx,
   scoutId: string,
 ): Promise<{ status: number; body: WorkerResponse; run: RunRow }> {
-  const run = await pgInsert<{ id: string }>(bench, "scout_runs", {
-    scout_id: scoutId,
-    user_id: bench.userId,
-    status: "running",
-    started_at: new Date().toISOString(),
-  });
-  const response = await serviceFunctionFetch(
-    bench,
-    "/functions/v1/scout-web-execute",
-    {
-      scout_id: scoutId,
-      run_id: run.id,
-      notification_mode: "disabled",
-    },
-  );
-  const row = await pgSelectOne<RunRow>(
-    bench,
-    "scout_runs",
-    { id: run.id },
-    "id,status,articles_count,error_message,criteria_status,notification_status,metadata",
-  );
-  if (!row) throw new Error(`run ${run.id} disappeared`);
+  const runId = await triggerScoutRun(bench, scoutId);
+  const row = await waitForScoutRun(bench, runId, {
+    select:
+      "id,status,articles_count,error_message,criteria_status,notification_status,metadata",
+  }) as RunRow;
+  const alert = recordValue(row.metadata, "page_scout_alert");
+  const succeeded = row.status === "success";
   return {
-    status: response.status,
-    body: (response.json ?? {}) as WorkerResponse,
+    status: succeeded ? 200 : 500,
+    body: {
+      status: succeeded ? "ok" : row.status,
+      change: row.criteria_status === false ? "same" : "changed",
+      alert_eligible: typeof alert.eligible === "boolean"
+        ? alert.eligible
+        : undefined,
+      notification_suppressed:
+        alert.suppression_reason === "test_delivery_disabled",
+      articles_count: row.articles_count ?? 0,
+      error: row.error_message ?? undefined,
+    },
     run: row,
   };
 }

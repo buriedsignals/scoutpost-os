@@ -1,6 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import {
   planPageScoutNotification,
+  resolvePageScoutNotificationMode,
   shouldSendPageScoutAlert,
 } from "./page_scout_notifications.ts";
 
@@ -79,4 +80,20 @@ Deno.test("ordinary Page Scout runs still deliver eligible alerts", () => {
       suppressionReason: null,
     },
   );
+});
+
+Deno.test("service-created benchmark scouts disable delivery through private metadata", () => {
+  assertEquals(
+    resolvePageScoutNotificationMode("deliver", {
+      page_scout_benchmark: { notification_mode: "disabled" },
+    }),
+    "disabled",
+  );
+  assertEquals(
+    resolvePageScoutNotificationMode("deliver", {
+      page_scout_benchmark: { notification_mode: "deliver" },
+    }),
+    "deliver",
+  );
+  assertEquals(resolvePageScoutNotificationMode("disabled", null), "disabled");
 });

@@ -16,6 +16,20 @@ export interface PageScoutNotificationPlan {
   suppressionReason: "test_delivery_disabled" | null;
 }
 
+export function resolvePageScoutNotificationMode(
+  requestedMode: PageScoutNotificationMode,
+  scoutMetadata: Record<string, unknown> | null | undefined,
+): PageScoutNotificationMode {
+  if (requestedMode === "disabled") return "disabled";
+  const benchmark = scoutMetadata?.page_scout_benchmark;
+  if (!benchmark || typeof benchmark !== "object" || Array.isArray(benchmark)) {
+    return "deliver";
+  }
+  return (benchmark as Record<string, unknown>).notification_mode === "disabled"
+    ? "disabled"
+    : "deliver";
+}
+
 export function shouldSendPageScoutAlert(
   result: PageScoutNotificationResult,
 ): boolean {
