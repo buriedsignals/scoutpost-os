@@ -26,6 +26,17 @@ Deno.test("buildPageContentDiff captures user-visible additions and removals", (
   assertStringIncludes(diff.summary, "Opens 15 August");
 });
 
+Deno.test("buildPageContentDiff labels additions and removals without mixed diff markers", () => {
+  const diff = buildPageContentDiff(
+    "Policy heading\nOld enforcement rule",
+    "Policy heading\nNew enforcement rule",
+  );
+
+  assertStringIncludes(diff.summary, "**Added:**\n- New enforcement rule");
+  assertStringIncludes(diff.summary, "**Removed:**\n- Old enforcement rule");
+  assertEquals(diff.summary.includes("+ New enforcement rule"), false);
+});
+
 Deno.test("buildPageContentDiff never suppresses changes after the display bound", () => {
   const stable = Array.from({ length: 120 }, (_, index) => `Line ${index}`);
   const before = [...stable, "Registration opens 1 August"].join("\n");

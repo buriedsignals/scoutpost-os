@@ -37,7 +37,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "Matching Results",
     key_findings: "Key Findings:",
     your_criteria: "Your Criteria",
-    view_in_cojournalist: "View in coJournalist",
+    view_in_cojournalist: "View in Scoutpost",
     view_source: "View source",
     and_more: "... and {count} more matching records",
     monitoring_url: "Monitoring URL",
@@ -63,7 +63,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** was paused after {count} consecutive failures. Re-enable it in the dashboard once the issue is resolved.",
     see_what_matched: "See what matched",
     email_disclaimer:
-      "This email contains AI-processed content. coJournalist is a research assistant, not a news source. Always verify with original sources before publication.",
+      "This email contains AI-processed content. Scoutpost is a research assistant, not a news source. Always verify with original sources before publication.",
     page_scout_cue:
       "AI detected changes matching your criteria \u2014 review the page directly.",
     beat_scout_cue:
@@ -81,7 +81,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "Treff",
     key_findings: "Hovedfunn:",
     your_criteria: "Dine kriterier",
-    view_in_cojournalist: "Se i coJournalist",
+    view_in_cojournalist: "Se i Scoutpost",
     view_source: "Se kilde",
     and_more: "... og {count} flere treff",
     monitoring_url: "Overv\u00e5ker URL",
@@ -107,7 +107,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** ble satt p\u00e5 pause etter {count} sammenhengende feil. Aktiver den igjen i dashbordet n\u00e5r problemet er l\u00f8st.",
     see_what_matched: "Se hva som matchet",
     email_disclaimer:
-      "Denne e-posten inneholder AI-behandlet innhold. coJournalist er en forskningsassistent, ikke en nyhetskilde. Verifiser alltid med originalkildene.",
+      "Denne e-posten inneholder AI-behandlet innhold. Scoutpost er en forskningsassistent, ikke en nyhetskilde. Verifiser alltid med originalkildene.",
     page_scout_cue:
       "AI oppdaget endringer som samsvarer med kriteriene dine \u2014 gjennomg\u00e5 siden direkte.",
     beat_scout_cue:
@@ -125,7 +125,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "Passende Ergebnisse",
     key_findings: "Wichtige Erkenntnisse:",
     your_criteria: "Ihre Kriterien",
-    view_in_cojournalist: "In coJournalist ansehen",
+    view_in_cojournalist: "In Scoutpost ansehen",
     view_source: "Quelle ansehen",
     and_more: "... und {count} weitere Treffer",
     monitoring_url: "\u00dcberwachte URL",
@@ -151,7 +151,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** wurde nach {count} aufeinanderfolgenden Fehlern pausiert. Aktivieren Sie den Scout im Dashboard erneut, sobald das Problem behoben ist.",
     see_what_matched: "Treffer ansehen",
     email_disclaimer:
-      "Diese E-Mail enth\u00e4lt KI-verarbeitete Inhalte. coJournalist ist ein Recherche-Assistent, keine Nachrichtenquelle. \u00dcberpr\u00fcfen Sie Informationen immer anhand der Originalquellen.",
+      "Diese E-Mail enth\u00e4lt KI-verarbeitete Inhalte. Scoutpost ist ein Recherche-Assistent, keine Nachrichtenquelle. \u00dcberpr\u00fcfen Sie Informationen immer anhand der Originalquellen.",
     page_scout_cue:
       "KI hat \u00c4nderungen erkannt, die Ihren Kriterien entsprechen \u2014 \u00fcberpr\u00fcfen Sie die Seite direkt.",
     beat_scout_cue:
@@ -169,7 +169,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "R\u00e9sultats correspondants",
     key_findings: "Principales d\u00e9couvertes :",
     your_criteria: "Vos crit\u00e8res",
-    view_in_cojournalist: "Voir dans coJournalist",
+    view_in_cojournalist: "Voir dans Scoutpost",
     view_source: "Voir la source",
     and_more: "... et {count} autres r\u00e9sultats",
     monitoring_url: "URL surveill\u00e9e",
@@ -197,7 +197,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** a \u00e9t\u00e9 mis en pause apr\u00e8s {count} \u00e9checs cons\u00e9cutifs. R\u00e9activez-le dans le tableau de bord une fois le probl\u00e8me r\u00e9solu.",
     see_what_matched: "Voir le r\u00e9sultat",
     email_disclaimer:
-      "Cet e-mail contient du contenu trait\u00e9 par IA. coJournalist est un assistant de recherche, pas une source d'information. V\u00e9rifiez toujours aupr\u00e8s des sources originales.",
+      "Cet e-mail contient du contenu trait\u00e9 par IA. Scoutpost est un assistant de recherche, pas une source d'information. V\u00e9rifiez toujours aupr\u00e8s des sources originales.",
     page_scout_cue:
       "L'IA a d\u00e9tect\u00e9 des changements correspondant \u00e0 vos crit\u00e8res \u2014 consultez la page directement.",
     beat_scout_cue:
@@ -215,7 +215,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "Resultados coincidentes",
     key_findings: "Hallazgos clave:",
     your_criteria: "Sus criterios",
-    view_in_cojournalist: "Ver en coJournalist",
+    view_in_cojournalist: "Ver en Scoutpost",
     view_source: "Ver fuente",
     and_more: "... y {count} resultados m\u00e1s",
     monitoring_url: "URL monitoreada",
@@ -241,7 +241,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** se paus\u00f3 despu\u00e9s de {count} fallos consecutivos. Vuelva a activarlo en el panel cuando el problema est\u00e9 resuelto.",
     see_what_matched: "Ver el resultado",
     email_disclaimer:
-      "Este correo contiene contenido procesado por IA. coJournalist es un asistente de investigaci\u00f3n, no una fuente de noticias. Verifique siempre con las fuentes originales.",
+      "Este correo contiene contenido procesado por IA. Scoutpost es un asistente de investigaci\u00f3n, no una fuente de noticias. Verifique siempre con las fuentes originales.",
     page_scout_cue:
       "La IA detect\u00f3 cambios que coinciden con sus criterios \u2014 revise la p\u00e1gina directamente.",
     beat_scout_cue:
@@ -259,7 +259,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "Risultati corrispondenti",
     key_findings: "Risultati chiave:",
     your_criteria: "I tuoi criteri",
-    view_in_cojournalist: "Visualizza in coJournalist",
+    view_in_cojournalist: "Visualizza in Scoutpost",
     view_source: "Vedi fonte",
     and_more: "... e altri {count} risultati",
     monitoring_url: "URL monitorato",
@@ -285,7 +285,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** \u00e8 stato messo in pausa dopo {count} errori consecutivi. Riattivalo nella dashboard quando il problema sar\u00e0 risolto.",
     see_what_matched: "Vedi il risultato",
     email_disclaimer:
-      "Questa email contiene contenuti elaborati dall'IA. coJournalist \u00e8 un assistente di ricerca, non una fonte di notizie. Verificare sempre con le fonti originali.",
+      "Questa email contiene contenuti elaborati dall'IA. Scoutpost \u00e8 un assistente di ricerca, non una fonte di notizie. Verificare sempre con le fonti originali.",
     page_scout_cue:
       "L'IA ha rilevato modifiche corrispondenti ai tuoi criteri \u2014 controlla la pagina direttamente.",
     beat_scout_cue:
@@ -303,7 +303,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "Resultados correspondentes",
     key_findings: "Principais descobertas:",
     your_criteria: "Seus crit\u00e9rios",
-    view_in_cojournalist: "Ver no coJournalist",
+    view_in_cojournalist: "Ver no Scoutpost",
     view_source: "Ver fonte",
     and_more: "... e mais {count} resultados",
     monitoring_url: "URL monitorada",
@@ -329,7 +329,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** foi colocado em pausa ap\u00f3s {count} falhas consecutivas. Reative-o no painel quando o problema estiver resolvido.",
     see_what_matched: "Ver o resultado",
     email_disclaimer:
-      "Este email cont\u00e9m conte\u00fado processado por IA. coJournalist \u00e9 um assistente de pesquisa, n\u00e3o uma fonte de not\u00edcias. Verifique sempre com as fontes originais.",
+      "Este email cont\u00e9m conte\u00fado processado por IA. Scoutpost \u00e9 um assistente de pesquisa, n\u00e3o uma fonte de not\u00edcias. Verifique sempre com as fontes originais.",
     page_scout_cue:
       "A IA detectou altera\u00e7\u00f5es que correspondem aos seus crit\u00e9rios \u2014 revise a p\u00e1gina diretamente.",
     beat_scout_cue:
@@ -347,7 +347,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "Overeenkomende resultaten",
     key_findings: "Belangrijkste bevindingen:",
     your_criteria: "Uw criteria",
-    view_in_cojournalist: "Bekijk in coJournalist",
+    view_in_cojournalist: "Bekijk in Scoutpost",
     view_source: "Bekijk bron",
     and_more: "... en nog {count} resultaten",
     monitoring_url: "Gemonitorde URL",
@@ -374,7 +374,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** is gepauzeerd na {count} opeenvolgende fouten. Activeer de scout opnieuw in het dashboard zodra het probleem is opgelost.",
     see_what_matched: "Bekijk het resultaat",
     email_disclaimer:
-      "Deze e-mail bevat door AI verwerkte inhoud. coJournalist is een onderzoeksassistent, geen nieuwsbron. Controleer altijd bij de originele bronnen.",
+      "Deze e-mail bevat door AI verwerkte inhoud. Scoutpost is een onderzoeksassistent, geen nieuwsbron. Controleer altijd bij de originele bronnen.",
     page_scout_cue:
       "AI heeft wijzigingen gedetecteerd die overeenkomen met uw criteria \u2014 bekijk de pagina direct.",
     beat_scout_cue:
@@ -392,7 +392,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "Matchande resultat",
     key_findings: "Viktiga fynd:",
     your_criteria: "Dina kriterier",
-    view_in_cojournalist: "Visa i coJournalist",
+    view_in_cojournalist: "Visa i Scoutpost",
     view_source: "Visa k\u00e4lla",
     and_more: "... och {count} fler tr\u00e4ffar",
     monitoring_url: "\u00d6vervakad URL",
@@ -418,7 +418,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** pausades efter {count} fel i rad. Aktivera den igen i instrumentpanelen n\u00e4r problemet \u00e4r l\u00f6st.",
     see_what_matched: "Se tr\u00e4ffen",
     email_disclaimer:
-      "Detta e-postmeddelande inneh\u00e5ller AI-bearbetat inneh\u00e5ll. coJournalist \u00e4r en forskningsassistent, inte en nyhetsk\u00e4lla. Verifiera alltid med originalk\u00e4llorna.",
+      "Detta e-postmeddelande inneh\u00e5ller AI-bearbetat inneh\u00e5ll. Scoutpost \u00e4r en forskningsassistent, inte en nyhetsk\u00e4lla. Verifiera alltid med originalk\u00e4llorna.",
     page_scout_cue:
       "AI uppt\u00e4ckte \u00e4ndringar som matchar dina kriterier \u2014 granska sidan direkt.",
     beat_scout_cue:
@@ -436,7 +436,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "Matchende resultater",
     key_findings: "Vigtige fund:",
     your_criteria: "Dine kriterier",
-    view_in_cojournalist: "Se i coJournalist",
+    view_in_cojournalist: "Se i Scoutpost",
     view_source: "Se kilde",
     and_more: "... og {count} flere resultater",
     monitoring_url: "Overv\u00e5get URL",
@@ -462,7 +462,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** blev sat p\u00e5 pause efter {count} fejl i tr\u00e6k. Aktiv\u00e9r den igen i dashboardet, n\u00e5r problemet er l\u00f8st.",
     see_what_matched: "Se resultatet",
     email_disclaimer:
-      "Denne e-mail indeholder AI-behandlet indhold. coJournalist er en forskningsassistent, ikke en nyhedskilde. Verificer altid med de originale kilder.",
+      "Denne e-mail indeholder AI-behandlet indhold. Scoutpost er en forskningsassistent, ikke en nyhedskilde. Verificer altid med de originale kilder.",
     page_scout_cue:
       "AI fandt \u00e6ndringer der matcher dine kriterier \u2014 gennemg\u00e5 siden direkte.",
     beat_scout_cue:
@@ -480,7 +480,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "Vastaavat tulokset",
     key_findings: "T\u00e4rkeimm\u00e4t l\u00f6yd\u00f6kset:",
     your_criteria: "Kriteerisi",
-    view_in_cojournalist: "Katso coJournalistissa",
+    view_in_cojournalist: "Katso Scoutpostissa",
     view_source: "N\u00e4yt\u00e4 l\u00e4hde",
     and_more: "... ja {count} muuta tulosta",
     monitoring_url: "Valvottu URL",
@@ -508,7 +508,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** keskeytettiin {count} per\u00e4kk\u00e4isen virheen j\u00e4lkeen. Ota se uudelleen k\u00e4ytt\u00f6\u00f6n hallintapaneelissa, kun ongelma on ratkaistu.",
     see_what_matched: "N\u00e4yt\u00e4 osuma",
     email_disclaimer:
-      "T\u00e4m\u00e4 s\u00e4hk\u00f6posti sis\u00e4lt\u00e4\u00e4 teko\u00e4lyn k\u00e4sittelem\u00e4\u00e4 sis\u00e4lt\u00f6\u00e4. coJournalist on tutkimusavustaja, ei uutisl\u00e4hde. Tarkista aina alkuper\u00e4isist\u00e4 l\u00e4hteist\u00e4.",
+      "T\u00e4m\u00e4 s\u00e4hk\u00f6posti sis\u00e4lt\u00e4\u00e4 teko\u00e4lyn k\u00e4sittelem\u00e4\u00e4 sis\u00e4lt\u00f6\u00e4. Scoutpost on tutkimusavustaja, ei uutisl\u00e4hde. Tarkista aina alkuper\u00e4isist\u00e4 l\u00e4hteist\u00e4.",
     page_scout_cue:
       "Teko\u00e4ly havaitsi kriteerej\u00e4si vastaavia muutoksia \u2014 tarkista sivu suoraan.",
     beat_scout_cue:
@@ -526,7 +526,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
     matching_results: "Pasuj\u0105ce wyniki",
     key_findings: "Kluczowe odkrycia:",
     your_criteria: "Twoje kryteria",
-    view_in_cojournalist: "Zobacz w coJournalist",
+    view_in_cojournalist: "Zobacz w Scoutpost",
     view_source: "Zobacz \u017ar\u00f3d\u0142o",
     and_more: "... i {count} wi\u0119cej wynik\u00f3w",
     monitoring_url: "Monitorowany URL",
@@ -552,7 +552,7 @@ export const EMAIL_STRINGS: Record<string, StringMap> = {
       "**{name}** zosta\u0142 wstrzymany po {count} kolejnych niepowodzeniach. W\u0142\u0105cz go ponownie w panelu, gdy problem zostanie rozwi\u0105zany.",
     see_what_matched: "Zobacz wynik",
     email_disclaimer:
-      "Ta wiadomo\u015b\u0107 zawiera tre\u015bci przetworzone przez AI. coJournalist to asystent badawczy, nie \u017ar\u00f3d\u0142o wiadomo\u015bci. Zawsze weryfikuj z oryginalnymi \u017ar\u00f3d\u0142ami.",
+      "Ta wiadomo\u015b\u0107 zawiera tre\u015bci przetworzone przez AI. Scoutpost to asystent badawczy, nie \u017ar\u00f3d\u0142o wiadomo\u015bci. Zawsze weryfikuj z oryginalnymi \u017ar\u00f3d\u0142ami.",
     page_scout_cue:
       "AI wykry\u0142a zmiany pasuj\u0105ce do Twoich kryteri\u00f3w \u2014 sprawd\u017a stron\u0119 bezpo\u015brednio.",
     beat_scout_cue:

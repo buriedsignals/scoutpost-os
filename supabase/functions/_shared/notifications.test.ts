@@ -352,6 +352,18 @@ Deno.test("buildBaseHtml inlines all styles and includes the localized disclaime
   assertStringIncludes(html, EMAIL_STRINGS.fr.email_disclaimer);
 });
 
+Deno.test("every alert footer uses the Scoutpost brand", () => {
+  for (const lang of SUPPORTED_LANGUAGES) {
+    const html = renderPageScoutHtml(lang);
+    assertStringIncludes(html, "Scoutpost");
+    assertEquals(
+      html.toLowerCase().includes("cojournalist"),
+      false,
+      `Language '${lang}' still contains the retired coJournalist brand`,
+    );
+  }
+});
+
 Deno.test("Page Scout renders metadata panels and matched content section", () => {
   const html = renderPageScoutHtml();
   assertStringIncludes(html, EMAIL_STRINGS.en.monitoring_url);

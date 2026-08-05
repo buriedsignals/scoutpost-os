@@ -39,12 +39,15 @@ export function buildPageContentDiff(
   const beforeLines = meaningfulLines(before);
   const afterLines = meaningfulLines(after);
   const { added, removed } = boundedLineDiff(beforeLines, afterLines);
-  const summaryLines = [
-    ...added.slice(0, MAX_SUMMARY_LINES).map((line) => `+ ${line}`),
-    ...removed.slice(0, Math.max(0, MAX_SUMMARY_LINES - added.length)).map((
-      line,
-    ) => `- ${line}`),
-  ];
+  const summaryAdded = added.slice(0, MAX_SUMMARY_LINES);
+  const summaryRemoved = removed.slice(
+    0,
+    Math.max(0, MAX_SUMMARY_LINES - summaryAdded.length),
+  );
+  const summarySections = [
+    renderSummarySection("Added", summaryAdded),
+    renderSummarySection("Removed", summaryRemoved),
+  ].filter(Boolean);
 
   return {
     // Canonical inequality is the authoritative change signal. The arrays are
@@ -54,8 +57,13 @@ export function buildPageContentDiff(
     after,
     added,
     removed,
-    summary: summaryLines.join("\n"),
+    summary: summarySections.join("\n\n"),
   };
+}
+
+function renderSummarySection(label: string, lines: string[]): string {
+  if (lines.length === 0) return "";
+  return `**${label}:**\n${lines.map((line) => `- ${line}`).join("\n")}`;
 }
 
 export function decidePageScoutAlert(input: {
