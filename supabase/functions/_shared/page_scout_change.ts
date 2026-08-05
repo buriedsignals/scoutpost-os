@@ -36,8 +36,8 @@ export function buildPageContentDiff(
     };
   }
 
-  const beforeLines = meaningfulLines(before);
-  const afterLines = meaningfulLines(after);
+  const beforeLines = pageContentLines(before);
+  const afterLines = pageContentLines(after);
   const { added, removed } = boundedLineDiff(beforeLines, afterLines);
   const summaryAdded = added.slice(0, MAX_SUMMARY_LINES);
   const summaryRemoved = removed.slice(
@@ -78,7 +78,7 @@ export function decidePageScoutAlert(input: {
   return input.mode === "any" ? true : input.criteriaMatched === true;
 }
 
-function meaningfulLines(content: string): string[] {
+export function pageContentLines(content: string): string[] {
   return content
     .split("\n")
     .flatMap((line) => {

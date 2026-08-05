@@ -1,11 +1,13 @@
 import {
   assertEquals,
   assertRejects,
+  assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import type { PageScoutCriteriaResult } from "./page_scout_criteria.ts";
 import {
   analyzePageScoutAlert,
   type PageScoutAlertAnalysisDependencies,
+  renderPageScoutCriteriaDelta,
 } from "./page_scout_alert_pipeline.ts";
 import { buildPageContentDiff } from "./page_scout_change.ts";
 import { shouldSendPageScoutAlert } from "./page_scout_notifications.ts";
@@ -37,6 +39,52 @@ function changedDiff() {
     "Registration closes on 15 August.",
   );
 }
+
+Deno.test("criteria delta includes context for Google feedback identifier churn", () => {
+  const before = [
+    "Policy body unchanged.",
+    "Enable Dark Mode",
+    "Send feedback on...",
+    "This help content & information General Help Center experience",
+    "2507032178178457788",
+    "true",
+    "Search Help Center",
+    "false",
+  ].join("\n");
+  const after = before.replace(
+    "2507032178178457788",
+    "16235620894640803440",
+  );
+
+  const delta = renderPageScoutCriteriaDelta(
+    buildPageContentDiff(before, after),
+  );
+
+  assertStringIncludes(
+    delta,
+    [
+      "CONTEXT: Enable Dark Mode",
+      "CONTEXT: Send feedback on...",
+      "CONTEXT: This help content & information General Help Center experience",
+      "REMOVED: 2507032178178457788",
+      "CONTEXT: true",
+      "CONTEXT: Search Help Center",
+      "CONTEXT: false",
+    ].join("\n"),
+  );
+  assertStringIncludes(
+    delta,
+    [
+      "CONTEXT: Enable Dark Mode",
+      "CONTEXT: Send feedback on...",
+      "CONTEXT: This help content & information General Help Center experience",
+      "ADDED: 16235620894640803440",
+      "CONTEXT: true",
+      "CONTEXT: Search Help Center",
+      "CONTEXT: false",
+    ].join("\n"),
+  );
+});
 
 function dependencies(
   decision: PageScoutCriteriaResult,

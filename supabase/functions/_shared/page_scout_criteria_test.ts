@@ -1,6 +1,7 @@
 import {
   assertEquals,
   assertRejects,
+  assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   evaluatePageScoutCriteria,
@@ -158,6 +159,41 @@ Deno.test("an uncertain agent decision raises a coverage error", async () => {
       }),
     PageScoutCriteriaCoverageError,
     "uncertain",
+  );
+});
+
+Deno.test("the agent treats fully contextualized unrelated boilerplate as a certain negative", async () => {
+  let prompt = "";
+  await evaluatePageScoutCriteria({
+    criteria: "Report only substantive policy wording changes.",
+    delta: [
+      "CONTEXT: Send feedback on...",
+      "REMOVED: 2507032178178457788",
+      "CONTEXT: Search Help Center",
+      "CONTEXT: Send feedback on...",
+      "ADDED: 16235620894640803440",
+      "CONTEXT: Search Help Center",
+    ].join("\n"),
+    timeoutMs: 100,
+  }, {
+    decisionExtract: (value) => {
+      prompt = value;
+      return Promise.resolve({
+        alert_warranted: false,
+        certainty: "certain" as const,
+        reason: "Only an unrelated feedback identifier changed.",
+        findings: [],
+      });
+    },
+  });
+
+  assertStringIncludes(
+    prompt,
+    "Complete evidence showing that a change is unrelated boilerplate supports a certain negative decision.",
+  );
+  assertStringIncludes(
+    prompt,
+    "Reserve certainty=uncertain for genuinely incomplete or ambiguous evidence.",
   );
 });
 

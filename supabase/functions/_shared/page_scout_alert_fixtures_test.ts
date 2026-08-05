@@ -6,7 +6,7 @@ import { PAGE_SCOUT_ALERT_FIXTURES } from "./page_scout_alert_fixtures.ts";
 import { buildPageContentDiff } from "./page_scout_change.ts";
 
 Deno.test("Page Scout alert acceptance corpus covers multilingual positive and negative deltas", () => {
-  assertEquals(PAGE_SCOUT_ALERT_FIXTURES.length, 12);
+  assertEquals(PAGE_SCOUT_ALERT_FIXTURES.length, 13);
   assertEquals(
     new Set(PAGE_SCOUT_ALERT_FIXTURES.map((fixture) => fixture.language)),
     new Set(["en", "de", "fr", "es", "ar", "ja"]),

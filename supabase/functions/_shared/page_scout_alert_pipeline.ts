@@ -6,6 +6,7 @@ import {
 import {
   decidePageScoutAlert,
   type PageContentDiff,
+  pageContentLines,
 } from "./page_scout_change.ts";
 
 export interface PageScoutAlertAnalysisInput {
@@ -89,11 +90,42 @@ export async function analyzePageScoutAlert<TEnrichment = never>(
 }
 
 export function renderPageScoutCriteriaDelta(diff: PageContentDiff): string {
-  const removed = diff.removed.map((line) => `REMOVED: ${line}`).join("\n");
-  const added = diff.added.map((line) => `ADDED: ${line}`).join("\n");
+  const removed = renderContextualChanges("REMOVED", diff.removed, diff.before);
+  const added = renderContextualChanges("ADDED", diff.added, diff.after);
   return [
     "Evaluate only these normalized page changes against the user's criteria.",
     removed,
     added,
   ].filter(Boolean).join("\n\n");
+}
+
+const CONTEXT_LINE_WINDOW = 3;
+
+function renderContextualChanges(
+  label: "REMOVED" | "ADDED",
+  changes: string[],
+  content: string,
+): string {
+  const lines = pageContentLines(content);
+  const changedLines = new Set(changes);
+  let searchFrom = 0;
+
+  return changes.map((change) => {
+    let index = lines.indexOf(change, searchFrom);
+    if (index < 0) index = lines.indexOf(change);
+    if (index < 0) return `${label}: ${change}`;
+    searchFrom = index + 1;
+
+    const before = lines
+      .slice(Math.max(0, index - CONTEXT_LINE_WINDOW), index)
+      .filter((line) => !changedLines.has(line));
+    const after = lines
+      .slice(index + 1, index + 1 + CONTEXT_LINE_WINDOW)
+      .filter((line) => !changedLines.has(line));
+    return [
+      ...before.map((line) => `CONTEXT: ${line}`),
+      `${label}: ${change}`,
+      ...after.map((line) => `CONTEXT: ${line}`),
+    ].join("\n");
+  }).join("\n\n");
 }

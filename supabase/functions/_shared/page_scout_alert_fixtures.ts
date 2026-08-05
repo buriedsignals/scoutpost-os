@@ -15,6 +15,34 @@ export interface PageScoutAlertFixture {
  */
 export const PAGE_SCOUT_ALERT_FIXTURES: PageScoutAlertFixture[] = [
   {
+    id: "en-ignore-feedback-identifier",
+    language: "en",
+    criteria:
+      "Report only substantive policy wording changes — added/removed/reworded rules, definitions, prohibited or allowed items, enforcement, scope, or effective/updated dates. Ignore navigation, styling, and boilerplate.",
+    before: [
+      "Policy body unchanged.",
+      "Enable Dark Mode",
+      "Send feedback on...",
+      "This help content & information General Help Center experience",
+      "2507032178178457788",
+      "true",
+      "Search Help Center",
+      "false",
+    ].join("\n"),
+    after: [
+      "Policy body unchanged.",
+      "Enable Dark Mode",
+      "Send feedback on...",
+      "This help content & information General Help Center experience",
+      "16235620894640803440",
+      "true",
+      "Search Help Center",
+      "false",
+    ].join("\n"),
+    expectedAlert: false,
+    failureClass: "unrelated-feedback-identifier",
+  },
+  {
     id: "en-ignore-player-help",
     language: "en",
     criteria:
