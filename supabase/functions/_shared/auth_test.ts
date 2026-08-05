@@ -63,6 +63,18 @@ Deno.test("requireServiceKey accepts service-role apikey fallback", () => {
   });
 });
 
+Deno.test("requireServiceKey accepts the hosted service-role key when a service override is also configured", () => {
+  withEnv({
+    SERVICE_SUPABASE_SERVICE_ROLE_KEY: "service-client-override",
+    SUPABASE_SERVICE_ROLE_KEY: "hosted-service-role-key",
+  }, () => {
+    const req = new Request("https://example.test", {
+      headers: { Authorization: "Bearer hosted-service-role-key" },
+    });
+    requireServiceKey(req);
+  });
+});
+
 Deno.test("requireServiceKey rejects bad service key", () => {
   withEnv({
     INTERNAL_SERVICE_KEY: "internal-secret",

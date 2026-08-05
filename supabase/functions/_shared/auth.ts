@@ -144,13 +144,13 @@ export function timingSafeEqual(
 
 export function requireServiceKey(req: Request): void {
   const expectedInternal = Deno.env.get("INTERNAL_SERVICE_KEY");
-  const expectedServiceRole = (() => {
-    try {
-      return getServiceRoleKey();
-    } catch {
-      return undefined;
-    }
-  })();
+  const expectedServiceRoles = [
+    Deno.env.get("SERVICE_SUPABASE_SERVICE_ROLE_KEY"),
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+    Deno.env.get("SERVICE_ROLE_KEY"),
+  ].map((value) => value?.trim()).filter((value): value is string =>
+    Boolean(value)
+  );
 
   // Accept either X-Service-Key = INTERNAL_SERVICE_KEY (the cron/dispatcher
   // path) or Authorization: Bearer SUPABASE_SERVICE_ROLE_KEY (tooling and
@@ -162,18 +162,21 @@ export function requireServiceKey(req: Request): void {
   const authHeader = req.headers.get("authorization") ??
     req.headers.get("Authorization") ?? "";
   if (
-    timingSafeEqual(
-      authHeader,
-      expectedServiceRole ? `Bearer ${expectedServiceRole}` : undefined,
+    expectedServiceRoles.some((expected) =>
+      timingSafeEqual(authHeader, `Bearer ${expected}`)
     )
   ) return;
 
   const apiKeyHeader = req.headers.get("apikey") ??
     req.headers.get("ApiKey") ??
     req.headers.get("X-Supabase-Api-Key");
-  if (timingSafeEqual(apiKeyHeader, expectedServiceRole)) return;
+  if (
+    expectedServiceRoles.some((expected) =>
+      timingSafeEqual(apiKeyHeader, expected)
+    )
+  ) return;
 
-  if (!expectedInternal && !expectedServiceRole) {
+  if (!expectedInternal && expectedServiceRoles.length === 0) {
     throw new AuthError(
       "server misconfigured: neither INTERNAL_SERVICE_KEY nor service-role env set",
     );

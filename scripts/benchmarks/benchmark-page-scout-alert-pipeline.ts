@@ -331,20 +331,48 @@ async function fetchRunUnits(
   bench: BenchCtx,
   runId: string,
 ): Promise<UnitRow[]> {
-  const query = new URLSearchParams({
-    select: "id,statement,embedding_model,raw_capture_id",
+  const occurrenceQuery = new URLSearchParams({
+    select: "unit_id,raw_capture_id",
     scout_run_id: `eq.${runId}`,
   });
-  const response = await fetch(
-    `${bench.supabaseUrl}/rest/v1/information_units?${query}`,
+  const occurrenceResponse = await fetch(
+    `${bench.supabaseUrl}/rest/v1/unit_occurrences?${occurrenceQuery}`,
     { headers: dataApiHeaders(bench) },
   );
-  if (!response.ok) {
+  if (!occurrenceResponse.ok) {
     throw new Error(
-      `unit query failed ${response.status}: ${await response.text()}`,
+      `unit occurrence query failed ${occurrenceResponse.status}: ${await occurrenceResponse
+        .text()}`,
     );
   }
-  return await response.json();
+  const occurrences = await occurrenceResponse.json() as Array<{
+    unit_id: string;
+    raw_capture_id: string | null;
+  }>;
+  if (occurrences.length === 0) return [];
+
+  const unitQuery = new URLSearchParams({
+    select: "id,statement,embedding_model",
+    id: `in.(${[...new Set(occurrences.map((row) => row.unit_id))].join(",")})`,
+  });
+  const unitResponse = await fetch(
+    `${bench.supabaseUrl}/rest/v1/information_units?${unitQuery}`,
+    { headers: dataApiHeaders(bench) },
+  );
+  if (!unitResponse.ok) {
+    throw new Error(
+      `canonical unit query failed ${unitResponse.status}: ${await unitResponse
+        .text()}`,
+    );
+  }
+  const units = await unitResponse.json() as Array<
+    Omit<UnitRow, "raw_capture_id">
+  >;
+  const byId = new Map(units.map((unit) => [unit.id, unit]));
+  return occurrences.flatMap((occurrence) => {
+    const unit = byId.get(occurrence.unit_id);
+    return unit ? [{ ...unit, raw_capture_id: occurrence.raw_capture_id }] : [];
+  });
 }
 
 function httpbinTextUrl(text: string, id: string): string {
