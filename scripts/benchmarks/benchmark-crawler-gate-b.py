@@ -332,8 +332,7 @@ def percentile(values: list[float], fraction: float) -> float:
     return ordered[max(0, math.ceil(len(ordered) * fraction) - 1)]
 
 
-def summarize_resources(samples: list[dict]) -> dict:
-    memory = [float(sample["memory_percent"]) for sample in samples]
+def cpu_percent_intervals(samples: list[dict]) -> list[float]:
     cpu = []
     for before, after in zip(samples, samples[1:]):  # noqa: RUF007 - Python 3.9.
         modes = set(before["cpu_seconds"]) | set(after["cpu_seconds"])
@@ -349,6 +348,12 @@ def summarize_resources(samples: list[dict]) -> dict:
         if total > 0:
             idle = deltas.get("idle", 0) + deltas.get("iowait", 0)
             cpu.append(100 * (1 - idle / total))
+    return cpu
+
+
+def summarize_resources(samples: list[dict]) -> dict:
+    memory = [float(sample["memory_percent"]) for sample in samples]
+    cpu = cpu_percent_intervals(samples)
     if len(cpu) < 2 or len(memory) < 3:
         raise RuntimeError("Supabase resource sampling was incomplete")
     return {
@@ -572,6 +577,38 @@ def collect_arrivals(args: argparse.Namespace) -> dict:
     return report
 
 
+def write_full_inputs(path: Path, inputs: dict) -> None:
+    temporary = path.with_suffix(f"{path.suffix}.tmp")
+    temporary.write_text(json.dumps(inputs, indent=2, sort_keys=True) + "\n")
+    temporary.replace(path)
+
+
+def refresh_full_inputs(path: Path, inputs: dict) -> dict:
+    """Refresh report evidence without dispatching or starting provider work."""
+    client = GateBClient()
+    assert_preflight(client)
+    continuation = str(inputs["continuation_key"])
+    batch_ids = {str(value) for value in inputs.get("batch_ids", [])}
+    inputs["jobs"] = client.rows(
+        "crawler_jobs",
+        params={
+            "select": "id,batch_id,status,attempts,available_at,batched_at,started_at,completed_at,error_class",
+            "continuation_key": f"eq.{continuation}",
+            "order": "created_at.asc",
+        },
+    )
+    batch_ids.update(
+        str(row["batch_id"])
+        for row in inputs["jobs"]
+        if row.get("batch_id")
+    )
+    inputs["batch_ids"] = sorted(batch_ids)
+    inputs["batches"] = client.batch_rows(batch_ids)
+    inputs["stage"] = "refreshed"
+    write_full_inputs(path, inputs)
+    return inputs
+
+
 def run_full(args: argparse.Namespace) -> dict:
     expected_host = required_env("GATE_B_FIXTURE_HOST")
     if urlsplit(args.fixture_url).hostname != expected_host:
@@ -588,12 +625,28 @@ def run_full(args: argparse.Namespace) -> dict:
     continuation = f"gate-b:{run_id}"
     enqueued_at = datetime.now(timezone.utc)
     resource_samples = [client.resource_sample()]
+    inputs_path = args.report.with_suffix(".inputs.json")
+    inputs = {
+        "run_id": run_id,
+        "release": release_id(),
+        "continuation_key": continuation,
+        "enqueued_at": enqueued_at.isoformat(),
+        "stage": "initialized",
+        "jobs": None,
+        "batches": None,
+        "batch_ids": [],
+        "reservations": 0,
+        "expected_pages": args.pages,
+        "resource_samples": resource_samples,
+    }
+    write_full_inputs(inputs_path, inputs)
     for chunk in chunks(build_jobs(run_id, args.fixture_url, args.pages), 250):
         client.insert_jobs(chunk)
 
     reservations = 0
     batch_ids: set[str] = set()
     minute = 0
+    next_minute_at = time.monotonic() + 60
     while True:
         counts = {
             status: client.count_jobs(continuation, status) for status in ALL_STATUSES
@@ -604,15 +657,19 @@ def run_full(args: argparse.Namespace) -> dict:
             datetime.now(timezone.utc) - enqueued_at
         ).total_seconds() >= MAX_DRAIN_SECONDS:
             raise RuntimeError(f"drain deadline exceeded: {counts}")
-        window_started = time.monotonic()
         calls = [client.dispatch("scheduled")]
         calls.extend(client.dispatch("single") for _ in range(6))
         for call in calls:
             remember_batches(batch_ids, call)
         reservations += sum(reservation_count(item) for item in calls)
-        resource_samples.append(client.resource_sample())
         if reservations > MAX_RESERVATIONS:
             raise RuntimeError("Gate B reservation budget exceeded")
+        inputs.update(
+            stage="running",
+            batch_ids=sorted(batch_ids),
+            reservations=reservations,
+        )
+        write_full_inputs(inputs_path, inputs)
         print(
             json.dumps(
                 {
@@ -625,12 +682,16 @@ def run_full(args: argparse.Namespace) -> dict:
             flush=True,
         )
         minute += 1
-        remaining = 60 - (time.monotonic() - window_started)
+        remaining = next_minute_at - time.monotonic()
         if remaining > 0:
             time.sleep(remaining)
-
-    batches = wait_render_metrics(client, batch_ids)
-    resource_samples.append(client.resource_sample())
+        # Sample at the end of the minute, not immediately after the initial
+        # sample. The absolute schedule prevents sample latency from
+        # accumulating into every subsequent dispatch interval.
+        resource_samples.append(client.resource_sample())
+        inputs["resource_samples"] = resource_samples
+        write_full_inputs(inputs_path, inputs)
+        next_minute_at += 60
 
     jobs = client.rows(
         "crawler_jobs",
@@ -640,20 +701,74 @@ def run_full(args: argparse.Namespace) -> dict:
             "order": "created_at.asc",
         },
     )
+    inputs.update(stage="drained", jobs=jobs)
+    write_full_inputs(inputs_path, inputs)
+
+    # Preserve the first available batch evidence before any polling or
+    # reconciliation so a transient reporting failure cannot lose the run.
+    inputs["batches"] = client.batch_rows(batch_ids)
+    write_full_inputs(inputs_path, inputs)
+    batches = wait_render_metrics(client, batch_ids)
+    inputs.update(stage="collected", batches=batches)
+    write_full_inputs(inputs_path, inputs)
     assert_preflight(client)
-    report = summarize_full(
-        run_id,
-        continuation,
-        enqueued_at,
-        jobs,
-        batches,
-        reservations,
-        args.pages,
-        resource_samples,
-    )
+    try:
+        report = summarize_full(
+            run_id,
+            continuation,
+            enqueued_at,
+            jobs,
+            batches,
+            reservations,
+            args.pages,
+            resource_samples,
+        )
+    except Exception as exc:
+        args.report.with_suffix(".failure.json").write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "continuation_key": continuation,
+                    "counts": Counter(row["status"] for row in jobs),
+                    "reservations": reservations,
+                    "error": str(exc),
+                    "report_inputs": str(inputs_path),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        raise
     args.report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if args.cleanup:
         client.delete_gate_rows(continuation, batch_ids)
+    return report
+
+
+def run_full_report(args: argparse.Namespace) -> dict:
+    inputs = json.loads(args.inputs.read_text())
+    if str(inputs["release"]) != release_id():
+        raise RuntimeError("report inputs belong to a different Gate B release")
+    if getattr(args, "refresh", False):
+        inputs = refresh_full_inputs(args.inputs, inputs)
+    if not isinstance(inputs.get("jobs"), list) or not isinstance(
+        inputs.get("batches"), list
+    ):
+        raise RuntimeError(
+            "report inputs are incomplete; rerun full-report with --refresh"
+        )
+    report = summarize_full(
+        str(inputs["run_id"]),
+        str(inputs["continuation_key"]),
+        iso(str(inputs["enqueued_at"])),
+        list(inputs["jobs"]),
+        list(inputs["batches"]),
+        int(inputs["reservations"]),
+        int(inputs["expected_pages"]),
+        list(inputs["resource_samples"]),
+    )
+    args.report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return report
 
 
@@ -1817,6 +1932,16 @@ def parse_args() -> argparse.Namespace:
     full.add_argument(
         "--report", type=Path, default=Path("/tmp/scoutpost-gate-b-full.json")
     )
+    full_report = sub.add_parser("full-report")
+    full_report.add_argument("--inputs", type=Path, required=True)
+    full_report.add_argument(
+        "--refresh",
+        action="store_true",
+        help="refetch database evidence without dispatching or starting tasks",
+    )
+    full_report.add_argument(
+        "--report", type=Path, default=Path("/tmp/scoutpost-gate-b-full.json")
+    )
     faults = sub.add_parser("faults")
     faults.add_argument("--fixture-base", required=True)
     faults.add_argument("--cleanup", action="store_true")
@@ -1860,6 +1985,8 @@ def main() -> None:
         if not 1 <= args.pages <= PEAK_PAGES:
             raise SystemExit(f"pages must be 1..{PEAK_PAGES}")
         report = run_full(args)
+    elif args.command == "full-report":
+        report = run_full_report(args)
     elif args.command == "faults":
         report = run_faults(args)
     elif args.command == "boundaries":
