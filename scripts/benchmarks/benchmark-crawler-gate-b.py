@@ -277,7 +277,14 @@ def chunks(values: list, size: int):
 
 
 def iso(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    normalized = value.replace("Z", "+00:00")
+    # PostgREST may return more than Python's six-digit microsecond precision.
+    if "." in normalized:
+        head, tail = normalized.split(".", 1)
+        fraction = tail.split("+", 1)[0].split("-", 1)[0]
+        if len(fraction) > 6:
+            normalized = f"{head}.{fraction[:6]}{tail[len(fraction):]}"
+    return datetime.fromisoformat(normalized)
 
 
 def build_jobs(run_id: str, fixture_url: str, pages: int) -> list[dict]:
