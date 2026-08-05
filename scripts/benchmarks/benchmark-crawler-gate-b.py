@@ -609,10 +609,7 @@ def run_full(args: argparse.Namespace) -> dict:
         calls.extend(client.dispatch("single") for _ in range(6))
         for call in calls:
             remember_batches(batch_ids, call)
-        reservations += sum(
-            int(item.get("submitted", 0)) + int(item.get("ambiguous", 0))
-            for item in calls
-        )
+        reservations += sum(reservation_count(item) for item in calls)
         resource_samples.append(client.resource_sample())
         if reservations > MAX_RESERVATIONS:
             raise RuntimeError("Gate B reservation budget exceeded")
@@ -682,7 +679,13 @@ def benchmark_job(
 
 
 def reservation_count(result: dict) -> int:
-    return int(result.get("submitted", 0)) + int(result.get("ambiguous", 0))
+    # Every attempted Render start consumes one reservation, including starts
+    # that Render definitively rejects and the dispatcher immediately releases.
+    return (
+        int(result.get("submitted", 0))
+        + int(result.get("released", 0))
+        + int(result.get("ambiguous", 0))
+    )
 
 
 def timed_rpc(client: GateBClient, name: str, body: dict | None = None):

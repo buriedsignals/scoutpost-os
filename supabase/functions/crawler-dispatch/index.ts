@@ -4,8 +4,10 @@ import { getServiceClient } from "../_shared/supabase.ts";
 import { jsonError, jsonOk } from "../_shared/responses.ts";
 import {
   refreshCrawlerRenderRuns,
+  RenderWorkflowError,
   startCrawlerTask,
 } from "../_shared/render_workflows.ts";
+import type { SupabaseClient } from "../_shared/supabase.ts";
 
 const Input = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("scheduled") }),
@@ -23,6 +25,51 @@ const scheduledPlans = [
 
 const START_CONCURRENCY = 8;
 
+type BatchSubmissionOutcome =
+  | "submitted"
+  | "released"
+  | "rejected_unreleased"
+  | "ambiguous";
+
+export async function submitCrawlerBatch(
+  svc: SupabaseClient,
+  batchId: string,
+  reservationToken: string,
+  startTask = startCrawlerTask,
+): Promise<BatchSubmissionOutcome> {
+  try {
+    const taskRunId = await startTask(batchId);
+    const { data: marked, error: markError } = await svc.rpc(
+      "mark_crawler_batch_submitted",
+      {
+        p_batch_id: batchId,
+        p_reservation_token: reservationToken,
+        p_render_task_run_id: taskRunId,
+      },
+    );
+    return !markError && marked === true ? "submitted" : "ambiguous";
+  } catch (error) {
+    const status = error instanceof RenderWorkflowError
+      ? error.status
+      : undefined;
+    // A 4xx response means Render rejected the request before creating a task.
+    // 408 remains ambiguous because an upstream timeout may have accepted it.
+    if (status && status >= 400 && status < 500 && status !== 408) {
+      const { data: released, error: releaseError } = await svc.rpc(
+        "release_crawler_batch",
+        {
+          p_batch_id: batchId,
+          p_reservation_token: reservationToken,
+          p_error: `render rejected task start (${status})`,
+        },
+      );
+      if (!releaseError && released === true) return "released";
+      return "rejected_unreleased";
+    }
+    return "ambiguous";
+  }
+}
+
 export async function handleCrawlerDispatch(req: Request): Promise<Response> {
   if (req.method !== "POST") return jsonError("method not allowed", 405);
   try {
@@ -38,6 +85,12 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
   }
 
   const svc = getServiceClient();
+  const { error: submissionError } = await svc.rpc(
+    "release_stale_crawler_submissions",
+  );
+  if (submissionError) {
+    return jsonError("crawler submission reconciliation failed", 500);
+  }
   const { error: reconcileError } = await svc.rpc("reconcile_crawler_jobs");
   if (reconcileError) return jsonError("crawler reconciliation failed", 500);
   const plans = input.mode === "single"
@@ -47,13 +100,14 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
     : scheduledPlans;
   let formed = 0;
   let submitted = 0;
+  let released = 0;
   let deferred = 0;
   let ambiguous = 0;
-  let budgetExhausted = false;
+  let stopStarting = false;
   const batchIds: string[] = [];
 
   for (const plan of plans) {
-    if (budgetExhausted) break;
+    if (stopStarting) break;
     const { data: pending, error: pendingError } = await svc
       .from("crawler_batches")
       .select("id")
@@ -87,7 +141,7 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
     const workers = Array.from(
       { length: Math.min(START_CONCURRENCY, candidates.length) },
       async () => {
-        while (!budgetExhausted) {
+        while (!stopStarting) {
           const index = nextCandidate++;
           const batch = candidates[index];
           if (!batch) return;
@@ -99,31 +153,22 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
           if (reserveError) throw new Error("crawler reservation failed");
           if (!reservationToken) {
             deferred++;
-            budgetExhausted = true;
+            stopStarting = true;
             return;
           }
 
-          try {
-            const taskRunId = await startCrawlerTask(batch.batch_id);
-            const { data: marked, error: markError } = await svc.rpc(
-              "mark_crawler_batch_submitted",
-              {
-                p_batch_id: batch.batch_id,
-                p_reservation_token: reservationToken,
-                p_render_task_run_id: taskRunId,
-              },
-            );
-            if (markError || marked !== true) {
-              // The task exists and may already be claiming. Its batch remains
-              // reserved; claim/reconciliation is safe without another POST.
-              ambiguous++;
-              continue;
-            }
-            submitted++;
-          } catch {
-            // A timeout/5xx may have reached Render. Never issue a second POST
-            // for this reservation. An unclaimed pending batch self-releases.
+          const outcome = await submitCrawlerBatch(
+            svc,
+            batch.batch_id,
+            reservationToken,
+          );
+          if (outcome === "submitted") submitted++;
+          else if (outcome === "released") {
+            released++;
+            stopStarting = true;
+          } else {
             ambiguous++;
+            if (outcome === "rejected_unreleased") stopStarting = true;
           }
         }
       },
@@ -150,6 +195,7 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
     ok: true,
     formed,
     submitted,
+    released,
     deferred,
     ambiguous,
     reconciled,
