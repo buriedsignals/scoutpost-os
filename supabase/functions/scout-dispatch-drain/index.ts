@@ -14,6 +14,7 @@ import { getServiceClient, type SupabaseClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { AuthError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
+import { resolveScoutDispatchConfig } from "../_shared/scout_dispatch_config.ts";
 
 declare const EdgeRuntime:
   | { waitUntil(promise: Promise<unknown>): void }
@@ -49,9 +50,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonFromError(error instanceof AuthError ? error : new AuthError());
   }
 
-  const capacity = envInt("SCOUT_DISPATCH_CONCURRENCY", 3, 1, 20);
-  const leaseSeconds = envInt("SCOUT_DISPATCH_LEASE_SECONDS", 900, 60, 3600);
-  const maxAttempts = envInt("SCOUT_DISPATCH_MAX_ATTEMPTS", 3, 1, 10);
+  const { concurrency: capacity, leaseSeconds, maxAttempts } =
+    resolveScoutDispatchConfig();
   const workerId = crypto.randomUUID();
   const svc = getServiceClient();
 
@@ -226,17 +226,4 @@ async function safeText(response: Response): Promise<string> {
   } catch {
     return "";
   }
-}
-
-function envInt(
-  name: string,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  const raw = Deno.env.get(name);
-  const value = raw === undefined ? fallback : Number.parseInt(raw, 10);
-  return Number.isFinite(value)
-    ? Math.min(max, Math.max(min, value))
-    : fallback;
 }
