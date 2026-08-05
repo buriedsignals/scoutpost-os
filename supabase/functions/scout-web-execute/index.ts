@@ -65,16 +65,13 @@ import {
   loadFactCheckConfig,
 } from "../_shared/fact_check.ts";
 import { isWithinRunDuplicateWithGuards } from "../_shared/dedup.ts";
-import { shouldSendPageScoutAlert } from "../_shared/page_scout_notifications.ts";
+import { planPageScoutNotification } from "../_shared/page_scout_notifications.ts";
 import {
   buildPageContentDiff,
-  decidePageScoutAlert,
   type PageContentDiff,
 } from "../_shared/page_scout_change.ts";
-import {
-  evaluatePageScoutCriteria,
-  type PageScoutCriteriaFinding,
-} from "../_shared/page_scout_criteria.ts";
+import type { PageScoutCriteriaFinding } from "../_shared/page_scout_criteria.ts";
+import { analyzePageScoutAlert } from "../_shared/page_scout_alert_pipeline.ts";
 import {
   applyEffectiveCandidateUrls,
   candidateUrlValuesDiffer,
@@ -152,6 +149,9 @@ const InputSchema = z.object({
   scout_id: z.string().uuid(),
   run_id: z.string().uuid().optional(),
   user_id: z.string().uuid().optional(),
+  notification_mode: z.enum(["deliver", "disabled"]).optional().default(
+    "deliver",
+  ),
 });
 
 const PROMPT_CONTENT_MAX = 12_000;
@@ -188,7 +188,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   const svc = getServiceClient();
-  const { scout_id } = parsed.data;
+  const { scout_id, notification_mode } = parsed.data;
   let { run_id } = parsed.data;
 
   // 1. Load scout.
@@ -263,15 +263,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const result = await runPipeline(svc, scout, runId);
-    const willNotify = shouldSendPageScoutAlert(result);
+    const notificationPlan = planPageScoutNotification(
+      result,
+      notification_mode,
+    );
+    const willNotify = notificationPlan.shouldSend;
 
     await markRunSuccess(svc, runId, {
       unitsCreated: result.articles_count,
       unitsMerged: result.merged_existing_count,
       criteriaStatus: result.criteria_ran,
-      notificationStatus: willNotify ? "pending" : "skipped",
+      notificationStatus: notificationPlan.notificationStatus,
       sourcesScraped: result.sources_scraped,
       sourcesFailed: result.sources_failed,
+    });
+    await mergeRunMetadata(svc, runId, {
+      page_scout_alert: {
+        eligible: notificationPlan.alertEligible,
+        notification_mode,
+        suppression_reason: notificationPlan.suppressionReason,
+      },
     });
     if (result.initial_candidates_to_persist) {
       const { error } = await svc.rpc(
@@ -320,6 +331,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       sources_scraped: result.sources_scraped,
       sources_failed: result.sources_failed,
       coverage_complete: result.coverage_complete,
+      alert_eligible: notificationPlan.alertEligible,
+      notification_suppressed:
+        notificationPlan.suppressionReason === "test_delivery_disabled",
     });
 
     // Notify user when the run produced new, non-duplicate units. Criteria
@@ -1062,60 +1076,60 @@ async function runPipeline(
     activeCandidatesToPersist = [];
   }
 
-  const rootCriteriaDecision = hasCriteria && rootDiff.hasChanges &&
-      changeStatus !== "new"
-    ? await evaluatePageScoutCriteria({
-      criteria: scout.criteria!,
-      delta: renderDiffForCriteria(rootDiff),
-      timeoutMs: PRIMARY_EXTRACTION_TIMEOUT_MS,
-      usage: {
-        db: svc,
-        userId: scout.user_id,
-        scoutId: scout.id,
-        runId,
-        functionName: "scout-web-execute",
-        operation: "web_match_primary_delta",
-      },
-    })
-    : null;
-  const rootCriteriaEnrichment = rootCriteriaDecision?.matches
-    ? await extractAtomicUnits({
-      title: scrape.title ?? null,
-      content: renderDiffForCriteria(rootDiff),
-      sourceUrl: scout.url,
-      publishedDate: primaryPublishedDate,
-      language: scout.preferred_language ?? "en",
-      criteria: scout.criteria,
-      maxUnits: 8,
-      contentLimit: PROMPT_CONTENT_MAX,
-      timeoutMs: PRIMARY_EXTRACTION_TIMEOUT_MS,
-      usage: {
-        db: svc,
-        userId: scout.user_id,
-        scoutId: scout.id,
-        runId,
-        functionName: "scout-web-execute",
-        operation: "web_enrich_primary_delta",
-      },
-    })
-    : null;
+  const rootAnalysis = await analyzePageScoutAlert({
+    criteria: scout.criteria,
+    diff: rootDiff,
+    changeStatus,
+    initialBaseline: changeStatus === "new",
+    timeoutMs: PRIMARY_EXTRACTION_TIMEOUT_MS,
+    usage: {
+      db: svc,
+      userId: scout.user_id,
+      scoutId: scout.id,
+      runId,
+      functionName: "scout-web-execute",
+      operation: "web_match_primary_delta",
+    },
+  }, {
+    enrichMatchingDelta: ({ delta }) =>
+      extractAtomicUnits({
+        title: scrape.title ?? null,
+        content: delta,
+        sourceUrl: scout.url,
+        publishedDate: primaryPublishedDate,
+        language: scout.preferred_language ?? "en",
+        criteria: scout.criteria,
+        maxUnits: 8,
+        contentLimit: PROMPT_CONTENT_MAX,
+        timeoutMs: PRIMARY_EXTRACTION_TIMEOUT_MS,
+        usage: {
+          db: svc,
+          userId: scout.user_id,
+          scoutId: scout.id,
+          runId,
+          functionName: "scout-web-execute",
+          operation: "web_enrich_primary_delta",
+        },
+      }),
+  });
+  const rootCriteriaDecision = rootAnalysis.criteriaDecision;
+  const rootCriteriaEnrichment = rootAnalysis.enrichment;
   await mergeRunMetadata(svc, runId, {
     criteria_primary_delta: rootCriteriaDecision ?? null,
     extraction_primary_delta: rootCriteriaEnrichment?.diagnostics ?? null,
   });
-  const rootAlertEligible = decidePageScoutAlert({
-    mode: hasCriteria ? "specific" : "any",
-    changeStatus,
-    hasNormalizedDiff: rootDiff.hasChanges,
-    criteriaMatched: rootCriteriaDecision?.matches ?? null,
-    initialBaseline: changeStatus === "new",
-  });
+  const rootAlertEligible = rootAnalysis.alertEligible;
   let alertEligible = rootAlertEligible;
   let alertHasChild = false;
   const alertDiffSummaries: string[] = rootAlertEligible
-    ? [hasCriteria
-      ? renderCriteriaFindings(scout.url, rootCriteriaDecision?.acceptedFindings ?? [])
-      : `${scout.url}\n${rootDiff.summary || "The page content changed."}`]
+    ? [
+      hasCriteria
+        ? renderCriteriaFindings(
+          scout.url,
+          rootCriteriaDecision?.acceptedFindings ?? [],
+        )
+        : `${scout.url}\n${rootDiff.summary || "The page content changed."}`,
+    ]
     : [];
   const archiveContexts: PipelineResult["archiveContexts"] = rootArchiveContext
     ? [rootArchiveContext]
@@ -1333,26 +1347,25 @@ async function runPipeline(
 // Phase B helpers
 // =========================================================================
 
-function renderDiffForCriteria(diff: PageContentDiff): string {
-  const removed = diff.removed.map((line) => `REMOVED: ${line}`).join("\n");
-  const added = diff.added.map((line) => `ADDED: ${line}`).join("\n");
-  return [
-    "Evaluate only these normalized page changes against the user's criteria.",
-    removed,
-    added,
-  ].filter(Boolean).join("\n\n");
-}
-
 function renderCriteriaFindings(
   sourceUrl: string,
   findings: PageScoutCriteriaFinding[],
 ): string {
-  return [sourceUrl, ...findings.slice(0, 3).map((finding) => [
-    `**What changed:** ${escapeMarkdown(finding.explanation)}`,
-    `**Criterion:** ${escapeMarkdown(finding.criterion)}`,
-    finding.beforeQuote ? `**Before:** ${escapeMarkdown(finding.beforeQuote)}` : "",
-    finding.afterQuote ? `**After:** ${escapeMarkdown(finding.afterQuote)}` : "",
-  ].filter(Boolean).join("\n"))].join("\n\n");
+  return [
+    sourceUrl,
+    ...findings.slice(0, 3).map((finding) =>
+      [
+        `**What changed:** ${escapeMarkdown(finding.explanation)}`,
+        `**Criterion:** ${escapeMarkdown(finding.criterion)}`,
+        finding.beforeQuote
+          ? `**Before:** ${escapeMarkdown(finding.beforeQuote)}`
+          : "",
+        finding.afterQuote
+          ? `**After:** ${escapeMarkdown(finding.afterQuote)}`
+          : "",
+      ].filter(Boolean).join("\n")
+    ),
+  ].join("\n\n");
 }
 
 function escapeMarkdown(value: string): string {
@@ -1790,22 +1803,22 @@ async function runPhaseB(
       // Specific Changes cannot advance its successful baseline when the
       // required structured delta decision fails. Unit extraction is optional
       // enrichment and happens only after that decision.
-      const criteriaDecision = hasCriteria &&
-          !initialChildBaseline && subDiff.hasChanges
-        ? await evaluatePageScoutCriteria({
-          criteria: scout.criteria!,
-          delta: renderDiffForCriteria(subDiff),
-          timeoutMs: SUBPAGE_EXTRACTION_TIMEOUT_MS,
-          usage: {
-            db: svc,
-            userId: scout.user_id,
-            scoutId: scout.id,
-            runId,
-            functionName: "scout-web-execute",
-            operation: "web_match_subpage_delta",
-          },
-        })
-        : null;
+      const subAnalysis = await analyzePageScoutAlert({
+        criteria: scout.criteria,
+        diff: subDiff,
+        changeStatus: comparison.status,
+        initialBaseline: initialChildBaseline,
+        timeoutMs: SUBPAGE_EXTRACTION_TIMEOUT_MS,
+        usage: {
+          db: svc,
+          userId: scout.user_id,
+          scoutId: scout.id,
+          runId,
+          functionName: "scout-web-execute",
+          operation: "web_match_subpage_delta",
+        },
+      });
+      const criteriaDecision = subAnalysis.criteriaDecision;
 
       const subContentHash = await sha256Hex(subScrape.markdown);
       const subRawCaptureId = await insertRawCapture(svc, {
@@ -1852,10 +1865,31 @@ async function runPhaseB(
         continue;
       }
 
-      let subExtracted = !hasCriteria || criteriaDecision?.matches
-        ? await extractAtomicUnits({
+      let subExtracted = hasCriteria
+        ? criteriaDecision?.matches
+          ? await extractAtomicUnits({
+            title: subScrape.title ?? null,
+            content: subAnalysis.criteriaDelta,
+            sourceUrl: subSourceUrl,
+            publishedDate: subPublishedDate,
+            language: scout.preferred_language ?? "en",
+            criteria: scout.criteria,
+            maxUnits: 8,
+            contentLimit: PROMPT_CONTENT_MAX,
+            timeoutMs: SUBPAGE_EXTRACTION_TIMEOUT_MS,
+            usage: {
+              db: svc,
+              userId: scout.user_id,
+              scoutId: scout.id,
+              runId,
+              functionName: "scout-web-execute",
+              operation: "web_extract_subpage_delta",
+            },
+          })
+          : null
+        : await extractAtomicUnits({
           title: subScrape.title ?? null,
-          content: renderDiffForCriteria(subDiff),
+          content: subAnalysis.criteriaDelta,
           sourceUrl: subSourceUrl,
           publishedDate: subPublishedDate,
           language: scout.preferred_language ?? "en",
@@ -1871,8 +1905,7 @@ async function runPhaseB(
             functionName: "scout-web-execute",
             operation: "web_extract_subpage_delta",
           },
-        })
-        : null;
+        });
       if (subExtracted?.diagnostics.outcome === "failed") {
         logEvent({
           level: "warn",
@@ -1885,18 +1918,19 @@ async function runPhaseB(
         subExtracted = null;
       }
 
-      const childAlertEligible = decidePageScoutAlert({
-        mode: hasCriteria ? "specific" : "any",
-        changeStatus: comparison.status,
-        hasNormalizedDiff: subDiff.hasChanges,
-        criteriaMatched: criteriaDecision?.matches ?? null,
-        initialBaseline: false,
-      });
+      const childAlertEligible = subAnalysis.alertEligible;
       if (childAlertEligible) {
         alertEligible = true;
-        alertSummaries.push(hasCriteria
-          ? renderCriteriaFindings(subSourceUrl, criteriaDecision?.acceptedFindings ?? [])
-          : `${subSourceUrl}\n${subDiff.summary || "The page content changed."}`);
+        alertSummaries.push(
+          hasCriteria
+            ? renderCriteriaFindings(
+              subSourceUrl,
+              criteriaDecision?.acceptedFindings ?? [],
+            )
+            : `${subSourceUrl}\n${
+              subDiff.summary || "The page content changed."
+            }`,
+        );
         if (!firstMatchedUrl) {
           firstMatchedUrl = subSourceUrl;
           firstMatchedTitle = subScrape.title ?? null;
