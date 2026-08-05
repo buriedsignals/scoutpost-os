@@ -7,7 +7,7 @@
  * embedding -> capture/baseline persistence -> notification planning.
  *
  * The monitored pages are synthetic httpbin responses. Customer criteria and
- * page content are never used. Every temporary scout is inactive and deleted.
+ * page content are never used. Every temporary scout is deleted after its run.
  *
  * Run through the linked-project launcher after the worker version containing
  * `notification_mode: "disabled"` is deployed:
@@ -125,7 +125,11 @@ for (const fixture of fixtures) {
       regularity: "weekly",
       schedule_cron: "0 0 1 1 *",
       baseline_established_at: new Date().toISOString(),
-      is_active: false,
+      // Run Now rejects paused scouts. Direct insertion does not install a
+      // cron job, and this annual schedule is not due during the benchmark's
+      // short lifetime, so the dispatcher is exercised without a scheduler
+      // race.
+      is_active: true,
       archive_enabled: false,
       metadata: {
         page_scout_benchmark: { notification_mode: "disabled" },
@@ -139,6 +143,14 @@ for (const fixture of fixtures) {
     result.change = first.body.change ?? null;
     result.runStatus = first.run.status;
     const alertMeta = recordValue(first.run.metadata, "page_scout_alert");
+    const criteriaMeta = recordValue(
+      first.run.metadata,
+      "criteria_primary_delta",
+    );
+    const extractionMeta = recordValue(
+      first.run.metadata,
+      "extraction_primary_delta",
+    );
 
     if (first.status !== 200 || first.body.status !== "ok") {
       result.errors.push(
@@ -156,7 +168,10 @@ for (const fixture of fixtures) {
     }
     if (first.body.alert_eligible !== fixture.expectedAlert) {
       result.errors.push(
-        `alert=${first.body.alert_eligible}, expected ${fixture.expectedAlert}`,
+        `alert=${first.body.alert_eligible}, expected ${fixture.expectedAlert}` +
+          (typeof criteriaMeta.agentReason === "string"
+            ? `; agent reason=${criteriaMeta.agentReason}`
+            : ""),
       );
     }
     if (first.run.notification_status !== "skipped") {
@@ -198,7 +213,12 @@ for (const fixture of fixtures) {
     ).length;
     if (fixture.expectedAlert) {
       if (units.length === 0) {
-        result.errors.push("matching delta produced no information units");
+        result.errors.push(
+          "matching delta produced no information units" +
+            (typeof extractionMeta.outcome === "string"
+              ? `; extraction=${JSON.stringify(extractionMeta)}`
+              : ""),
+        );
       } else if (result.embeddedUnits !== units.length) {
         result.errors.push(
           `${result.embeddedUnits}/${units.length} information units have embeddings`,
@@ -379,8 +399,7 @@ function httpbinTextUrl(text: string, id: string): string {
   for (const byte of bytes) binary += String.fromCharCode(byte);
   const encoded = btoa(binary)
     .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/, "");
+    .replaceAll("/", "_");
   return `https://httpbin.org/base64/${encoded}`;
 }
 

@@ -5,11 +5,18 @@ import {
 
 import {
   classifyExtractionDiagnostics,
+  languageName,
   preferSourcePublishedDate,
   publishedDateFromScrape,
   selectExtractionWindow,
   sourcePublishedDate,
 } from "./atomic_extract.ts";
+
+Deno.test("languageName resolves multilingual ISO codes without an English-only allowlist", () => {
+  assertEquals(languageName("ar"), "Arabic");
+  assertEquals(languageName("ja"), "Japanese");
+  assertEquals(languageName("sw"), "Swahili");
+});
 
 Deno.test("classifyExtractionDiagnostics separates empty, filtered, and failed results", () => {
   assertEquals(classifyExtractionDiagnostics(0, 0, 0).outcome, "empty");

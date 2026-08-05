@@ -23,24 +23,16 @@ import { logEvent } from "./log.ts";
 import { compressContext, logCompressionStats } from "./taco_compress.ts";
 import { normalizeDate } from "./date_utils.ts";
 
-const LANGUAGE_NAMES: Record<string, string> = {
-  en: "English",
-  no: "Norwegian",
-  de: "German",
-  fr: "French",
-  es: "Spanish",
-  it: "Italian",
-  pt: "Portuguese",
-  nl: "Dutch",
-  sv: "Swedish",
-  da: "Danish",
-  fi: "Finnish",
-  pl: "Polish",
-};
-
 export function languageName(code: string | null | undefined): string {
-  if (!code) return "English";
-  return LANGUAGE_NAMES[code] ?? "English";
+  const normalized = code?.trim();
+  if (!normalized) return "English";
+  try {
+    return new Intl.DisplayNames(["en"], { type: "language" }).of(
+      normalized,
+    ) ?? "English";
+  } catch {
+    return "English";
+  }
 }
 
 export interface ExtractedUnit {
