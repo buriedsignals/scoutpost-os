@@ -40,7 +40,12 @@ Deno.test("PS-SPEC-001b only a grounded finding accepted by the verifier matches
           explanation: "The opening date changed.",
         }],
       }),
-    verifyExtract: () => Promise.resolve({ verdict: "accept" }),
+    verifyExtract: () =>
+      Promise.resolve({
+        verdict: "accept",
+        inclusion_satisfied: true,
+        exclusion_triggered: false,
+      }),
   });
   assertEquals(result.matches, true);
   assertEquals(result.acceptedFindings?.length, 1);
@@ -61,10 +66,49 @@ Deno.test("PS-SPEC-001c verifier rejection is silent", async () => {
           explanation: "The opening date changed.",
         }],
       }),
-    verifyExtract: () => Promise.resolve({ verdict: "reject" }),
+    verifyExtract: () =>
+      Promise.resolve({
+        verdict: "reject",
+        inclusion_satisfied: false,
+        exclusion_triggered: false,
+      }),
   });
   assertEquals(result.matches, false);
   assertEquals(result.acceptedFindings, []);
+});
+
+Deno.test("policy criteria reject changed UI instructions even when the verifier says accept", async () => {
+  const before =
+    'Select the Settings icon at the bottom of the video player, select "Subtitles," and then specify your language.';
+  const after =
+    'Select the Settings icon Image of YouTube settings icon at the top right corner of the video player, select "Captions," and then specify your language.';
+  const result = await evaluatePageScoutCriteria({
+    criteria:
+      "Report only substantive policy wording changes — added/removed/reworded rules, definitions, prohibited or allowed items, enforcement, scope, or effective/updated dates. Ignore navigation, styling, and boilerplate.",
+    delta: `REMOVED: ${before}\nADDED: ${after}`,
+    timeoutMs: 100,
+  }, {
+    candidateExtract: () =>
+      Promise.resolve({
+        findings: [{
+          before_quote: before,
+          after_quote: after,
+          criterion: "substantive policy wording changes",
+          explanation:
+            "The location and label of the video caption control changed.",
+        }],
+      }),
+    verifyExtract: () =>
+      Promise.resolve({
+        verdict: "accept" as const,
+        inclusion_satisfied: false,
+        exclusion_triggered: true,
+      }),
+  });
+
+  assertEquals(result.matches, false);
+  assertEquals(result.acceptedFindings, []);
+  assertEquals(result.rejectedCount, 1);
 });
 
 Deno.test("PS-SPEC-001d reserves verification time after a Neunkirch-length candidate call", async () => {
@@ -92,7 +136,11 @@ Deno.test("PS-SPEC-001d reserves verification time after a Neunkirch-length cand
     },
     verifyExtract: (_prompt, _schema, request) => {
       verifierAbortAfterMs = request.abortAfterMs ?? 0;
-      return Promise.resolve({ verdict: "accept" as const });
+      return Promise.resolve({
+        verdict: "accept" as const,
+        inclusion_satisfied: true,
+        exclusion_triggered: false,
+      });
     },
   });
   assertEquals(candidateAbortAfterMs >= 15_000, true);

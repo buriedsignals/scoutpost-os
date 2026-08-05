@@ -32,6 +32,8 @@ interface CandidateResponse {
 }
 interface VerifyResponse {
   verdict: "accept" | "reject" | "uncertain";
+  inclusion_satisfied: boolean;
+  exclusion_triggered: boolean;
 }
 type Extract<T> = (
   prompt: string,
@@ -66,8 +68,18 @@ const VERIFY_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
   properties: {
     verdict: { type: "string", enum: ["accept", "reject", "uncertain"] },
+    inclusion_satisfied: {
+      type: "boolean",
+      description:
+        "True only when the changed meaning falls inside every positive requirement in the saved criteria.",
+    },
+    exclusion_triggered: {
+      type: "boolean",
+      description:
+        "True when the finding is navigation, styling, boilerplate, or another category the saved criteria says to ignore.",
+    },
   },
-  required: ["verdict"],
+  required: ["verdict", "inclusion_satisfied", "exclusion_triggered"],
 };
 const MAX_DELTA_CHARS = 20_000;
 const MAX_BATCHES = 8;
@@ -119,7 +131,12 @@ export async function evaluatePageScoutCriteria(
         openRouterExtract<CandidateResponse>(prompt, schema, options));
   const verifyExtract = deps.verifyExtract ??
     (deps.extract
-      ? (() => Promise.resolve({ verdict: "accept" as const }))
+      ? (() =>
+        Promise.resolve({
+          verdict: "accept" as const,
+          inclusion_satisfied: true,
+          exclusion_triggered: false,
+        }))
       : ((prompt, schema, config) =>
         openRouterExtract<VerifyResponse>(prompt, schema, config)));
   const chunks = chunkDelta(input.delta);
@@ -152,9 +169,13 @@ export async function evaluatePageScoutCriteria(
         VERIFY_SCHEMA,
         options(verifierBudget, input.usage, verifierBudget),
       );
-      if (result.verdict === "accept") acceptedFindings.push(finding);
-      else if (result.verdict === "reject") rejectedCount++;
-      else if (result.verdict === "uncertain") uncertainCount++;
+      if (
+        result.verdict === "accept" && result.inclusion_satisfied === true &&
+        result.exclusion_triggered === false
+      ) acceptedFindings.push(finding);
+      else if (result.verdict === "accept" || result.verdict === "reject") {
+        rejectedCount++;
+      } else if (result.verdict === "uncertain") uncertainCount++;
       else {throw new PageScoutCriteriaCoverageError(
           "criteria verifier returned an invalid verdict",
         );}
@@ -231,7 +252,10 @@ function verifyPrompt(
   finding: PageScoutCriteriaFinding,
 ): string {
   return [
-    "Independently verify this proposed finding. Accept only if grounded changed evidence directly satisfies the criteria; reject technical churn or unsupported meaning; use uncertain if insufficient.",
+    "Independently verify this proposed finding against every positive requirement and every exclusion in the saved criteria.",
+    "A sentence changing meaning is not enough by itself: set inclusion_satisfied=true only when that changed meaning is within the specifically requested subject.",
+    "Set exclusion_triggered=true when any ignored or excluded category applies. For criteria limited to substantive policy wording, reject help text, UI/control or accessibility instructions, navigation, styling, examples, and boilerplate unless the criteria explicitly requests them.",
+    "Use verdict=accept only when the evidence is grounded, inclusion_satisfied=true, and exclusion_triggered=false. Otherwise reject, or use uncertain when evidence is insufficient.",
     "<criteria>",
     criteria.trim(),
     "</criteria>",
