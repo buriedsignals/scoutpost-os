@@ -21,6 +21,8 @@ const scheduledPlans = [
   { operation: "snapshot" as const, batchSize: 1, maxBatches: 2 },
 ];
 
+const START_CONCURRENCY = 8;
+
 export async function handleCrawlerDispatch(req: Request): Promise<Response> {
   if (req.method !== "POST") return jsonError("method not allowed", 405);
   try {
@@ -78,41 +80,58 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
       formed += created.length;
       candidates.push(...created);
     }
-    for (const batch of candidates) {
-      batchIds.push(batch.batch_id);
-      const { data: reservationToken, error: reserveError } = await svc.rpc(
-        "reserve_crawler_batch_submission",
-        { p_batch_id: batch.batch_id, p_limit: 28 },
-      );
-      if (reserveError) return jsonError("crawler reservation failed", 500);
-      if (!reservationToken) {
-        deferred++;
-        budgetExhausted = true;
-        break;
-      }
+    // Render task starts are independent. Bounded parallelism keeps a busy
+    // dispatch within the Edge Function deadline without creating an
+    // unbounded fan-out or bypassing the database reservation gate.
+    let nextCandidate = 0;
+    const workers = Array.from(
+      { length: Math.min(START_CONCURRENCY, candidates.length) },
+      async () => {
+        while (!budgetExhausted) {
+          const index = nextCandidate++;
+          const batch = candidates[index];
+          if (!batch) return;
+          batchIds.push(batch.batch_id);
+          const { data: reservationToken, error: reserveError } = await svc.rpc(
+            "reserve_crawler_batch_submission",
+            { p_batch_id: batch.batch_id, p_limit: 28 },
+          );
+          if (reserveError) throw new Error("crawler reservation failed");
+          if (!reservationToken) {
+            deferred++;
+            budgetExhausted = true;
+            return;
+          }
 
-      try {
-        const taskRunId = await startCrawlerTask(batch.batch_id);
-        const { data: marked, error: markError } = await svc.rpc(
-          "mark_crawler_batch_submitted",
-          {
-            p_batch_id: batch.batch_id,
-            p_reservation_token: reservationToken,
-            p_render_task_run_id: taskRunId,
-          },
-        );
-        if (markError || marked !== true) {
-          // The task exists and may already be claiming. Its batch remains
-          // reserved; claim/reconciliation is safe without another POST.
-          ambiguous++;
-          continue;
+          try {
+            const taskRunId = await startCrawlerTask(batch.batch_id);
+            const { data: marked, error: markError } = await svc.rpc(
+              "mark_crawler_batch_submitted",
+              {
+                p_batch_id: batch.batch_id,
+                p_reservation_token: reservationToken,
+                p_render_task_run_id: taskRunId,
+              },
+            );
+            if (markError || marked !== true) {
+              // The task exists and may already be claiming. Its batch remains
+              // reserved; claim/reconciliation is safe without another POST.
+              ambiguous++;
+              continue;
+            }
+            submitted++;
+          } catch {
+            // A timeout/5xx may have reached Render. Never issue a second POST
+            // for this reservation. An unclaimed pending batch self-releases.
+            ambiguous++;
+          }
         }
-        submitted++;
-      } catch {
-        // A timeout/5xx may have reached Render. Never issue a second POST for
-        // this reservation. An unclaimed pending batch self-releases later.
-        ambiguous++;
-      }
+      },
+    );
+    try {
+      await Promise.all(workers);
+    } catch {
+      return jsonError("crawler reservation failed", 500);
     }
   }
 
