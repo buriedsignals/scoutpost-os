@@ -110,10 +110,11 @@ function renderContextualChanges(
   const changedLines = new Set(changes);
   let searchFrom = 0;
 
-  return changes.map((change) => {
+  return changes.map((change, changeIndex) => {
+    const evidenceId = `${label === "REMOVED" ? "R" : "A"}${changeIndex + 1}`;
     let index = lines.indexOf(change, searchFrom);
     if (index < 0) index = lines.indexOf(change);
-    if (index < 0) return `${label}: ${change}`;
+    if (index < 0) return `${label}[${evidenceId}]: ${change}`;
     searchFrom = index + 1;
 
     const before = lines
@@ -124,7 +125,7 @@ function renderContextualChanges(
       .filter((line) => !changedLines.has(line));
     return [
       ...before.map((line) => `CONTEXT: ${line}`),
-      `${label}: ${change}`,
+      `${label}[${evidenceId}]: ${change}`,
       ...after.map((line) => `CONTEXT: ${line}`),
     ].join("\n");
   }).join("\n\n");

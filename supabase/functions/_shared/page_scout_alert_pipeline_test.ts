@@ -66,7 +66,7 @@ Deno.test("criteria delta includes context for Google feedback identifier churn"
       "CONTEXT: Enable Dark Mode",
       "CONTEXT: Send feedback on...",
       "CONTEXT: This help content & information General Help Center experience",
-      "REMOVED: 2507032178178457788",
+      "REMOVED[R1]: 2507032178178457788",
       "CONTEXT: true",
       "CONTEXT: Search Help Center",
       "CONTEXT: false",
@@ -78,7 +78,7 @@ Deno.test("criteria delta includes context for Google feedback identifier churn"
       "CONTEXT: Enable Dark Mode",
       "CONTEXT: Send feedback on...",
       "CONTEXT: This help content & information General Help Center experience",
-      "ADDED: 16235620894640803440",
+      "ADDED[A1]: 16235620894640803440",
       "CONTEXT: true",
       "CONTEXT: Search Help Center",
       "CONTEXT: false",
@@ -98,11 +98,11 @@ function dependencies(
         "Alert when the registration deadline changes.",
       );
       assertEquals(
-        input.delta.includes("REMOVED: Registration closes on 1 August."),
+        input.delta.includes("REMOVED[R1]: Registration closes on 1 August."),
         true,
       );
       assertEquals(
-        input.delta.includes("ADDED: Registration closes on 15 August."),
+        input.delta.includes("ADDED[A1]: Registration closes on 15 August."),
         true,
       );
       return Promise.resolve(decision);
