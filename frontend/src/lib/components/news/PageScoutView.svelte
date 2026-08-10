@@ -25,8 +25,6 @@
 	// Schedule modal state
 	let showScheduleModal = false;
 
-	// Provider detected during test
-	let detectedProvider: string | undefined;
 	let contentHash: string | undefined;
 
 	// Computed progress state for ProgressIndicator
@@ -71,7 +69,6 @@
 			}
 
 			testProgressMessage = 'Checking criteria...';
-			detectedProvider = response.provider;
 			contentHash = response.content_hash;
 			testResult = {
 				summary: response.summary,
@@ -207,7 +204,6 @@
 	scoutType="web"
 	url={url}
 	webCriteria={effectiveCriteria}
-	provider={detectedProvider}
 	contentHash={contentHash}
 	onClose={() => showScheduleModal = false}
 	onSuccess={() => {
@@ -216,7 +212,6 @@
 		criteriaMode = 'specific';
 		testResult = null;
 		testProgress = 0;
-		detectedProvider = undefined;
 		contentHash = undefined;
 		showScheduleModal = false;
 		onScheduled({ scoutType: 'web' });

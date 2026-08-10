@@ -34,7 +34,6 @@ export interface MonitoringSetupRequest {
 	location?: GeocodedLocation;
 	topic?: string;
 	content_hash?: string;
-	provider?: string;
 	/** Page Archive (PAGE-ARCHIVE-PRD): capture tamper-evident evidence
 	 * snapshots on baseline + each matching change. Pro/Team-gated server-side. */
 	archive_enabled?: boolean;

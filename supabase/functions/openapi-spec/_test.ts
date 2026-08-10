@@ -156,6 +156,19 @@ Deno.test("spec.json — Scout schema enumerates all scout types", () => {
   ]);
 });
 
+Deno.test("spec.json — Page renderer is operator-controlled, not a scout field", () => {
+  for (const schemaName of ["ScoutCreate", "ScoutUpdate", "Scout"]) {
+    const schema = doc.components.schemas[schemaName] as {
+      properties: Record<string, unknown>;
+    };
+    assertEquals(
+      "provider" in schema.properties,
+      false,
+      `${schemaName} still advertises retired provider selection`,
+    );
+  }
+});
+
 Deno.test("spec.json — social creation is criteria-first without hiding legacy REST fallback", () => {
   const create = doc.components.schemas.ScoutCreate as {
     properties: Record<string, {

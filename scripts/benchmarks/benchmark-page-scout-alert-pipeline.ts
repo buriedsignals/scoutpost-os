@@ -121,7 +121,6 @@ for (const fixture of fixtures) {
       url: sourceUrl,
       criteria: fixture.criteria,
       preferred_language: fixture.language,
-      provider: "firecrawl_plain",
       regularity: "weekly",
       schedule_cron: "0 0 1 1 *",
       baseline_established_at: new Date().toISOString(),

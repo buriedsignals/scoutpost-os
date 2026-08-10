@@ -1,7 +1,7 @@
 /**
  * In-house canonical-hash change detection (SCRAPING-MIGRATION-PRD U4).
  *
- * Replaces Firecrawl remote changeTracking. A page's canonical hash is stored
+ * Replaces Firecrawl remote change tracking. A page's canonical hash is stored
  * in raw_captures; a later scrape is "same"/"changed"/"new" by comparing
  * against the latest baseline from a SUCCESSFUL run (or a schedule-time
  * insert). Generalized to filter by source_url so one scout can track many
@@ -35,6 +35,49 @@ export function rawCaptureExpiresAt(nowIso: string): string {
   const base = Number.isNaN(start) ? Date.now() : start;
   return new Date(base + RAW_CAPTURE_TTL_DAYS * 24 * 60 * 60 * 1000)
     .toISOString();
+}
+
+/**
+ * Return whether a Page Scout has a usable baseline for its configured URL.
+ * A baseline is authoritative only when it uses the current canonicalizer and
+ * was written outside a run (schedule-time repair) or by a successful run.
+ */
+export async function hasCurrentCanonicalBaselineForUrl(
+  svc: SupabaseClient,
+  scoutId: string,
+  sourceUrl: string,
+): Promise<boolean> {
+  const { data, error } = await svc
+    .from("raw_captures")
+    .select("scout_run_id")
+    .eq("scout_id", scoutId)
+    .eq("source_url", sourceUrl)
+    .eq("canonicalizer_version", WEB_CANONICALIZER_VERSION)
+    .not("canonical_content_sha256", "is", null)
+    .order("captured_at", { ascending: false })
+    .limit(50);
+  if (error) {
+    throw new Error(`canonical baseline lookup failed: ${error.message}`);
+  }
+
+  const captures = (data ?? []) as Array<{ scout_run_id: string | null }>;
+  if (captures.length === 0) return false;
+  if (captures.some((capture) => !capture.scout_run_id)) return true;
+  const runIds = captures
+    .map((capture) => capture.scout_run_id)
+    .filter((runId): runId is string => Boolean(runId));
+  const { data: runs, error: runsError } = await svc
+    .from("scout_runs")
+    .select("id, status")
+    .in("id", [...new Set(runIds)]);
+  if (runsError) {
+    throw new Error(
+      `canonical baseline run-status lookup failed: ${runsError.message}`,
+    );
+  }
+  return ((runs ?? []) as Array<{ status: string | null }>).some(
+    (run) => run.status === "success",
+  );
 }
 
 /**

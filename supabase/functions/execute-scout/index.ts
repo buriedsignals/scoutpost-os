@@ -105,7 +105,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   try {
     const { data: scout, error: scoutErr } = await svc
       .from("scouts")
-      .select("id, type, is_active, user_id, provider, archive_enabled")
+      .select("id, type, is_active, user_id, archive_enabled")
       .eq("id", scout_id)
       .maybeSingle();
     if (scoutErr) throw new Error(scoutErr.message);

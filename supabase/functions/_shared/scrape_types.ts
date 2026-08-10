@@ -50,7 +50,7 @@ export interface ScrapeResult {
    * HTTP status of the TARGET page (not the provider API). Both providers
    * return the page content even for a 4xx target (a dead/removed page comes
    * back HTTP 200 from the provider with status_code 404), so civic uses this
-   * to detect removed pages — the signal the retired changeTracking "removed"
+   * to detect removed pages — the signal the retired remote "removed"
    * status used to carry. From firecrawl's metadata.statusCode / the
    * scrape-service's status_code; undefined when the provider omits it.
    */
@@ -133,21 +133,6 @@ export interface SearchOptions {
 /** @deprecated Firecrawl-era name; use {@link SearchOptions}. */
 export type FirecrawlSearchOptions = SearchOptions;
 
-export interface ChangeTrackingResult extends ScrapeResult {
-  change_status: "new" | "same" | "changed" | "removed";
-  visibility?: "visible" | "hidden";
-  previous_scrape_at?: string;
-}
-
-export interface ChangeTrackingOptions {
-  formats?: Array<"markdown" | "html" | "rawHtml">;
-  onlyMainContent?: boolean;
-  /** Provider server-side timeout in ms. Default 120_000. */
-  timeoutMs?: number;
-  /** Client-side AbortController fuse in ms. Defaults to timeoutMs + 5000. */
-  abortAfterMs?: number;
-}
-
 export type PrimaryScrapeStrategy =
   | "combined"
   | "combined_retry"
@@ -157,9 +142,6 @@ export type PrimaryScrapeStrategy =
   | "workflow_antibot_fallback";
 
 export interface PrimaryPageScrapeResult extends ScrapeResult {
-  change_status?: ChangeTrackingResult["change_status"];
-  visibility?: ChangeTrackingResult["visibility"];
-  previous_scrape_at?: string;
   scrape_strategy: PrimaryScrapeStrategy;
   scrape_attempts: number;
   scrape_warning?: string;
@@ -167,18 +149,12 @@ export interface PrimaryPageScrapeResult extends ScrapeResult {
 
 export interface PrimaryPageScrapeDeps {
   scrape: (url: string, opts?: ScrapeOptions) => Promise<ScrapeResult>;
-  changeTrackingScrape: (
-    url: string,
-    tag: string,
-    opts?: ChangeTrackingOptions,
-  ) => Promise<ChangeTrackingResult>;
   sleep: (ms: number) => Promise<void>;
 }
 
 export interface PrimaryPageScrapeOptions {
   url: string;
   workloadClass?: "scout" | "utility" | "system";
-  changeTrackingTag?: string;
   onlyMainContent?: boolean;
   timeoutMs?: number;
   abortAfterMs?: number;

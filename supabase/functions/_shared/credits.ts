@@ -35,7 +35,7 @@ export const CREDIT_COSTS = {
 
   feed_export: 1,
 
-  // Civic scheduled-run cost. Covers up to 20 change-tracking scrapes +
+  // Civic scheduled-run cost. Covers up to 20 fresh provider-port scrapes +
   // up to 2 PDF parses + up to 2 Gemini extractions per run (see
   // MAX_DOCS_PER_RUN in civic-execute). ~$0.10-0.13 worst-case infra cost,
   // priced to sit a hair above break-even. Weekly-max enforced by scouts

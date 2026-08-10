@@ -4,6 +4,7 @@ import {
   PageWorkflowPending,
   PageWorkflowTransport,
 } from "./page_workflow_transport.ts";
+import { maybeInitializeMissingWebBaselineRun } from "./web_scout_baseline.ts";
 
 function transportWithStatus(
   status: string,
@@ -47,6 +48,7 @@ function transportWithStatus(
   };
   return {
     calls,
+    svc,
     transport: new PageWorkflowTransport(svc as never, {
       id: "run-1",
       scoutId: "scout-1",
@@ -71,6 +73,38 @@ Deno.test("root enqueue pauses without starting a provider locally", async () =>
   assertEquals(calls[0].fn, "enqueue_crawler_job");
   assertEquals(calls[0].args.p_continuation_key, "run-1");
   assertEquals(calls[0].args.p_pipeline_stage, "root");
+});
+
+Deno.test("missing baseline repair composes with Workflow pending/resume transport", async () => {
+  const { calls, svc, transport } = transportWithStatus("queued");
+  const error = await assertRejects(
+    () =>
+      maybeInitializeMissingWebBaselineRun(
+        svc as never,
+        {
+          id: "scout-1",
+          user_id: "user-1",
+          url: "https://example.com",
+          baseline_established_at: null,
+        },
+        "run-1",
+        {
+          scrape: async (url) =>
+            await transport.scrape({
+              url,
+              workloadClass: "utility",
+              timeoutMs: 25_000,
+              abortAfterMs: 30_000,
+            }, "root"),
+          hasCurrentCanonicalBaseline: async () => false,
+          now: () => "2026-08-10T00:00:00Z",
+        },
+      ),
+    PageWorkflowPending,
+  );
+  assertEquals(error.stage, "waiting_root");
+  assertEquals(calls.length, 1);
+  assertEquals(calls[0].fn, "enqueue_crawler_job");
 });
 
 Deno.test("terminal crawler failure fails the resumable Page run", async () => {

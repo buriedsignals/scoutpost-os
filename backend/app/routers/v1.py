@@ -355,8 +355,6 @@ async def create_scout(
     if body.type == "web":
         scout_body["url"] = body.url
         scout_body["criteria"] = body.criteria
-        # Default provider for API — no double-probe
-        scout_body["provider"] = "firecrawl_plain"
     elif body.type == "beat":
         if body.location:
             scout_body["location"] = body.location.model_dump(exclude_none=True)

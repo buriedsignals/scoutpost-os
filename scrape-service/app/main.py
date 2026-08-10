@@ -17,7 +17,7 @@ import asyncio
 import json
 import logging
 import secrets as secrets_mod
-from contextlib import asynccontextmanager, suppress
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from .config import Settings, load_settings
 from .crawl_runner import CrawlResultError, execute_crawl
+from .network_policy import guarded_egress
 from .openrouter_pdf import (
     OPENROUTER_INLINE_MAX_BYTES,
     OpenRouterParseError,
@@ -86,14 +87,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         heartbeat = asyncio.create_task(emit_operation_heartbeats())
-        try:
-            yield
-        finally:
-            heartbeat.cancel()
-            with suppress(asyncio.CancelledError):
-                await heartbeat
-            await app.state.scraper.close()
-            await app.state.http_client.aclose()
+        async with AsyncExitStack() as stack:
+            proxy_server: str | None = None
+            if resolved.block_private_addresses:
+                egress = await stack.enter_async_context(guarded_egress())
+                proxy_server = egress.proxy_url
+                app.state.egress_stats = egress.stats
+            # Tests replace the scraper with a fake before entering lifespan;
+            # preserve that seam. Production's cold Scraper is recreated with
+            # the DNS-pinning proxy before its first browser launch.
+            if isinstance(app.state.scraper, Scraper):
+                app.state.scraper = Scraper(
+                    pool_size=resolved.browser_pool_size,
+                    proxy_server=proxy_server,
+                )
+            try:
+                yield
+            finally:
+                heartbeat.cancel()
+                with suppress(asyncio.CancelledError):
+                    await heartbeat
+                await app.state.scraper.close()
+                await app.state.http_client.aclose()
 
     # No unauthenticated surfaces on an internet-facing arbitrary-URL renderer:
     # docs/redoc/openapi are disabled outright.
@@ -209,6 +224,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     timeout_ms=timeout_ms,
                     snapshot=body.snapshot,
                 )
+                # The browser proxy blocks unsafe destinations before connect;
+                # this final check also prevents an invalid effective URL from
+                # reaching downstream extraction if a custom scraper is used.
+                if cfg.block_private_addresses:
+                    await asyncio.to_thread(assert_public_host, mapped["source_url"])
             except asyncio.TimeoutError:
                 raise HTTPException(
                     status_code=504,
@@ -216,6 +236,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
             except CrawlResultError as e:
                 raise HTTPException(status_code=502, detail=f"scrape failed: {e}")
+            except PrivateAddressError:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"error": "private_address"},
+                )
+            except PdfDownloadError as e:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"cannot resolve host: {e}",
+                )
             except ValueError as e:
                 raise HTTPException(
                     status_code=502, detail=f"crawl result mapping failed: {e}"

@@ -2,8 +2,8 @@
  * Tests for scout-web-execute worker.
  *
  * Auth is service-role-only; a user JWT must be rejected. The happy-path test
- * requires SCOUT_LIVE_PROVIDER_TESTS=1 plus live Firecrawl + OpenRouter keys and
- * is skipped otherwise.
+ * requires SCOUT_LIVE_PROVIDER_TESTS=1 plus the configured live scrape
+ * provider credentials and is skipped otherwise.
  */
 
 import {
@@ -76,15 +76,18 @@ Deno.test("scout-web-execute: X-Service-Key reaches scout lookup", async () => {
 });
 
 const liveProviderTests = Deno.env.get("SCOUT_LIVE_PROVIDER_TESTS") === "1";
-const hasLiveKeys = liveProviderTests &&
-  !!Deno.env.get("FIRECRAWL_API_KEY") &&
-  !!Deno.env.get("OPENROUTER_API_KEY");
+const explicitFirecrawl = Deno.env.get("SCRAPE_PROVIDER") === "firecrawl";
+const hasLiveProvider = liveProviderTests &&
+  (explicitFirecrawl
+    ? !!Deno.env.get("FIRECRAWL_API_KEY")
+    : !!Deno.env.get("SCRAPE_SERVICE_URL") &&
+      !!Deno.env.get("SCRAPE_SERVICE_TOKEN"));
 
 Deno.test(
   {
     name:
-      "scout-web-execute: happy path (live Firecrawl + OpenRouter keys required)",
-    ignore: !hasLiveKeys,
+      "scout-web-execute: invalid baseline self-heals uncharged through the live provider",
+    ignore: !hasLiveProvider,
   },
   async () => {
     const user = await createTestUser();
@@ -114,9 +117,25 @@ Deno.test(
       const body = await res.json();
       assertEquals(res.status, 200, JSON.stringify(body));
       assertEquals(body.status, "ok");
+      assertEquals(body.change, "same");
+      assertEquals(body.baseline_initialized, true);
+      const { data: run, error: runError } = await svc()
+        .from("scout_runs")
+        .select(
+          "status,articles_count,units_created_count,notification_status,metadata",
+        )
+        .eq("scout_id", scoutId)
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .single();
+      if (runError) throw new Error(runError.message);
+      assertEquals(run.status, "success");
+      assertEquals(run.articles_count, 0);
+      assertEquals(run.units_created_count, 0);
+      assertEquals(run.notification_status, "not_applicable");
       assert(
-        ["same", "changed", "new", "removed"].includes(body.change),
-        `unexpected change value: ${body.change}`,
+        run.metadata?.scrape_provider_served === "crawl4ai" ||
+          run.metadata?.scrape_provider_served === "firecrawl",
       );
     } finally {
       if (scoutId) await svc().from("scouts").delete().eq("id", scoutId);

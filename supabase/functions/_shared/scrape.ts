@@ -8,14 +8,9 @@
 
 import { ApiError } from "./errors.ts";
 import { logEvent } from "./log.ts";
-import {
-  firecrawlChangeTrackingScrape,
-  firecrawlScrape,
-} from "./scrape_firecrawl.ts";
+import { firecrawlScrape } from "./scrape_firecrawl.ts";
 import { crawl4aiScrape } from "./scrape_crawl4ai.ts";
 import type {
-  ChangeTrackingOptions,
-  ChangeTrackingResult,
   PrimaryPageScrapeDeps,
   PrimaryPageScrapeOptions,
   PrimaryPageScrapeResult,
@@ -100,25 +95,8 @@ export async function scrape(
   }
 }
 
-/**
- * Change-tracking scrape. This is inherently a Firecrawl feature (the
- * Crawl4AI provider has no server-side change tracking); it is retired in U4
- * in favor of in-house canonical-hash baselines. Until then it always routes
- * to Firecrawl regardless of `SCRAPE_PROVIDER` — production has zero
- * `provider="firecrawl"` scouts, so this path is effectively unused, and
- * `FIRECRAWL_API_KEY` remains configured through the U7 bake.
- */
-export function changeTrackingScrape(
-  url: string,
-  tag: string,
-  opts: ChangeTrackingOptions = {},
-): Promise<ChangeTrackingResult> {
-  return firecrawlChangeTrackingScrape(url, tag, opts);
-}
-
 const DEFAULT_PRIMARY_DEPS: PrimaryPageScrapeDeps = {
   scrape,
-  changeTrackingScrape,
   sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
@@ -137,8 +115,7 @@ export async function scrapePrimaryPageResilient(
     maxAgeMs: opts.maxAgeMs,
     storeInCache: opts.storeInCache,
     // Detection-fetch capture hint (KTD9) — rides every ladder attempt so a
-    // fallback-served detection fetch carries its same-fetch artifacts. The
-    // changeTracking legacy path ignores it (retires with that path).
+    // fallback-served detection fetch carries its same-fetch artifacts.
     snapshot: opts.snapshot,
   };
   const retryDelayMs = opts.retryDelayMs ?? 2_000;
@@ -147,13 +124,6 @@ export async function scrapePrimaryPageResilient(
 
   const combined = async () => {
     attempts++;
-    if (opts.changeTrackingTag) {
-      return await deps.changeTrackingScrape(
-        opts.url,
-        opts.changeTrackingTag,
-        baseOpts,
-      );
-    }
     return await deps.scrape(opts.url, {
       ...baseOpts,
       formats: ["markdown", "rawHtml"],
@@ -184,7 +154,7 @@ export async function scrapePrimaryPageResilient(
     warnings.push(warningForScrapeError(e, "combined_retry"));
   }
 
-  let markdownResult: ScrapeResult | ChangeTrackingResult;
+  let markdownResult: ScrapeResult;
   try {
     attempts++;
     // The split path issues TWO independent fetches (markdown, then rawHtml),
@@ -196,12 +166,10 @@ export async function scrapePrimaryPageResilient(
     // sealing a screenshot and rawHtml from two different fetches as one
     // "rendered_thirdparty" snapshot.
     const splitOpts = { ...baseOpts, snapshot: undefined };
-    markdownResult = opts.changeTrackingTag
-      ? await deps.changeTrackingScrape(opts.url, opts.changeTrackingTag, {
-        ...splitOpts,
-        formats: ["markdown"],
-      })
-      : await deps.scrape(opts.url, { ...splitOpts, formats: ["markdown"] });
+    markdownResult = await deps.scrape(opts.url, {
+      ...splitOpts,
+      formats: ["markdown"],
+    });
   } catch (e) {
     if (firstError instanceof Error) throw firstError;
     throw e;
@@ -248,17 +216,13 @@ export async function scrapePrimaryPageResilient(
 }
 
 function withPrimaryMetadata(
-  result: ScrapeResult | ChangeTrackingResult,
+  result: ScrapeResult,
   scrapeStrategy: PrimaryScrapeStrategy,
   scrapeAttempts: number,
   warnings: string[] = [],
 ): PrimaryPageScrapeResult {
-  const change = result as ChangeTrackingResult;
   return {
     ...result,
-    change_status: change.change_status,
-    visibility: change.visibility,
-    previous_scrape_at: change.previous_scrape_at,
     scrape_strategy: scrapeStrategy,
     scrape_attempts: scrapeAttempts,
     scrape_warning: warnings.length > 0 ? warnings.join(",") : undefined,

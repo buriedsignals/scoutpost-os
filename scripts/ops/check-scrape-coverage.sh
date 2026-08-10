@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Enforce 100% line coverage on the new provider-neutral scrape modules
 # (SCRAPING-MIGRATION-PRD R8). Scoped deliberately to the modules the
-# migration introduces — NOT scrape_firecrawl.ts, which is moved legacy code
-# (search/map/doubleProbe retired in U4/U5, whole file deleted in U8).
+# migration introduces. Firecrawl search and the classified scrape fallback
+# remain intentionally outside this provider-neutral module gate.
 #
 # site_map.ts (U5 mapper) is intentionally NOT gated: it is well-tested (17
 # cases: sitemap/index/gzip/subdomains/registrable-domain/fallback/errors) but

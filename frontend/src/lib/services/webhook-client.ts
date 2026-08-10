@@ -21,7 +21,6 @@ interface ScraperTestResponse {
 	summary: string;
 	scraper_status: boolean;
 	criteria_status: boolean;
-	provider?: string;
 	content_hash?: string;
 }
 
@@ -69,7 +68,6 @@ class WebhookClient {
 				summary: data.summary || '',
 				scraper_status: data.scraper_status ?? true,
 				criteria_status: data.criteria_status ?? false,
-				provider: data.provider,
 				content_hash: data.content_hash
 			};
 		} catch (error) {

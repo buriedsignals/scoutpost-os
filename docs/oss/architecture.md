@@ -31,7 +31,7 @@ The mirror pipeline is implemented by `scripts/ops/strip-oss.sh` and `.github/wo
 | Database | Supabase Postgres | Scouts, runs, units, projects, entities, reflections, queues, snapshots. |
 | Search | pgvector/HNSW plus provider APIs | Canonical unit search and dedup. |
 | Scheduling | `pg_cron` + `pg_net` | Calls `execute-scout` on schedule. |
-| Page/article rendering | Crawl4AI + Firecrawl Cloud | Crawl4AI is primary; Firecrawl Cloud handles Civic/legacy Page change tracking and classified anti-bot fallback. |
+| Page/article rendering | Crawl4AI + Firecrawl Cloud | Crawl4AI is primary; Firecrawl Cloud is the classified anti-bot fallback. |
 | Beat search | Firecrawl Cloud | Sole discovery provider through `/v2/search`. |
 | Social scraping | Apify | Async actor queue, callback, reconcile. |
 | Email | Resend | Notifications and digests. |

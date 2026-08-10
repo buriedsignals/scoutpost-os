@@ -5,7 +5,6 @@ import {
 
 import { ApiError } from "./errors.ts";
 import {
-  changeTrackingScrape,
   isAntiBotBlockedError,
   isTransientScrapeError,
   scrape,
@@ -90,10 +89,12 @@ Deno.test("scrape() falls back when Crawl4AI returns an empty 403 challenge", as
       const body = target.includes("scrape.internal")
         ? { markdown: "", status_code: 403, rawHtml: "" }
         : { data: { markdown: "firecrawl recovered content" } };
-      return Promise.resolve(new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }));
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }) as typeof fetch;
     fallbackEnv();
     Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
@@ -446,7 +447,10 @@ Deno.test("scrapePrimaryPageResilient split path drops capture artifacts + snaps
   assertEquals(result.scrape_strategy, "split");
   assertEquals(result.rawHtml, "<a href='/minutes'>Minutes</a>");
   // Capture artifacts stripped — no mismatched same-fetch snapshot can form.
-  assertEquals((result as { screenshot_url?: string }).screenshot_url, undefined);
+  assertEquals(
+    (result as { screenshot_url?: string }).screenshot_url,
+    undefined,
+  );
   assertEquals((result as { snapshot?: unknown }).snapshot, null);
   // Neither split sub-fetch carried the snapshot hint.
   assertEquals(seenSnapshotHints, [undefined, undefined]);
@@ -462,13 +466,18 @@ Deno.test("scrape() strips the on_fallback hint on the primary firecrawl path", 
       const body = JSON.parse(String((init as RequestInit)?.body ?? "{}"));
       sentFormats = body.formats;
       return Promise.resolve(
-        new Response(JSON.stringify({ data: { markdown: "x", metadata: {} } }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ data: { markdown: "x", metadata: {} } }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
       );
     }) as typeof fetch;
-    const result = await scrape("https://example.com", { snapshot: "on_fallback" });
+    const result = await scrape("https://example.com", {
+      snapshot: "on_fallback",
+    });
     // Primary firecrawl must NOT append a screenshot format for the fallback hint.
     assertEquals(sentFormats.some((f) => typeof f === "object"), false);
     assertEquals(result.screenshot_url, undefined);
@@ -530,24 +539,6 @@ Deno.test("scrapePrimaryPageResilient does not retry unsupported file errors", a
   assertEquals(calls, 1);
 });
 
-Deno.test("scrapePrimaryPageResilient uses the change-tracking path when a tag is supplied", async () => {
-  let ctCalls = 0;
-  const result = await scrapePrimaryPageResilient({
-    url: "https://example.com",
-    changeTrackingTag: "scout-abc",
-    retryDelayMs: 0,
-    deps: {
-      changeTrackingScrape: async () => {
-        ctCalls += 1;
-        return { ...scrapeResult("tracked"), change_status: "changed" as const };
-      },
-    },
-  });
-  assertEquals(ctCalls, 1);
-  assertEquals(result.change_status, "changed");
-  assertEquals(result.markdown, "tracked");
-});
-
 Deno.test("scrapePrimaryPageResilient throws on empty markdown after fallback", async () => {
   await assertRejects(
     () =>
@@ -585,38 +576,6 @@ Deno.test("scrapePrimaryPageResilient rethrows non-transient combined failure", 
   );
 });
 
-Deno.test("changeTrackingScrape routes to Firecrawl regardless of provider", async () => {
-  const originalFetch = globalThis.fetch;
-  let seenUrl = "";
-  try {
-    globalThis.fetch = ((input) => {
-      seenUrl = String(input);
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: {
-              markdown: "tracked body",
-              changeTracking: { changeStatus: "changed", previousScrapeAt: "2026-05-01" },
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-    }) as typeof fetch;
-    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
-    Deno.env.set("SCRAPE_PROVIDER", "crawl4ai"); // must still route to Firecrawl
-
-    const result = await changeTrackingScrape("https://example.com", "scout-x");
-    assertEquals(seenUrl, "https://api.firecrawl.dev/v2/scrape");
-    assertEquals(result.change_status, "changed");
-    assertEquals(result.markdown, "tracked body");
-  } finally {
-    globalThis.fetch = originalFetch;
-    Deno.env.delete("FIRECRAWL_API_KEY");
-    Deno.env.delete("SCRAPE_PROVIDER");
-  }
-});
-
 Deno.test("scrapePrimaryPageResilient applies the default retry delay via the real sleep", async () => {
   let calls = 0;
   // No retryDelayMs override → default (line coverage of `?? 2_000` and the
@@ -627,7 +586,9 @@ Deno.test("scrapePrimaryPageResilient applies the default retry delay via the re
     deps: {
       scrape: async () => {
         calls += 1;
-        if (calls === 1) throw new ApiError("crawl4ai scrape failed: 503 x", 502);
+        if (calls === 1) {
+          throw new ApiError("crawl4ai scrape failed: 503 x", 502);
+        }
         return scrapeResult("recovered");
       },
     },
@@ -656,7 +617,9 @@ Deno.test("scrapePrimaryPageResilient rethrows a non-transient retry failure", a
         deps: {
           scrape: async () => {
             calls += 1;
-            if (calls === 1) throw new ApiError("crawl4ai scrape failed: 500 x", 502);
+            if (calls === 1) {
+              throw new ApiError("crawl4ai scrape failed: 500 x", 502);
+            }
             throw new ApiError("crawl4ai scrape failed: 400 bad", 400);
           },
         },
@@ -689,29 +652,6 @@ Deno.test("scrapePrimaryPageResilient rethrows original error when markdown stag
   );
 });
 
-Deno.test("scrapePrimaryPageResilient splits via the change-tracking markdown stage", async () => {
-  let combinedFails = 0;
-  const result = await scrapePrimaryPageResilient({
-    url: "https://example.com",
-    changeTrackingTag: "scout-ct",
-    retryDelayMs: 0,
-    deps: {
-      changeTrackingScrape: async (_url, _tag, opts) => {
-        if (opts?.formats?.length !== 1) {
-          combinedFails += 1;
-          throw new ApiError("firecrawl change-tracking failed: 502 x", 502);
-        }
-        return { ...scrapeResult("ct markdown", null), change_status: "same" as const };
-      },
-      scrape: async () => scrapeResult("", "<a>links</a>"),
-    },
-  });
-  assertEquals(combinedFails, 2);
-  assertEquals(result.markdown, "ct markdown");
-  assertEquals(result.rawHtml, "<a>links</a>");
-  assertEquals(result.scrape_strategy, "split");
-});
-
 Deno.test("scrapePrimaryPageResilient rethrows a non-Error firstError from the markdown stage", async () => {
   await assertRejects(
     () =>
@@ -740,7 +680,9 @@ Deno.test("scrapePrimaryPageResilient split merges rawHtml fields from the raw s
     deps: {
       scrape: async (_url, opts) => {
         calls += 1;
-        if (calls <= 2) throw new ApiError("firecrawl scrape failed: 503 x", 502);
+        if (calls <= 2) {
+          throw new ApiError("firecrawl scrape failed: 503 x", 502);
+        }
         if (opts?.formats?.includes("markdown")) {
           // markdown stage: no title, blank source_url, null rawHtml — force
           // the right-hand side of each merge fallback.
@@ -775,10 +717,16 @@ Deno.test("warningForScrapeError labels each failure mode", () => {
     "combined_timeout",
   );
   assertEquals(
-    warningForScrapeError(new ApiError("opaque provider failure", 503), "raw_html"),
+    warningForScrapeError(
+      new ApiError("opaque provider failure", 503),
+      "raw_html",
+    ),
     "raw_html_503",
   );
-  assertEquals(warningForScrapeError("weird string", "combined"), "combined_failed");
+  assertEquals(
+    warningForScrapeError("weird string", "combined"),
+    "combined_failed",
+  );
 });
 
 Deno.test("isTransientScrapeError classifies retryable failures for both providers", () => {
@@ -794,7 +742,12 @@ Deno.test("isTransientScrapeError classifies retryable failures for both provide
     ),
     true,
   );
-  assertEquals(isTransientScrapeError(new ApiError("crawl4ai scrape aborted after 30000ms", 504)), true);
+  assertEquals(
+    isTransientScrapeError(
+      new ApiError("crawl4ai scrape aborted after 30000ms", 504),
+    ),
+    true,
+  );
   assertEquals(
     isTransientScrapeError(
       new ApiError(

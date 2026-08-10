@@ -29,6 +29,7 @@ interface ResultArtifact {
 export class PageWorkflowPending extends Error {
   constructor(readonly stage: "waiting_root" | "waiting_children") {
     super(stage);
+    this.name = "PageWorkflowPending";
   }
 }
 

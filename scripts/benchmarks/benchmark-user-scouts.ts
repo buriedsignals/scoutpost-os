@@ -360,7 +360,7 @@ async function runCivicScout(): Promise<CaseResult> {
           : 0,
         articles_count: run.articles_count ?? null,
         note:
-          "Civic creation establishes a change-tracking baseline; immediate Run Now may enqueue zero docs.",
+          "Civic creation establishes local canonical baselines; immediate Run Now may enqueue zero docs.",
       },
       error: ok
         ? null

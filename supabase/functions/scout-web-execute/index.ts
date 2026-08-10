@@ -4,8 +4,7 @@
  * Called internally by execute-scout. Must complete within ~50s. Flow:
  *   1. Load scout.
  *   2. Create (or reuse) a scout_runs row with status='running'.
- *   3. Scrape the page and compare either the local canonical hash baseline
- *      or, for legacy scouts only, Firecrawl changeTracking.
+ *   3. Scrape the page and compare its local canonical hash baseline.
  *   4. If change_status === "same": mark run success, reset failures, return.
  *   5. Else: store raw_capture, extract units, dedup each unit through
  *      canonical unit upsert, insert non-dupes, mark run success.
@@ -32,18 +31,20 @@ import {
 import { logEvent } from "../_shared/log.ts";
 import { normalizeDate } from "../_shared/date_utils.ts";
 import {
+  scrape as scrapePage,
   scrapePrimaryPageResilient,
   scrapeProvider,
 } from "../_shared/scrape.ts";
 import {
+  type CanonicalChangeStatus,
   type CanonicalContentComparison,
   compareCanonicalContentForUrl,
 } from "../_shared/canonical_baseline.ts";
 import type {
-  ChangeTrackingResult,
   PrimaryPageScrapeOptions,
   PrimaryPageScrapeResult,
 } from "../_shared/scrape_types.ts";
+import { maybeInitializeMissingWebBaselineRun } from "../_shared/web_scout_baseline.ts";
 import {
   type CaptureOutcome,
   type CaptureStoreContext,
@@ -118,7 +119,6 @@ import {
   WEB_CANONICALIZER_VERSION,
   WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
   webCanonicalHash,
-  webCanonicalHashEnabled,
 } from "../_shared/web_content_canonical.ts";
 import {
   CREDIT_COSTS,
@@ -207,7 +207,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const { data: scout, error: scoutErr } = await svc
     .from("scouts")
     .select(
-      "id, user_id, type, name, url, criteria, project_id, is_active, provider, preferred_language, baseline_established_at, archive_enabled, wayback_enabled, metadata",
+      "id, user_id, type, name, url, criteria, project_id, is_active, preferred_language, baseline_established_at, archive_enabled, wayback_enabled, metadata",
     )
     .eq("id", scout_id)
     .maybeSingle();
@@ -273,10 +273,105 @@ Deno.serve(async (req: Request): Promise<Response> => {
   let chargedCredits = false;
 
   try {
-    if (!scout.baseline_established_at) {
-      const msg =
-        "page scout has no baseline; recreate or reschedule the scout so creation can establish one before Run Now";
-      throw new ValidationError(msg);
+    const baselineDeps = {
+      scrape: workflowTransport
+        ? async (url: string) =>
+          await workflowTransport.scrape({
+            url,
+            workloadClass: "utility",
+            timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
+            abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
+            ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
+          }, "root")
+        : async (url: string, opts = {}) =>
+          await scrapePage(url, {
+            ...opts,
+            timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
+            abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
+          }),
+      now: () => new Date().toISOString(),
+    };
+    const initialized = await maybeInitializeMissingWebBaselineRun(
+      svc,
+      scout,
+      runId,
+      baselineDeps,
+    );
+    if (initialized) {
+      await mergeRunMetadata(svc, runId, {
+        scrape_provider: scrapeProvider(),
+        scrape_provider_served: initialized.served_by ?? scrapeProvider(),
+        baseline_initialized: true,
+      });
+      await markRunSuccess(svc, runId, {
+        unitsCreated: 0,
+        unitsMerged: 0,
+        criteriaStatus: false,
+        notificationStatus: "not_applicable",
+        sourcesScraped: 1,
+        sourcesFailed: 0,
+      });
+      logEvent({
+        level: "info",
+        fn: "scout-web-execute",
+        event: "baseline_initialized_on_run",
+        scout_id: scout.id,
+        run_id: runId,
+        served_by: initialized.served_by ?? scrapeProvider(),
+      });
+      if (workflowEnabled && workflowLeaseToken) {
+        const completed = await svc.rpc("set_page_workflow_stage", {
+          p_run_id: runId,
+          p_lease_token: workflowLeaseToken,
+          p_stage: "done",
+          p_release: true,
+        });
+        if (completed.error || completed.data !== true) {
+          logEvent({
+            level: "warn",
+            fn: "scout-web-execute",
+            event: "workflow_stage_completion_failed",
+            scout_id: scout.id,
+            run_id: runId,
+          });
+        }
+        const finished = await svc.rpc("finish_waiting_scout_dispatch", {
+          p_run_id: runId,
+        });
+        if (finished.error) {
+          logEvent({
+            level: "warn",
+            fn: "scout-web-execute",
+            event: "workflow_dispatch_finish_failed",
+            scout_id: scout.id,
+            run_id: runId,
+          });
+        }
+        await workflowTransport?.cleanup().catch((cleanupError) =>
+          logEvent({
+            level: "warn",
+            fn: "scout-web-execute",
+            event: "workflow_result_cleanup_failed",
+            scout_id: scout.id,
+            run_id: runId,
+            msg: cleanupError instanceof Error
+              ? cleanupError.message
+              : String(cleanupError),
+          })
+        );
+      }
+      return jsonOk({
+        status: "ok",
+        change: initialized.change_status,
+        articles_count: 0,
+        merged_existing_count: 0,
+        sources_scraped: 1,
+        sources_failed: 0,
+        child_candidates: 0,
+        children_checked: 0,
+        coverage_complete: true,
+        baseline_initialized: true,
+      });
     }
 
     // 3. Decrement credits before any billable work.
@@ -728,7 +823,6 @@ interface ScoutRow {
   criteria: string | null;
   project_id: string | null;
   is_active: boolean;
-  provider: "firecrawl" | "firecrawl_plain" | null;
   preferred_language: string | null;
   baseline_established_at?: string | null;
   archive_enabled?: boolean | null;
@@ -822,14 +916,8 @@ async function runPipeline(
   const snapshotHint: "on_fallback" | undefined = archiveGateOn
     ? "on_fallback"
     : undefined;
-  // 3. Scrape via the provider recorded for this scout:
-  //      - "firecrawl_plain": fresh scrape + local canonical hash compare.
-  //      - "firecrawl" or null: legacy changeTracking scrape. On a successful
-  //        run, migrate to a local canonical baseline.
-  const tag = `scout-${scout.id}`.slice(0, 128);
-
   let markdown: string;
-  let changeStatus: ChangeTrackingResult["change_status"];
+  let changeStatus: CanonicalChangeStatus;
   let scrapeTitle: string | null = null;
 
   let rawHtml: string | null = null;
@@ -842,73 +930,26 @@ async function runPipeline(
   // artifacts (screenshot_url/rawHtml) that a fallback-served fetch carried.
   let detectionResult: PrimaryPageScrapeResult | null = null;
 
-  if (scout.provider === "firecrawl_plain") {
-    const primaryOptions = {
-      url: scout.url,
-      workloadClass: "scout",
-      timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
-      abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
-      snapshot: snapshotHint,
-      ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
-    } satisfies PrimaryPageScrapeOptions;
-    const plain = workflowTransport
-      ? await workflowTransport.scrape(primaryOptions, "root")
-      : await scrapePrimaryPageResilient(primaryOptions);
-    detectionResult = plain;
-    markdown = plain.markdown ?? "";
-    rawHtml = plain.rawHtml ?? null;
-    scrapeTitle = plain.title ?? null;
-    scrapeMetadata = plain.metadata;
-    scrapeStrategy = plain.scrape_strategy;
-    scrapeWarning = plain.scrape_warning;
-    servedBy = plain.served_by;
-    changeStatus = "new";
-  } else {
-    try {
-      const ct = await scrapePrimaryPageResilient({
-        url: scout.url,
-        workloadClass: "scout",
-        changeTrackingTag: tag,
-        timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
-        abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
-        snapshot: snapshotHint,
-      });
-      detectionResult = ct;
-      markdown = ct.markdown ?? "";
-      rawHtml = ct.rawHtml ?? null;
-      scrapeTitle = ct.title ?? null;
-      scrapeMetadata = ct.metadata;
-      scrapeStrategy = ct.scrape_strategy;
-      scrapeWarning = ct.scrape_warning;
-      servedBy = ct.served_by;
-      changeStatus = ct.change_status ?? "new";
-    } catch (e) {
-      logEvent({
-        level: "warn",
-        fn: "scout-web-execute",
-        event: "change_tracking_fallback",
-        scout_id: scout.id,
-        msg: e instanceof Error ? e.message : String(e),
-      });
-      const plain = await scrapePrimaryPageResilient({
-        url: scout.url,
-        workloadClass: "scout",
-        timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
-        abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
-        snapshot: snapshotHint,
-        ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
-      });
-      detectionResult = plain;
-      markdown = plain.markdown ?? "";
-      rawHtml = plain.rawHtml ?? null;
-      scrapeTitle = plain.title ?? null;
-      scrapeMetadata = plain.metadata;
-      scrapeStrategy = `plain_${plain.scrape_strategy}`;
-      scrapeWarning = plain.scrape_warning;
-      servedBy = plain.served_by;
-      changeStatus = "new";
-    }
-  }
+  const primaryOptions = {
+    url: scout.url,
+    workloadClass: "scout",
+    timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
+    abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
+    snapshot: snapshotHint,
+    ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
+  } satisfies PrimaryPageScrapeOptions;
+  const fresh = workflowTransport
+    ? await workflowTransport.scrape(primaryOptions, "root")
+    : await scrapePrimaryPageResilient(primaryOptions);
+  detectionResult = fresh;
+  markdown = fresh.markdown ?? "";
+  rawHtml = fresh.rawHtml ?? null;
+  scrapeTitle = fresh.title ?? null;
+  scrapeMetadata = fresh.metadata;
+  scrapeStrategy = fresh.scrape_strategy;
+  scrapeWarning = fresh.scrape_warning;
+  servedBy = fresh.served_by;
+  changeStatus = "new";
 
   const rootStatusError = pageTargetErrorMessage(
     detectionResult?.status_code,
@@ -928,8 +969,7 @@ async function runPipeline(
     );
   }
 
-  // The local per-source canonical baseline is the alert authority for both
-  // legacy and plain providers. Remote changeTracking may still serve the
+  // The local per-source canonical baseline is the sole alert authority.
   const rootComparison: CanonicalContentComparison =
     await compareCanonicalContentForUrl(svc, scout.id, markdown, {
       sourceUrl: scout.url,
@@ -1058,7 +1098,7 @@ async function runPipeline(
   });
 
   if (changeStatus === "same" && !shouldCheckChildren) {
-    if (webCanonicalHashEnabled() && markdown.trim()) {
+    if (markdown.trim()) {
       const contentHash = await sha256Hex(markdown);
       await insertRawCapture(svc, {
         scout,
@@ -1071,9 +1111,6 @@ async function runPipeline(
           ? `page:${runId}:root:${normalizeUrlKey(scout.url)}`
           : null,
       });
-      if (scout.provider !== "firecrawl_plain") {
-        await markScoutCanonicalProvider(svc, scout.id);
-      }
     }
     await mergeRunMetadata(svc, runId, {
       page_scout_coverage: {
@@ -1102,7 +1139,7 @@ async function runPipeline(
   }
 
   if (!markdown.trim()) {
-    throw new ApiError("scrape returned empty markdown", 502);
+    throw new ApiError("page scrape returned empty markdown", 502);
   }
   await markRunStage(svc, runId, "insert_units");
   // Keep the legacy local name for the rest of the pipeline below.
@@ -1467,10 +1504,6 @@ async function runPipeline(
   const summary = alertDiffSummaries.length > 0
     ? alertDiffSummaries.join("\n\n")
     : extractedSummary;
-
-  if (scout.provider !== "firecrawl_plain" && webCanonicalHashEnabled()) {
-    await markScoutCanonicalProvider(svc, scout.id);
-  }
 
   return {
     change_status: scrape.change_status,
@@ -2231,17 +2264,6 @@ async function insertRawCapture(
     .single();
   if (error) throw new Error(error.message);
   return capture.id as string;
-}
-
-async function markScoutCanonicalProvider(
-  svc: SupabaseClient,
-  scoutId: string,
-): Promise<void> {
-  const { error } = await svc
-    .from("scouts")
-    .update({ provider: "firecrawl_plain" })
-    .eq("id", scoutId);
-  if (error) throw new Error(error.message);
 }
 
 /**

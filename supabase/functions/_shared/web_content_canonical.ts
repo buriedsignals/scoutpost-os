@@ -4,10 +4,6 @@ export const WEB_SCOUT_FRESH_SCRAPE_OPTIONS = {
   storeInCache: false,
 };
 
-export function webCanonicalHashEnabled(): boolean {
-  return Deno.env.get("WEB_SCOUT_CANONICAL_HASH_ENABLED") !== "false";
-}
-
 const RELATIVE_TIME_RE =
   /\b(?:updated\s+)?\d+\s+(?:sec(?:ond)?s?|mins?|minutes?|hours?|hrs?|days?)\s+ago\b/gi;
 

@@ -315,7 +315,6 @@ class TestCreateScout:
             "regularity": "daily",
             "time": "10:00",
             "preferred_language": "en",
-            "provider": "firecrawl_plain",
         }
 
         result = await schedule_service.create_scout("user-123", "My Scout", body, mock_cron_schedule)
@@ -332,7 +331,7 @@ class TestCreateScout:
         assert item["scout_type"] == "web"
         assert item["url"] == "https://example.com"
         assert item["criteria"] == "Breaking news"
-        assert item["provider"] == "firecrawl_plain"
+        assert "provider" not in item
         assert item["cron_expression"] == "0 10 * * ? *"
         assert item["timezone"] == "Europe/Oslo"
 

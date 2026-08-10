@@ -369,7 +369,6 @@ export const TOOLS: ToolDef[] = [
         schedule_cron: { type: "string", maxLength: 200 },
         day_number: { type: "integer", minimum: 0, maximum: 31 },
         time: { type: "string", pattern: "^\\d{1,2}:\\d{2}$" },
-        provider: { type: "string" },
         project_id: { type: "string", format: "uuid" },
         source_mode: {
           type: "string",

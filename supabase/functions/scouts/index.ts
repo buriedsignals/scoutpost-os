@@ -60,7 +60,6 @@ import {
   validateTransportBaselineIds,
 } from "../_shared/transport_baseline.ts";
 import { assertTransportEntitled } from "../_shared/transport_entitlement.ts";
-import { doubleProbe, firecrawlScrape } from "../_shared/scrape_firecrawl.ts";
 import { scrape } from "../_shared/scrape.ts";
 import { writeCanonicalBaseline } from "../_shared/canonical_baseline.ts";
 import {
@@ -85,11 +84,11 @@ import { creditsEnabled } from "../_shared/credits.ts";
 import { runSnapshotInBackground } from "../_shared/snapshot_capture.ts";
 import { deleteScoutSnapshots } from "../_shared/snapshot_store.ts";
 import { ApiError } from "../_shared/errors.ts";
+import { WEB_SCOUT_FRESH_SCRAPE_OPTIONS } from "../_shared/web_content_canonical.ts";
 import {
-  WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
-  webCanonicalHashEnabled,
-} from "../_shared/web_content_canonical.ts";
-import { pageScoutMetadataForUrlChange } from "../_shared/subpage-filter.ts";
+  isConfiguredPageUrl,
+  pageScoutMetadataForUrlChange,
+} from "../_shared/subpage-filter.ts";
 import {
   formatSocialBaselinePosts,
   scanSocialBaseline,
@@ -175,7 +174,6 @@ const CreateSchema = z
     // when schedule_cron isn't provided.
     day_number: z.number().int().min(0).max(31).optional(),
     time: TimeStr.optional(),
-    provider: z.string().max(100).optional(),
     project_id: z.string().uuid().optional(),
     priority_sources: z.array(z.string().max(500)).max(100).optional(),
     platform: SocialPlatform.optional(),
@@ -367,7 +365,6 @@ const UpdateSchema = z
     schedule_cron: z.string().min(1).max(200).nullable().optional(),
     day_number: z.number().int().min(0).max(31).optional(),
     time: TimeStr.optional(),
-    provider: z.string().max(100).nullable().optional(),
     project_id: z.string().uuid().nullable().optional(),
     priority_sources: z.array(z.string().max(500)).max(100).nullable()
       .optional(),
@@ -788,9 +785,9 @@ async function establishCivicBaseline(
   // Write a canonical-hash baseline per tracked URL with NO scout_run_id, so
   // the first scheduled run finds an immediately-usable baseline to diff
   // against (schedule-time inserts are always usable). Mirrors
-  // establishWebBaseline; replaces the retired Firecrawl changeTracking prime.
+  // establishWebBaseline; replaces the retired remote baseline prime.
   //
-  // Empty markdown is NON-FATAL: the retired changeTracking prime never
+  // Empty markdown is NON-FATAL: the retired remote baseline prime never
   // checked content, so a tracked page that renders empty markdown (image/JS
   // pages, or onlyMainContent stripping everything) must not block scout
   // creation. Skip its baseline — at run time an empty page classifies "new"
@@ -953,11 +950,12 @@ async function ensureScheduledBaseline(
   svc: ReturnType<typeof getServiceClient>,
   scout: BaselineableScout,
 ): Promise<void> {
-  if (!needsScheduledBaseline(scout) || scout.baseline_established_at) return;
+  if (!needsScheduledBaseline(scout)) return;
   if (scout.type === "web") {
     await ensureWebBaseline(svc, scout);
     return;
   }
+  if (scout.baseline_established_at) return;
   if (scout.type === "social") {
     if (!scout.platform || !scout.profile_handle) {
       throw new ValidationError(
@@ -1433,7 +1431,6 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
         id: data.id,
         user_id: user.id,
         url: data.url,
-        provider: data.provider,
         archive_enabled: data.archive_enabled,
         wayback_enabled: data.wayback_enabled,
         name: data.name,
@@ -1777,7 +1774,6 @@ async function updateScout(
         id: responseScout.id,
         user_id: user.id,
         url: responseScout.url,
-        provider: responseScout.provider,
         archive_enabled: responseScout.archive_enabled,
         wayback_enabled: responseScout.wayback_enabled,
         name: responseScout.name,
@@ -2061,7 +2057,6 @@ interface BaselineableScout {
   // run establishes a silent positional baseline instead).
   type: "web" | "beat" | "social" | "civic" | "transport";
   url?: string | null;
-  provider?: string | null;
   platform?: z.infer<typeof SocialPlatform> | null;
   profile_handle?: string | null;
   tracked_urls?: unknown;
@@ -2100,25 +2095,12 @@ async function testScout(
   }
   const { url, criteria } = parsed.data;
 
-  // Canonical hash mode owns baselines locally; no Firecrawl changeTracking
-  // probe is needed for new Page Scouts.
-  const tag = `${user.id}#preview-${crypto.randomUUID().slice(0, 8)}`.slice(
-    0,
-    128,
-  );
-  const canonicalHashMode = webCanonicalHashEnabled();
-  const probePromise = canonicalHashMode
-    ? Promise.resolve<"firecrawl" | "firecrawl_plain">("firecrawl_plain")
-    : doubleProbe(url, tag).catch(
-      (): "firecrawl" | "firecrawl_plain" => "firecrawl_plain",
-    );
-
   let scraped;
   try {
-    scraped = await firecrawlScrape(
-      url,
-      canonicalHashMode ? WEB_SCOUT_FRESH_SCRAPE_OPTIONS : {},
-    );
+    scraped = await scrape(url, {
+      ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
+      workloadClass: "utility",
+    });
   } catch (e) {
     logEvent({
       level: "warn",
@@ -2132,10 +2114,22 @@ async function testScout(
       summary: "",
       scraper_status: false,
       criteria_status: false,
-      provider: canonicalHashMode ? "firecrawl_plain" : "firecrawl",
     });
   }
-  const provider = await probePromise;
+
+  if (!isConfiguredPageUrl(scraped.source_url ?? url, url)) {
+    logEvent({
+      level: "warn",
+      fn: "scouts",
+      event: "test_scrape_out_of_scope",
+      user_id: user.id,
+    });
+    return jsonOk({
+      summary: "",
+      scraper_status: false,
+      criteria_status: false,
+    });
+  }
 
   const rawMarkdown = (scraped.markdown ?? "").slice(0, TEST_MARKDOWN_MAX);
   const { text: markdown } = compressContext(rawMarkdown);
@@ -2145,7 +2139,6 @@ async function testScout(
       summary: "No readable content at that URL.",
       scraper_status: false,
       criteria_status: false,
-      provider,
     });
   }
 
@@ -2170,7 +2163,6 @@ async function testScout(
       summary: "Page scraped successfully (summary unavailable).",
       scraper_status: true,
       criteria_status: false,
-      provider,
     });
   }
 
@@ -2190,6 +2182,5 @@ async function testScout(
     // the prompt contract; we always set criteria_status=false in that case so
     // the UI doesn't falsely celebrate a match.
     criteria_status: criteria ? !!extraction.matches : false,
-    provider,
   });
 }

@@ -28,7 +28,7 @@ records, or `PROMISE#` records. Those names are migration history.
 ```
 1. Start search
    User enters a council domain.
-   Firecrawl Map discovers candidate URLs.
+   Bounded same-domain discovery finds candidate URLs.
    An LLM ranks likely meeting index pages.
    User selects official tracked URLs.
 
@@ -50,7 +50,8 @@ records, or `PROMISE#` records. Those names are migration history.
 pg_cron/pg_net
   -> execute-scout
   -> civic-execute
-       - scrape tracked listing pages with Firecrawl change tracking
+       - scrape tracked listing pages through the provider port
+       - compare versioned local canonical baselines per tracked URL
        - parse same-domain document links from listing HTML
        - classify meeting documents with keyword stage and LLM fallback
        - enqueue unseen documents in civic_extraction_queue
@@ -59,7 +60,7 @@ pg_cron/pg_net
 civic-extract-worker
   -> claim_civic_queue_item(worker_id, lease) with FOR UPDATE SKIP LOCKED
   -> renew heartbeat around expensive provider work and insert batches
-  -> parse PDF/HTML via Firecrawl
+  -> parse PDF/HTML through the document parse port
   -> store raw_capture with 30-day expiry
   -> extract and deterministically validate accountability candidates
   -> upsert canonical information_units / unit_occurrences
@@ -117,7 +118,7 @@ operational queries.
 
 | Operation           | Credits | Notes                                                                                                               |
 | ------------------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
-| Discovery           | 10      | Map API plus LLM ranking.                                                                                           |
+| Discovery           | 10      | Same-domain URL discovery plus LLM ranking.                                                                         |
 | Test extraction     | 0       | Validates and previews only.                                                                                        |
 | Scheduled execution | 10      | Weekly/monthly only. Refunds when no documents are queued because tracked pages are unchanged or already processed. |
 

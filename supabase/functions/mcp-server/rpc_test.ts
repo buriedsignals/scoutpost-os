@@ -21,6 +21,15 @@ Deno.test("mcp parity: page-archive retrieval is exposed as agent tools", () => 
   assertEquals(names.includes("get_snapshot_url"), true);
 });
 
+Deno.test("mcp create_scout does not advertise retired Page provider selection", () => {
+  const tool = TOOLS.find((candidate) => candidate.name === "create_scout");
+  assertExists(tool);
+  const properties = (tool.inputSchema as {
+    properties?: Record<string, unknown>;
+  }).properties ?? {};
+  assertEquals("provider" in properties, false);
+});
+
 Deno.test("mcp parity: create/update_scout advertise the archive + wayback toggle", () => {
   for (const name of ["create_scout", "update_scout"]) {
     const tool = TOOLS.find((t) => t.name === name);

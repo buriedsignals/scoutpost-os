@@ -8,10 +8,7 @@
  *   deno run --allow-env --allow-net scripts/audits/audit-firecrawl-endpoints.ts
  */
 
-import {
-  firecrawlMap,
-  firecrawlSearch,
-} from "../../supabase/functions/_shared/scrape_firecrawl.ts";
+import { firecrawlSearch } from "../../supabase/functions/_shared/scrape_firecrawl.ts";
 import type { SearchHit } from "../../supabase/functions/_shared/scrape_types.ts";
 import { beatCandidateRejectReason } from "../../supabase/functions/_shared/beat_pipeline.ts";
 import { isCivicDirectDocumentUrl } from "../../supabase/functions/_shared/civic_links.ts";
@@ -98,15 +95,6 @@ function dedupeHits(hits: SearchHit[]): SearchHit[] {
     out.push(hit);
   }
   return out;
-}
-
-function summarizeUrls(
-  scenario: string,
-  endpoint: string,
-  urls: string[],
-): AuditRow {
-  const hits = urls.map((url) => ({ url }));
-  return summarizeHits(scenario, endpoint, hits);
 }
 
 function printRows(rows: AuditRow[]): void {
@@ -197,17 +185,5 @@ const civicPdfSearch = await firecrawlSearch(
 rows.push(
   summarizeHits("pontresina-civic", "search web PDF query", civicPdfSearch),
 );
-
-const civicMap = await firecrawlMap("https://www.gemeinde-pontresina.ch", {
-  limit: 100,
-  includeSubdomains: true,
-  search: "protokoll gemeinderat sitzung pdf",
-  sitemap: "include",
-  ignoreQueryParameters: true,
-  country: "CH",
-  languages: ["de-CH"],
-  timeoutMs: 60_000,
-});
-rows.push(summarizeUrls("pontresina-civic", "map search", civicMap));
 
 printRows(rows);

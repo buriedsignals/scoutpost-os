@@ -51,7 +51,7 @@ schedule_cron         TEXT  -- cron expression
 schedule_timezone     TEXT  -- default 'UTC'
 topic                 TEXT  -- organizational tag
 url                   TEXT  -- web scouts only
-provider              TEXT  -- 'firecrawl' | 'firecrawl_plain' (web only)
+provider              TEXT  -- deprecated rollback sentinel; current runtime ignores it
 source_mode           TEXT  -- 'reliable' | 'niche' (beat only)
 excluded_domains      TEXT[]
 platform              TEXT  -- 'instagram' | 'x' | 'facebook' (social only)

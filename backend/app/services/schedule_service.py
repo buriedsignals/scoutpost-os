@@ -113,8 +113,6 @@ class ScheduleService:
         if scout_type == "web":
             item["url"] = body.get("url")
             item["criteria"] = body.get("criteria")
-            if body.get("provider"):
-                item["provider"] = body["provider"]
             if body.get("location"):
                 item["location"] = body.get("location")
             if body.get("topic"):
@@ -168,7 +166,6 @@ class ScheduleService:
             "topic": body.get("topic"),
             "criteria": body.get("criteria"),
             "preferred_language": body.get("preferred_language", "en"),
-            "provider": body.get("provider"),
             "excluded_domains": body.get("excluded_domains"),
             "priority_sources": body.get("priority_sources"),
             "source_mode": body.get("source_mode"),

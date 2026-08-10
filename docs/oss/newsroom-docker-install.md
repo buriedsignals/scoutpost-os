@@ -17,7 +17,7 @@ Scoutpost self-hosting uses this stack:
 | Scheduling       | Supabase/Postgres cron  | Recurring scout runs                                   |
 | Auth             | Supabase Auth           | Newsroom user accounts and domain allowlist            |
 | AI extraction    | OpenRouter → Google Vertex | Gemini summaries, structured extraction, classification |
-| Web rendering    | Crawl4AI + Firecrawl Cloud | Crawl4AI primary rendering; Firecrawl Civic/legacy Page change tracking and classified anti-bot fallback |
+| Web rendering    | Crawl4AI + Firecrawl Cloud | Crawl4AI primary rendering; Firecrawl classified anti-bot fallback |
 | Beat retrieval   | Firecrawl Cloud         | Beat Scout discovery through `/v2/search`              |
 | Social scraping  | Apify                   | Social scout actor runs                                |
 | Email            | Resend                  | Scout notifications                                    |

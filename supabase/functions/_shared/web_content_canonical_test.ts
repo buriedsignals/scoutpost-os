@@ -9,22 +9,10 @@ import {
   WEB_CANONICALIZER_VERSION,
   WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
   webCanonicalHash,
-  webCanonicalHashEnabled,
 } from "./web_content_canonical.ts";
 
 Deno.test("web canonicalizer exposes stable version", () => {
   assertEquals(WEB_CANONICALIZER_VERSION, "web-md-v1");
-});
-
-Deno.test("web canonical hash mode is enabled unless explicitly disabled", () => {
-  Deno.env.delete("WEB_SCOUT_CANONICAL_HASH_ENABLED");
-  assertEquals(webCanonicalHashEnabled(), true);
-  Deno.env.set("WEB_SCOUT_CANONICAL_HASH_ENABLED", "false");
-  try {
-    assertEquals(webCanonicalHashEnabled(), false);
-  } finally {
-    Deno.env.delete("WEB_SCOUT_CANONICAL_HASH_ENABLED");
-  }
 });
 
 Deno.test("web scout fresh scrape options bypass Firecrawl cache", () => {

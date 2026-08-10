@@ -19,7 +19,7 @@
  *   GET /civic/runs?scout_id=<uuid>
  *   GET /civic/runs/:run_id
  *
- * `discover` — Firecrawl /map on the root domain, then OpenRouter ranks up to
+ * `discover` — in-house sitemap/link discovery, then OpenRouter ranks up to
  * 5 candidate INDEX pages likely to list meeting protocols. Discovery
  * explicitly prefers listing pages like `/urversammlung/protokoll` over
  * direct `/pdf/...` document URLs.

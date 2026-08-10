@@ -43,14 +43,12 @@ export function crawlerPipelineForScoutType(type: string): CrawlerPipeline {
   throw new Error("scout type has no crawler pipeline");
 }
 
-/** First Page canary excludes legacy changeTracking and archive capture. */
+/** Page Workflows do not yet run the post-finalization archive capture. */
 export function pageWorkflowEligible(scout: {
   type: string;
-  provider?: string | null;
   archive_enabled?: boolean | null;
 }): boolean {
-  return scout.type === "web" && scout.provider === "firecrawl_plain" &&
-    scout.archive_enabled !== true;
+  return scout.type === "web" && scout.archive_enabled !== true;
 }
 
 export function selectScoutCrawlerBackend(
@@ -58,7 +56,6 @@ export function selectScoutCrawlerBackend(
     id: string;
     user_id: string;
     type: string;
-    provider?: string | null;
     archive_enabled?: boolean | null;
   },
   env: EnvReader = (name) => Deno.env.get(name),

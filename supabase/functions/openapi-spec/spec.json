@@ -2063,9 +2063,6 @@
             "type": "string",
             "pattern": "^\\d{1,2}:\\d{2}$"
           },
-          "provider": {
-            "type": "string"
-          },
           "project_id": {
             "type": "string",
             "format": "uuid"

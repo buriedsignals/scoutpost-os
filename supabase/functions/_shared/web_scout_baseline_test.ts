@@ -51,7 +51,7 @@ function createFakeSvc() {
   };
 }
 
-Deno.test("ensureWebBaseline stores only baseline state for firecrawl_plain scouts", async () => {
+Deno.test("ensureWebBaseline stores canonical baseline state through the scrape port", async () => {
   const { svc, inserts, updates, rpcs } = createFakeSvc();
 
   const changed = await ensureWebBaseline(
@@ -60,12 +60,9 @@ Deno.test("ensureWebBaseline stores only baseline state for firecrawl_plain scou
       id: "scout-1",
       user_id: "user-1",
       url: "https://example.com",
-      provider: "firecrawl_plain",
       baseline_established_at: null,
     },
     {
-      // firecrawl_plain enters the canonical-hash branch, now routed through
-      // the scrape() port (crawl4ai in prod; Firecrawl anti-bot fallback).
       scrape: async () => ({
         markdown:
           "Initial baseline body\n\n[Existing child](https://example.com/news/existing)",
@@ -73,12 +70,7 @@ Deno.test("ensureWebBaseline stores only baseline state for firecrawl_plain scou
         fetched_at: "2026-04-24T00:00:00Z",
         served_by: "crawl4ai" as const,
       }),
-      doubleProbe: async () => "firecrawl_plain",
-      firecrawlScrape: async () => ({
-        markdown: "Initial baseline body",
-        source_url: "https://example.com",
-        fetched_at: "2026-04-24T00:00:00Z",
-      }),
+      hasCurrentCanonicalBaseline: async () => false,
       now: () => "2026-04-24T00:00:00Z",
     },
   );
@@ -113,8 +105,14 @@ Deno.test("ensureWebBaseline no-ops when the scout already has a baseline", asyn
       id: "scout-1",
       user_id: "user-1",
       url: "https://example.com",
-      provider: "firecrawl",
       baseline_established_at: "2026-04-20T00:00:00Z",
+    },
+    {
+      scrape: async () => {
+        throw new Error("scrape must not run");
+      },
+      hasCurrentCanonicalBaseline: async () => true,
+      now: () => "2026-04-24T00:00:00Z",
     },
   );
 
@@ -123,52 +121,100 @@ Deno.test("ensureWebBaseline no-ops when the scout already has a baseline", asyn
   assertEquals(updates.length, 0);
 });
 
+Deno.test("ensureWebBaseline reuses a valid capture when readiness timestamp is missing", async () => {
+  const { svc, inserts, updates } = createFakeSvc();
+  const changed = await ensureWebBaseline(
+    svc as unknown as SupabaseClient,
+    {
+      id: "scout-ready",
+      user_id: "user-1",
+      url: "https://example.com",
+      baseline_established_at: null,
+    },
+    {
+      scrape: async () => {
+        throw new Error("valid capture must not trigger a network fetch");
+      },
+      hasCurrentCanonicalBaseline: async () => true,
+      now: () => "2026-04-24T00:00:00Z",
+    },
+  );
+
+  assertEquals(changed, false);
+  assertEquals(inserts.length, 0);
+  assertEquals(updates.map((entry) => entry.table), ["scouts"]);
+  assertEquals(
+    (updates[0].payload as Record<string, unknown>).baseline_established_at,
+    "2026-04-24T00:00:00Z",
+  );
+});
+
+Deno.test("ensureWebBaseline repairs a timestamp without a valid canonical capture", async () => {
+  const { svc, inserts, updates } = createFakeSvc();
+  const changed = await ensureWebBaseline(
+    svc as unknown as SupabaseClient,
+    {
+      id: "scout-stale",
+      user_id: "user-1",
+      url: "https://example.com",
+      baseline_established_at: "2026-04-20T00:00:00Z",
+    },
+    {
+      scrape: async () => ({
+        markdown: "Repaired baseline",
+        source_url: "https://example.com",
+        fetched_at: "2026-04-24T00:00:00Z",
+        served_by: "crawl4ai" as const,
+      }),
+      hasCurrentCanonicalBaseline: async () => false,
+      now: () => "2026-04-24T00:00:00Z",
+    },
+  );
+  assertEquals(changed, true);
+  assertEquals(inserts.map((entry) => entry.table), ["raw_captures"]);
+  assertEquals(updates.map((entry) => entry.table), ["scouts"]);
+});
+
 Deno.test("maybeInitializeMissingWebBaselineRun short-circuits first run to baseline-only", async () => {
   const { svc, inserts, updates, rpcs } = createFakeSvc();
 
-  Deno.env.set("WEB_SCOUT_CANONICAL_HASH_ENABLED", "false");
-  let result;
-  try {
-    result = await maybeInitializeMissingWebBaselineRun(
-      svc as unknown as SupabaseClient,
-      {
-        id: "scout-1",
-        user_id: "user-1",
-        url: "https://example.com",
-        provider: "firecrawl",
-        baseline_established_at: null,
-        name: "Planning Board",
-      },
-      "run-1",
-      {
-        // Canonical hash disabled + provider 'firecrawl' → legacy doubleProbe
-        // branch; scrape() is present for the type but never called here.
-        scrape: async () => ({
-          markdown: "",
-          source_url: "https://example.com",
-          fetched_at: "2026-04-24T00:00:00Z",
-          served_by: "firecrawl" as const,
-        }),
-        doubleProbe: async () => "firecrawl",
-        firecrawlScrape: async () => ({
-          markdown: "",
-          source_url: "https://example.com",
-          fetched_at: "2026-04-24T00:00:00Z",
-        }),
-        now: () => "2026-04-24T00:00:00Z",
-      },
-    );
-  } finally {
-    Deno.env.delete("WEB_SCOUT_CANONICAL_HASH_ENABLED");
-  }
+  const result = await maybeInitializeMissingWebBaselineRun(
+    svc as unknown as SupabaseClient,
+    {
+      id: "scout-1",
+      user_id: "user-1",
+      url: "https://example.com",
+      baseline_established_at: null,
+      name: "Planning Board",
+    },
+    "run-1",
+    {
+      scrape: async () => ({
+        markdown: "Fresh canonical baseline",
+        source_url: "https://example.com",
+        fetched_at: "2026-04-24T00:00:00Z",
+        served_by: "crawl4ai" as const,
+      }),
+      hasCurrentCanonicalBaseline: async () => false,
+      now: () => "2026-04-24T00:00:00Z",
+    },
+  );
 
   assertEquals(result?.articles_count, 0);
   assertEquals(result?.merged_existing_count, 0);
   assertEquals(result?.criteria_ran, false);
   assertEquals(result?.baseline_initialized, true);
-  assertEquals(inserts.length, 0);
-  assertEquals(updates.map((entry) => entry.table), ["scouts", "scout_runs"]);
-  assertEquals(rpcs.map((entry) => entry.name), ["reset_scout_failures"]);
+  assertEquals(result?.served_by, "crawl4ai");
+  assertEquals(inserts.map((entry) => entry.table), ["raw_captures"]);
+  assertEquals(updates.map((entry) => entry.table), ["scouts"]);
+  assertEquals(
+    (inserts[0].payload as Record<string, unknown>).scout_run_id,
+    "run-1",
+  );
+  assertEquals(rpcs.map((entry) => entry.name), [
+    "set_page_scout_initial_candidates_if_absent",
+    "reset_scout_failures",
+  ]);
 });
 
 Deno.test("PA-ROOT-001 archive-enabled creation snapshot keeps baseline kind and null run/capture provenance", async () => {
@@ -188,12 +234,6 @@ Deno.test("PA-ROOT-001 archive-enabled creation snapshot keeps baseline kind and
         source_url: "https://example.com/news/",
         fetched_at: "2026-07-24T00:00:00Z",
         served_by: "crawl4ai" as const,
-      }),
-      doubleProbe: async () => "firecrawl_plain",
-      firecrawlScrape: async () => ({
-        markdown: "unused",
-        source_url: "https://example.com/news/",
-        fetched_at: "2026-07-24T00:00:00Z",
       }),
       now: () => "2026-07-24T00:00:00Z",
       resolveArchiveGate: async () => true,
@@ -224,7 +264,6 @@ Deno.test("baseline creation rejects an effective URL outside the configured pag
           id: "scout-redirect",
           user_id: "user-redirect",
           url: "https://example.com/news/",
-          provider: "firecrawl_plain",
         },
         {
           scrape: async () => ({
@@ -233,12 +272,7 @@ Deno.test("baseline creation rejects an effective URL outside the configured pag
             fetched_at: "2026-07-24T00:00:00Z",
             served_by: "crawl4ai" as const,
           }),
-          doubleProbe: async () => "firecrawl_plain",
-          firecrawlScrape: async () => ({
-            markdown: "unused",
-            source_url: "https://example.com/news/",
-            fetched_at: "2026-07-24T00:00:00Z",
-          }),
+          hasCurrentCanonicalBaseline: async () => false,
           now: () => "2026-07-24T00:00:00Z",
         },
       ),
@@ -267,12 +301,6 @@ Deno.test("baseline archive detection outside the configured page stores and tru
         source_url: "https://example.com/events/",
         fetched_at: "2026-07-24T00:00:00Z",
         served_by: "crawl4ai" as const,
-      }),
-      doubleProbe: async () => "firecrawl_plain",
-      firecrawlScrape: async () => ({
-        markdown: "unused",
-        source_url: "https://example.com/news/",
-        fetched_at: "2026-07-24T00:00:00Z",
       }),
       now: () => "2026-07-24T00:00:00Z",
       resolveArchiveGate: async () => true,
@@ -313,12 +341,6 @@ Deno.test("baseline archive capture failure remains non-fatal", async () => {
         source_url: "https://example.com/news/",
         fetched_at: "2026-07-24T00:00:00Z",
         served_by: "crawl4ai" as const,
-      }),
-      doubleProbe: async () => "firecrawl_plain",
-      firecrawlScrape: async () => ({
-        markdown: "unused",
-        source_url: "https://example.com/news/",
-        fetched_at: "2026-07-24T00:00:00Z",
       }),
       now: () => "2026-07-24T00:00:00Z",
       resolveArchiveGate: async () => true,

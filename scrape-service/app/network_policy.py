@@ -55,7 +55,14 @@ def resolve_global(host: str, port: int) -> str:
         raise UnsafeDestinationError("unresolvable host") from exc
     if not addresses or any(not is_public_address(address) for address in addresses):
         raise UnsafeDestinationError("non-public destination")
-    return min(addresses)
+    # Render containers have IPv4 egress but may receive both A and AAAA
+    # answers. Pin a public IPv4 address when one exists; an IPv6-first lexical
+    # choice otherwise produces noisy ENETUNREACH failures before Chromium
+    # retries another connection.
+    return min(
+        addresses,
+        key=lambda address: (ipaddress.ip_address(address).version != 4, address),
+    )
 
 
 async def _relay(  # pragma: no cover - exercised by live Gate B network probes
@@ -129,6 +136,13 @@ async def _proxy_client(
         if stats is not None:
             stats.blocked += 1
         reply.write(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+        await reply.drain()
+    except OSError:
+        # A public destination can still be unreachable. Keep that ordinary
+        # transport failure contained inside the proxy callback rather than
+        # leaking an unhandled asyncio exception or counting it as an SSRF
+        # policy block.
+        reply.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
         await reply.drain()
     finally:
         if upstream is not None:

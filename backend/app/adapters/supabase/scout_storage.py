@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 SCOUT_COLUMNS = """
     id, user_id, name, type, criteria, preferred_language,
     regularity, schedule_cron, schedule_timezone, topic,
-    url, provider, source_mode, excluded_domains, priority_sources,
+    url, source_mode, excluded_domains, priority_sources,
     platform, profile_handle, monitor_mode, track_removals,
     root_domain, tracked_urls, processed_pdf_urls,
     location, config, is_active, consecutive_failures,
@@ -32,7 +32,7 @@ SCOUT_COLUMNS = """
 SCOUT_INSERT_FIELDS = [
     "name", "type", "criteria", "preferred_language",
     "regularity", "schedule_cron", "schedule_timezone", "topic",
-    "url", "provider", "source_mode", "excluded_domains", "priority_sources",
+    "url", "source_mode", "excluded_domains", "priority_sources",
     "platform", "profile_handle", "monitor_mode", "track_removals",
     "root_domain", "tracked_urls", "processed_pdf_urls",
     "location", "config",

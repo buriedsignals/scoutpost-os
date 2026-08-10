@@ -1,7 +1,9 @@
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -135,6 +137,61 @@ def test_scrape_blocks_private_addresses(app, monkeypatch):
     )
     assert res.status_code == 422
     assert res.json()["detail"]["error"] == "private_address"
+
+
+def test_rejects_private_effective_url(app, monkeypatch):
+    def resolve(host, port):
+        address = "93.184.216.34" if host == "example.org" else "169.254.169.254"
+        return [(2, 1, 6, "", (address, 0))]
+
+    monkeypatch.setattr(pdfparse.socket, "getaddrinfo", resolve)
+    app.state.scraper = FakeScraper(
+        result=crawl_result(url="http://169.254.169.254/latest")
+    )
+    res = TestClient(app).post(
+        "/scrape", json={"url": "https://example.org"}, headers=auth_headers()
+    )
+    assert res.status_code == 422
+    assert res.json()["detail"]["error"] == "private_address"
+
+
+def test_scrape_rejects_unresolvable_effective_url(app, monkeypatch):
+    def resolve(host, port):
+        if host == "example.org":
+            return [(2, 1, 6, "", ("93.184.216.34", 0))]
+        raise OSError("Name or service not known")
+
+    monkeypatch.setattr(pdfparse.socket, "getaddrinfo", resolve)
+    app.state.scraper = FakeScraper(
+        result=crawl_result(url="https://redirect.invalid/final")
+    )
+    res = TestClient(app).post(
+        "/scrape", json={"url": "https://example.org"}, headers=auth_headers()
+    )
+    assert res.status_code == 422
+    assert "cannot resolve host" in res.json()["detail"]
+
+
+def test_lifespan_pins_browser_egress_through_guarded_proxy(monkeypatch):
+    @asynccontextmanager
+    async def fake_guarded_egress():
+        yield SimpleNamespace(
+            proxy_url="http://127.0.0.1:43123",
+            stats=SimpleNamespace(),
+        )
+
+    monkeypatch.setattr(main, "guarded_egress", fake_guarded_egress)
+    app = create_app(make_settings())
+    with TestClient(app):
+        assert isinstance(app.state.scraper, Scraper)
+        assert app.state.scraper._proxy_server.startswith("http://127.0.0.1:")
+
+
+def test_lifespan_preserves_private_address_opt_out():
+    app = create_app(make_settings(block_private_addresses=False))
+    with TestClient(app):
+        assert isinstance(app.state.scraper, Scraper)
+        assert app.state.scraper._proxy_server is None
 
 
 def test_scrape_rejects_unresolvable_host(app, monkeypatch):

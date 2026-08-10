@@ -93,7 +93,6 @@ describe('webhookClient.testScraper', () => {
 			summary: 'Page content changed',
 			scraper_status: true,
 			criteria_status: true,
-			provider: 'firecrawl',
 			content_hash: 'abc123'
 		});
 		vi.stubGlobal('fetch', fetchSpy);
@@ -103,7 +102,6 @@ describe('webhookClient.testScraper', () => {
 		expect(result.summary).toBe('Page content changed');
 		expect(result.scraper_status).toBe(true);
 		expect(result.criteria_status).toBe(true);
-		expect(result.provider).toBe('firecrawl');
 		expect(result.content_hash).toBe('abc123');
 	});
 });

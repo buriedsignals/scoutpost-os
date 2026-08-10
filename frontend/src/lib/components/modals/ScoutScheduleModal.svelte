@@ -23,7 +23,6 @@
 	// Page Scout context (web)
 	export let url: string = '';
 	export let webCriteria: string = '';
-	export let provider: string | undefined = undefined;
 	export let scoutName: string = '';
 	export let contentHash: string | undefined = undefined;
 
@@ -294,7 +293,6 @@
 				location: selectedLocation || undefined,
 				topic: topicInput.trim() || undefined,
 				content_hash: contentHash,
-				provider,
 				archive_enabled: archiveEnabled,
 				wayback_enabled: waybackEnabled
 			});

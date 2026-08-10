@@ -82,8 +82,6 @@ class MonitoringScheduleRequest(BaseModel):
     source_mode: Optional[str] = Field(default="niche", pattern=r"^(reliable|niche)$", description="Source mode for beat scouts")
     excluded_domains: Optional[list[str]] = Field(default=None, description="Per-scout domain blacklist for beat scouts")
     priority_sources: Optional[list[str]] = Field(default=None, description="Domains to boost in AI filter ranking for beat scouts")
-    # Provider detection (web scouts)
-    provider: Optional[str] = Field(default=None, pattern=r"^(firecrawl|firecrawl_plain)$", description="Detected scraping provider for web scouts")
     # Social scout fields
     platform: Optional[str] = None
     profile_handle: Optional[str] = None

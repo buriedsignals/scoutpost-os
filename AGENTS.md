@@ -402,9 +402,8 @@ directly from the public mirror with Deno.
 
 **Page Scout change detection:** Uses fresh Crawl4AI scrape output (with a
 classified Firecrawl Cloud anti-bot fallback) plus a local, versioned canonical
-markdown hash stored in `raw_captures`. Legacy Firecrawl `changeTracking`
-remains only as a migration path for older scouts. See
-`docs/features/web-scouts.md`.
+markdown hash stored in `raw_captures`. Firecrawl remote change tracking and
+per-scout renderer selection are not supported. See `docs/features/web-scouts.md`.
 
 **Page Scout first-run extraction:** Users control whether to import existing page data via "Import current page data" toggle. OFF (default) establishes baseline only; ON extracts content to knowledge base.
 

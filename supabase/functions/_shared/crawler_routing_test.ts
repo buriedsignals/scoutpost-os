@@ -15,11 +15,10 @@ Deno.test("workflow routing is pinned off unless the master switch is exact", ()
   assertEquals(selectCrawlerBackend("scout", "page", env), "service");
 });
 
-Deno.test("first Page canary excludes legacy and archive-enabled Scouts", () => {
+Deno.test("Page workflow eligibility depends on type and archive capture", () => {
   assertEquals(
     pageWorkflowEligible({
       type: "web",
-      provider: "firecrawl_plain",
       archive_enabled: false,
     }),
     true,
@@ -27,15 +26,6 @@ Deno.test("first Page canary excludes legacy and archive-enabled Scouts", () => 
   assertEquals(
     pageWorkflowEligible({
       type: "web",
-      provider: null,
-      archive_enabled: false,
-    }),
-    false,
-  );
-  assertEquals(
-    pageWorkflowEligible({
-      type: "web",
-      provider: "firecrawl_plain",
       archive_enabled: true,
     }),
     false,
@@ -76,7 +66,6 @@ Deno.test("operator can force an eligible user's Page Scouts into an open canary
       id: "scout-outside-random-cohort",
       user_id: targetUser,
       type: "web",
-      provider: "firecrawl_plain",
       archive_enabled: false,
     }, env),
     "workflow",
@@ -89,7 +78,6 @@ Deno.test("forced users still fail closed outside the Page canary boundary", () 
     id: "scout",
     user_id: targetUser,
     type: "web",
-    provider: "firecrawl_plain",
     archive_enabled: false,
   };
   const env = (overrides: Record<string, string>) => (name: string) =>
@@ -116,10 +104,6 @@ Deno.test("forced users still fail closed outside the Page canary boundary", () 
   );
   assertEquals(
     selectScoutCrawlerBackend({ ...scout, archive_enabled: true }, env({})),
-    "service",
-  );
-  assertEquals(
-    selectScoutCrawlerBackend({ ...scout, provider: null }, env({})),
     "service",
   );
 });

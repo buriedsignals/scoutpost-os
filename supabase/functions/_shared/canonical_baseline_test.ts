@@ -5,6 +5,7 @@ import {
 import type { SupabaseClient } from "./supabase.ts";
 import {
   compareCanonicalContentForUrl,
+  hasCurrentCanonicalBaselineForUrl,
   hashChangeStatusForUrl,
   writeCanonicalBaseline,
 } from "./canonical_baseline.ts";
@@ -26,6 +27,8 @@ interface Capture {
 function fakeSvc(opts: {
   captures?: Capture[];
   runs?: Array<{ id: string; status: string }>;
+  captureDataNull?: boolean;
+  runsDataNull?: boolean;
   captureError?: boolean;
   runsError?: boolean;
   insertError?: boolean;
@@ -69,13 +72,22 @@ function fakeSvc(opts: {
                     c.source_url === this._eq.source_url
                   );
                 }
+                if (this._eq.canonicalizer_version) {
+                  rows = rows.filter((c) =>
+                    c.canonicalizer_version ===
+                      this._eq.canonicalizer_version
+                  );
+                }
                 for (const col of this._notNull) {
                   rows = rows.filter(
                     (c) =>
                       (c as unknown as Record<string, unknown>)[col] != null,
                   );
                 }
-                return Promise.resolve({ data: rows, error: null });
+                return Promise.resolve({
+                  data: opts.captureDataNull ? null : rows,
+                  error: null,
+                });
               },
             };
             return builder;
@@ -107,7 +119,10 @@ function fakeSvc(opts: {
                     error: { message: "runs boom" },
                   });
                 }
-                return Promise.resolve({ data: opts.runs ?? [], error: null });
+                return Promise.resolve({
+                  data: opts.runsDataNull ? null : opts.runs ?? [],
+                  error: null,
+                });
               },
             };
           },
@@ -126,6 +141,125 @@ async function canonicalOf(md: string): Promise<string> {
 Deno.test("hashChangeStatusForUrl returns new on empty markdown", async () => {
   const { svc } = fakeSvc({});
   assertEquals(await hashChangeStatusForUrl(svc, "s1", "   "), "new");
+});
+
+Deno.test("current canonical baseline accepts a schedule-time capture", async () => {
+  const { svc } = fakeSvc({
+    captures: [{
+      id: "baseline",
+      scout_run_id: null,
+      content_sha256: null,
+      content_md: "baseline",
+      canonical_content_sha256: "hash",
+      canonicalizer_version: WEB_CANONICALIZER_VERSION,
+      source_url: "https://example.test/page",
+    }],
+  });
+  assertEquals(
+    await hasCurrentCanonicalBaselineForUrl(
+      svc,
+      "s1",
+      "https://example.test/page",
+    ),
+    true,
+  );
+});
+
+Deno.test("current canonical baseline rejects a missing capture", async () => {
+  assertEquals(
+    await hasCurrentCanonicalBaselineForUrl(
+      fakeSvc({ captures: [] }).svc,
+      "s1",
+      "https://example.test/page",
+    ),
+    false,
+  );
+  assertEquals(
+    await hasCurrentCanonicalBaselineForUrl(
+      fakeSvc({ captureDataNull: true }).svc,
+      "s1",
+      "https://example.test/page",
+    ),
+    false,
+  );
+});
+
+Deno.test("current canonical baseline requires a successful linked run", async () => {
+  const capture: Capture = {
+    id: "baseline",
+    scout_run_id: "run-1",
+    content_sha256: null,
+    content_md: "baseline",
+    canonical_content_sha256: "hash",
+    canonicalizer_version: WEB_CANONICALIZER_VERSION,
+    source_url: "https://example.test/page",
+  };
+  const successful = fakeSvc({
+    captures: [capture],
+    runs: [{ id: "run-1", status: "success" }],
+  });
+  assertEquals(
+    await hasCurrentCanonicalBaselineForUrl(
+      successful.svc,
+      "s1",
+      "https://example.test/page",
+    ),
+    true,
+  );
+
+  const failed = fakeSvc({
+    captures: [capture],
+    runs: [{ id: "run-1", status: "error" }],
+  });
+  assertEquals(
+    await hasCurrentCanonicalBaselineForUrl(
+      failed.svc,
+      "s1",
+      "https://example.test/page",
+    ),
+    false,
+  );
+  const missingRuns = fakeSvc({ captures: [capture], runsDataNull: true });
+  assertEquals(
+    await hasCurrentCanonicalBaselineForUrl(
+      missingRuns.svc,
+      "s1",
+      "https://example.test/page",
+    ),
+    false,
+  );
+});
+
+Deno.test("current canonical baseline fails closed on lookup errors", async () => {
+  const capture: Capture = {
+    id: "baseline",
+    scout_run_id: "run-1",
+    content_sha256: null,
+    content_md: "baseline",
+    canonical_content_sha256: "hash",
+    canonicalizer_version: WEB_CANONICALIZER_VERSION,
+    source_url: "https://example.test/page",
+  };
+  await assertRejects(
+    () =>
+      hasCurrentCanonicalBaselineForUrl(
+        fakeSvc({ captureError: true }).svc,
+        "s1",
+        "https://example.test/page",
+      ),
+    Error,
+    "canonical baseline lookup failed",
+  );
+  await assertRejects(
+    () =>
+      hasCurrentCanonicalBaselineForUrl(
+        fakeSvc({ captures: [capture], runsError: true }).svc,
+        "s1",
+        "https://example.test/page",
+      ),
+    Error,
+    "canonical baseline run-status lookup failed",
+  );
 });
 
 Deno.test("hashChangeStatusForUrl returns new when no baseline exists", async () => {

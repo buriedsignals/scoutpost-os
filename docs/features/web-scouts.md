@@ -18,25 +18,20 @@ Uses the configured scrape port (Crawl4AI with the existing Firecrawl anti-bot
 fallback), but Page Scout change detection is owned locally by Scoutpost:
 fresh markdown is canonicalized, version-hashed, and compared against the
 latest successful per-source `raw_captures` baseline. Firecrawl
-`changeTracking` remains only a legacy fetch/migration path; its remote change
-decision is not authoritative.
+Cloud remains available only through the classified anti-bot fallback or the
+operator-wide `SCRAPE_PROVIDER=firecrawl` compatibility switch.
 
-## Change Detection Provider
+## Change Detection and Renderer Attribution
 
-The live Page Scout provider values are:
-
-| Provider | Method | Change Detection | When Used |
-|----------|--------|------------------|-----------|
-| `firecrawl_plain` | Fresh provider-port scrape (cache bypassed) | Local canonical markdown SHA-256 | Default for new Page Scouts |
-| `firecrawl` | Legacy Firecrawl `changeTracking` fetch format | Local canonical markdown SHA-256 | Legacy scouts during migration |
-
-The `firecrawl_plain` name is historical. It means “fresh scrape through the
-provider port + Scoutpost local hash detector,” regardless of which configured
-backend actually served the page.
+Page Scouts have one change-detection strategy: a fresh provider-port scrape
+followed by a local canonical-hash comparison. There is no per-scout provider
+setting. The configured primary renderer is an operator concern, while the
+renderer that actually served a fetch is recorded per run as
+`scrape_provider_served`.
 
 ### Canonical Hashing
 
-Raw Firecrawl markdown is not hashed directly for change detection. The Page
+Provider markdown is not hashed directly for change detection. The Page
 Scout canonicalizer removes known scrape-noise before hashing:
 
 - image markdown and image CDN URL churn
@@ -48,11 +43,6 @@ It preserves ordinary text, headings, publication dates, and article links. The
 canonicalizer is versioned (`web-md-v1`) and stored alongside each baseline in
 `raw_captures.canonicalizer_version`.
 
-Firecrawl `changeTracking` is still supported for existing `provider =
-"firecrawl"` scouts. On a successful run, those scouts write a local canonical
-baseline and switch to `firecrawl_plain`. Failed Firecrawl changeTracking runs
-do not silently migrate.
-
 ## Execution Pipeline
 
 ```
@@ -63,12 +53,8 @@ do not silently migrate.
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  Stage 1: Change Detection                                      │
-│  ├─ If provider = "firecrawl_plain":                            │
-│  │   ├─ Fresh Firecrawl scrape (cache bypassed)                 │
-│  │   └─ Canonical SHA-256 comparison against raw_captures       │
-│  ├─ If provider = "firecrawl":                                  │
-│  │   ├─ Legacy Firecrawl changeTracking scrape                  │
-│  │   └─ On success, write local canonical baseline + migrate    │
+│  ├─ Fresh provider-port scrape (cache bypassed)                 │
+│  ├─ Canonical SHA-256 comparison against raw_captures           │
 │  └─ Returns: "new" | "changed" | "same"                         │
 │           │                                                     │
 │           │ If root is same and no known/discovered children →  │
@@ -104,7 +90,7 @@ do not silently migrate.
 |------|----------|---------|
 | `scout-web-execute/index.ts` | `supabase/functions/` | Main scheduled/run-now Page Scout pipeline |
 | `scouts/index.ts` | `supabase/functions/` | Scout CRUD, preview/test, run, pause/resume |
-| `_shared/scrape_firecrawl.ts` | `supabase/functions/` | Firecrawl scrape wrapper |
+| `_shared/scrape.ts` | `supabase/functions/` | Provider port and classified anti-bot fallback policy |
 | `_shared/web_content_canonical.ts` | `supabase/functions/` | Versioned markdown canonicalizer |
 | `_shared/web_scout_baseline.ts` | `supabase/functions/` | Schedule-time baseline establishment |
 | `_shared/page_scout_change.ts` | `supabase/functions/` | Deterministic normalized delta and alert decision |
@@ -131,14 +117,14 @@ do not silently migrate.
 
 ### Runtime Guardrails
 
-- Page Scout Firecrawl calls are client-side bounded; fresh scrapes abort if
-  Firecrawl stalls.
+- Page Scout renderer calls are client-side bounded; fresh scrapes abort if
+  the renderer stalls.
 - OpenRouter extraction and embedding calls are bounded so a provider stall cannot leave the run row in `running` indefinitely.
 - Listing-page Phase B subpage-follow runs under a total wall-clock budget and
   per-subpage scrape cap instead of unbounded sequential fetches. Candidate
   selection uses prior capture and attempt times, so failed, zero-unit, and
   deduplicated children cannot monopolize every run.
-- The configured URL and every provider-reported effective child URL are
+- The configured URL and every renderer-reported effective child URL are
   validated before comparison, persistence, extraction, archiving, or alerting.
 - Run metadata reports candidate, checked, scraped, failed, and
   `coverage_complete` values; partial coverage is never labelled complete.
@@ -149,14 +135,15 @@ do not silently migrate.
 |------|----------|---------------|---------|
 | **Preview** (Test button) | Fresh scrape + summary; no baseline persisted | Never sent | Not charged |
 | **Scheduled** | Server establishes local canonical baseline at scout creation/scheduling | Sent if criteria match on later changes | Charged on runs |
-| **Run Now** (Manual) | Uses the saved creation-time baseline; never bootstraps a missing baseline | Sent if criteria match | Charged |
+| **Run Now** (Manual) | Uses a valid canonical baseline; repairs missing historical state without alerting or charging | Sent if criteria match on later runs | Charged only after baseline readiness |
 
 ## Schedule-Time Baseline
 
 When the user schedules a Page Scout, the server establishes the local
 canonical baseline before the schedule is enabled. Run Now does not create the
-first baseline, because that would make the first manual run look like a
-successful no-op while silently changing future alerts.
+first baseline for a healthy Scout. As a migration guard, an older Scout whose
+timestamp or valid current capture is missing is repaired as a baseline-only,
+uncharged run.
 
 For a genuine listing/index, the configured scout URL remains the index URL,
 but each child keeps its own successful canonical baseline. Child captures,
@@ -166,7 +153,7 @@ first linked later is evaluated as an addition.
 
 ## Source Dates
 
-Page Scout uses the shared `_shared/atomic_extract.ts::sourcePublishedDate` helper before extracting and inserting information units. The helper tries Firecrawl scrape metadata first, then a visible publication date near the top of markdown, then returns `null`. Extracted facts still prefer the LLM-provided event date, but `information_units.occurred_at` falls back to this source publication date when the fact has no more specific date.
+Page Scout uses the shared `_shared/atomic_extract.ts::sourcePublishedDate` helper before extracting and inserting information units. The helper tries renderer metadata first, then a visible publication date near the top of markdown, then returns `null`. Extracted facts still prefer the LLM-provided event date, but `information_units.occurred_at` falls back to this source publication date when the fact has no more specific date.
 
 ## Database Records
 

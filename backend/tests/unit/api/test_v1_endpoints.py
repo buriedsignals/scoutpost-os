@@ -310,6 +310,9 @@ class TestCreateScout:
                 "type": "web",
                 "schedule": {"regularity": "weekly", "time": "10:00", "day_number": 1},
                 "url": "https://example.com/news",
+                # Deprecated v1 input remains accept-and-ignore during the
+                # compatibility window.
+                "provider": "firecrawl_plain",
             })
 
         assert response.status_code == 201
@@ -317,10 +320,10 @@ class TestCreateScout:
         assert data["name"] == "Page Watch"
         assert data["type"] == "web"
 
-        # Verify provider defaults to firecrawl_plain for API
+        # Provider routing is runtime infrastructure, not per-Scout state.
         call_args = mock_svc.create_scout.call_args
         body = call_args.kwargs.get("body") or call_args[1].get("body") or call_args[0][2]
-        assert body["provider"] == "firecrawl_plain"
+        assert "provider" not in body
 
     def test_create_social_scout_forwards_criteria_and_normalized_linkedin_handle(
         self, api_client

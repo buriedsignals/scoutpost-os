@@ -23,12 +23,12 @@ INSERT INTO auth.users (
   now(), now(), now()
 );
 INSERT INTO public.scouts (
-  id, user_id, name, type, url, provider, is_active, schedule_cron,
+  id, user_id, name, type, url, is_active, schedule_cron,
   baseline_established_at
 ) VALUES (
   '00000000-0000-4000-8000-000000001142',
   '00000000-0000-4000-8000-000000001141',
-  'Page workflow', 'web', 'https://example.com', 'firecrawl_plain', true,
+  'Page workflow', 'web', 'https://example.com', true,
   '1 8 * * *', now()
 );
 

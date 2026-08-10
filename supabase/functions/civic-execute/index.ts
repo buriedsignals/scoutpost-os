@@ -3,9 +3,9 @@
  *
  * Scrapes each tracked URL through the scrape port and detects change with
  * in-house canonical-hash baselines per (scout, source_url) — see
- * _shared/canonical_baseline.ts (SCRAPING-MIGRATION-PRD U4; replaced Firecrawl
- * changeTracking). When a tracked listing page changes, it parses the raw
- * HTML, extracts downstream meeting document links, classifies them with the
+ * _shared/canonical_baseline.ts (SCRAPING-MIGRATION-PRD U4; replacing remote
+ * change tracking). When a tracked listing page changes, it parses the raw HTML,
+ * extracts downstream meeting document links, classifies them with the
  * migrated civic keyword/LLM flow, and enqueues them in civic_extraction_queue
  * for downstream processing by a PDF worker. Per-scout `processed_pdf_urls` is
  * maintained to suppress repeat enqueues (cap 100 most recent).
@@ -21,7 +21,7 @@
  * Errors:
  *   - 404 if scout missing
  *   - 400 if scout.tracked_urls is empty
- *   - 500/502 on firecrawl failures; failed runs mark scout_runs status='error'
+ *   - 500/502 on renderer failures; failed runs mark scout_runs status='error'
  *     and increment_scout_failures (auto-pause at 3).
  */
 
@@ -79,7 +79,7 @@ const InputSchema = z.object({
 
 const MAX_TRACKED = 20;
 // Cap docs enqueued per scheduled run. Mirrors legacy civic_orchestrator's
-// MAX_DOCS_PER_RUN=2 — limits Firecrawl PDF-parse + Gemini extraction cost
+// MAX_DOCS_PER_RUN=2 — limits PDF-parse + Gemini extraction cost
 // to a predictable ceiling so the per-run credit charge stays sustainable.
 const MAX_DOCS_PER_RUN = 2;
 // Civic scouts are weekly-or-slower only; block misconfigured daily crons.
@@ -244,7 +244,8 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
       }
       let result;
       try {
-        // Fresh scrape via the port (dark: firecrawl; U7: crawl4ai).
+        // Fresh scrape via the provider port (Crawl4AI primary, classified
+        // Firecrawl anti-bot fallback).
         result = await scrape(url, {
           workloadClass: "scout",
           formats: ["markdown", "rawHtml"],
@@ -325,7 +326,7 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
       }
 
       // In-house canonical-hash change detection, per tracked URL (U4). Maps
-      // to the same control flow as the retired Firecrawl changeTracking:
+      // to the same control flow as the retired Firecrawl change detector:
       // "same" → skip, "new"/"changed" → process (document-level
       // processed_pdf_urls dedup prevents re-processing, so a first-run "new"
       // is safe to process rather than silently baseline).
@@ -500,7 +501,7 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
 
     // Refund the pre-charge when no billable work was queued. Legacy civic
     // pipeline's MAX_DOCS_PER_RUN=2 meant scouts that hit only "same" pages
-    // or already-seen PDFs still cost Firecrawl the change-tracking scrape,
+    // or already-seen PDFs still cost the fresh provider-port scrape,
     // but source didn't charge users — match that fairness on scheduled runs.
     if (queuedCount === 0) {
       await refundCredits(db, {

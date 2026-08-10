@@ -1,16 +1,16 @@
 import type { SupabaseClient } from "./supabase.ts";
 import type { ScrapeResult } from "./scrape_types.ts";
 import { ValidationError } from "./errors.ts";
-import { doubleProbe, firecrawlScrape } from "./scrape_firecrawl.ts";
 import { scrape as portScrape } from "./scrape.ts";
 import { logEvent } from "./log.ts";
-import { deriveSourceDomain, sha256Hex } from "./unit_dedup.ts";
-import { rawCaptureExpiresAt } from "./canonical_baseline.ts";
+import { sha256Hex } from "./unit_dedup.ts";
 import {
-  WEB_CANONICALIZER_VERSION,
+  hasCurrentCanonicalBaselineForUrl,
+  writeCanonicalBaseline,
+} from "./canonical_baseline.ts";
+import {
   WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
   webCanonicalHash,
-  webCanonicalHashEnabled,
 } from "./web_content_canonical.ts";
 import {
   type CaptureOutcome,
@@ -32,7 +32,6 @@ export interface WebBaselineScout {
   id: string;
   user_id: string;
   url?: string | null;
-  provider?: string | null;
   baseline_established_at?: string | null;
   name?: string | null;
   /** Archive gate (KTD6). Present so baseline snapshot capture can be
@@ -46,8 +45,7 @@ interface WebBaselineDeps {
   /** The provider-agnostic scrape port — the live canonical-hash baseline
    * routes through this (crawl4ai in prod, Firecrawl anti-bot fallback). */
   scrape: typeof portScrape;
-  doubleProbe: typeof doubleProbe;
-  firecrawlScrape: typeof firecrawlScrape;
+  hasCurrentCanonicalBaseline?: typeof hasCurrentCanonicalBaselineForUrl;
   now: () => string;
   resolveArchiveGate?: typeof resolveArchiveGate;
   performArchiveCapture?: typeof performArchiveCapture;
@@ -56,8 +54,7 @@ interface WebBaselineDeps {
 
 const DEFAULT_DEPS: WebBaselineDeps = {
   scrape: portScrape,
-  doubleProbe,
-  firecrawlScrape,
+  hasCurrentCanonicalBaseline: hasCurrentCanonicalBaselineForUrl,
   now: () => new Date().toISOString(),
   resolveArchiveGate,
   performArchiveCapture,
@@ -98,15 +95,11 @@ async function persistBaselineMembership(
 async function stampBaseline(
   svc: SupabaseClient,
   scoutId: string,
-  patch: Record<string, unknown>,
   deps: WebBaselineDeps,
 ): Promise<void> {
   const { error } = await svc
     .from("scouts")
-    .update({
-      baseline_established_at: deps.now(),
-      ...patch,
-    })
+    .update({ baseline_established_at: deps.now() })
     .eq("id", scoutId);
   if (error) throw new Error(error.message);
 }
@@ -115,19 +108,16 @@ export async function establishWebBaseline(
   svc: SupabaseClient,
   scout: WebBaselineScout,
   deps: WebBaselineDeps = DEFAULT_DEPS,
-): Promise<"firecrawl" | "firecrawl_plain"> {
+  scoutRunId: string | null = null,
+): Promise<ScrapeResult["served_by"]> {
   if (!scout.url?.trim()) {
     throw new ValidationError("web scouts require a url before scheduling");
   }
 
-  if (webCanonicalHashEnabled() || scout.provider === "firecrawl_plain") {
-    // Route through the provider port (crawl4ai in prod; Firecrawl anti-bot
-    // fallback for walled hosts). Plain scrape only — no snapshot: the
-    // raw_capture this writes is the change-detection baseline, and a
-    // full-page-scan capture markdown would systematically diverge from
-    // future plain detection fetches and phantom-diff the first run
-    // (Decision 10). Baseline snapshot capture is a separate, background step
-    // (captureWebBaselineSnapshot).
+  try {
+    // Route through the provider port (Crawl4AI in prod; Firecrawl anti-bot
+    // fallback for walled hosts). The raw capture is the sole change-detection
+    // baseline; archive capture remains a separate background operation.
     const scrape = await deps.scrape(
       scout.url,
       { ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS, workloadClass: "utility" },
@@ -143,72 +133,80 @@ export async function establishWebBaseline(
         "unable to establish page baseline from empty content",
       );
     }
-    const contentMd = scrape.markdown;
-    const { error } = await svc.from("raw_captures").insert({
-      user_id: scout.user_id,
-      scout_id: scout.id,
-      source_url: scout.url,
-      source_domain: deriveSourceDomain(scout.url),
-      content_md: contentMd,
-      content_sha256: await sha256Hex(contentMd),
-      canonical_content_sha256: await webCanonicalHash(contentMd),
-      canonicalizer_version: WEB_CANONICALIZER_VERSION,
-      token_count: Math.ceil(contentMd.length / 4),
-      captured_at: deps.now(),
-      expires_at: rawCaptureExpiresAt(deps.now()),
+    await writeCanonicalBaseline(svc, {
+      userId: scout.user_id,
+      scoutId: scout.id,
+      sourceUrl: scout.url,
+      markdown: scrape.markdown,
+      scoutRunId,
+      now: deps.now(),
     });
-    if (error) throw new Error(error.message);
     await persistBaselineMembership(
       svc,
       scout.id,
       baselineChildCandidates(scrape, scout.url),
     );
-    await stampBaseline(svc, scout.id, { provider: "firecrawl_plain" }, deps);
-    return "firecrawl_plain";
+    await stampBaseline(svc, scout.id, deps);
+    logEvent({
+      level: "info",
+      fn: "web-scout-baseline",
+      event: "baseline_established",
+      scout_id: scout.id,
+      run_id: scoutRunId,
+      served_by: scrape.served_by ?? "unknown",
+    });
+    return scrape.served_by;
+  } catch (error) {
+    const waitingForWorkflow = error instanceof Error &&
+      error.name === "PageWorkflowPending";
+    logEvent({
+      level: waitingForWorkflow ? "info" : "warn",
+      fn: "web-scout-baseline",
+      event: waitingForWorkflow
+        ? "baseline_waiting_for_workflow"
+        : "baseline_establishment_failed",
+      scout_id: scout.id,
+      run_id: scoutRunId,
+      error_class: error instanceof Error ? error.name : "unknown",
+    });
+    throw error;
   }
+}
 
-  const provider = await deps.doubleProbe(
-    scout.url,
-    `scout-${scout.id}`.slice(0, 128),
-  );
-  if (provider === "firecrawl") {
-    await stampBaseline(svc, scout.id, { provider }, deps);
-    return provider;
-  }
+interface WebBaselineEnsureResult {
+  established: boolean;
+  servedBy?: ScrapeResult["served_by"];
+}
 
-  const scrape = await deps.firecrawlScrape(scout.url);
-  if (!isConfiguredPageUrl(scrape.source_url ?? scout.url, scout.url)) {
-    throw new ValidationError(
-      "page baseline scrape resolved outside the configured URL",
-    );
+async function ensureWebBaselineDetailed(
+  svc: SupabaseClient,
+  scout: WebBaselineScout,
+  deps: WebBaselineDeps,
+  scoutRunId: string | null = null,
+): Promise<WebBaselineEnsureResult> {
+  if (!scout.url?.trim()) {
+    throw new ValidationError("web scouts require a url before scheduling");
   }
-  const markdown = scrape.markdown?.trim() ?? "";
-  if (!markdown) {
-    throw new ValidationError(
-      "unable to establish page baseline from empty content",
-    );
+  const current = await (deps.hasCurrentCanonicalBaseline ??
+    hasCurrentCanonicalBaselineForUrl)(svc, scout.id, scout.url);
+  if (current) {
+    if (!scout.baseline_established_at) {
+      await stampBaseline(svc, scout.id, deps);
+    }
+    logEvent({
+      level: "info",
+      fn: "web-scout-baseline",
+      event: "baseline_reused",
+      scout_id: scout.id,
+      run_id: scoutRunId,
+      readiness_timestamp_repaired: !scout.baseline_established_at,
+    });
+    return { established: false };
   }
-  const { error } = await svc.from("raw_captures").insert({
-    user_id: scout.user_id,
-    scout_id: scout.id,
-    source_url: scout.url,
-    source_domain: deriveSourceDomain(scout.url),
-    content_md: scrape.markdown,
-    content_sha256: await sha256Hex(scrape.markdown),
-    canonical_content_sha256: await webCanonicalHash(scrape.markdown),
-    canonicalizer_version: WEB_CANONICALIZER_VERSION,
-    token_count: Math.ceil(scrape.markdown.length / 4),
-    captured_at: deps.now(),
-    expires_at: rawCaptureExpiresAt(deps.now()),
-  });
-  if (error) throw new Error(error.message);
-  await persistBaselineMembership(
-    svc,
-    scout.id,
-    baselineChildCandidates(scrape, scout.url),
-  );
-  await stampBaseline(svc, scout.id, { provider }, deps);
-  return provider;
+  return {
+    established: true,
+    servedBy: await establishWebBaseline(svc, scout, deps, scoutRunId),
+  };
 }
 
 export async function ensureWebBaseline(
@@ -216,9 +214,7 @@ export async function ensureWebBaseline(
   scout: WebBaselineScout,
   deps: WebBaselineDeps = DEFAULT_DEPS,
 ): Promise<boolean> {
-  if (scout.baseline_established_at) return false;
-  await establishWebBaseline(svc, scout, deps);
-  return true;
+  return (await ensureWebBaselineDetailed(svc, scout, deps)).established;
 }
 
 /**
@@ -347,6 +343,7 @@ export interface MissingBaselineRunResult {
   merged_existing_count: 0;
   criteria_ran: false;
   baseline_initialized: true;
+  served_by?: ScrapeResult["served_by"];
 }
 
 export async function maybeInitializeMissingWebBaselineRun(
@@ -355,37 +352,18 @@ export async function maybeInitializeMissingWebBaselineRun(
   runId: string,
   deps: WebBaselineDeps = DEFAULT_DEPS,
 ): Promise<MissingBaselineRunResult | null> {
-  if (scout.baseline_established_at) return null;
-
-  await establishWebBaseline(svc, scout, deps);
-
-  const { error: runErr } = await svc
-    .from("scout_runs")
-    .update({
-      status: "success",
-      articles_count: 0,
-      merged_existing_count: 0,
-      completed_at: deps.now(),
-      scraper_status: true,
-      criteria_status: false,
-    })
-    .eq("id", runId);
-  if (runErr) throw new Error(runErr.message);
+  const ensured = await ensureWebBaselineDetailed(
+    svc,
+    scout,
+    deps,
+    runId,
+  );
+  if (!ensured.established) return null;
 
   const { error: failureErr } = await svc.rpc("reset_scout_failures", {
     p_scout_id: scout.id,
   });
   if (failureErr) throw new Error(failureErr.message);
-
-  logEvent({
-    level: "info",
-    fn: "web-scout-baseline",
-    event: "initialized_on_run",
-    scout_id: scout.id,
-    run_id: runId,
-    user_id: scout.user_id,
-    msg: scout.name ?? "Page Scout",
-  });
 
   return {
     change_status: "same",
@@ -393,5 +371,6 @@ export async function maybeInitializeMissingWebBaselineRun(
     merged_existing_count: 0,
     criteria_ran: false,
     baseline_initialized: true,
+    served_by: ensured.servedBy,
   };
 }
