@@ -83,7 +83,7 @@ jobs:
       - name: Page Scout worker contract check
         run: cd supabase/functions && deno check --allow-import scout-web-execute/index.ts scouts/index.ts
       - name: Benchmark truth unit tests
-        run: deno test --allow-import scripts/benchmarks/_bench_truth_test.ts scripts/benchmarks/benchmark-transport_test.ts
+        run: deno test --allow-import scripts/benchmarks/_bench_truth_test.ts scripts/benchmarks/benchmark-civic_test.ts scripts/benchmarks/benchmark-transport_test.ts
       - name: Scrape-port coverage gate (100% on new modules)
         run: bash scripts/ops/check-scrape-coverage.sh
 
