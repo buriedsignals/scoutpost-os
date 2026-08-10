@@ -226,6 +226,7 @@ jobs:
             supabase stop --no-backup || true
             sleep $((10 * attempt))
           done
+          bash scripts/tests/test-drop-scout-provider-migration.sh
           supabase db reset --local --yes
           supabase status -o env | tee /tmp/scout-supabase.env
 
