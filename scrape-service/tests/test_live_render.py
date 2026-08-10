@@ -1,6 +1,7 @@
 """Live browser tests — the only tier that exercises the real Crawl4AI path.
 
-Run locally (requires `pip install -r requirements.txt` + `crawl4ai-setup`):
+Run locally (requires `pip install -r requirements.txt` +
+`patchright install chromium`):
     pytest -m live --no-cov
 
 Excluded from the CI unit tier (pytest.ini deselects `live`); the container

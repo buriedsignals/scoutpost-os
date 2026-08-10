@@ -37,7 +37,7 @@ timeout → 504, scanned PDF → 422, oversized → 413, non-PDF → 415, bad to
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest            # unit tier: 100% coverage gate, no browser
-# live browser tier (needs: pip install -r requirements.txt && crawl4ai-setup):
+# live browser tier (needs: pip install -r requirements.txt && patchright install chromium):
 .venv/bin/python -m pytest -m live --no-cov
 ```
 

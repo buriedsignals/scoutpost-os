@@ -21,6 +21,61 @@ class FakeCrawler:
         return self.result
 
 
+async def test_browser_proxy_config(monkeypatch):
+    observed = {}
+
+    class FakeBrowserConfig:
+        def __init__(self, **kwargs):
+            observed["config"] = kwargs
+
+    class FakeStrategy:
+        def __init__(self, **kwargs):
+            observed["strategy"] = kwargs
+
+    class FakeAdapter:
+        pass
+
+    class FakeAsyncWebCrawler:
+        def __init__(self, **kwargs):
+            observed["crawler"] = kwargs
+
+        async def start(self):
+            observed["started"] = True
+
+        async def close(self):
+            observed["closed"] = True
+
+    monkeypatch.setitem(
+        sys.modules,
+        "crawl4ai",
+        SimpleNamespace(
+            AsyncWebCrawler=FakeAsyncWebCrawler,
+            BrowserConfig=FakeBrowserConfig,
+            UndetectedAdapter=FakeAdapter,
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "crawl4ai.async_crawler_strategy",
+        SimpleNamespace(AsyncPlaywrightCrawlerStrategy=FakeStrategy),
+    )
+    scraper = Scraper(pool_size=1, proxy_server="http://127.0.0.1:4321")
+
+    try:
+        assert await scraper._ensure_crawler() is scraper._crawler
+    finally:
+        await scraper.close()
+
+    assert observed["config"]["proxy_config"] == {
+        "server": "http://127.0.0.1:4321"
+    }
+    assert "proxy" not in observed["config"]
+    assert "--proxy-bypass-list=<-loopback>" in observed["config"]["extra_args"]
+    assert isinstance(observed["strategy"]["browser_adapter"], FakeAdapter)
+    assert observed["started"] is True
+    assert observed["closed"] is True
+
+
 @pytest.mark.parametrize(
     ("snapshot", "expected_snapshot_flag", "expected_max_scroll_steps"),
     [

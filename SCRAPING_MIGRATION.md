@@ -55,7 +55,7 @@ have been 404 since at least 2026-06-01, which silently degraded any scenario bu
 | Current (dead) | Replacement (live, verified) |
 |---|---|
 | `https://www.gemeinderat-zuerich.ch/protokolle` (404; also the `DEFAULT_URL` constant, line ~54) | `https://www.gemeinderat-zuerich.ch/sitzungen/termine/` |
-| `https://www.lausanne.ch/officiel/autorites/conseil-communal/seances-et-pv.html` (404) | `https://www.lausanne.ch/officiel/conseil-communal/seances/seances-et-ordres-du-jour.html` |
+| `https://www.lausanne.ch/officiel/autorites/conseil-communal/seances-et-pv.html` (404, replacement later WAF-throttled repeated release checks) | `https://www.vd.ch/gc/seances-du-grand-conseil` |
 | `https://www.bern.ch/politik-und-verwaltung/stadtrat/sitzungen` (redirect loop, defeats even stealth browsers) | `https://stadtrat.bern.ch/de/sitzungen/` |
 
 Also recommended: add a liveness guard to the suite (fail a scenario on 404/redirect-loop

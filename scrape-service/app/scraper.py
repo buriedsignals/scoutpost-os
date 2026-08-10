@@ -160,7 +160,11 @@ class Scraper:
                     headless=False,
                     verbose=False,
                     enable_stealth=True,
-                    proxy=self._proxy_server,
+                    proxy_config=(
+                        {"server": self._proxy_server}
+                        if self._proxy_server
+                        else None
+                    ),
                     extra_args=proxy_args,
                 )
                 crawler = AsyncWebCrawler(
@@ -199,7 +203,7 @@ class Scraper:
         # vanilla Playwright.
         # scan_full_page is load-bearing for the screenshot: crawl4ai's
         # screenshot path degrades to viewport-only when it is False (its
-        # default) — verified against 0.8.9's take_screenshot kwargs. It also
+        # default) — verified against 0.9.2's take_screenshot kwargs. It also
         # scrolls the page pre-capture, which pulls lazy-loaded content into
         # the MHTML. max_scroll_steps bounds infinite-scroll pages.
         #

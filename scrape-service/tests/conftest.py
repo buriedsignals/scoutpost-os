@@ -9,9 +9,13 @@ from app.main import create_app
 
 
 @pytest.fixture(autouse=True)
-def public_dns(monkeypatch):
+def public_dns(monkeypatch, request):
     """Mock-transport hosts (council.example) don't resolve; pretend every
-    host resolves publicly. Tests for the SSRF guard override this."""
+    host resolves publicly. Tests for the SSRF guard override this. Live
+    browser tests must retain real DNS or every public host is silently pinned
+    to the example.com fixture address."""
+    if request.node.get_closest_marker("live") is not None:
+        return
     monkeypatch.setattr(
         pdfparse.socket,
         "getaddrinfo",

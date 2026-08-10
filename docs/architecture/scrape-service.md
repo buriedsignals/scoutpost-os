@@ -78,11 +78,15 @@ edge-functions service points at
 
 ## Maintenance
 
-- **Version bumps (monthly):** `crawl4ai` and Playwright/Chromium are pinned in
-  `scrape-service/requirements.txt` and `Dockerfile`. Bump, run
-  `cd scrape-service && python -m pytest` (100% coverage gate), rebuild. Library
-  API drift surfaces in that suite, never in the Deno adapters (the REST
-  contract is ours, versioned in-repo).
+- **Version bumps (monthly):** `crawl4ai` is exact-pinned in
+  `scrape-service/requirements.txt`; the clean Docker build resolves Patchright
+  and installs its matching Chromium revision. Inspect the candidate source at
+  every API used by `app/scraper.py`, run `cd scrape-service && python -m pytest`
+  (100% coverage gate), rebuild without cached browser layers, and run the live
+  browser plus HTTP/Workflow contract probes. Library API drift is absorbed by
+  the service mapping and never leaked into the Deno adapters (the REST contract
+  is ours, versioned in-repo). The current 0.9.2 validation record is
+  [`crawl4ai-0.9.2-validation.md`](crawl4ai-0.9.2-validation.md).
 - **Token rotation:** set a new `SCRAPE_SERVICE_TOKEN` on Render, then re-run
   the `supabase secrets set` for `SCRAPE_SERVICE_TOKEN`. Brief overlap causes no
   downtime (the service reads its token at request time).
