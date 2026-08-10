@@ -500,8 +500,17 @@ export const apiClient = {
 	 * Returns preview of extracted promises without storing anything.
 	 */
 	async testCivic(trackedUrls: string[], criteria?: string): Promise<{
+		api_version: '2';
 		valid: boolean;
 		documents_found: number;
+		documents_resolved: number;
+		documents_evaluated: number;
+		policy_version: string;
+		preview_snapshot_token: string | null;
+		sample_items: Array<
+			| { kind: 'promise'; statement: string; actor: string; action: string; context: string; source_url: string; source_title: string | null; meeting_date: string | null; due_date: string; due_date_text: string; date_confidence: 'high' | 'medium' | 'low' }
+			| { kind: 'decision'; statement: string; adopting_body: string; decision_kind: string; context: string; source_url: string; source_title: string | null; meeting_date: string | null }
+		>;
 		sample_promises: Array<{ promise_text: string; context: string; source_url: string; source_date: string; due_date?: string; date_confidence: string; criteria_match: boolean }>;
 		error?: string;
 	}> {

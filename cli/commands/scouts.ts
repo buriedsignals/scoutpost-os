@@ -24,6 +24,7 @@ function usage(): void {
       "                   [--location-json <json>] [--source-mode reliable|niche]",
       "                   [--priority-sources <domain,domain>]",
       "                   [--root-domain <domain>] [--tracked-urls <url,url>]",
+      "                   [--import-current-items true|false] [--preview-snapshot-token <token>]",
       "                   [--platform instagram|x|facebook|tiktok|linkedin] [--handle <handle-or-linkedin-url>]",
       "                   [--monitor-mode criteria|summarize] [--track-removals true|false]",
       "                   [--archive-enabled true|false] [--wayback-enabled true|false]",
@@ -399,6 +400,8 @@ export async function run(argv: string[]): Promise<void> {
       const location = jsonObjectFlag(flags, "location-json");
       const prioritySources = listFlag(flags, "priority-sources");
       const trackedUrls = listFlag(flags, "tracked-urls");
+      const importCurrentItems = boolFlag(flags, "import-current-items");
+      const previewSnapshotToken = stringFlag(flags, "preview-snapshot-token");
       const day = numberFlag(flags, "day");
       const trackRemovals = boolFlag(flags, "track-removals");
       const archiveEnabled = boolFlag(flags, "archive-enabled");
@@ -427,6 +430,12 @@ export async function run(argv: string[]): Promise<void> {
       if (prioritySources) body.priority_sources = prioritySources;
       if (rootDomain) body.root_domain = rootDomain;
       if (trackedUrls) body.tracked_urls = trackedUrls;
+      if (importCurrentItems !== undefined) {
+        body.import_current_items = importCurrentItems;
+      }
+      if (previewSnapshotToken) {
+        body.preview_snapshot_token = previewSnapshotToken;
+      }
       if (platform) body.platform = platform;
       if (handle) body.profile_handle = handle;
       if (flags.type === "social") {
@@ -478,6 +487,15 @@ export async function run(argv: string[]): Promise<void> {
       if (flags.type === "civic" && (!rootDomain || !trackedUrls?.length)) {
         console.error(
           "civic scouts require --root-domain and --tracked-urls",
+        );
+        Deno.exit(1);
+      }
+      if (
+        flags.type === "civic" && importCurrentItems === true &&
+        !previewSnapshotToken
+      ) {
+        console.error(
+          "--preview-snapshot-token is required with --import-current-items true; obtain it from Civic preview first",
         );
         Deno.exit(1);
       }

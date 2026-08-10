@@ -1,7 +1,7 @@
 # scout — Scoutpost CLI
 
-Command-line tool for Scoutpost. Speaks the REST API using a `cj_...` API
-key or legacy JWT bearer token.
+Command-line tool for Scoutpost. Speaks the REST API using a `cj_...` API key or
+legacy JWT bearer token.
 
 ## Install
 
@@ -50,8 +50,8 @@ scout --version
 ### Release binaries
 
 Release binaries will appear at
-<https://github.com/buriedsignals/scoutpost-os/releases> once the public
-mirror starts publishing signed assets.
+<https://github.com/buriedsignals/scoutpost-os/releases> once the public mirror
+starts publishing signed assets.
 
 ### Homebrew
 
@@ -67,13 +67,12 @@ scout auth status
 ```
 
 The CLI opens a Scoutpost approval page or prints its URL for a remote/headless
-shell. Approval creates a dedicated API key, but the key is never displayed.
-It is verified and stored with private permissions in
-`~/.scoutpost/config.json`.
+shell. Approval creates a dedicated API key, but the key is never displayed. It
+is verified and stored with private permissions in `~/.scoutpost/config.json`.
 
 Re-running login against the same site is a no-op while the credential remains
-valid. Use `--switch` to explicitly replace a configuration for another site,
-or `--no-browser` to suppress browser launch.
+valid. Use `--switch` to explicitly replace a configuration for another site, or
+`--no-browser` to suppress browser launch.
 
 ```bash
 scout auth logout
@@ -138,6 +137,10 @@ scout scouts add --name "Housing minutes" --type civic \
   --topic "housing, council" \
   --description "Monthly council-minutes monitor for housing policy." \
   --criteria "housing policy votes" --regularity monthly --time 08:00 --day 1
+scout civic discover --root-domain example.gov
+scout civic preview --tracked-urls https://example.gov/minutes --criteria "housing policy votes"
+scout civic items --kind promise --status in_progress
+scout civic runs
 scout scouts add --name "Local climate beat" --type beat \
   --topic "climate, adaptation" \
   --criteria "local policy decisions with budget or timeline impacts" \

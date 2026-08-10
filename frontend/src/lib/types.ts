@@ -132,7 +132,8 @@ export interface ScoutSetupRequest {
 	// Civic scout fields
 	root_domain?: string;  // civic
 	tracked_urls?: string[];  // civic
-	initial_promises?: Array<{ promise_text: string; context: string; source_url: string; source_date: string; due_date?: string; date_confidence: string; criteria_match: boolean }>;  // civic
+	import_current_items?: boolean;  // civic: server-owned preview/current-document import
+	preview_snapshot_token?: string;  // civic: opaque server-owned preview token
 	transport_baseline_ids?: string[];  // transport (baseline prepared by Step 1 test)
 }
 

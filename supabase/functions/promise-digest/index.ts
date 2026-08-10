@@ -1,186 +1,205 @@
-/**
- * promise-digest Edge Function — daily civic-promise email digest.
- *
- * Runs once per day (08:00 UTC via pg_cron, see 00033_promise_digest_cron.sql).
- * Scans public.promises for rows where due_date is today and status is 'new',
- * groups them by user_id, sends a single digest email per user via
- * sendCivicPromiseDigest, then flips each notified row's status to
- * 'notified' so a re-fire of the job (manual or failover) doesn't re-email.
- *
- * Ports the behaviour of the legacy aws/lambdas/promise-checker-lambda
- * (EventBridge daily, FastAPI /civic/notify-promises → mark_promises_notified).
- *
- * Auth: shared service auth (invoked by pg_cron or operator curl).
- *
- * Route:
- *   POST /promise-digest
- *     body: optional `{ date?: "YYYY-MM-DD", dry_run?: boolean }`
- *     -> 200 { date, users_notified, promises_considered, promises_notified }
- */
-
+/** Daily, idempotent reminders for overdue open Civic promises. */
 import { handleCors } from "../_shared/cors.ts";
 import { requireServiceKey } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { logEvent } from "../_shared/log.ts";
-import {
-  PromiseDigestItem,
-  sendCivicPromiseDigest,
-} from "../_shared/notifications.ts";
+import { sendCivicPromiseDigest } from "../_shared/notifications.ts";
 
-interface PromiseRow {
-  id: string;
+interface ClaimedReminder {
+  delivery_id: string;
+  promise_id: string;
   user_id: string;
-  scout_id: string | null;
   promise_text: string;
   source_url: string | null;
   source_title: string | null;
-  due_date: string | null;
+  due_date: string;
+  provider_idempotency_key: string;
+  needs_provider_submission: boolean;
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
   const cors = handleCors(req);
   if (cors) return cors;
-
-  if (req.method !== "POST") {
-    return jsonError("method not allowed", 405);
-  }
-
+  if (req.method !== "POST") return jsonError("method not allowed", 405);
   try {
     requireServiceKey(req);
-  } catch (e) {
-    return jsonFromError(e);
+  } catch (error) {
+    return jsonFromError(error);
   }
 
   let body: { date?: string; dry_run?: boolean } = {};
   try {
-    if (req.headers.get("content-length") !== "0") {
-      body = await req.json() as typeof body;
-    }
-  } catch {
-    // Empty or bad body — treat as defaults.
-  }
-
-  const today =
+    if (req.headers.get("content-length") !== "0") body = await req.json();
+  } catch { /* defaults */ }
+  const dueOnOrBefore =
     typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
       ? body.date
       : new Date().toISOString().slice(0, 10);
   const dryRun = body.dry_run === true;
-
   const svc = getServiceClient();
+  const workerId = crypto.randomUUID();
 
-  const { data, error } = await svc
-    .from("promises")
-    .select(
-      "id, user_id, scout_id, promise_text, source_url, source_title, due_date",
-    )
-    .eq("due_date", today)
-    .eq("status", "new");
-  if (error) {
-    logEvent({
-      level: "error",
-      fn: "promise-digest",
-      event: "query_failed",
-      msg: error.message,
-    });
-    return jsonError(`query failed: ${error.message}`, 500);
-  }
-
-  const promises = (data ?? []) as PromiseRow[];
-  if (promises.length === 0) {
-    logEvent({
-      level: "info",
-      fn: "promise-digest",
-      event: "nothing_due",
-      date: today,
-    });
+  if (dryRun) {
+    const { count, error } = await svc.from("promises").select("id", {
+      count: "exact",
+      head: true,
+    })
+      .lte("due_date", dueOnOrBefore).in("status", ["new", "in_progress"]).is(
+        "due_notified_at",
+        null,
+      );
+    if (error) return jsonError(`query failed: ${error.message}`, 500);
     return jsonOk({
-      date: today,
-      users_notified: 0,
-      promises_considered: 0,
+      date: dueOnOrBefore,
+      dry_run: true,
+      promises_considered: count ?? 0,
       promises_notified: 0,
+      users_notified: 0,
     });
   }
 
-  const byUser = new Map<string, PromiseRow[]>();
-  for (const p of promises) {
-    if (!p.user_id || !p.promise_text?.trim()) continue;
-    const bucket = byUser.get(p.user_id) ?? [];
-    bucket.push(p);
-    byUser.set(p.user_id, bucket);
+  const { data, error } = await svc.rpc("claim_due_promise_reminders", {
+    p_worker_id: workerId,
+    p_due_on_or_before: dueOnOrBefore,
+    p_limit: 100,
+    p_lease_seconds: 900,
+  });
+  if (error) return jsonError(`claim failed: ${error.message}`, 500);
+  const claimed = (data ?? []) as ClaimedReminder[];
+  const byUser = new Map<string, ClaimedReminder[]>();
+  for (const reminder of claimed) {
+    const bucket = byUser.get(reminder.user_id) ?? [];
+    bucket.push(reminder);
+    byUser.set(reminder.user_id, bucket);
   }
 
   let usersNotified = 0;
   let promisesNotified = 0;
-
-  for (const [userId, rows] of byUser) {
-    const items: PromiseDigestItem[] = rows.map((r) => ({
-      promiseText: r.promise_text,
-      sourceUrl: r.source_url,
-      sourceTitle: r.source_title,
-      dueDate: r.due_date,
-    }));
-
-    if (dryRun) {
-      logEvent({
-        level: "info",
-        fn: "promise-digest",
-        event: "dry_run",
-        user_id: userId,
-        promise_count: items.length,
-      });
-      continue;
+  for (const [userId, reminders] of byUser) {
+    const toSubmit = reminders.filter((reminder) =>
+      reminder.needs_provider_submission
+    );
+    const accepted = reminders.filter((reminder) =>
+      !reminder.needs_provider_submission
+    );
+    let submitted = toSubmit.length === 0;
+    let providerId: string | null = null;
+    let sendError: string | null = null;
+    if (toSubmit.length > 0) {
+      try {
+        const result = await sendCivicPromiseDigest(svc, {
+          userId,
+          items: toSubmit.map((reminder) => ({
+            promiseText: reminder.promise_text,
+            sourceUrl: reminder.source_url,
+            sourceTitle: reminder.source_title,
+            dueDate: reminder.due_date,
+          })),
+          providerIdempotencyKey: await reminderBatchKey(toSubmit),
+        });
+        submitted = result.ok;
+        providerId = result.providerId ?? null;
+        sendError = result.error ?? result.reason ?? null;
+      } catch (error) {
+        sendError = error instanceof Error ? error.message : String(error);
+        logEvent({
+          level: "warn",
+          fn: "promise-digest",
+          event: "send_failed",
+          user_id: userId,
+          msg: sendError,
+        });
+      }
     }
-
-    let sent = false;
-    try {
-      sent = await sendCivicPromiseDigest(svc, { userId, items });
-    } catch (e) {
+    if (submitted && toSubmit.length > 0) {
+      const { error: acceptedError } = await svc.rpc(
+        "mark_due_promise_reminders_provider_accepted",
+        {
+          p_worker_id: workerId,
+          p_delivery_ids: toSubmit.map((reminder) => reminder.delivery_id),
+          p_provider_id: providerId,
+        },
+      );
+      if (acceptedError) {
+        logEvent({
+          level: "warn",
+          fn: "promise-digest",
+          event: "provider_acceptance_record_failed",
+          user_id: userId,
+          msg: acceptedError.message,
+        });
+        submitted = false;
+        sendError = acceptedError.message;
+      }
+    }
+    const delivered = submitted ? [...accepted, ...toSubmit] : accepted;
+    const failed = submitted ? [] : toSubmit;
+    const { data: finalized, error: finalizeError } = delivered.length > 0
+      ? await svc.rpc(
+        "finalize_due_promise_reminders",
+        {
+          p_worker_id: workerId,
+          p_delivery_ids: delivered.map((reminder) => reminder.delivery_id),
+          p_success: true,
+          p_error: null,
+        },
+      )
+      : { data: 0, error: null };
+    if (failed.length > 0) {
+      const { error: failedFinalizeError } = await svc.rpc(
+        "finalize_due_promise_reminders",
+        {
+          p_worker_id: workerId,
+          p_delivery_ids: failed.map((reminder) => reminder.delivery_id),
+          p_success: false,
+          p_error: sendError ?? "provider delivery failed",
+        },
+      );
+      if (failedFinalizeError) {
+        logEvent({
+          level: "warn",
+          fn: "promise-digest",
+          event: "failure_finalize_failed",
+          user_id: userId,
+          msg: failedFinalizeError.message,
+        });
+      }
+    }
+    if (finalizeError) {
       logEvent({
         level: "warn",
         fn: "promise-digest",
-        event: "send_failed",
+        event: "finalize_failed",
         user_id: userId,
-        msg: e instanceof Error ? e.message : String(e),
-      });
-    }
-
-    if (!sent) continue;
-
-    usersNotified += 1;
-    const ids = rows.map((r) => r.id);
-    const { error: updErr } = await svc
-      .from("promises")
-      .update({ status: "notified", updated_at: new Date().toISOString() })
-      .in("id", ids);
-    if (updErr) {
-      logEvent({
-        level: "warn",
-        fn: "promise-digest",
-        event: "status_update_failed",
-        user_id: userId,
-        count: ids.length,
-        msg: updErr.message,
+        msg: finalizeError.message,
       });
       continue;
     }
-    promisesNotified += ids.length;
+    if (delivered.length > 0) {
+      usersNotified += 1;
+      promisesNotified += Number(finalized ?? 0);
+    }
   }
-
-  logEvent({
-    level: "info",
-    fn: "promise-digest",
-    event: "done",
-    date: today,
-    users_notified: usersNotified,
-    promises_considered: promises.length,
-    promises_notified: promisesNotified,
-  });
-
   return jsonOk({
-    date: today,
+    date: dueOnOrBefore,
     users_notified: usersNotified,
-    promises_considered: promises.length,
+    promises_considered: claimed.length,
     promises_notified: promisesNotified,
   });
 });
+
+async function reminderBatchKey(reminders: ClaimedReminder[]): Promise<string> {
+  const identities = reminders.map((reminder) =>
+    reminder.provider_idempotency_key
+  )
+    .sort().join("\n");
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(identities),
+  );
+  const hex = [...new Uint8Array(digest)].map((byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+  return `civic/reminder-batch/${reminders[0]?.user_id ?? "unknown"}/${hex}`;
+}

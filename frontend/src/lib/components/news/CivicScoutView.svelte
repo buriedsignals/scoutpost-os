@@ -39,7 +39,8 @@
 	let testedInputKey = '';
 	let testResult: {
 		documents_found: number;
-		sample_promises: Array<{ promise_text: string; context: string; source_url: string; source_date: string; due_date?: string; date_confidence: string; criteria_match: boolean }>;
+		sample_items: Awaited<ReturnType<typeof apiClient.testCivic>>['sample_items'];
+		preview_snapshot_token: string | null;
 	} | null = null;
 	let showTestResults = false;
 
@@ -169,7 +170,8 @@
 			}
 			testResult = {
 				documents_found: result.documents_found,
-				sample_promises: result.sample_promises,
+				sample_items: result.sample_items,
+				preview_snapshot_token: result.preview_snapshot_token,
 			};
 			testedInputKey = requestedInputKey;
 			testSuccess = true;
@@ -299,7 +301,7 @@
 					message={testProgressMessage || m.civic_testing()}
 					state={testProgressState}
 					successMessage={m.civic_testSuccess()}
-					successDetails={testResult ? `${testResult.documents_found} documents analyzed, ${testResult.sample_promises.length} promises found` : ''}
+					successDetails={testResult ? `${testResult.documents_found} documents analyzed, ${testResult.sample_items.length} accountability leads found` : ''}
 					errorTitle={m.civic_testFailed()}
 					errorMessage={testError}
 					showButton={false}
@@ -307,16 +309,17 @@
 					compact={testSuccess}
 				/>
 
-				{#if testSuccess && testResult && testResult.sample_promises.length > 0}
+				{#if testSuccess && testResult && testResult.sample_items.length > 0}
 					<div class="promises-preview">
-						<p class="preview-label">Extracted promises (preview)</p>
-						{#each testResult.sample_promises.slice(0, 3) as promise}
+						<p class="preview-label">AI-extracted accountability leads (preview only — verify cited official evidence)</p>
+						{#each testResult.sample_items.slice(0, 3) as item}
 							<div class="promise-item">
-								<p class="promise-text">{promise.promise_text}</p>
-								{#if promise.due_date}
-									<span class="promise-due">Due: {promise.due_date}</span>
+								<p class="promise-text">{item.statement}</p>
+								<span class="promise-due">{item.kind === 'promise' ? `Promise — due ${item.due_date}` : 'Material decision'}</span>
+								{#if item.kind === 'promise'}
+									<span class="promise-source">{item.actor}</span>
 								{/if}
-								<span class="promise-source">{promise.source_url}</span>
+								<span class="promise-source">{item.source_url}</span>
 							</div>
 						{/each}
 					</div>
@@ -373,7 +376,8 @@
 	root_domain={scheduledRootDomain}
 	tracked_urls={scheduledTrackedUrls}
 	criteria={criteria}
-	initialPromises={testResult?.sample_promises ?? []}
+	importCurrentItems={Boolean(testResult?.preview_snapshot_token)}
+	previewSnapshotToken={testResult?.preview_snapshot_token ?? null}
 	onClose={() => showScheduleModal = false}
 	onSuccess={() => {
 		showScheduleModal = false;

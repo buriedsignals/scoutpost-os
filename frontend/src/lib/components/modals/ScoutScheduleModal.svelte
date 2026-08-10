@@ -37,7 +37,10 @@
 	// Civic Scout context (civic)
 	export let root_domain: string = '';
 	export let tracked_urls: string[] = [];
-	export let initialPromises: Array<{ promise_text: string; context: string; source_url: string; source_date: string; due_date?: string; date_confidence: string; criteria_match: boolean }> = [];
+	// The preview remains server-owned. The browser may choose whether to import
+	// it, but must never return extracted text for persistence.
+	export let importCurrentItems = true;
+	export let previewSnapshotToken: string | null = null;
 	// Transport Scout context (transport) — the view owns mode/geofence/watch_ids;
 	// this modal only adds the schedule and creates via the config path.
 	export let transportMode: 'aircraft' | 'vessel' | 'satellite' = 'aircraft';
@@ -324,7 +327,8 @@
 				tracked_urls: tracked_urls.length ? tracked_urls : undefined,
 				topic: topicInput.trim() || undefined,
 				criteria: criteria || undefined,
-				initial_promises: initialPromises.length ? initialPromises : undefined
+				import_current_items: importCurrentItems,
+				preview_snapshot_token: importCurrentItems ? previewSnapshotToken ?? undefined : undefined
 			});
 		} else if (scoutType === 'transport') {
 			// Transport is scoped entirely by config (mode/geofence/watch_ids/
@@ -658,6 +662,18 @@
 									</span>
 								</label>
 							{/if}
+						</div>
+					{/if}
+
+					{#if scoutType === 'civic'}
+						<div class="form-field">
+							<label class="checkbox-row">
+								<input type="checkbox" class="form-checkbox" bind:checked={importCurrentItems} />
+								<span class="checkbox-content">
+									<span class="checkbox-label">{m.civic_importCurrentItems()}</span>
+									<span class="checkbox-desc">{m.civic_importCurrentItemsDesc()}</span>
+								</span>
+							</label>
 						</div>
 					{/if}
 

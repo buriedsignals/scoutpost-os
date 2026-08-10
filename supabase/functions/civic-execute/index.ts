@@ -64,6 +64,13 @@ import {
   refundCredits,
 } from "../_shared/credits.ts";
 import { normalizeSourceUrl } from "../_shared/unit_dedup.ts";
+import { sha256Hex } from "../_shared/unit_dedup.ts";
+import { parseDocument } from "../_shared/docparse.ts";
+import {
+  assertCompleteCivicMembership,
+  loadCivicDocumentBaselineHashes,
+  shouldQueueCivicDocument,
+} from "../_shared/civic_document_membership.ts";
 
 const InputSchema = z.object({
   scout_id: z.string().uuid(),
@@ -206,28 +213,21 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
   try {
     await markRunStage(db, runId, "scrape");
 
-    // URLs already considered "seen" for this scout: (a) already successfully
-    // extracted (worker has appended them to scouts.processed_pdf_urls after
-    // a successful Firecrawl + insert), OR (b) currently in the queue
-    // (pending / processing / done). We intentionally do NOT block URLs with
-    // status='failed' past the configured attempt ceiling — the lease-aware
-    // claim/failsafe RPCs cap retries and we trust that terminal state;
-    // re-enqueueing such a URL on the
-    // next run is an operator-initiated recovery path.
-    const scoutSeen = new Set<string>(
-      (Array.isArray(scout.processed_pdf_urls) ? scout.processed_pdf_urls : [])
-        .map((url: unknown) =>
-          typeof url === "string" ? normalizeCivicUrl(url) : null
-        )
-        .filter((url: string | null): url is string => Boolean(url)),
+    // `processed_pdf_urls` is a capped legacy cache.  Durable membership is
+    // URL + document-content hash, so an unchanged archive is never replayed
+    // merely because it contains more than 100 documents or has been reordered.
+    const documentBaselines = await loadCivicDocumentBaselineHashes(
+      db,
+      scoutId,
     );
     const queueSeen = await loadQueuedSourceUrls(db, scoutId);
-    const skipSet = new Set<string>([...scoutSeen, ...queueSeen]);
+    const skipSet = new Set<string>(queueSeen);
 
     let queuedCount = 0;
     let scrapeFailureCount = 0;
     let queueFailureCount = 0;
     const trackedUrlStatus: CivicTrackedUrlStatus[] = [];
+    const currentMembershipUrls = new Set<string>();
 
     for (const url of tracked) {
       if (queuedCount >= MAX_DOCS_PER_RUN) break;
@@ -354,14 +354,14 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         ? normalizeCivicUrl(url)
         : null;
       if (directDocumentUrl) {
-        // Skip an already-processed direct document unless the page genuinely
-        // CHANGED against a known baseline (a new version worth re-extracting).
-        // Gate on `!== "changed"` so a first-run "new" (no baseline exists yet
-        // for the 19 live scouts on migration) still honors processed_pdf_urls
-        // and does not re-enqueue months-old documents.
+        const documentHash = await civicDocumentContentHash(directDocumentUrl);
         if (
-          queueSeen.has(directDocumentUrl) ||
-          (changeStatus !== "changed" && scoutSeen.has(directDocumentUrl))
+          !shouldQueueCivicDocument(
+            directDocumentUrl,
+            documentHash,
+            documentBaselines,
+            queueSeen,
+          )
         ) {
           trackedUrlStatus.push({
             url,
@@ -402,26 +402,34 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         continue;
       }
 
-      if (changeStatus === "same") {
-        trackedUrlStatus.push({
-          url,
-          status: "unchanged",
-          change_status: changeStatus,
-          queued_documents: 0,
-        });
-        continue;
-      }
-
+      // A stable archive/listing page does not prove its linked minutes are
+      // unchanged: councils commonly replace a PDF at the same URL.  Resolve
+      // and hash the current bounded membership on every run, then let the
+      // document baseline decide whether a worker job is required.
       const docs = (await classifyCivicMeetingUrls(extractCivicLinksFromPages([{
         pageUrl: url,
         rawHtml: result.rawHtml ?? "",
       }]))).map((docUrl) => normalizeCivicUrl(docUrl)).filter(
         (docUrl): docUrl is string => Boolean(docUrl),
       );
+      for (const documentUrl of docs) currentMembershipUrls.add(documentUrl);
+      assertCompleteCivicMembership([...currentMembershipUrls]);
       let queuedForTrackedUrl = 0;
       for (const docUrl of docs) {
         if (queuedCount >= MAX_DOCS_PER_RUN) break;
         if (skipSet.has(docUrl)) continue;
+
+        const documentHash = await civicDocumentContentHash(docUrl);
+        if (
+          !shouldQueueCivicDocument(
+            docUrl,
+            documentHash,
+            documentBaselines,
+            queueSeen,
+          )
+        ) {
+          continue;
+        }
 
         const docKind = docUrl.toLowerCase().endsWith(".pdf") ? "pdf" : "html";
         if (
@@ -537,14 +545,22 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
       });
     }
 
-    await markRunSuccess(db, runId, {
-      unitsCreated: queuedCount,
-      unitsMerged: 0,
-      criteriaStatus: queuedCount > 0,
-      notificationStatus: queuedCount > 0 ? "pending" : "not_applicable",
-      sourcesScraped: tracked.length - scrapeFailureCount,
-      sourcesFailed: scrapeFailureCount + queueFailureCount,
-    });
+    if (queuedCount === 0) {
+      // No queue rows means the dispatcher itself owns the terminal semantic
+      // zero. Once any document is queued, only finalize_civic_run_doc may
+      // settle the run—otherwise the first dispatcher response could expose
+      // success and trigger a truncated alert before workers finish.
+      await markRunSuccess(db, runId, {
+        unitsCreated: 0,
+        unitsMerged: 0,
+        criteriaStatus: false,
+        notificationStatus: "not_applicable",
+        sourcesScraped: tracked.length - scrapeFailureCount,
+        sourcesFailed: scrapeFailureCount + queueFailureCount,
+      });
+    } else {
+      await markRunStage(db, runId, "extract");
+    }
     await persistCivicRunMetadata(db, runId, trackedUrlStatus);
 
     logEvent({
@@ -628,7 +644,8 @@ async function enqueueCivicDocument(
 
 /**
  * Return the set of source_urls already present in civic_extraction_queue
- * for this scout in any non-terminal-retry state (pending/processing/done).
+ * for this scout in a live state (pending/processing). Completed queue rows
+ * never suppress a changed source version; membership hashes handle that.
  * URLs with status='failed' after 3 attempts are NOT returned — they remain
  * eligible for re-enqueue on a later run.
  */
@@ -640,7 +657,7 @@ async function loadQueuedSourceUrls(
     .from("civic_extraction_queue")
     .select("source_url")
     .eq("scout_id", scoutId)
-    .in("status", ["pending", "processing", "done"]);
+    .in("status", ["pending", "processing"]);
   if (error) {
     logEvent({
       level: "warn",
@@ -661,6 +678,15 @@ async function loadQueuedSourceUrls(
       .filter((s): s is string => Boolean(s))
     : [];
   return new Set<string>(urls);
+}
+
+async function civicDocumentContentHash(sourceUrl: string): Promise<string> {
+  const parsed = await parseDocument(sourceUrl, { workloadClass: "scout" });
+  const markdown = (parsed.markdown ?? "").slice(0, 80_000);
+  if (!markdown.trim()) {
+    throw new Error(`civic document has no parseable text: ${sourceUrl}`);
+  }
+  return await sha256Hex(markdown);
 }
 
 async function resolveRun(

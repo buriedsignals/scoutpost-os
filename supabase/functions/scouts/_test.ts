@@ -528,7 +528,7 @@ Deno.test("scouts: LinkedIn accepts personal URLs and rejects other URL paths", 
   }
 });
 
-Deno.test("scouts: civic fields persist and seed initial promises", async () => {
+Deno.test("scouts: legacy Civic preview text is never persisted", async () => {
   const user = await createTestUser();
   try {
     const createRes = await fetch(functionUrl("scouts"), {
@@ -567,10 +567,76 @@ Deno.test("scouts: civic fields persist and seed initial promises", async () => 
       .select("promise_text, due_date, date_confidence")
       .eq("scout_id", created.id);
     if (error) throw new Error(error.message);
-    assertEquals(promises?.length ?? 0, 1);
-    assertEquals(promises?.[0]?.promise_text, "Build 100 affordable homes");
-    assertEquals(promises?.[0]?.due_date, "2026-09-01");
-    assertEquals(promises?.[0]?.date_confidence, "high");
+    assertEquals(promises?.length ?? 0, 0);
+  } finally {
+    await user.cleanup();
+  }
+});
+
+Deno.test("scouts: Civic initial import queues only the server-owned preview snapshot", async () => {
+  const user = await createTestUser();
+  try {
+    const trackedUrl = "https://city.example.gov/council/minutes";
+    const documentUrl = "https://city.example.gov/council/minutes/2026-08-01";
+    const { data: snapshot, error: snapshotError } = await svc()
+      .from("civic_preview_snapshots")
+      .insert({
+        user_id: user.id,
+        policy_version: "civic-accountability-v2",
+        criteria: "housing",
+        tracked_urls: [trackedUrl],
+        documents: [{
+          source_url: documentUrl,
+          source_title: "Council minutes",
+          content_hash: "a".repeat(64),
+          items: [],
+        }],
+        expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+      })
+      .select("id")
+      .single();
+    if (snapshotError || !snapshot) {
+      throw new Error(snapshotError?.message ?? "missing preview snapshot");
+    }
+
+    const createRes = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Snapshot-bound Civic import",
+        type: "civic",
+        root_domain: "city.example.gov",
+        tracked_urls: [trackedUrl],
+        criteria: "housing",
+        topic: "housing",
+        import_current_items: true,
+        preview_snapshot_token: snapshot.id,
+        // This must be discarded even though the request is otherwise valid.
+        initial_promises: [{
+          promise_text: "MALICIOUS BROWSER TEXT",
+          source_url: "https://attacker.invalid/forged",
+        }],
+      }),
+    });
+    assertEquals(createRes.status, 201);
+    const created = await createRes.json();
+
+    const { data: queued, error: queueError } = await svc()
+      .from("civic_extraction_queue")
+      .select("source_url,ingestion_mode,preview_snapshot_id")
+      .eq("scout_id", created.id);
+    if (queueError) throw new Error(queueError.message);
+    assertEquals(queued?.length, 1);
+    assertEquals(queued?.[0]?.source_url, documentUrl);
+    assertEquals(queued?.[0]?.ingestion_mode, "initial");
+    assertEquals(queued?.[0]?.preview_snapshot_id, snapshot.id);
+
+    const { count, error: promiseError } = await svc().from("promises").select(
+      "id",
+      { count: "exact", head: true },
+    ).eq("scout_id", created.id);
+    if (promiseError) throw new Error(promiseError.message);
+    assertEquals(count, 0);
   } finally {
     await user.cleanup();
   }

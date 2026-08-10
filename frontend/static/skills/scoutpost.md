@@ -7,7 +7,11 @@ description: >
 
 # Scoutpost skill
 
-You have been connected to **Scoutpost**, a monitoring platform for journalists and newsrooms. A human journalist is using you to create scouts, search findings, and turn emerging developments into organized leads. This document tells you how to use Scoutpost correctly and how to behave around editorial verification.
+You have been connected to **Scoutpost**, a monitoring platform for journalists
+and newsrooms. A human journalist is using you to create scouts, search
+findings, and turn emerging developments into organized leads. This document
+tells you how to use Scoutpost correctly and how to behave around editorial
+verification.
 
 Read this once. Apply it for every Scoutpost task in this session.
 
@@ -23,22 +27,24 @@ Scoutpost runs scheduled scouts that watch:
 - councils, agendas, minutes, and PDFs
 - transport: vessels (AIS), aircraft (ADS-B), and satellites
 
-Each run extracts **information units**: atomic, source-linked facts. Units are deduplicated across repeated coverage and land in an editorial inbox.
+Each run extracts **information units**: atomic, source-linked facts. Units are
+deduplicated across repeated coverage and land in an editorial inbox.
 
-The journalist stays responsible for verification. Your job is to help monitor, search, organize, summarize, and draft safely.
+The journalist stays responsible for verification. Your job is to help monitor,
+search, organize, summarize, and draft safely.
 
 ## The main public concepts
 
-| Concept | Meaning |
-|---|---|
-| **Page Scout** | Watch one URL for meaningful changes |
-| **Beat Scout** | Monitor a beat by topic or geography |
-| **Social Scout** | Track social posts and deletions |
-| **Civic Scout** | Track council materials, including PDFs and promises |
-| **Fleet Scout** | Alert when specific tracked vessels, aircraft, or satellites (an ID watch list, up to 20) enter a watched area |
-| **Information unit** | One atomic fact with source and timestamps |
-| **Verification** | Human editorial approval before a fact is treated as publishable |
-| **Page Archive** | Opt-in tamper-evident evidence snapshots of a Page Scout's captures (MHTML, screenshot, markdown, RFC 3161 timestamp, optional Wayback) |
+| Concept              | Meaning                                                                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Page Scout**       | Watch one URL for meaningful changes                                                                                                    |
+| **Beat Scout**       | Monitor a beat by topic or geography                                                                                                    |
+| **Social Scout**     | Track social posts and deletions                                                                                                        |
+| **Civic Scout**      | Track official council materials for source-linked accountability leads: adopted material decisions and dated public obligations        |
+| **Fleet Scout**      | Alert when specific tracked vessels, aircraft, or satellites (an ID watch list, up to 20) enter a watched area                          |
+| **Information unit** | One atomic fact with source and timestamps                                                                                              |
+| **Verification**     | Human editorial approval before a fact is treated as publishable                                                                        |
+| **Page Archive**     | Opt-in tamper-evident evidence snapshots of a Page Scout's captures (MHTML, screenshot, markdown, RFC 3161 timestamp, optional Wayback) |
 
 ## How you're connected
 
@@ -48,11 +54,12 @@ Scoutpost is usually exposed to agents through one of these paths:
 - **MCP**: the remote MCP URL shown in the app's **Connect Agent** dialog
 - **REST API**: the API base shown in the app's **Connect Agent** -> API panel
 
-If both CLI and MCP are available, prefer the CLI for shell-capable agents because the commands stay visible in the transcript.
+If both CLI and MCP are available, prefer the CLI for shell-capable agents
+because the commands stay visible in the transcript.
 
-Do not assume a hosted scoutpost.ai endpoint. In self-hosted deployments,
-use the newsroom's own Supabase/API/MCP targets from the **Connect Agent** dialog or the
-local `scout` config.
+Do not assume a hosted scoutpost.ai endpoint. In self-hosted deployments, use
+the newsroom's own Supabase/API/MCP targets from the **Connect Agent** dialog or
+the local `scout` config.
 
 ## Core workflow
 
@@ -66,11 +73,16 @@ local `scout` config.
 ## Operational rules
 
 - Do not auto-run expensive operations without confirmation.
-- Always disclose credit spend before running a Civic Scout or a large batch of scouts.
+- Always disclose credit spend before running a Civic Scout or a large batch of
+  scouts.
 - Never present an unverified unit as confirmed fact.
 - Always include source URLs when summarizing findings.
-- If units contradict each other, surface the contradiction instead of choosing a side.
-- Evidence archiving is opt-in per page scout and Pro/Team-only on hosted Scoutpost; enabling it also submits each snapshot to the public Internet Archive unless the newsroom turns Wayback off. Disclose that before enabling it for someone.
+- If units contradict each other, surface the contradiction instead of choosing
+  a side.
+- Evidence archiving is opt-in per page scout and Pro/Team-only on hosted
+  Scoutpost; enabling it also submits each snapshot to the public Internet
+  Archive unless the newsroom turns Wayback off. Disclose that before enabling
+  it for someone.
 
 ## Useful URLs
 
@@ -94,11 +106,13 @@ The exact command names vary by surface, but the public contract is:
 - mark units used in an article
 - export project material for drafting
 - list a page scout's archived evidence snapshots
-- download a snapshot artifact (MHTML, screenshot, markdown, manifest, timestamp)
+- download a snapshot artifact (MHTML, screenshot, markdown, manifest,
+  timestamp)
 - turn evidence archiving on or off for a page scout
 - test a Fleet Scout configuration against live data before creating it
 
-Use whichever surface is connected to your agent. Do not ask the user to switch surfaces unless the current one is actually blocked.
+Use whichever surface is connected to your agent. Do not ask the user to switch
+surfaces unless the current one is actually blocked.
 
 ## Fleet Scout creation
 
@@ -107,12 +121,45 @@ requested IDs against current live data and returns a silent baseline. Step 2
 names and schedules the scout with that exact baseline, so objects already in
 the area do not create an immediate false alert.
 
-- CLI: run `scout scouts test-transport --mode vessel --watch-ids 636019825 --center-lat 26.55 --center-lon 56.25 --radius-km 40`, then pass the returned IDs to `scout scouts add ... --baseline-ids 636019825`. If Step 1 returns an empty list, pass `--baseline-ids ''`.
-- MCP: call `test_transport_config`, then call `create_scout` with its `baseline_ids` as `transport_baseline_ids`.
-- REST: `POST /transport-test` with `{ "config": ... }`, then include the returned `baseline_ids` as `transport_baseline_ids` in `POST /scouts`.
+- CLI: run
+  `scout scouts test-transport --mode vessel --watch-ids 636019825 --center-lat 26.55 --center-lon 56.25 --radius-km 40`,
+  then pass the returned IDs to `scout scouts add ... --baseline-ids 636019825`.
+  If Step 1 returns an empty list, pass `--baseline-ids ''`.
+- MCP: call `test_transport_config`, then call `create_scout` with its
+  `baseline_ids` as `transport_baseline_ids`.
+- REST: `POST /transport-test` with `{ "config": ... }`, then include the
+  returned `baseline_ids` as `transport_baseline_ids` in `POST /scouts`.
 
 Do not skip Step 1 in a new client. Omitting `transport_baseline_ids` preserves
 the legacy behavior where the first scheduled run silently creates a baseline.
+
+## Civic Scout workflow
+
+Use Civic Scout for accountability leads, not meeting calendars. A **promise**
+is an adopted, attributable future action with a cited fulfilment date; a
+**material decision** is a final consequential council action and is stored as a
+fact lead, not a promise. Calendars, agenda logistics, procedural votes,
+unadopted proposals, and meeting dates used as invented deadlines are rejected.
+
+1. Discover official council document sources.
+2. Preview the selected sources. A successful preview may correctly contain zero
+   items.
+3. If creating a scout through an agent surface, submit only
+   `import_current_items` and the opaque preview snapshot token—never caller
+   supplied promise or decision text.
+4. Present every result as an AI-extracted lead and verify its cited official
+   evidence before publication.
+
+CLI: `scout civic discover`, `scout civic preview`, `scout civic items`, and
+`scout civic runs`. MCP provides the equivalent `discover_civic_sources`,
+`preview_civic_items`, `list_civic_items`, `get_civic_item`, `list_civic_runs`,
+and `get_civic_run` tools. Use `scout units evidence <id>` or
+`get_unit_evidence` for the bounded source expressions behind a lead.
+
+Only a journalist/editor may mark a Civic promise `in_progress`, `fulfilled`, or
+`broken`. Use `get_civic_promise` then `set_civic_promise_status` in MCP, or
+`scout promises show/status` in the CLI, supplying the current `updated_at` for
+optimistic concurrency. Civic Scout never infers fulfilment automatically.
 
 The UI calls the scout's short organizational `topic` tags **Project labels**.
 They are not the same thing as an investigation Project, `project_id`, or the
@@ -120,28 +167,43 @@ Project-management tools.
 
 ## Page Archive (evidence snapshots)
 
-Page Scouts can archive a tamper-evident snapshot of each capture (the rendered page as MHTML, a screenshot, markdown, an RFC 3161 trusted timestamp, and — unless disabled — a public Internet Archive/Wayback submission). This is how a journalist proves what a page showed at capture time.
+Page Scouts can archive a tamper-evident snapshot of each capture (the rendered
+page as MHTML, a screenshot, markdown, an RFC 3161 trusted timestamp, and —
+unless disabled — a public Internet Archive/Wayback submission). This is how a
+journalist proves what a page showed at capture time.
 
 **Turn archiving on/off** when creating or updating a page scout:
 
-- CLI: `scout scouts add --type web --url <url> --archive-enabled true [--wayback-enabled false]`, or `scout scouts update <id> --archive-enabled true`
-- MCP: `create_scout` / `update_scout` with `archive_enabled: true` (and optional `wayback_enabled`)
-- REST: include `"archive_enabled": true` in the `POST /scouts` or `PATCH /scouts/:id` body
-- On hosted Scoutpost archiving is Pro/Team-only (a free-tier enable returns 403 archive_forbidden). Enabling it also submits each snapshot to the public Wayback Machine unless `wayback_enabled` is false.
+- CLI:
+  `scout scouts add --type web --url <url> --archive-enabled true [--wayback-enabled false]`,
+  or `scout scouts update <id> --archive-enabled true`
+- MCP: `create_scout` / `update_scout` with `archive_enabled: true` (and
+  optional `wayback_enabled`)
+- REST: include `"archive_enabled": true` in the `POST /scouts` or
+  `PATCH /scouts/:id` body
+- On hosted Scoutpost archiving is Pro/Team-only (a free-tier enable returns 403
+  archive_forbidden). Enabling it also submits each snapshot to the public
+  Wayback Machine unless `wayback_enabled` is false.
 
-**List a scout's snapshots** (newest first — capture kind baseline/change, fidelity, trust status, and the artifacts available):
+**List a scout's snapshots** (newest first — capture kind baseline/change,
+fidelity, trust status, and the artifacts available):
 
 - CLI: `scout snapshots list --scout <scout_id>`
 - MCP: `list_snapshots` with `scout_id`
 - REST: `GET /snapshots?scout_id=<id>`
 
-**Download one artifact** (`mhtml | screenshot | rawhtml | markdown | manifest | tsr`):
+**Download one artifact**
+(`mhtml | screenshot | rawhtml | markdown | manifest | tsr`):
 
-- CLI: `scout snapshots download <snapshot_id> --artifact mhtml -o page.mhtml` (or `scout snapshots url <id> --artifact mhtml` to just print the link)
-- MCP: `get_snapshot_url` with `id` + `artifact` → a 5-minute signed download URL
+- CLI: `scout snapshots download <snapshot_id> --artifact mhtml -o page.mhtml`
+  (or `scout snapshots url <id> --artifact mhtml` to just print the link)
+- MCP: `get_snapshot_url` with `id` + `artifact` → a 5-minute signed download
+  URL
 - REST: `POST /snapshots/:id/url` with `{ "artifact": "mhtml" }`
 
-Snapshots exist only for scouts with archiving enabled. Treat an archived snapshot as evidence of what a page showed at the captured time — not proof that a specific person saw it.
+Snapshots exist only for scouts with archiving enabled. Treat an archived
+snapshot as evidence of what a page showed at the captured time — not proof that
+a specific person saw it.
 
 ## Verification policy
 
@@ -154,7 +216,8 @@ When in doubt, say that a claim is unverified and cite the source.
 
 ## Setup vs product use
 
-This file is the **product-use** skill. If the user wants to deploy, self-host, or provision Scoutpost, use the setup skill instead:
+This file is the **product-use** skill. If the user wants to deploy, self-host,
+or provision Scoutpost, use the setup skill instead:
 
 - https://www.scoutpost.ai/skills/scoutpost-setup.md
 

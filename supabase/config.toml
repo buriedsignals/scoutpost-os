@@ -447,6 +447,9 @@ verify_jwt = false
 [functions.civic]
 verify_jwt = false
 
+[functions.promises]
+verify_jwt = false
+
 [functions.openapi-spec]
 verify_jwt = false
 

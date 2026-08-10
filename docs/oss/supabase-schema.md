@@ -384,3 +384,11 @@ CREATE EXTENSION IF NOT EXISTS "pg_net";   -- HTTP from within PostgreSQL (neede
 On managed Supabase (cloud), all three extensions are available and can be enabled via
 the Supabase dashboard or the CLI. On a self-hosted PostgreSQL instance, you must compile
 and install pgvector, pg_cron, and pg_net separately.
+### Civic accountability internals
+
+The following Civic-internal tables are service-role only and are not exposed
+through the Data API: `civic_preview_snapshots`, `civic_document_baselines`,
+`civic_run_alert_items`, `promise_reminder_deliveries`,
+`promise_status_history`, and `promise_revisions`. They retain preview/import
+bindings, durable document membership, delivery state, and human/official
+history without making rejected source text public.

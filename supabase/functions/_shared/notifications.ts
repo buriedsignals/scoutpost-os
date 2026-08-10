@@ -110,6 +110,8 @@ export interface BeatAlertParams extends BaseAlertParams {
 
 export interface CivicAlertParams extends BaseAlertParams {
   summary: string;
+  /** Durable run-alert outbox key. */
+  providerIdempotencyKey?: string;
 }
 
 export interface SocialAlertParams extends BaseAlertParams {
@@ -136,6 +138,8 @@ export interface PromiseDigestParams {
   userId: string;
   items: PromiseDigestItem[];
   language?: string | null;
+  /** Stable durable-outbox key for the rendered batch. */
+  providerIdempotencyKey?: string;
 }
 
 export interface ScoutDeactivatedParams {
@@ -542,7 +546,7 @@ export async function sendCivicAlert(
       subject: `\uD83C\uDFDB\uFE0F Civic Scout: ${params.scoutName}`,
       html,
     };
-  });
+  }, params.providerIdempotencyKey);
 }
 
 export async function sendSocialAlert(
@@ -608,14 +612,14 @@ export async function sendSocialAlert(
 /**
  * Send the daily civic-promise digest to one user. Unlike the scout alerts
  * this is not bound to a single scout_run — the promise-digest Edge Function
- * groups promises due today across every civic scout the user owns. Returns
- * true if Resend accepted the email (so the caller can flip
- * promises.status='notified' for the included rows).
+ * groups due and overdue open promises across every Civic scout the user owns.
+ * Returns true if Resend accepted the email; the caller records delivery in
+ * the durable reminder ledger without changing the editorial lifecycle state.
  */
 export async function sendCivicPromiseDigest(
   svc: SupabaseClient,
   params: PromiseDigestParams,
-): Promise<boolean> {
+): Promise<NotificationSendResult> {
   const resendKey = Deno.env.get("RESEND_API_KEY") ?? "";
   if (!resendKey) {
     logEvent({
@@ -625,7 +629,7 @@ export async function sendCivicPromiseDigest(
       scout_type: "civic_digest",
       user_id: params.userId,
     });
-    return false;
+    return { ok: false, reason: "missing_api_key" };
   }
   const ctx = await resolveUserContext(svc, params.userId);
   if (!ctx.email) {
@@ -636,7 +640,7 @@ export async function sendCivicPromiseDigest(
       scout_type: "civic_digest",
       user_id: params.userId,
     });
-    return false;
+    return { ok: false, reason: "missing_email" };
   }
   const language = params.language ?? ctx.language;
   const summary = params.items
@@ -678,7 +682,14 @@ export async function sendCivicPromiseDigest(
   }: ${digestSubtitle}`;
 
   try {
-    return (await sendWithRetry(resendKey, ctx.email, subject, html)).ok;
+    return await sendWithRetry(
+      resendKey,
+      ctx.email,
+      subject,
+      html,
+      3,
+      params.providerIdempotencyKey,
+    );
   } catch (e) {
     logEvent({
       level: "warn",
@@ -688,7 +699,11 @@ export async function sendCivicPromiseDigest(
       user_id: params.userId,
       msg: e instanceof Error ? e.message : String(e),
     });
-    return false;
+    return {
+      ok: false,
+      reason: "provider_error",
+      error: e instanceof Error ? e.message : String(e),
+    };
   }
 }
 
@@ -812,6 +827,7 @@ async function guarded(
   userId: string,
   runId: string,
   render: (ctx: UserContext) => Promise<{ subject: string; html: string }>,
+  providerIdempotencyKey?: string,
 ): Promise<NotificationSendResult> {
   try {
     const { data: run, error: runErr } = await svc
@@ -880,7 +896,7 @@ async function guarded(
       subject,
       html,
       3,
-      scoutType === "page" ? `page/${runId}/notification` : undefined,
+      providerIdempotencyKey ?? `${scoutType}/${runId}/notification`,
     );
     if (!sent.ok) return sent;
 

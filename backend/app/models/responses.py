@@ -93,7 +93,8 @@ class MonitoringScheduleRequest(BaseModel):
     # Civic scout fields
     root_domain: Optional[str] = None
     tracked_urls: Optional[list[str]] = None
-    initial_promises: Optional[list[dict]] = Field(default=None, description="Promises from test extraction (civic scouts only)")
+    import_current_items: Optional[bool] = Field(default=None, description="Import the server-owned Civic preview snapshot; never submit extracted item text")
+    preview_snapshot_token: Optional[str] = Field(default=None, description="Opaque Civic preview token required when import_current_items is true")
 
     @model_validator(mode="after")
     def web_scout_requires_url(self) -> "MonitoringScheduleRequest":

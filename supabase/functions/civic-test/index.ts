@@ -15,11 +15,12 @@
 
 import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
-import { requireUser, AuthedUser } from "../_shared/auth.ts";
+import { AuthedUser, requireUser } from "../_shared/auth.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { previewCivicTrackedUrls } from "../_shared/civic_preview.ts";
+import type { CivicPreviewItem } from "../_shared/civic_preview.ts";
 
 const InputSchema = z.object({
   tracked_urls: z.array(z.string().url()).min(1).max(2),
@@ -37,6 +38,9 @@ interface UrlResult {
   title?: string;
   promises_count?: number;
   promises?: ExtractedPromise[];
+  items_count?: number;
+  items?: CivicPreviewItem[];
+  policy_version?: string;
   error?: string;
 }
 
@@ -115,11 +119,15 @@ async function previewUrl(
       meeting_date: promise.source_date || null,
     }))
   );
+  const items = preview.documents.flatMap((document) => document.items);
 
   return {
     url,
     title: preview.documents[0]?.title,
     promises_count: promises.length,
     promises,
+    items_count: items.length,
+    items,
+    policy_version: preview.policyVersion,
   };
 }

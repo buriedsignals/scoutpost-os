@@ -63,6 +63,18 @@ import { assertTransportEntitled } from "../_shared/transport_entitlement.ts";
 import { doubleProbe, firecrawlScrape } from "../_shared/scrape_firecrawl.ts";
 import { scrape } from "../_shared/scrape.ts";
 import { writeCanonicalBaseline } from "../_shared/canonical_baseline.ts";
+import {
+  assertCompleteCivicMembership,
+  upsertCivicDocumentMembership,
+} from "../_shared/civic_document_membership.ts";
+import {
+  type CivicTrackedPage,
+  classifyCivicMeetingUrls,
+  extractCivicLinksFromPages,
+  isCivicDirectDocumentUrl,
+} from "../_shared/civic_links.ts";
+import { parseDocument } from "../_shared/docparse.ts";
+import { sha256Hex } from "../_shared/unit_dedup.ts";
 import { openRouterExtract } from "../_shared/openrouter.ts";
 import { compressContext } from "../_shared/taco_compress.ts";
 import {
@@ -146,16 +158,6 @@ const TopicSchema = z.string().max(200).superRefine((value, ctx) => {
     }
   }
 });
-const InitialPromiseSchema = z.object({
-  promise_text: z.string().min(1).max(4000),
-  context: z.string().max(8000).default(""),
-  source_url: z.string().url().max(2000),
-  source_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  date_confidence: z.enum(["high", "medium", "low"]),
-  criteria_match: z.boolean(),
-});
-
 const CreateSchema = z
   .object({
     name: z.string().min(1).max(200),
@@ -190,7 +192,11 @@ const CreateSchema = z
       .max(MAX_TRANSPORT_BASELINE_IDS).optional(),
     root_domain: z.string().min(1).max(300).optional(),
     tracked_urls: z.array(z.string().url().max(2000)).min(1).max(20).optional(),
-    initial_promises: z.array(InitialPromiseSchema).max(100).optional(),
+    // Compatibility-only: never used as persistence input. New clients use
+    // import_current_items plus the opaque server-owned snapshot token.
+    initial_promises: z.array(z.unknown()).max(100).optional(),
+    import_current_items: z.boolean().optional(),
+    preview_snapshot_token: z.string().uuid().optional(),
     // Type-specific overflow config (scouts.config JSONB). Currently used by
     // transport scouts; validated per-type in superRefine.
     config: z.record(z.unknown()).optional(),
@@ -211,6 +217,16 @@ const CreateSchema = z
         code: z.ZodIssueCode.custom,
         path: ["url"],
         message: "required for web scouts",
+      });
+    }
+    if (
+      v.type === "civic" && v.import_current_items === true &&
+      !v.preview_snapshot_token
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["preview_snapshot_token"],
+        message: "required when importing current Civic items",
       });
     }
     if (v.type === "social") {
@@ -785,13 +801,15 @@ async function establishCivicBaseline(
   // scout is dead-on-arrival — refuse to stamp a functionless baseline and
   // surface the bad URLs to the user at creation time.
   let reachedCount = 0;
+  const pages: CivicTrackedPage[] = [];
+  const directDocuments: string[] = [];
   for (const url of tracked) {
     let scraped;
     try {
       scraped = await scrape(url, {
         workloadClass: "utility",
-        formats: ["markdown"],
-        onlyMainContent: true,
+        formats: ["markdown", "rawHtml"],
+        onlyMainContent: false,
       });
     } catch (e) {
       logEvent({
@@ -822,6 +840,11 @@ async function establishCivicBaseline(
       continue;
     }
     reachedCount += 1;
+    if (isCivicDirectDocumentUrl(url)) {
+      directDocuments.push(canonicalCivicUrl(url));
+    } else {
+      pages.push({ pageUrl: url, rawHtml: scraped.rawHtml ?? "" });
+    }
     const markdown = scraped.markdown ?? "";
     if (!markdown.trim()) {
       logEvent({
@@ -845,6 +868,38 @@ async function establishCivicBaseline(
       "could not reach any civic tracked URL (all failed to scrape or " +
         "returned an error status); check the URLs before scheduling",
     );
+  }
+
+  // Import-off is only truthful when we know the complete bounded archive
+  // membership.  Hash every discovered source now; a later schedule compares
+  // both URL and content version, rather than an order-sensitive/capped URL
+  // cache.  If this cannot be completed, creation fails instead of promising
+  // "new documents only" behaviour that we cannot provide.
+  const discovered = await classifyCivicMeetingUrls(
+    extractCivicLinksFromPages(pages),
+  );
+  const documentUrls = [
+    ...new Set([...directDocuments, ...discovered].map(
+      canonicalCivicUrl,
+    )),
+  ];
+  assertCompleteCivicMembership(documentUrls);
+  for (const sourceUrl of documentUrls) {
+    const document = await parseDocument(sourceUrl, {
+      workloadClass: "utility",
+    });
+    const markdown = (document.markdown ?? "").slice(0, 80_000);
+    if (!markdown.trim()) {
+      throw new ValidationError(
+        `could not establish a content baseline for ${sourceUrl}`,
+      );
+    }
+    await upsertCivicDocumentMembership(svc, {
+      scoutId: scout.id,
+      userId: scout.user_id,
+      sourceUrl,
+      contentHash: await sha256Hex(markdown),
+    });
   }
 }
 
@@ -1056,25 +1111,113 @@ async function ensureSocialBaseline(
   );
 }
 
-async function seedInitialPromises(
+async function enqueueInitialCivicDocuments(
   svc: ReturnType<typeof getServiceClient>,
   scoutId: string,
   userId: string,
-  promises: Array<z.infer<typeof InitialPromiseSchema>>,
-): Promise<void> {
-  if (promises.length === 0) return;
-  const rows = promises.map((promise) => ({
+  trackedUrls: string[],
+  criteria: string | null | undefined,
+  previewSnapshotToken: string,
+): Promise<number> {
+  const { data: snapshot, error: snapshotError } = await svc
+    .from("civic_preview_snapshots")
+    .select(
+      "id, policy_version, criteria, tracked_urls, documents, expires_at, consumed_by_scout_id",
+    )
+    .eq("id", previewSnapshotToken)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (snapshotError) throw new Error(snapshotError.message);
+  if (
+    !snapshot || new Date(snapshot.expires_at as string).getTime() <= Date.now()
+  ) {
+    throw new ValidationError(
+      "Civic preview expired; run preview again before importing",
+    );
+  }
+  if (
+    snapshot.consumed_by_scout_id && snapshot.consumed_by_scout_id !== scoutId
+  ) {
+    throw new ValidationError("Civic preview has already been used");
+  }
+  if (snapshot.policy_version !== "civic-accountability-v2") {
+    throw new ValidationError(
+      "Civic preview policy is no longer compatible; run preview again",
+    );
+  }
+  if ((snapshot.criteria ?? null) !== (criteria?.trim() || null)) {
+    throw new ValidationError("Civic preview criteria do not match this scout");
+  }
+  const expectedUrls = normalizeTrackedUrls(trackedUrls).map(canonicalCivicUrl)
+    .sort();
+  const snapshotUrls = Array.isArray(snapshot.tracked_urls)
+    ? snapshot.tracked_urls.map((value: unknown) =>
+      canonicalCivicUrl(String(value))
+    ).sort()
+    : [];
+  if (
+    expectedUrls.length !== snapshotUrls.length ||
+    expectedUrls.some((url, index) => url !== snapshotUrls[index])
+  ) {
+    throw new ValidationError("Civic preview sources do not match this scout");
+  }
+  const documents = Array.isArray(snapshot.documents) ? snapshot.documents : [];
+  const sourceUrls = [
+    ...new Set(
+      documents
+        .map((document: unknown) => {
+          if (!document || typeof document !== "object") return null;
+          const sourceUrl = (document as Record<string, unknown>).source_url;
+          return typeof sourceUrl === "string"
+            ? canonicalCivicUrl(sourceUrl)
+            : null;
+        })
+        .filter((url): url is string => url !== null),
+    ),
+  ];
+  if (sourceUrls.length === 0) return 0;
+  const rows = sourceUrls.map((sourceUrl) => ({
     scout_id: scoutId,
     user_id: userId,
-    promise_text: promise.promise_text,
-    context: promise.context,
-    source_url: promise.source_url,
-    meeting_date: promise.source_date,
-    due_date: promise.due_date ?? null,
-    date_confidence: promise.date_confidence,
+    source_url: sourceUrl,
+    doc_kind: /\.pdf(?:$|[?#])/i.test(sourceUrl) ? "pdf" : "html",
+    ingestion_mode: "initial",
+    civic_policy_version: "civic-accountability-v2",
+    preview_snapshot_id: snapshot.id,
+    semantics_snapshot: {
+      criteria: snapshot.criteria ?? null,
+      preview_snapshot_id: snapshot.id,
+    },
   }));
-  const { error } = await svc.from("promises").insert(rows);
-  if (error) throw new Error(error.message);
+  // Claim the single-use snapshot before enqueueing. A concurrent create with
+  // the same token must fail rather than creating a second initial import.
+  const { data: claimedSnapshot, error: claimError } = await svc
+    .from("civic_preview_snapshots")
+    .update({ consumed_by_scout_id: scoutId })
+    .eq("id", snapshot.id)
+    .eq("user_id", userId)
+    .is("consumed_by_scout_id", null)
+    .select("id")
+    .maybeSingle();
+  if (claimError) throw new Error(claimError.message);
+  if (!claimedSnapshot) {
+    throw new ValidationError("Civic preview has already been used");
+  }
+  const { error } = await svc.from("civic_extraction_queue").insert(rows);
+  if (error) {
+    await svc.from("civic_preview_snapshots")
+      .update({ consumed_by_scout_id: null })
+      .eq("id", snapshot.id)
+      .eq("consumed_by_scout_id", scoutId);
+    throw new Error(error.message);
+  }
+  return rows.length;
+}
+
+function canonicalCivicUrl(value: string): string {
+  const url = new URL(value);
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
 }
 
 async function createScout(req: Request, user: AuthedUser): Promise<Response> {
@@ -1109,9 +1252,15 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
     day_number,
     baseline_posts,
     transport_baseline_ids,
-    initial_promises,
+    initial_promises: _initial_promises,
+    import_current_items,
+    preview_snapshot_token,
     ...rest
   } = parsed.data;
+  // Legacy browser-authored promises are deliberately ignored. Import is an
+  // explicit choice bound to a server-owned snapshot, never an array of text.
+  const shouldImportCurrentCivicItems = rest.type === "civic" &&
+    import_current_items === true;
   const schedule_cron = explicitCron ??
     cronFromParts(rest.regularity, day_number, time);
   const scheduleError = schedulePolicyError(
@@ -1189,11 +1338,15 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
         );
         baselineScout.baseline_established_at = new Date().toISOString();
       }
-      if (
-        data.type === "civic" && Array.isArray(initial_promises) &&
-        initial_promises.length > 0
-      ) {
-        await seedInitialPromises(svc, data.id, user.id, initial_promises);
+      if (data.type === "civic" && shouldImportCurrentCivicItems) {
+        await enqueueInitialCivicDocuments(
+          svc,
+          data.id,
+          user.id,
+          normalizeTrackedUrls(rest.tracked_urls),
+          rest.criteria,
+          preview_snapshot_token!,
+        );
       }
       if (data.type === "transport") {
         const establishedAt = await seedTransportBaseline(
@@ -1243,11 +1396,15 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
         );
         data.baseline_established_at = new Date().toISOString();
       }
-      if (
-        data.type === "civic" && Array.isArray(initial_promises) &&
-        initial_promises.length > 0
-      ) {
-        await seedInitialPromises(svc, data.id, user.id, initial_promises);
+      if (data.type === "civic" && shouldImportCurrentCivicItems) {
+        await enqueueInitialCivicDocuments(
+          svc,
+          data.id,
+          user.id,
+          normalizeTrackedUrls(rest.tracked_urls),
+          rest.criteria,
+          preview_snapshot_token!,
+        );
       }
       if (data.type === "transport") {
         const establishedAt = await seedTransportBaseline(

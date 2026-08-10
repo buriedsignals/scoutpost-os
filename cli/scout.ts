@@ -4,8 +4,10 @@
 
 import * as auth from "./commands/auth.ts";
 import * as config from "./commands/config.ts";
+import * as civic from "./commands/civic.ts";
 import * as ingest from "./commands/ingest.ts";
 import * as projects from "./commands/projects.ts";
+import * as promises from "./commands/promises.ts";
 import * as scouts from "./commands/scouts.ts";
 import * as snapshots from "./commands/snapshots.ts";
 import * as units from "./commands/units.ts";
@@ -14,8 +16,10 @@ import { VERSION } from "./lib/version.ts";
 
 const SUBCOMMANDS = [
   "config",
+  "civic",
   "auth",
   "projects",
+  "promises",
   "scouts",
   "units",
   "snapshots",
@@ -30,8 +34,10 @@ const COMMANDS: Record<
   { run: (argv: string[]) => void | Promise<void> }
 > = {
   config,
+  civic,
   auth,
   projects,
+  promises,
   scouts,
   units,
   snapshots,
@@ -48,7 +54,9 @@ function printUsage(): void {
     "Commands:",
     "  auth       Sign in, check status, or revoke the local CLI credential",
     "  config     Manage ~/.scoutpost/config.json (api_url, api_key, auth_token)",
+    "  civic      Discover, preview, and inspect Civic accountability leads",
     "  projects   List, add, show, delete projects",
+    "  promises   Read Civic promises and apply human lifecycle status",
     "  scouts     List, add, show, update, run, pause, resume, delete scouts",
     "  units      List, show, verify, reject, mark-used, search information units",
     "  snapshots  List and download archived Page Scout evidence snapshots",

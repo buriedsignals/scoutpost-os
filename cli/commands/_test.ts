@@ -22,6 +22,7 @@ import {
 import { VERSION } from "../lib/version.ts";
 import { authUsageExitCode } from "./auth.ts";
 import { run as runConfig } from "./config.ts";
+import { run as runCivic } from "./civic.ts";
 import { run as runIngest } from "./ingest.ts";
 import { resolveSocialMonitorMode, run as runScouts } from "./scouts.ts";
 import { run as runSnapshots } from "./snapshots.ts";
@@ -616,6 +617,70 @@ Deno.test("apiFetch — non-string error bodies serialize, not '[object Object]'
     } finally {
       globalThis.fetch = origFetch;
     }
+  });
+});
+
+Deno.test("civic CLI uses the public read-first Civic endpoints", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+    const requests: Array<
+      { url: string; body: Record<string, unknown> | null }
+    > = [];
+    const originalFetch = globalThis.fetch;
+    const originalLog = console.log;
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+      return Promise.resolve(
+        new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }) as typeof fetch;
+    console.log = () => {};
+    try {
+      await runCivic(["discover", "--root-domain", "council.example"]);
+      await runCivic([
+        "preview",
+        "--tracked-urls",
+        "https://council.example/minutes,https://council.example/votes",
+        "--criteria",
+        "housing",
+      ]);
+      await runCivic(["items", "--kind", "promise", "--status", "new"]);
+      await runCivic(["item", "123e4567-e89b-12d3-a456-426614174000"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      console.log = originalLog;
+    }
+    assertEquals(requests[0], {
+      url: "https://scoutpost.ai/functions/v1/civic/discover",
+      body: { root_domain: "council.example" },
+    });
+    assertEquals(requests[1], {
+      url: "https://scoutpost.ai/functions/v1/civic/test",
+      body: {
+        tracked_urls: [
+          "https://council.example/minutes",
+          "https://council.example/votes",
+        ],
+        criteria: "housing",
+      },
+    });
+    assertStringIncludes(requests[2].url, "/civic/items?");
+    assertStringIncludes(requests[2].url, "kind=promise");
+    assertStringIncludes(requests[2].url, "status=new");
+    assertEquals(
+      requests[3].url,
+      "https://scoutpost.ai/functions/v1/civic/items/123e4567-e89b-12d3-a456-426614174000",
+    );
   });
 });
 

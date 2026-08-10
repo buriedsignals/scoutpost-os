@@ -60,6 +60,8 @@
   "civic_criteriaHint": "Narrow by topic (optional)",
   "civic_discovering": "Discovering council pages...",
   "civic_enterDomain": "Enter a council website",
+  "civic_importCurrentItems": "Import accountable items from this preview",
+  "civic_importCurrentItemsDesc": "Imports only server-verified preview items. New-item email is suppressed for this initial import.",
   "civic_monitorDescription": "Track council meetings, extract promises, get notified when deadlines arrive",
   "civic_monitorTitle": "Monitor a Local Council",
   "civic_noResults": "No council meeting pages found. Try entering a more specific URL.",

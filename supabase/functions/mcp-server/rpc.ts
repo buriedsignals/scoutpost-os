@@ -156,6 +156,20 @@ export function createScoutBodyForMcp(
   args: Record<string, unknown>,
 ): Record<string, unknown> {
   const body = { ...args };
+  if (body.type === "civic") {
+    // Extracted item text is never accepted across the agent persistence
+    // boundary. Agents may opt into import only with a preview token returned
+    // by the public Civic preview endpoint.
+    delete body.initial_promises;
+    if (
+      body.import_current_items === true &&
+      typeof body.preview_snapshot_token !== "string"
+    ) {
+      throw new Error(
+        "preview_snapshot_token is required when importing current Civic items; call preview_civic_items first",
+      );
+    }
+  }
   if (body.type !== "social") return body;
 
   const monitorMode = typeof body.monitor_mode === "string"
@@ -409,32 +423,16 @@ export const TOOLS: ToolDef[] = [
           description:
             "Required for civic scouts. Official meeting-note, agenda, minutes, or document index URLs to monitor.",
         },
-        initial_promises: {
-          type: "array",
+        import_current_items: {
+          type: "boolean",
+          default: false,
           description:
-            "Optional civic seed promises already extracted by the caller.",
-          items: {
-            type: "object",
-            required: [
-              "promise_text",
-              "source_url",
-              "source_date",
-              "date_confidence",
-              "criteria_match",
-            ],
-            properties: {
-              promise_text: { type: "string" },
-              context: { type: "string" },
-              source_url: { type: "string", format: "uri" },
-              source_date: { type: "string", format: "date" },
-              due_date: { type: "string", format: "date" },
-              date_confidence: {
-                type: "string",
-                enum: ["high", "medium", "low"],
-              },
-              criteria_match: { type: "boolean" },
-            },
-          },
+            "For Civic scouts, import the exact server-verified preview items. Requires preview_snapshot_token; no caller-supplied item text is accepted.",
+        },
+        preview_snapshot_token: {
+          type: "string",
+          description:
+            "Opaque token returned by preview_civic_items. Required only when import_current_items is true; expires shortly after preview.",
         },
         archive_enabled: {
           type: "boolean",
@@ -637,6 +635,111 @@ export const TOOLS: ToolDef[] = [
       forward(token, "DELETE", "scouts", `/${String(args.id)}`),
   },
 
+  // ---------- Civic accountability ----------
+  {
+    name: "discover_civic_sources",
+    description:
+      "Discover likely official council document-index sources for a domain. Use this first, then preview_civic_items before creating/importing a Civic Scout.",
+    inputSchema: {
+      type: "object",
+      required: ["root_domain"],
+      properties: { root_domain: { type: "string", minLength: 3 } },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "POST", "civic", "/discover", {
+        body: { root_domain: args.root_domain },
+      }),
+  },
+  {
+    name: "preview_civic_items",
+    description:
+      "Read-only Civic accountability preview. Returns dated promises to follow and adopted material decisions; a valid empty result means no accountable item was found. Every result is an AI-extracted lead that must be checked against the cited official source.",
+    inputSchema: {
+      type: "object",
+      required: ["tracked_urls"],
+      properties: {
+        tracked_urls: {
+          type: "array",
+          minItems: 1,
+          maxItems: 2,
+          items: { type: "string", format: "uri" },
+        },
+        criteria: { type: "string", maxLength: 4000 },
+      },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "POST", "civic", "/test", {
+        body: { tracked_urls: args.tracked_urls, criteria: args.criteria },
+      }),
+  },
+  {
+    name: "list_civic_items",
+    description:
+      "List owner-scoped Civic accountability items. Promises have a human lifecycle status and due date; decisions are completed adopted actions and never enter the promise tracker.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["promise", "decision"] },
+        scout_id: { type: "string", format: "uuid" },
+        status: {
+          type: "string",
+          enum: ["new", "in_progress", "fulfilled", "broken"],
+        },
+        due_before: { type: "string", format: "date" },
+        due_after: { type: "string", format: "date" },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+      },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "GET", "civic", "/items", {
+        query: q(args, [
+          "kind",
+          "scout_id",
+          "status",
+          "due_before",
+          "due_after",
+          "limit",
+        ]),
+      }),
+  },
+  {
+    name: "get_civic_item",
+    description:
+      "Read one Civic accountability item and its canonical provenance summary. Use get_unit_evidence for the owner-scoped exact evidence expressions.",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: { id: { type: "string", format: "uuid" } },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "GET", "civic", `/items/${String(args.id)}`),
+  },
+  {
+    name: "list_civic_runs",
+    description:
+      "List safe aggregate diagnostics for Civic runs, including policy version, semantic-zero state, counts, and rejection aggregates without exposing rejected source text or private criteria.",
+    inputSchema: {
+      type: "object",
+      properties: { scout_id: { type: "string", format: "uuid" } },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "GET", "civic", "/runs", {
+        query: q(args, ["scout_id"]),
+      }),
+  },
+  {
+    name: "get_civic_run",
+    description:
+      "Read safe aggregate diagnostics for one owner-scoped Civic run.",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: { id: { type: "string", format: "uuid" } },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "GET", "civic", `/runs/${String(args.id)}`),
+  },
+
   // ---------- Page Archive (snapshots) ----------
   {
     name: "list_snapshots",
@@ -684,6 +787,56 @@ export const TOOLS: ToolDef[] = [
   },
 
   // ---------- Units ----------
+  {
+    name: "get_civic_promise",
+    description:
+      "Read one owner-scoped Civic promise, including its human lifecycle status and audited status history.",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: { id: { type: "string", format: "uuid" } },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "GET", "promises", `/${String(args.id)}`),
+  },
+  {
+    name: "get_unit_evidence",
+    description:
+      "Read owner-scoped bounded exact evidence expressions for one canonical unit. Use this to verify any AI-extracted Civic lead against its official source before publication.",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: { id: { type: "string", format: "uuid" } },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "GET", "units", `/${String(args.id)}/evidence`),
+  },
+  {
+    name: "set_civic_promise_status",
+    description:
+      "Apply a human editorial Civic-promise transition. Civic extraction never makes this judgment. Read first and pass its exact updated_at as expected_updated_at.",
+    inputSchema: {
+      type: "object",
+      required: ["id", "status", "expected_updated_at"],
+      properties: {
+        id: { type: "string", format: "uuid" },
+        status: {
+          type: "string",
+          enum: ["in_progress", "fulfilled", "broken"],
+        },
+        expected_updated_at: { type: "string", format: "date-time" },
+        reason: { type: "string", maxLength: 2000 },
+        evidence_url: { type: "string", format: "uri" },
+        idempotency_key: { type: "string", minLength: 8, maxLength: 200 },
+      },
+    },
+    handler: (_u, token, args) => {
+      const { id, ...body } = args;
+      return forward(token, "PATCH", "promises", `/${String(id)}/status`, {
+        body,
+      });
+    },
+  },
   {
     name: "list_units",
     description:

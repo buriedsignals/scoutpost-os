@@ -2,39 +2,19 @@ import { discoverCivicDocumentsFromTrackedPages } from "./civic_links.ts";
 import { parseDocument } from "./docparse.ts";
 import { openRouterExtract } from "./openrouter.ts";
 import { compressContext } from "./taco_compress.ts";
+import { sha256Hex } from "./unit_dedup.ts";
+import {
+  buildCivicCandidatePrompt,
+  buildCivicVerifierPrompt,
+  CIVIC_CANDIDATE_SCHEMA,
+  CIVIC_POLICY_VERSION,
+  CIVIC_VERIFIER_SCHEMA,
+  type CivicCandidate,
+  type CivicEligibleItem,
+  classifyCivicCandidates,
+} from "./civic_accountability.ts";
 
 const PREVIEW_MARKDOWN_MAX = 15_000;
-
-const PREVIEW_EXTRACTION_SCHEMA: Record<string, unknown> = {
-  type: "object",
-  properties: {
-    promises: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          promise_text: { type: "string" },
-          context: { type: "string" },
-          source_date: { type: ["string", "null"] },
-          due_date: { type: ["string", "null"] },
-          date_confidence: { type: "string" },
-        },
-        required: ["promise_text"],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ["promises"],
-  additionalProperties: false,
-};
-
-interface ExtractedPreviewPromise {
-  promise_text: string;
-  context?: string;
-  source_date?: string | null;
-  due_date?: string | null;
-  date_confidence?: string;
-}
 
 export interface CivicPreviewPromise {
   promise_text: string;
@@ -46,15 +26,29 @@ export interface CivicPreviewPromise {
   criteria_match: boolean;
 }
 
+export type CivicPreviewItem = CivicEligibleItem & {
+  source_url: string;
+  source_title: string | null;
+};
+
 export interface CivicPreviewDocument {
   source_url: string;
   title?: string;
+  content_hash: string;
+  items: CivicPreviewItem[];
   promises: CivicPreviewPromise[];
+  rejection_counts: Record<string, number>;
 }
 
 export interface CivicPreviewBundle {
   documentsFound: number;
+  documentsResolved: number;
+  sourceResults: Array<{
+    url: string;
+    outcome: "evaluated" | "no_documents" | "parse_failed" | "model_failed";
+  }>;
   documents: CivicPreviewDocument[];
+  policyVersion: string;
 }
 
 export async function previewCivicTrackedUrls(
@@ -70,6 +64,12 @@ export async function previewCivicTrackedUrls(
   );
 
   const documents: CivicPreviewDocument[] = [];
+  const sourceResults: CivicPreviewBundle["sourceResults"] = [];
+  if (documentUrls.length === 0) {
+    for (const sourceUrl of trackedUrls) {
+      sourceResults.push({ url: sourceUrl, outcome: "no_documents" });
+    }
+  }
   const maxPromisesPerDocument = Math.max(1, opts.maxPromisesPerDocument ?? 10);
 
   for (const documentUrl of documentUrls) {
@@ -79,119 +79,94 @@ export async function previewCivicTrackedUrls(
       // NeedsOcrError, caught here and skipped like any other parse failure.
       scraped = await parseDocument(documentUrl, { workloadClass: "utility" });
     } catch {
+      sourceResults.push({ url: documentUrl, outcome: "parse_failed" });
       continue;
     }
 
+    const rawMarkdown = (scraped.markdown ?? "").slice(0, 80_000);
     const { text: markdown } = compressContext(
-      (scraped.markdown ?? "").slice(0, PREVIEW_MARKDOWN_MAX),
+      rawMarkdown.slice(0, PREVIEW_MARKDOWN_MAX),
     );
-    if (!markdown.trim()) continue;
-
-    const prompt = buildPreviewPrompt(markdown, documentUrl, criteria);
-    let extraction: { promises: ExtractedPreviewPromise[] };
-    try {
-      extraction = await openRouterExtract(prompt, PREVIEW_EXTRACTION_SCHEMA);
-    } catch {
+    if (!markdown.trim()) {
+      sourceResults.push({ url: documentUrl, outcome: "parse_failed" });
       continue;
     }
 
+    const prompt = buildCivicCandidatePrompt(markdown, {
+      criteria,
+      languageName: "English",
+      referenceDate: extractDateFromUrl(documentUrl) || null,
+    });
+    let extraction: { candidates: CivicCandidate[] };
+    try {
+      extraction = await openRouterExtract(prompt, CIVIC_CANDIDATE_SCHEMA);
+    } catch {
+      sourceResults.push({ url: documentUrl, outcome: "model_failed" });
+      continue;
+    }
+
+    let verification: { candidates: CivicCandidate[] };
+    try {
+      verification = await openRouterExtract(
+        buildCivicVerifierPrompt(markdown, extraction.candidates ?? [], {
+          criteria,
+          languageName: "English",
+          referenceDate: extractDateFromUrl(documentUrl) || null,
+        }),
+        CIVIC_VERIFIER_SCHEMA,
+      );
+    } catch {
+      sourceResults.push({ url: documentUrl, outcome: "model_failed" });
+      continue;
+    }
     const sourceDateFromUrl = extractDateFromUrl(documentUrl);
-    const promises =
-      (Array.isArray(extraction.promises) ? extraction.promises : [])
-        .filter((promise) =>
-          promise && typeof promise.promise_text === "string" &&
-          promise.promise_text.trim()
-        )
-        .slice(0, maxPromisesPerDocument)
-        .map((promise): CivicPreviewPromise => ({
-          promise_text: promise.promise_text.trim(),
-          context: promise.context ?? "",
+    const classified = classifyCivicCandidates(
+      Array.isArray(verification.candidates) ? verification.candidates : [],
+      { today: new Date().toISOString().slice(0, 10), sourceText: markdown },
+    );
+    const items = classified.items.slice(0, maxPromisesPerDocument).map((
+      item,
+    ) => ({
+      ...item,
+      source_url: documentUrl,
+      source_title: scraped.title ?? null,
+    }));
+    // Keep the historical promise-only projection for existing callers while
+    // moving every new consumer to the discriminated `items` collection.
+    const promises = items.flatMap((item): CivicPreviewPromise[] =>
+      item.kind === "promise"
+        ? [{
+          promise_text: item.statement,
+          context: item.context,
           source_url: documentUrl,
-          source_date: normalizeDate(promise.source_date) ?? sourceDateFromUrl,
-          due_date: normalizeDate(promise.due_date) ?? undefined,
-          date_confidence: normalizeConfidence(promise.date_confidence) ??
-            "low",
+          source_date: item.meeting_date ?? sourceDateFromUrl,
+          due_date: item.due_date,
+          date_confidence: item.date_confidence,
           criteria_match: true,
-        }));
+        }]
+        : []
+    );
 
     documents.push({
       source_url: documentUrl,
       title: scraped.title,
+      content_hash: await sha256Hex(rawMarkdown),
+      items,
       promises,
+      rejection_counts: classified.rejectionCounts,
     });
+    sourceResults.push({ url: documentUrl, outcome: "evaluated" });
   }
 
   return {
     documentsFound: documents.length,
+    documentsResolved: documentUrls.length,
+    sourceResults,
     documents,
+    policyVersion: CIVIC_POLICY_VERSION,
   };
-}
-
-function buildPreviewPrompt(
-  markdown: string,
-  sourceUrl: string,
-  criteria?: string,
-): string {
-  const sourceDate = extractDateFromUrl(sourceUrl);
-  const dateInstructions = [
-    "- source_date: ISO date string (YYYY-MM-DD). Use the meeting/document date when mentioned; otherwise use null.",
-    "- due_date: ISO date string (YYYY-MM-DD) for a future deadline if mentioned; otherwise null.",
-    "- date_confidence: one of 'high', 'medium', or 'low' depending on how explicit the date is.",
-  ].join("\n");
-
-  if (criteria && criteria.trim()) {
-    return [
-      "You are a civic data analyst. Read the following council meeting text.",
-      `Extract ONLY promises, commitments, decisions, or investments that are directly relevant to: "${criteria.trim()}".`,
-      `If nothing in the document relates to "${criteria.trim()}", return an empty array [].`,
-      "Do not return unrelated items.",
-      "For each item return a JSON object with:",
-      "- promise_text: short summary of the commitment",
-      "- context: relevant supporting quote or excerpt",
-      dateInstructions,
-      "Return ONLY a JSON object matching the provided schema.",
-      sourceDate ? `Document date from URL: ${sourceDate}` : "",
-      markdown,
-    ].filter(Boolean).join("\n\n");
-  }
-
-  return [
-    "You are a civic data analyst. Read the following council meeting text.",
-    "Extract every explicit promise, commitment, decision, vote, or planned investment with a future action or timeline.",
-    "Keep context brief and evidence-based.",
-    "For each item return a JSON object with:",
-    "- promise_text: short summary of the commitment",
-    "- context: relevant supporting quote or excerpt",
-    dateInstructions,
-    "Focus on budget approvals, infrastructure investments, construction projects, policy decisions, regulatory changes, and formal commitments.",
-    "Return ONLY a JSON object matching the provided schema.",
-    sourceDate ? `Document date from URL: ${sourceDate}` : "",
-    markdown,
-  ].filter(Boolean).join("\n\n");
 }
 
 function extractDateFromUrl(url: string): string {
   return url.match(/(\d{4}-\d{2}-\d{2})/)?.[1] ?? "";
-}
-
-function normalizeDate(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (match) return match[1];
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
-}
-
-function normalizeConfidence(
-  value: string | null | undefined,
-): "high" | "medium" | "low" | null {
-  if (!value) return null;
-  const lowered = value.trim().toLowerCase();
-  if (lowered === "high" || lowered === "medium" || lowered === "low") {
-    return lowered;
-  }
-  return null;
 }

@@ -10,6 +10,7 @@ function usage(): void {
       "       [--used|--unused] [--include-deleted]",
       "       [--offset N] [--limit N]",
       "  show <id>",
+      "  evidence <id>",
       "  verify <id> [--notes <text>] [--by <name>]",
       "  reject <id> [--notes <text>]",
       "  mark-used <id> [--url <published-url>]",
@@ -139,6 +140,15 @@ export async function run(argv: string[]): Promise<void> {
         `  Reason:     ${unit.deletion?.reason ?? "(none)"}`,
       ];
       console.log(lines.join("\n"));
+      return;
+    }
+    case "evidence": {
+      const id = positional[0];
+      if (!id) {
+        console.error("Usage: scout units evidence <id>");
+        Deno.exit(1);
+      }
+      printJSON(await apiFetch(`/functions/v1/units/${id}/evidence`));
       return;
     }
     case "verify": {
