@@ -1,11 +1,21 @@
 BEGIN;
 SET LOCAL search_path = public, extensions;
-SELECT plan(10);
+SELECT plan(11);
 
 SELECT has_table(
   'public',
   'scout_dispatch_queue',
   'durable scout dispatch queue exists'
+);
+
+SELECT is(
+  (
+    SELECT schedule
+      FROM cron.job
+     WHERE jobname = 'drain-scout-dispatch'
+  ),
+  '30 seconds',
+  'dispatch drain receives a fresh request trace every 30 seconds'
 );
 
 INSERT INTO auth.users (

@@ -248,6 +248,9 @@ jobs:
       - name: Run database regression tests
         run: supabase test db supabase/tests
 
+      - name: Run Scout dispatch runtime integration
+        run: bash scripts/tests/run-scout-dispatch-drain-integration.sh
+
       - name: Run local self-host smoke
         run: |
           set -a

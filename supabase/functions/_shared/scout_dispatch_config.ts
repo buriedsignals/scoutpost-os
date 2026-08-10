@@ -1,5 +1,6 @@
 export interface ScoutDispatchConfig {
   concurrency: number;
+  maxLaunchesPerDrain: number;
   leaseSeconds: number;
   maxAttempts: number;
 }
@@ -7,9 +8,9 @@ export interface ScoutDispatchConfig {
 type EnvReader = (name: string) => string | undefined;
 
 /**
- * Keep queue admission aligned with the scrape service's two ordinary browser
- * slots. Snapshot capture has a separate slot and must not increase this
- * worker limit.
+ * Keep the fail-safe queue admission aligned with the two ordinary browser
+ * slots. The all-Workflow profile overrides concurrency to ten; its actual
+ * browser admission remains owned by the downstream crawler queue.
  */
 export function resolveScoutDispatchConfig(
   readEnv: EnvReader = (name) => Deno.env.get(name),
@@ -20,6 +21,12 @@ export function resolveScoutDispatchConfig(
       2,
       1,
       20,
+    ),
+    maxLaunchesPerDrain: boundedInt(
+      readEnv("SCOUT_DISPATCH_MAX_LAUNCHES_PER_DRAIN"),
+      30,
+      1,
+      30,
     ),
     leaseSeconds: boundedInt(
       readEnv("SCOUT_DISPATCH_LEASE_SECONDS"),
