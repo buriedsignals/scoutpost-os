@@ -8,10 +8,43 @@
 import type { SupabaseClient } from "./supabase.ts";
 
 export const CIVIC_DOCUMENT_MEMBERSHIP_MAX = 100;
+export const CIVIC_BASELINE_PARSE_CONCURRENCY = 4;
 
 export interface CivicDocumentMembership {
   sourceUrl: string;
   contentHash: string;
+}
+
+/**
+ * Resolve creation-time Civic documents with bounded concurrency. Document
+ * parsing is external I/O and can take tens of seconds per PDF; doing it
+ * serially can exceed the hosted Edge Function request window even for a
+ * modest council archive. Results retain input order so baseline writes and
+ * diagnostics stay deterministic.
+ */
+export async function mapCivicBaselineDocuments<T>(
+  documentUrls: string[],
+  resolve: (url: string, index: number) => Promise<T>,
+): Promise<T[]> {
+  if (documentUrls.length === 0) return [];
+  const results = new Array<T>(documentUrls.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    {
+      length: Math.min(
+        CIVIC_BASELINE_PARSE_CONCURRENCY,
+        documentUrls.length,
+      ),
+    },
+    async () => {
+      while (nextIndex < documentUrls.length) {
+        const index = nextIndex++;
+        results[index] = await resolve(documentUrls[index], index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 export function assertCompleteCivicMembership(documentUrls: string[]): void {

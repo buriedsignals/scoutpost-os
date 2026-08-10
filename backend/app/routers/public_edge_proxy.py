@@ -43,6 +43,16 @@ router = APIRouter()
 _ALLOWED_SUPABASE_HOSTS = ("supabase.co", "supabase.in")
 _LOCAL_HOSTS = {"127.0.0.1", "localhost"}
 _TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=15.0, pool=5.0)
+# Hosted Supabase Edge Functions have a 150-second request-idle limit. The
+# public REST proxy must outlast that window so callers receive the upstream
+# response instead of a synthetic 502 while Civic preview/baseline work is
+# still running. MCP keeps the shorter default timeout below.
+_EDGE_FUNCTION_TIMEOUT = httpx.Timeout(
+    connect=5.0,
+    read=155.0,
+    write=15.0,
+    pool=5.0,
+)
 
 _STRIP_HEADERS = {
     "host",
@@ -237,11 +247,16 @@ def _rewrite_mcp_metadata(
     )
 
 
-async def _proxy(request: Request, upstream_url: str) -> Response:
+async def _proxy(
+    request: Request,
+    upstream_url: str,
+    *,
+    timeout: httpx.Timeout = _TIMEOUT,
+) -> Response:
     body = await request.body()
     try:
         async with httpx.AsyncClient(
-            timeout=_TIMEOUT,
+            timeout=timeout,
             follow_redirects=False,
         ) as client:
             upstream = await client.request(
@@ -268,7 +283,7 @@ async def _proxy(request: Request, upstream_url: str) -> Response:
 )
 async def proxy_edge_functions(path: str, request: Request) -> Response:
     upstream_url = _upstream_url("functions/v1", path, request.url.query)
-    return await _proxy(request, upstream_url)
+    return await _proxy(request, upstream_url, timeout=_EDGE_FUNCTION_TIMEOUT)
 
 
 @router.api_route(

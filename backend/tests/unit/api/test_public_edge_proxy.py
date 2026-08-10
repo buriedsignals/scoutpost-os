@@ -87,6 +87,33 @@ def test_functions_proxy_forwards_path_query_and_jwt_auth(monkeypatch):
     assert "content-length" not in forwarded
 
 
+def test_functions_proxy_waits_for_supabase_edge_function_idle_limit(monkeypatch):
+    monkeypatch.setattr(
+        public_edge_proxy.settings,
+        "supabase_url",
+        "https://proj.supabase.co",
+    )
+    fake = _FakeClient(_FakeResp(200, b'{"ok":true}'))
+    observed_timeout = None
+
+    def make_client(*, timeout, follow_redirects):
+        nonlocal observed_timeout
+        observed_timeout = timeout
+        assert follow_redirects is False
+        return fake
+
+    with patch(
+        "app.routers.public_edge_proxy.httpx.AsyncClient",
+        side_effect=make_client,
+    ):
+        client = _mount()
+        res = client.post("/functions/v1/civic/test", json={"tracked_urls": []})
+
+    assert res.status_code == 200
+    assert observed_timeout is not None
+    assert observed_timeout.read == 155.0
+
+
 def test_functions_proxy_moves_cj_key_out_of_authorization(monkeypatch):
     monkeypatch.setattr(public_edge_proxy.settings, "supabase_url", "https://proj.supabase.co")
     monkeypatch.setattr(public_edge_proxy.settings, "supabase_anon_key", "anon-from-settings")

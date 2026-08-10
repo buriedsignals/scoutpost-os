@@ -31,6 +31,11 @@ export interface CredentialStore {
 
 const CREDENTIAL_FIELDS = ["api_key", "auth_token"] as const;
 const API_TIMEOUT_MS = 15_000;
+// Civic discovery, preview, and creation perform bounded provider work inside
+// Supabase Edge Functions. Keep this above the proxy's full connect/write/read
+// budget so the CLI receives the real response (including a 504) instead of
+// aborting a valid operation first.
+export const CIVIC_API_TIMEOUT_MS = 190_000;
 const MAX_API_RESPONSE_BYTES = 1024 * 1024;
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -297,13 +302,14 @@ export function resolvePath(path: string, apiUrl: string): string {
 
 export async function apiFetch<T = unknown>(
   path: string,
-  init: RequestInit = {},
+  init: RequestInit & { timeoutMs?: number } = {},
 ): Promise<T> {
+  const { timeoutMs = API_TIMEOUT_MS, ...requestInit } = init;
   const cfg = loadConfig();
   const url = `${cfg.api_url.replace(/\/$/, "")}${
     resolvePath(path, cfg.api_url)
   }`;
-  const headers = new Headers(init.headers);
+  const headers = new Headers(requestInit.headers);
   // api_key wins over auth_token. Edge Function front doors additionally need
   // an `apikey:` header populated with the project's anon key — without it the
   // auth layer can refuse the request before it ever hits the function code.
@@ -312,7 +318,7 @@ export async function apiFetch<T = unknown>(
   if (cfg.supabase_anon_key) {
     headers.set("apikey", cfg.supabase_anon_key);
   }
-  if (!headers.has("Content-Type") && init.body) {
+  if (!headers.has("Content-Type") && requestInit.body) {
     headers.set("Content-Type", "application/json");
   }
   headers.set("Accept", "application/json");
@@ -320,9 +326,9 @@ export async function apiFetch<T = unknown>(
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(new Error("Scoutpost API request timed out")),
-    API_TIMEOUT_MS,
+    timeoutMs,
   );
-  const upstreamSignal = init.signal;
+  const upstreamSignal = requestInit.signal;
   const abortFromUpstream = () => controller.abort(upstreamSignal?.reason);
   if (upstreamSignal?.aborted) abortFromUpstream();
   else {upstreamSignal?.addEventListener("abort", abortFromUpstream, {
@@ -332,7 +338,7 @@ export async function apiFetch<T = unknown>(
   let text: string;
   try {
     res = await fetch(url, {
-      ...init,
+      ...requestInit,
       headers,
       redirect: "error",
       signal: controller.signal,

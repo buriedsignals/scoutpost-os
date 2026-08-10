@@ -1,6 +1,7 @@
 // scout scouts — manage scouts
 import {
   apiFetch,
+  CIVIC_API_TIMEOUT_MS,
   parseArgs,
   printJSON,
   printTable,
@@ -513,6 +514,7 @@ export async function run(argv: string[]): Promise<void> {
       const created = await apiFetch<Scout>("/functions/v1/scouts", {
         method: "POST",
         body: JSON.stringify(body),
+        ...(flags.type === "civic" ? { timeoutMs: CIVIC_API_TIMEOUT_MS } : {}),
       });
       printJSON(created);
       return;
@@ -582,6 +584,9 @@ export async function run(argv: string[]): Promise<void> {
       const updated = await apiFetch<Scout>(`/functions/v1/scouts/${id}`, {
         method: "PATCH",
         body: JSON.stringify(patch),
+        ...(trackedUrls || patch.is_active === true
+          ? { timeoutMs: CIVIC_API_TIMEOUT_MS }
+          : {}),
       });
       printJSON(updated);
       return;
@@ -596,6 +601,7 @@ export async function run(argv: string[]): Promise<void> {
       }
       const res = await apiFetch(`/functions/v1/scouts/${id}/${sub}`, {
         method: "POST",
+        ...(sub === "resume" ? { timeoutMs: CIVIC_API_TIMEOUT_MS } : {}),
       });
       printJSON(res);
       return;

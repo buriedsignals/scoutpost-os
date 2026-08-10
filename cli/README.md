@@ -188,6 +188,10 @@ scout snapshots url <snapshot_id> --artifact screenshot   # print a signed link 
 scout scouts update <scout_id> --archive-enabled true --wayback-enabled false
 ```
 
+Civic discovery, preview, creation, source updates, and resume can perform
+bounded provider work. The CLI allows up to 190 seconds for those operations;
+other commands retain the 15-second transport timeout.
+
 The UI calls topic tags **Project labels**. They are for organization and UI
 filtering, and are distinct from investigation Projects / `project_id`. Use 1-3
 short comma-separated tags, not long instructions. Put human context in

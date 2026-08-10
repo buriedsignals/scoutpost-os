@@ -64,6 +64,7 @@ import { scrape } from "../_shared/scrape.ts";
 import { writeCanonicalBaseline } from "../_shared/canonical_baseline.ts";
 import {
   assertCompleteCivicMembership,
+  mapCivicBaselineDocuments,
   upsertCivicDocumentMembership,
 } from "../_shared/civic_document_membership.ts";
 import {
@@ -882,22 +883,30 @@ async function establishCivicBaseline(
     )),
   ];
   assertCompleteCivicMembership(documentUrls);
-  for (const sourceUrl of documentUrls) {
-    const document = await parseDocument(sourceUrl, {
-      workloadClass: "utility",
-      tenantKey: scout.user_id,
-    });
-    const markdown = (document.markdown ?? "").slice(0, 80_000);
-    if (!markdown.trim()) {
-      throw new ValidationError(
-        `could not establish a content baseline for ${sourceUrl}`,
-      );
-    }
+  const documentMembership = await mapCivicBaselineDocuments(
+    documentUrls,
+    async (sourceUrl) => {
+      const document = await parseDocument(sourceUrl, {
+        workloadClass: "utility",
+        tenantKey: scout.user_id,
+      });
+      const markdown = (document.markdown ?? "").slice(0, 80_000);
+      if (!markdown.trim()) {
+        throw new ValidationError(
+          `could not establish a content baseline for ${sourceUrl}`,
+        );
+      }
+      return {
+        sourceUrl,
+        contentHash: await sha256Hex(markdown),
+      };
+    },
+  );
+  for (const membership of documentMembership) {
     await upsertCivicDocumentMembership(svc, {
       scoutId: scout.id,
       userId: scout.user_id,
-      sourceUrl,
-      contentHash: await sha256Hex(markdown),
+      ...membership,
     });
   }
 }

@@ -1,5 +1,10 @@
 // scout civic — read-first Civic accountability workflow.
-import { apiFetch, parseArgs, printJSON } from "../lib/client.ts";
+import {
+  apiFetch,
+  CIVIC_API_TIMEOUT_MS,
+  parseArgs,
+  printJSON,
+} from "../lib/client.ts";
 
 function usage(): void {
   console.log(
@@ -23,6 +28,7 @@ export async function run(argv: string[]): Promise<void> {
       await apiFetch("/functions/v1/civic/discover", {
         method: "POST",
         body: JSON.stringify({ root_domain: flags["root-domain"] }),
+        timeoutMs: CIVIC_API_TIMEOUT_MS,
       }),
     );
     return;
@@ -40,6 +46,7 @@ export async function run(argv: string[]): Promise<void> {
       await apiFetch("/functions/v1/civic/test", {
         method: "POST",
         body: JSON.stringify(body),
+        timeoutMs: CIVIC_API_TIMEOUT_MS,
       }),
     );
     return;

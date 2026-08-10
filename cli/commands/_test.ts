@@ -8,6 +8,7 @@ import {
 } from "jsr:@std/assert";
 import {
   apiFetch,
+  CIVIC_API_TIMEOUT_MS,
   configDir,
   configPath,
   hostedSupabaseTargetWarning,
@@ -732,6 +733,12 @@ Deno.test("civic CLI uses the public read-first Civic endpoints", async () => {
     > = [];
     const originalFetch = globalThis.fetch;
     const originalLog = console.log;
+    const originalSetTimeout = globalThis.setTimeout;
+    const timeoutDelays: number[] = [];
+    globalThis.setTimeout = ((_handler: () => void, delay?: number) => {
+      timeoutDelays.push(Number(delay));
+      return 1;
+    }) as unknown as typeof setTimeout;
     globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
       requests.push({
         url: String(input),
@@ -759,6 +766,7 @@ Deno.test("civic CLI uses the public read-first Civic endpoints", async () => {
     } finally {
       globalThis.fetch = originalFetch;
       console.log = originalLog;
+      globalThis.setTimeout = originalSetTimeout;
     }
     assertEquals(requests[0], {
       url: "https://scoutpost.ai/functions/v1/civic/discover",
@@ -781,6 +789,12 @@ Deno.test("civic CLI uses the public read-first Civic endpoints", async () => {
       requests[3].url,
       "https://scoutpost.ai/functions/v1/civic/items/123e4567-e89b-12d3-a456-426614174000",
     );
+    assertEquals(timeoutDelays, [
+      CIVIC_API_TIMEOUT_MS,
+      CIVIC_API_TIMEOUT_MS,
+      15_000,
+      15_000,
+    ]);
   });
 });
 
@@ -795,6 +809,12 @@ Deno.test("scouts add — forwards civic, schedule, and source-discovery fields"
     let observedBody: Record<string, unknown> | null = null;
     const origFetch = globalThis.fetch;
     const origLog = console.log;
+    const originalSetTimeout = globalThis.setTimeout;
+    let timeoutDelay = 0;
+    globalThis.setTimeout = ((_handler: () => void, delay?: number) => {
+      timeoutDelay = Number(delay);
+      return 1;
+    }) as unknown as typeof setTimeout;
     globalThis.fetch =
       ((_input: string | URL | Request, init?: RequestInit) => {
         observedBody = JSON.parse(String(init?.body ?? "{}"));
@@ -836,6 +856,7 @@ Deno.test("scouts add — forwards civic, schedule, and source-discovery fields"
     } finally {
       globalThis.fetch = origFetch;
       console.log = origLog;
+      globalThis.setTimeout = originalSetTimeout;
     }
 
     assert(observedBody !== null, "fetch was not called");
@@ -857,6 +878,7 @@ Deno.test("scouts add — forwards civic, schedule, and source-discovery fields"
       "minutes.example.gov",
       "agenda.example.gov",
     ]);
+    assertEquals(timeoutDelay, CIVIC_API_TIMEOUT_MS);
   });
 });
 
