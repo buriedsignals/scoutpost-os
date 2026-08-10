@@ -36,7 +36,9 @@ Deno.test(
     let seenUrl = "";
     globalThis.fetch = ((input) => {
       seenUrl = String(input);
-      return Promise.resolve(jsonResponse({ data: { markdown: "pdf text", metadata: {} } }));
+      return Promise.resolve(
+        jsonResponse({ data: { markdown: "pdf text", metadata: {} } }),
+      );
     }) as typeof fetch;
     Deno.env.set("SCRAPE_PROVIDER", "firecrawl");
     Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
@@ -65,10 +67,17 @@ Deno.test(
     let seenAuth = "";
     globalThis.fetch = ((input, init) => {
       seenUrl = String(input);
-      seenAuth = String((init as RequestInit)?.headers &&
-        (((init as RequestInit).headers) as Record<string, string>).Authorization);
+      seenAuth = String(
+        (init as RequestInit)?.headers &&
+          (((init as RequestInit).headers) as Record<string, string>)
+            .Authorization,
+      );
       return Promise.resolve(
-        jsonResponse({ markdown: "council minutes", pages: 12, source_url: "https://c/x.pdf" }),
+        jsonResponse({
+          markdown: "council minutes",
+          pages: 12,
+          source_url: "https://c/x.pdf",
+        }),
       );
     }) as typeof fetch;
 
@@ -84,7 +93,8 @@ Deno.test(
   "parseDocument coerces missing /parse fields",
   restoreEnvAfter(async () => {
     setCrawl4ai();
-    globalThis.fetch = (() => Promise.resolve(jsonResponse({}))) as typeof fetch;
+    globalThis.fetch = (() =>
+      Promise.resolve(jsonResponse({}))) as typeof fetch;
     const result = await parseDocument("https://c/x.pdf");
     assertEquals(result.markdown, "");
     assertEquals(result.source_url, "https://c/x.pdf");
@@ -103,12 +113,130 @@ Deno.test(
       if (u.endsWith("/parse")) {
         return Promise.resolve(new Response("not pdf", { status: 415 }));
       }
-      return Promise.resolve(jsonResponse({ markdown: "html agenda", source_url: u }));
+      return Promise.resolve(
+        jsonResponse({ markdown: "html agenda", source_url: u }),
+      );
     }) as typeof fetch;
 
     const result = await parseDocument("https://c/agenda");
-    assertEquals(calls, ["https://scrape.internal/parse", "https://scrape.internal/scrape"]);
+    assertEquals(calls, [
+      "https://scrape.internal/parse",
+      "https://scrape.internal/scrape",
+    ]);
     assertEquals(result.markdown, "html agenda");
+  }),
+);
+
+Deno.test(
+  "parseDocument honors a streamed Workflow not-a-PDF envelope",
+  restoreEnvAfter(async () => {
+    setCrawl4ai();
+    Deno.env.set(
+      "SCRAPE_SERVICE_URL",
+      "https://project.supabase.co/functions/v1/crawler-proxy",
+    );
+    const calls: string[] = [];
+    const tenantHeaders: string[] = [];
+    globalThis.fetch = ((input, init) => {
+      const url = String(input);
+      calls.push(url);
+      tenantHeaders.push(String(
+        ((init as RequestInit).headers as Record<string, string>)[
+          "X-Scoutpost-Tenant-Key"
+        ],
+      ));
+      return Promise.resolve(
+        url.endsWith("/parse")
+          ? jsonResponse({
+            _scoutpost_workflow_error: {
+              status: 415,
+              detail: { error: "not_a_pdf" },
+            },
+          })
+          : jsonResponse({ markdown: "html agenda", source_url: url }),
+      );
+    }) as typeof fetch;
+
+    const result = await parseDocument("https://c/agenda", {
+      tenantKey: "00000000-0000-4000-8000-000000000003",
+    });
+    assertEquals(calls, [
+      "https://project.supabase.co/functions/v1/crawler-proxy/parse",
+      "https://project.supabase.co/functions/v1/crawler-proxy/scrape",
+    ]);
+    assertEquals(tenantHeaders, [
+      "00000000-0000-4000-8000-000000000003",
+      "00000000-0000-4000-8000-000000000003",
+    ]);
+    assertEquals(result.markdown, "html agenda");
+  }),
+);
+
+Deno.test(
+  "parseDocument honors streamed Workflow needs-OCR details",
+  restoreEnvAfter(async () => {
+    setCrawl4ai();
+    globalThis.fetch = (() =>
+      Promise.resolve(jsonResponse({
+        _scoutpost_workflow_error: {
+          status: 422,
+          detail: { error: "needs_ocr", pages: 8, chars: 3 },
+        },
+      }))) as typeof fetch;
+
+    const error = await assertRejects(
+      () => parseDocument("https://c/scan.pdf"),
+      NeedsOcrError,
+    );
+    assertEquals((error as NeedsOcrError).pages, 8);
+    assertEquals((error as NeedsOcrError).chars, 3);
+  }),
+);
+
+Deno.test(
+  "parseDocument accepts a streamed result from the Workflow endpoint",
+  restoreEnvAfter(async () => {
+    setCrawl4ai();
+    Deno.env.set(
+      "SCRAPE_SERVICE_URL",
+      "https://project.supabase.co/functions/v1/crawler-proxy",
+    );
+    let tenantHeader = "";
+    globalThis.fetch = ((_input, init) => {
+      tenantHeader = String(
+        ((init as RequestInit).headers as Record<string, string>)[
+          "X-Scoutpost-Tenant-Key"
+        ],
+      );
+      return Promise.resolve(jsonResponse({
+        markdown: "minutes",
+        pages: 2,
+        source_url: "https://c/minutes.pdf",
+      }));
+    }) as typeof fetch;
+    const result = await parseDocument("https://c/minutes.pdf", {
+      tenantKey: "00000000-0000-4000-8000-000000000003",
+    });
+    assertEquals(result.markdown, "minutes");
+    assertEquals(result.pages, 2);
+    assertEquals(tenantHeader, "00000000-0000-4000-8000-000000000003");
+  }),
+);
+
+Deno.test(
+  "parseDocument maps an unstructured Workflow error envelope to 502",
+  restoreEnvAfter(async () => {
+    setCrawl4ai();
+    globalThis.fetch = (() =>
+      Promise.resolve(jsonResponse({
+        _scoutpost_workflow_error: { status: 503, detail: "provider down" },
+      }))) as typeof fetch;
+    const error = await assertRejects(
+      () => parseDocument("https://c/minutes.pdf"),
+      ApiError,
+      "provider down",
+    );
+    assertEquals((error as ApiError).status, 502);
   }),
 );
 
@@ -118,7 +246,10 @@ Deno.test(
     setCrawl4ai();
     globalThis.fetch = (() =>
       Promise.resolve(
-        jsonResponse({ detail: { error: "needs_ocr", pages: 40, chars: 12 } }, 422),
+        jsonResponse(
+          { detail: { error: "needs_ocr", pages: 40, chars: 12 } },
+          422,
+        ),
       )) as typeof fetch;
 
     const err = await assertRejects(
@@ -135,7 +266,9 @@ Deno.test(
   restoreEnvAfter(async () => {
     setCrawl4ai();
     globalThis.fetch = (() =>
-      Promise.resolve(jsonResponse({ detail: { error: "needs_ocr" } }, 422))) as typeof fetch;
+      Promise.resolve(
+        jsonResponse({ detail: { error: "needs_ocr" } }, 422),
+      )) as typeof fetch;
 
     const err = await assertRejects(
       () => parseDocument("https://c/scan.pdf"),
@@ -151,8 +284,13 @@ Deno.test(
   restoreEnvAfter(async () => {
     setCrawl4ai();
     globalThis.fetch = (() =>
-      Promise.resolve(jsonResponse({ detail: { error: "other" } }, 422))) as typeof fetch;
-    const err = await assertRejects(() => parseDocument("https://c/x.pdf"), ApiError);
+      Promise.resolve(
+        jsonResponse({ detail: { error: "other" } }, 422),
+      )) as typeof fetch;
+    const err = await assertRejects(
+      () => parseDocument("https://c/x.pdf"),
+      ApiError,
+    );
     assertEquals((err as ApiError).status, 502);
   }),
 );
@@ -162,8 +300,13 @@ Deno.test(
   restoreEnvAfter(async () => {
     setCrawl4ai();
     globalThis.fetch = (() =>
-      Promise.resolve(new Response("not json", { status: 422 }))) as typeof fetch;
-    const err = await assertRejects(() => parseDocument("https://c/x.pdf"), ApiError);
+      Promise.resolve(
+        new Response("not json", { status: 422 }),
+      )) as typeof fetch;
+    const err = await assertRejects(
+      () => parseDocument("https://c/x.pdf"),
+      ApiError,
+    );
     assertEquals((err as ApiError).status, 502);
   }),
 );
@@ -175,7 +318,8 @@ Deno.test(
     globalThis.fetch = (() =>
       Promise.resolve(new Response("boom", { status: 503 }))) as typeof fetch;
     const err = await assertRejects(
-      () => parseDocument("https://c/x.pdf"),
+      () =>
+        parseDocument("https://c/x.pdf"),
       ApiError,
       "crawl4ai parse failed: 503",
     );
@@ -212,7 +356,12 @@ Deno.test(
     setCrawl4ai();
     globalThis.fetch = (() =>
       Promise.reject(new TypeError("connection refused"))) as typeof fetch;
-    await assertRejects(() => parseDocument("https://c/x.pdf"), TypeError, "connection refused");
+    await assertRejects(
+      () =>
+        parseDocument("https://c/x.pdf"),
+      TypeError,
+      "connection refused",
+    );
   }),
 );
 

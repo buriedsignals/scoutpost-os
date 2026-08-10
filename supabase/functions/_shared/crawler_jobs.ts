@@ -7,10 +7,15 @@ export type CrawlerRequestKind =
   | "ingest"
   | "baseline"
   | "preview"
-  | "benchmark";
+  | "benchmark"
+  | "proxy";
+export type CrawlerAdmissionClass = "scout" | "utility";
 
 export interface CrawlerJobInput {
   requestKind: CrawlerRequestKind;
+  /** Proxy requests retain request_kind=proxy for lifecycle cleanup while
+   * selecting either normal Scout admission or bounded utility admission. */
+  admissionClass?: CrawlerAdmissionClass;
   tenantKey: string;
   continuationKey: string;
   operation: CrawlerOperation;
@@ -67,8 +72,14 @@ export async function enqueueCrawlerJob(
   svc: SupabaseClient,
   input: CrawlerJobInput,
 ): Promise<CrawlerJobRow> {
+  if (input.requestKind === "proxy" && !input.admissionClass) {
+    throw new Error("proxy crawler job requires an admission class");
+  }
   const url = assertHttpUrl(input.url);
   const dedupeKey = await crawlerJobDedupeKey({ ...input, url });
+  const options = input.requestKind === "proxy"
+    ? { ...(input.options ?? {}), admission_class: input.admissionClass }
+    : input.options ?? {};
   const common = {
     p_dedupe_key: dedupeKey,
     p_request_kind: input.requestKind,
@@ -81,11 +92,12 @@ export async function enqueueCrawlerJob(
     p_operation: input.operation,
     p_pipeline_stage: requiredText(input.pipelineStage, "pipeline stage", 100),
     p_url: url,
-    p_options: input.options ?? {},
+    p_options: options,
   };
 
   const utility = input.requestKind === "ingest" ||
-    input.requestKind === "baseline" || input.requestKind === "preview";
+    input.requestKind === "baseline" || input.requestKind === "preview" ||
+    (input.requestKind === "proxy" && input.admissionClass === "utility");
   const request = utility
     ? svc.rpc("admit_and_enqueue_crawler_utility", {
       ...common,

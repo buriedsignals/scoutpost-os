@@ -49,7 +49,9 @@ Deno.test(
       );
     }) as typeof fetch;
 
-    const result = await crawl4aiScrape("https://example.org", { timeoutMs: 30_000 });
+    const result = await crawl4aiScrape("https://example.org", {
+      timeoutMs: 30_000,
+    });
 
     assertEquals(seenUrl, "https://scrape.internal/scrape"); // trailing slash trimmed
     assertEquals(seenAuth, "Bearer tok-123");
@@ -71,7 +73,11 @@ Deno.test(
     globalThis.fetch = (() =>
       Promise.resolve(
         new Response(
-          JSON.stringify({ markdown: "404 page", source_url: "u", status_code: 404 }),
+          JSON.stringify({
+            markdown: "404 page",
+            source_url: "u",
+            status_code: 404,
+          }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       )) as typeof fetch;
@@ -105,7 +111,9 @@ Deno.test(
   "crawl4aiScrape maps a non-OK response to a 502 with the failed:<status> shape",
   withEnv(async () => {
     globalThis.fetch = (() =>
-      Promise.resolve(new Response("bot wall", { status: 403 }))) as typeof fetch;
+      Promise.resolve(
+        new Response("bot wall", { status: 403 }),
+      )) as typeof fetch;
 
     const err = await assertRejects(
       () => crawl4aiScrape("https://example.org"),
@@ -117,10 +125,103 @@ Deno.test(
 );
 
 Deno.test(
+  "crawl4aiScrape maps a streamed Workflow error envelope like an HTTP error",
+  withEnv(async () => {
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            _scoutpost_workflow_error: {
+              status: 502,
+              detail: "Blocked by anti-bot protection",
+            },
+          }),
+          { status: 200 },
+        ),
+      )) as typeof fetch;
+
+    const err = await assertRejects(
+      () => crawl4aiScrape("https://example.org"),
+      ApiError,
+      "Blocked by anti-bot protection",
+    );
+    assertEquals((err as ApiError).status, 502);
+  }),
+);
+
+Deno.test(
+  "crawl4aiScrape accepts ordinary and snapshot responses from the Workflow endpoint",
+  withEnv(async () => {
+    Deno.env.set(
+      "SCRAPE_SERVICE_URL",
+      "https://project.supabase.co/functions/v1/crawler-proxy",
+    );
+    let tenantHeader = "";
+    globalThis.fetch = ((_input, init) => {
+      const request = JSON.parse(String((init as RequestInit).body));
+      tenantHeader = String(
+        ((init as RequestInit).headers as Record<string, string>)[
+          "X-Scoutpost-Tenant-Key"
+        ],
+      );
+      return Promise.resolve(
+        new Response(JSON.stringify({
+          markdown: "ok",
+          source_url: "https://example.org",
+          ...(request.snapshot
+            ? {
+              snapshot: {
+                mhtml_b64: "bQ==",
+                mhtml_sha256: "a".repeat(64),
+                screenshot_b64: "cA==",
+                screenshot_sha256: "b".repeat(64),
+              },
+            }
+            : {}),
+        })),
+      );
+    }) as typeof fetch;
+
+    assertEquals(
+      (await crawl4aiScrape("https://example.org", {
+        tenantKey: "00000000-0000-4000-8000-000000000003",
+      })).markdown,
+      "ok",
+    );
+    assertEquals(
+      (await crawl4aiScrape("https://example.org", {
+        snapshot: true,
+        tenantKey: "00000000-0000-4000-8000-000000000003",
+      })).snapshot
+        ?.mhtml_b64,
+      "bQ==",
+    );
+    assertEquals(tenantHeader, "00000000-0000-4000-8000-000000000003");
+  }),
+);
+
+Deno.test(
+  "crawl4aiScrape fails closed without a hosted proxy tenant key",
+  withEnv(async () => {
+    Deno.env.set(
+      "SCRAPE_SERVICE_URL",
+      "https://project.supabase.co/functions/v1/crawler-proxy",
+    );
+    await assertRejects(
+      () => crawl4aiScrape("https://example.org"),
+      Error,
+      "requires a valid tenant key",
+    );
+  }),
+);
+
+Deno.test(
   "crawl4aiScrape maps an upstream 504 body to 502 (client abort is the only 504)",
   withEnv(async () => {
     globalThis.fetch = (() =>
-      Promise.resolve(new Response("gateway timeout", { status: 504 }))) as typeof fetch;
+      Promise.resolve(
+        new Response("gateway timeout", { status: 504 }),
+      )) as typeof fetch;
 
     const err = await assertRejects(
       () => crawl4aiScrape("https://example.org"),
@@ -157,6 +258,35 @@ Deno.test(
 );
 
 Deno.test(
+  "crawl4aiScrape keeps its abort fuse active while Workflow JSON streams",
+  withEnv(async () => {
+    globalThis.fetch = ((_input, init) => {
+      const signal = (init as RequestInit)?.signal;
+      return Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              signal?.addEventListener("abort", () => {
+                const error = new Error("aborted");
+                error.name = "AbortError";
+                controller.error(error);
+              });
+            },
+          }),
+        ),
+      );
+    }) as typeof fetch;
+
+    const error = await assertRejects(
+      () => crawl4aiScrape("https://example.org", { abortAfterMs: 5 }),
+      ApiError,
+      "aborted after 5ms",
+    );
+    assertEquals((error as ApiError).status, 504);
+  }),
+);
+
+Deno.test(
   "crawl4aiScrape coerces a missing/non-string markdown to empty string",
   withEnv(async () => {
     globalThis.fetch = (() =>
@@ -179,7 +309,8 @@ Deno.test(
       Promise.reject(new TypeError("connection refused"))) as typeof fetch;
 
     await assertRejects(
-      () => crawl4aiScrape("https://example.org"),
+      () =>
+        crawl4aiScrape("https://example.org"),
       TypeError,
       "connection refused",
     );
@@ -262,7 +393,11 @@ Deno.test(
       seenBody = JSON.parse(String((init as RequestInit)?.body ?? "{}"));
       return Promise.resolve(
         new Response(
-          JSON.stringify({ markdown: "x", source_url: "u", response_headers: null }),
+          JSON.stringify({
+            markdown: "x",
+            source_url: "u",
+            response_headers: null,
+          }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );
@@ -292,7 +427,9 @@ Deno.test(
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       )) as typeof fetch;
-    const result = await crawl4aiScrape("https://example.org", { snapshot: true });
+    const result = await crawl4aiScrape("https://example.org", {
+      snapshot: true,
+    });
     assertEquals(result.snapshot, null);
     assertEquals(result.snapshot_error, "artifact_too_large:mhtml:99");
     assertEquals(result.response_headers, undefined); // array → undefined
@@ -319,7 +456,9 @@ Deno.test(
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       )) as typeof fetch;
-    const result = await crawl4aiScrape("https://example.org", { snapshot: true });
+    const result = await crawl4aiScrape("https://example.org", {
+      snapshot: true,
+    });
     assertEquals(result.snapshot?.sizes, undefined);
     assertEquals(result.response_headers, undefined); // empty object → undefined
   }),
@@ -340,7 +479,9 @@ Deno.test(
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       )) as typeof fetch;
-    const result = await crawl4aiScrape("https://example.org", { snapshot: true });
+    const result = await crawl4aiScrape("https://example.org", {
+      snapshot: true,
+    });
     assertEquals(result.snapshot, null);
     assertEquals(result.snapshot_error, "screenshot_not_png:ffd8");
   }),

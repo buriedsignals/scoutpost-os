@@ -128,9 +128,9 @@ export interface CaptureStoreDeps {
 
 /** Capture fetch timeout sent to the service (KTD1: "inside the existing 25 s
  * primary-scrape budget"). The crawl4ai provider derives the client abort fuse
- * as `timeoutMs*2 + 25_000` (~75 s) for snapshot fetches, which sits OUTSIDE
- * the service's own `2×timeout+20 s` (~70 s) snapshot budget — so a heavy-page
- * capture the service is still legitimately working on is not aborted early.
+ * as `timeoutMs*2 + 25_000` (~75 s) locally, or ~120 s through the hosted
+ * Workflow endpoint. Both sit outside Crawl4AI's own `2×timeout+20 s` (~70 s)
+ * snapshot budget, so a heavy-page capture is not aborted early.
  * We deliberately do NOT pass an explicit abortAfterMs here (an earlier 40 s
  * override sat inside the service budget and silently degraded slow pages to
  * markdown_only). The capture runs in the background, so the longer wait never
@@ -500,11 +500,12 @@ export async function performArchiveCapture(
     capture = await scrapeImpl(ctx.requestedUrl, {
       ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
       workloadClass: ctx.captureKind === "baseline" ? "utility" : "scout",
+      tenantKey: ctx.userId,
       snapshot: true,
       noAntibotFallback: true,
       timeoutMs: CAPTURE_FETCH_TIMEOUT_MS,
       // No explicit abortAfterMs — see CAPTURE_FETCH_TIMEOUT_MS: the provider's
-      // ~75 s snapshot default sits outside the service's ~70 s budget.
+      // default sits outside Crawl4AI's ~70 s execution budget.
     });
   } catch (e) {
     // Capture-fetch failure or anti-bot block on the pin → never flip

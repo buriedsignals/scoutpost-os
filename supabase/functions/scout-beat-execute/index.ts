@@ -609,7 +609,11 @@ async function execute(
     const initialScraped = await mapLimit(
       finalUrls,
       CONCURRENCY,
-      (url) => scrape(url, { workloadClass: "scout" }),
+      (url) =>
+        scrape(url, {
+          workloadClass: "scout",
+          tenantKey: scout.user_id as string,
+        }),
     );
 
     const failures: Array<{ url: string; error: string }> = [];
@@ -673,7 +677,11 @@ async function execute(
     const followupScraped = await mapLimit(
       followupHits,
       CONCURRENCY,
-      (hit) => scrape(hit.url, { workloadClass: "scout" }),
+      (hit) =>
+        scrape(hit.url, {
+          workloadClass: "scout",
+          tenantKey: scout.user_id as string,
+        }),
     );
     const followupByUrl = new Map<string, {
       hit: BeatHit;

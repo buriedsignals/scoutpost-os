@@ -207,6 +207,7 @@ async def test_batch_maps_snapshot_and_upload_failures(monkeypatch):
     class FakeClient:
         execution_id = "execution"
         completions: ClassVar[list[dict]] = []
+        uploaded_results: ClassVar[list[dict]] = []
 
         def __init__(self, _proxy):
             pass
@@ -220,7 +221,16 @@ async def test_batch_maps_snapshot_and_upload_failures(monkeypatch):
                 job("blocked"),
             ]
 
-        async def upload(self, item, _result):
+        async def upload(self, item, result):
+            self.uploaded_results.append(result)
+            if item["id"] == "snapshot":
+                return {
+                    "job_id": item["id"],
+                    "attempt_id": item["attempt_id"],
+                    "execution_id": item["execution_id"],
+                    "ok": True,
+                    "artifacts": [],
+                }
             if item["id"] == "large":
                 raise workflow.ArtifactLimitError("large")
             if item["id"] == "transport":
@@ -239,10 +249,13 @@ async def test_batch_maps_snapshot_and_upload_failures(monkeypatch):
             return {"ok": False, "error_class": "retryable"}
         if item.id == "crawl":
             return {"ok": False, "error_class": "timeout"}
-        return {
+        result = {
             "ok": True,
             "result": {"markdown": "ok", "source_url": "https://example.test"},
         }
+        if item.id == "snapshot":
+            result["result"]["snapshot_error"] = "capture_incomplete"
+        return result
 
     def job(identifier, operation="scrape"):
         return {
@@ -260,12 +273,12 @@ async def test_batch_maps_snapshot_and_upload_failures(monkeypatch):
     monkeypatch.setattr(workflow, "load_settings", lambda: SimpleNamespace())
     monkeypatch.setattr(workflow, "run_item_safely", run)
     monkeypatch.setattr(workflow, "cgroup_peak_bytes", lambda: None)
-    report = await workflow._crawl_batch_guarded(
-        "batch", "http://proxy", egress_stats
-    )
+    report = await workflow._crawl_batch_guarded("batch", "http://proxy", egress_stats)
     assert report["processed"] == 5
-    assert [item["error_class"] for item in FakeClient.completions] == [
-        "retryable",
+    assert report["succeeded"] == 1
+    assert FakeClient.completions[0]["ok"] is True
+    assert FakeClient.uploaded_results[0]["snapshot_error"] == "capture_incomplete"
+    assert [item["error_class"] for item in FakeClient.completions[1:]] == [
         "terminal",
         "retryable",
         "timeout",

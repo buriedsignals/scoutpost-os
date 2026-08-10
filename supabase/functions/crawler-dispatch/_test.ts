@@ -1,6 +1,45 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { RenderWorkflowError } from "../_shared/render_workflows.ts";
-import { submitCrawlerBatch } from "./index.ts";
+import {
+  crawlerDispatchPlans,
+  createImmediateCrawlerBatch,
+  submitCrawlerBatch,
+} from "./index.ts";
+
+Deno.test("immediate compatibility dispatch is always a one-job plan", () => {
+  assertEquals(crawlerDispatchPlans("immediate", "scrape"), [{
+    operation: "scrape",
+    batchSize: 1,
+    maxBatches: 1,
+  }]);
+  assertEquals(crawlerDispatchPlans("immediate", "parse_pdf")[0].batchSize, 1);
+  assertEquals(crawlerDispatchPlans("immediate", "snapshot")[0].batchSize, 1);
+  assertEquals(crawlerDispatchPlans("single", "scrape")[0].batchSize, 20);
+});
+
+Deno.test("immediate dispatch forms only the requested proxy job batch", async () => {
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const svc = {
+    rpc(name: string, args: Record<string, unknown>) {
+      calls.push({ name, args });
+      return Promise.resolve({
+        data: [{ batch_id: "batch-one", job_ids: [args.p_job_id] }],
+        error: null,
+      });
+    },
+  };
+  assertEquals(
+    await createImmediateCrawlerBatch(
+      svc as never,
+      "00000000-0000-4000-8000-000000000001",
+    ),
+    [{ batch_id: "batch-one" }],
+  );
+  assertEquals(calls, [{
+    name: "create_crawler_proxy_batch",
+    args: { p_job_id: "00000000-0000-4000-8000-000000000001" },
+  }]);
+});
 
 function serviceClient() {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];

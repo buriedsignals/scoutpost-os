@@ -131,16 +131,6 @@ async def _crawl_batch_guarded(
             await _apply_benchmark_delay(
                 job.get("minimum_duration_ms", 0), item_started
             )
-            if (
-                outcome["ok"]
-                and job["operation"] == "snapshot"
-                and not (outcome["result"].get("snapshot"))
-            ):
-                outcome = {
-                    "ok": False,
-                    "error_class": "retryable",
-                    "error": "snapshot artifact unavailable",
-                }
             if outcome["ok"]:
                 try:
                     completion = await client.upload(job, outcome["result"])

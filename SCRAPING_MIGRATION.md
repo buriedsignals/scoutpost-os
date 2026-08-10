@@ -1,20 +1,23 @@
-# Scraping Migration: Firecrawl → Crawl4AI (self-hosted API)
+# Scraping Migration: Firecrawl → Crawl4AI
 
-Status: proposal (2026-07-03). Implementation is a separate session; this file records the
-decision, the evidence, and the required test-suite fixes.
+Status: active rollout (updated 2026-08-10).
+
+Production Page routing is 100% Render Workflows after a successful
+notification-disabled 326-Scout burst and an out-of-cohort canary. The next
+step is the shared hosted compatibility endpoint for Beat, Civic, PDF,
+snapshot, ingest, baseline, preview, and archive-enabled Page calls. The paid
+hosted HTTP service remains available for instant rollback until those paths
+complete a stable Monday at 100%.
 
 ## Recommendation
 
-**Replace Firecrawl with [Crawl4AI](https://github.com/unclecode/crawl4ai) run as a
-self-hosted Docker REST service.** Decisive constraint: this repo's scraping runs inside
-Supabase Edge Functions (`civic-execute`, `civic-extract-worker`, `ingest` call
-`firecrawlScrape()` over HTTP and consume markdown) — the replacement must be an HTTP
-endpoint, not a local library. Crawl4AI ships an official Docker server with a REST API
-returning markdown (an architectural drop-in for the Firecrawl calls); Scrapling is a
-Python library/CLI with no hardened scrape server, so despite tying Crawl4AI at 100% in
-the benchmark it does not fit the edge-function architecture. Change-tracking (the one
-Firecrawl feature Crawl4AI lacks) can move in-house — `00060_web_canonical_hash_baselines`
-shows content-hash baselines already exist in this schema.
+**Keep [Crawl4AI](https://github.com/unclecode/crawl4ai) behind Scoutpost's
+versioned HTTP contract.** Hosted Scoutpost executes that contract through the
+durable Render Workflows ledger; Docker self-hosting executes the same code in
+the local `scrape-service` container. Supabase Edge Functions therefore keep
+one `/scrape` and `/parse` interface while deployment differs by environment.
+Firecrawl remains only for search and the explicitly classified anti-bot
+fallback. Change tracking is local canonical-hash comparison.
 
 ## Why
 

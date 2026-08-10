@@ -48,9 +48,10 @@ services:
       - key: LLM_MODEL
         value: google/gemini-2.5-flash-lite
 
-  # Self-hosted scrape service (SCRAPING-MIGRATION-PRD U6): Crawl4AI browser
-  # rendering + poppler pdftotext, replacing Firecrawl. Reached by the Supabase
-  # edge functions over the public internet, bearer-authed.
+  # Temporary hosted HTTP recovery service during the Workflow cutover:
+  # Crawl4AI browser rendering + poppler pdftotext. Keep it healthy for
+  # rollback until every hosted caller passes the retirement gate; Docker
+  # self-hosting continues to use the same image independently.
   # PROVISIONING (manual, one-time): after first deploy, set the two secrets in
   # the Render dashboard, then mirror them into Supabase function secrets:
   #   supabase secrets set SCRAPE_SERVICE_URL=https://scoutpost-scrape.onrender.com \

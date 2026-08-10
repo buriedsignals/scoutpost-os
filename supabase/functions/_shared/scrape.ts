@@ -109,6 +109,7 @@ export async function scrapePrimaryPageResilient(
   };
   const baseOpts = {
     workloadClass: opts.workloadClass,
+    tenantKey: opts.tenantKey,
     onlyMainContent: opts.onlyMainContent,
     timeoutMs: opts.timeoutMs,
     abortAfterMs: opts.abortAfterMs,

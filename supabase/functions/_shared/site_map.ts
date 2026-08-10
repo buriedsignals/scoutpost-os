@@ -14,6 +14,8 @@
 import { scrape } from "./scrape.ts";
 
 export interface SiteMapOptions {
+  /** Authenticated user identity for the hosted crawler proxy fallback. */
+  tenantKey?: string;
   limit?: number;
   includeSubdomains?: boolean;
   /** Client-side fetch fuse per request (ms). Default 15_000. */
@@ -36,7 +38,15 @@ function registrableDomain(hostname: string): string {
   // heuristically — good enough for civic gov domains; the Gemini ranker
   // tolerates the occasional over-broad match.
   const secondLevel = labels[labels.length - 2];
-  const twoLabelSuffix = new Set(["co", "com", "org", "gov", "net", "ac", "gc"]);
+  const twoLabelSuffix = new Set([
+    "co",
+    "com",
+    "org",
+    "gov",
+    "net",
+    "ac",
+    "gc",
+  ]);
   const take = twoLabelSuffix.has(secondLevel) ? 3 : 2;
   return labels.slice(-take).join(".");
 }
@@ -135,7 +145,10 @@ export async function mapSite(
   const found = new Set<string>();
 
   // 1. robots.txt → sitemap URLs (fall back to the conventional location).
-  const robots = await fetchText(new URL("/robots.txt", base).toString(), timeoutMs);
+  const robots = await fetchText(
+    new URL("/robots.txt", base).toString(),
+    timeoutMs,
+  );
   let sitemapUrls = robots
     ? sitemapUrlsFromRobots(robots.text, base.origin)
     : [];
@@ -181,6 +194,7 @@ export async function mapSite(
       formats: ["rawHtml"],
       timeoutMs,
       workloadClass: "utility",
+      tenantKey: opts.tenantKey,
     });
     const html = page.rawHtml ?? "";
     const hrefRe = /href\s*=\s*["']([^"'#]+)["']/gi;

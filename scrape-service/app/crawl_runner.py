@@ -149,6 +149,12 @@ def _failure(item_id: str, error_class: str, error: str) -> dict[str, Any]:
 
 def classify_failure(item_id: str, error: object) -> dict[str, Any]:
     message = str(error)[:1_500]
+    if isinstance(error, NotAPdfError):
+        message = "not_a_pdf"
+    elif isinstance(error, PdfTooLargeError):
+        message = "pdf_too_large"
+    elif isinstance(error, PrivateAddressError):
+        message = "private_address"
     lowered = message.lower()
     if isinstance(
         error,

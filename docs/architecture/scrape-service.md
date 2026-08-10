@@ -1,12 +1,18 @@
-# scrape-service — self-hosted primary rendering
+# Crawl4AI rendering service and Workflow adapter
 
-The `scrape-service/` container is Scoutpost's primary page and document
-renderer. It runs the **Crawl4AI** library (Playwright browser rendering) for
+The `scrape-service/` code is Scoutpost's primary page and document renderer.
+It runs the **Crawl4AI** library (Playwright browser rendering) for
 HTML → markdown and Poppler **`pdftotext -layout`** for
 deterministic PDF → text, with an optional **Google native-PDF through
-OpenRouter** fallback for scanned/thin documents. The
-Supabase edge functions call it over HTTP through the scrape port
-(`_shared/scrape.ts`, `_shared/docparse.ts`).
+OpenRouter** fallback for scanned/thin documents. Supabase Edge Functions use
+the same HTTP contract in both deployments:
+
+| Deployment | `SCRAPE_SERVICE_URL` | Execution |
+| --- | --- | --- |
+| Hosted target | `https://<project-ref>.supabase.co/functions/v1/crawler-proxy` | Durable Supabase ledger → Render Workflow |
+| Docker self-host | `http://scrape-service:8080` | Local container; no Render account or Workflow cost |
+
+The shared callers are `_shared/scrape.ts` and `_shared/docparse.ts`.
 
 | Endpoint | Purpose |
 |---|---|
@@ -16,10 +22,46 @@ Supabase edge functions call it over HTTP through the scrape port
 
 All non-health endpoints require `Authorization: Bearer <SCRAPE_SERVICE_TOKEN>`.
 
-## Production (Render) — one-time provisioning
+## Hosted production rollout
 
-The service is declared in root `render.yaml` as `scoutpost-scrape` (Standard
-plan, Frankfurt, `dockerfilePath: ./scrape-service/Dockerfile`). To bring it up:
+The `crawler-proxy` Edge Function preserves `/scrape` and `/parse`, admits each
+call into `crawler_jobs`, nudges `crawler-dispatch`, verifies the private result
+artifacts, and returns the existing response shape. Every immediate nudge names
+the just-enqueued job and forms a one-job batch; scheduled recovery retains the
+normal throughput-oriented batch sizes and shared 28-start reservation gate.
+Successful proxy artifacts are removed on consumption, with a scheduled
+30-minute orphan sweep; the same sweep closes proxy-only anti-bot handoffs
+whose caller disconnected before delegating the existing Firecrawl fallback.
+Callers must send a validated server-owned tenant key: the verified user UUID
+for Scout/utility work, or `system:<consumer>` for true system work. Scout
+traffic uses normal admission; utility and system traffic use the atomic
+per-tenant and rolling 24-hour cost guard.
+
+The proxy streams whitespace heartbeats. After the first byte, a failure must
+use the private `_scoutpost_workflow_error` envelope under HTTP 200; the two
+shared clients restore the logical legacy scrape/parse error behavior. The
+response header `X-Scoutpost-Proxy-Request-Id` equals the ledger row's
+`continuation_key` for operator correlation.
+
+After the migration and direct scrape/PDF/snapshot canaries pass, route hosted
+callers with one reversible secret change:
+
+```
+supabase secrets set \
+  SCRAPE_SERVICE_URL=https://<project-ref>.supabase.co/functions/v1/crawler-proxy
+```
+
+Keep `SCRAPE_SERVICE_TOKEN` unchanged. Roll back by restoring
+`https://scoutpost-scrape.onrender.com`. See
+[Crawler Workflow cutover](../operations/crawler-workflow-cutover.md).
+
+## Temporary hosted HTTP service
+
+During the canary window the service remains declared in root `render.yaml` as
+`scoutpost-scrape` (Standard plan, Frankfurt,
+`dockerfilePath: ./scrape-service/Dockerfile`). It is the immediate rollback
+target and is removed only after every hosted path completes the retirement
+gate. To recreate it:
 
 1. **Deploy** — merge the migration PR; Render creates the `scoutpost-scrape`
    service from the blueprint. First build installs Playwright/Chromium
@@ -32,8 +74,8 @@ plan, Frankfurt, `dockerfilePath: ./scrape-service/Dockerfile`). To bring it up:
    `google/gemini-2.5-flash-lite` through Google Vertex; omit it to have
    scanned PDFs return `needs_ocr`. The request forces OpenRouter's `native`
    PDF engine, so it does not invoke Mistral, Cloudflare, or another parser.
-4. **Wire the edge functions** — mirror the URL + token into Supabase function
-   secrets (the functions read these, not Render):
+4. **Wire the edge functions for rollback** — mirror the URL + token into
+   Supabase function secrets (the functions read these, not Render):
    ```
    supabase secrets set \
      SCRAPE_SERVICE_URL=https://scoutpost-scrape.onrender.com \
@@ -58,7 +100,7 @@ documentation for the wire contract and parser selection behavior.
 
 ## Provider selection
 
-The self-hosted service is the default. Production may set the provider secret
+The Crawl4AI port is the default. Production may set the provider secret
 explicitly for clarity:
 ```
 supabase secrets set SCRAPE_PROVIDER=crawl4ai
@@ -90,11 +132,11 @@ edge-functions service points at
 - **Token rotation:** set a new `SCRAPE_SERVICE_TOKEN` on Render, then re-run
   the `supabase secrets set` for `SCRAPE_SERVICE_TOKEN`. Brief overlap causes no
   downtime (the service reads its token at request time).
-- **Memory:** Standard plan is 2 GB; the service caps the Playwright pool at 2.
-  Watch Render memory on scrape bursts; escape hatch is the Pro plan.
-- **Alerting:** enable Render health-check + resource alerts on
-  `scoutpost-scrape`; a scrape-service outage surfaces to scouts as provider
-  errors (refunded automatically via the existing run-lifecycle machinery).
+- **Hosted rollback service:** while it exists, keep its health and resource
+  alerts active. The Standard plan is 2 GB and caps the Playwright pool at 2.
+- **Workflow runtime:** monitor queue age, task duration, retries, terminal
+  failures, and transient Storage artifacts through the existing crawler
+  ledger and operations health checks.
 
 ## Snapshot capture (PAGE-ARCHIVE-PRD U1)
 

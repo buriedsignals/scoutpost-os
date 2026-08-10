@@ -301,7 +301,10 @@ async function processItem(
   // content_sha256 churn across runs.
   let scraped;
   try {
-    scraped = await parseDocument(row.source_url, { workloadClass: "scout" });
+    scraped = await parseDocument(row.source_url, {
+      workloadClass: "scout",
+      tenantKey: userId,
+    });
   } catch (e) {
     // A scanned (bitmap-only) PDF has no extractable text. Production has
     // never OCR'd, so this is the same outcome as the legacy empty-markdown

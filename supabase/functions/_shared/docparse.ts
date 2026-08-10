@@ -17,6 +17,11 @@
  */
 
 import { ApiError } from "./errors.ts";
+import {
+  crawlerProxyTenantHeaders,
+  isCrawlerWorkflowProxyBase,
+  readCrawlerProxyError,
+} from "./crawler_proxy_contract.ts";
 import { firecrawlScrape } from "./scrape_firecrawl.ts";
 import { scrape, scrapeProvider } from "./scrape.ts";
 
@@ -33,6 +38,9 @@ export interface DocParseResult {
 export interface DocParseOptions {
   /** Fixed by the authenticated calling route, never a user body field. */
   workloadClass?: "scout" | "utility" | "system";
+  /** Verified user UUID, or a stable `system:<consumer>` identity for true
+   * system work. Required only when the hosted crawler proxy is configured. */
+  tenantKey?: string;
   /** Server-side timeout in ms (default 120_000 for large civic PDFs). */
   timeoutMs?: number;
   /** Client-side abort fuse in ms; defaults to timeoutMs + 5000. */
@@ -59,32 +67,43 @@ function serviceConfig(): { url: string; token: string } {
 /** Sentinel: the scrape-service reported the URL is not a PDF (HTTP 415). */
 const NOT_A_PDF = Symbol("not_a_pdf");
 
+function needsOcrFromDetail(detail: Record<string, unknown>): NeedsOcrError {
+  return new NeedsOcrError(
+    Number(detail.pages ?? 0),
+    Number(detail.chars ?? 0),
+  );
+}
+
 async function parseViaService(
   url: string,
   opts: DocParseOptions,
 ): Promise<DocParseResult | typeof NOT_A_PDF> {
   const { url: base, token } = serviceConfig();
-  const timeoutMs = opts.timeoutMs ?? 120_000;
   // The /parse path can run download → pdftotext → native Google PDF fallback
   // through OpenRouter server-side (up to ~135s on a large scanned doc). The
   // client fuse must outlast that, or the service fallback gets abandoned just
   // before it returns. pg_cron civic parsing is not latency-sensitive.
-  const abortAfterMs = opts.abortAfterMs ?? 210_000;
+  const abortAfterMs = opts.abortAfterMs ??
+    (isCrawlerWorkflowProxyBase(base) ? 270_000 : 210_000);
 
   const ac = new AbortController();
   const fuse = setTimeout(() => ac.abort(), abortAfterMs);
-  let res: Response;
   try {
-    res = await fetch(`${base}/parse`, {
+    const res = await fetch(`${base}/parse`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json",
         "X-Scoutpost-Workload-Class": opts.workloadClass ?? "system",
+        ...crawlerProxyTenantHeaders(base, opts.tenantKey),
       },
       body: JSON.stringify({ url }),
       signal: ac.signal,
     });
+    // Keep the fuse alive while a Workflow response streams heartbeats.
+    const parsed = await parseServiceResponse(res, url);
+    clearTimeout(fuse);
+    return parsed;
   } catch (e) {
     clearTimeout(fuse);
     if ((e as { name?: string }).name === "AbortError") {
@@ -92,8 +111,12 @@ async function parseViaService(
     }
     throw e;
   }
-  clearTimeout(fuse);
+}
 
+async function parseServiceResponse(
+  res: Response,
+  url: string,
+): Promise<DocParseResult | typeof NOT_A_PDF> {
   if (res.status === 415) {
     await res.body?.cancel();
     return NOT_A_PDF;
@@ -102,10 +125,7 @@ async function parseViaService(
     const body = await res.json().catch(() => ({}));
     const detail = body?.detail ?? {};
     if (detail?.error === "needs_ocr") {
-      throw new NeedsOcrError(
-        Number(detail.pages ?? 0),
-        Number(detail.chars ?? 0),
-      );
+      throw needsOcrFromDetail(detail);
     }
     throw new ApiError(
       `crawl4ai parse failed: 422 ${JSON.stringify(body)}`,
@@ -121,6 +141,22 @@ async function parseViaService(
     );
   }
   const d = await res.json();
+  const proxyError = readCrawlerProxyError(d);
+  if (proxyError) {
+    if (proxyError.status === 415) return NOT_A_PDF;
+    if (proxyError.status === 422) {
+      const detail = proxyError.detail as Record<string, unknown> | null;
+      if (detail?.error === "needs_ocr") {
+        throw needsOcrFromDetail(detail);
+      }
+    }
+    throw new ApiError(
+      `crawl4ai parse failed: ${proxyError.status} ${
+        JSON.stringify(proxyError.detail)
+      }`,
+      502,
+    );
+  }
   return {
     markdown: typeof d.markdown === "string" ? d.markdown : "",
     source_url: typeof d.source_url === "string" ? d.source_url : url,
@@ -146,6 +182,7 @@ export async function parseDocument(
   // Not a PDF → the document is an HTML page (e.g. an agenda). Render it.
   const r = await scrape(url, {
     workloadClass: opts.workloadClass,
+    tenantKey: opts.tenantKey,
     formats: ["markdown"],
     timeoutMs: opts.timeoutMs,
     abortAfterMs: opts.abortAfterMs,

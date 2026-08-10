@@ -120,7 +120,11 @@ export async function establishWebBaseline(
     // baseline; archive capture remains a separate background operation.
     const scrape = await deps.scrape(
       scout.url,
-      { ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS, workloadClass: "utility" },
+      {
+        ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
+        workloadClass: "utility",
+        tenantKey: scout.user_id,
+      },
     );
     if (!isConfiguredPageUrl(scrape.source_url ?? scout.url, scout.url)) {
       throw new ValidationError(
@@ -252,6 +256,7 @@ export async function captureWebBaselineSnapshot(
     detection = await deps.scrape(scout.url, {
       ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
       workloadClass: "utility",
+      tenantKey: scout.user_id,
       snapshot: "on_fallback",
     });
   } catch (e) {

@@ -1,6 +1,6 @@
 BEGIN;
 SET LOCAL search_path = public, extensions;
-SELECT plan(21);
+SELECT plan(29);
 
 SELECT has_table('public', 'crawler_jobs', 'crawler job ledger exists');
 SELECT has_table('public', 'crawler_batches', 'crawler batch ledger exists');
@@ -16,6 +16,33 @@ SELECT ok(
     'EXECUTE'
   ),
   'authenticated users cannot enqueue crawler jobs'
+);
+SELECT ok(
+  NOT has_function_privilege(
+    'authenticated',
+    'public.create_crawler_proxy_batch(uuid)',
+    'EXECUTE'
+  ),
+  'authenticated users cannot form proxy batches'
+);
+
+SELECT ok(
+  position(
+    'crawler-utility:global' in pg_get_functiondef(
+      'public.admit_and_enqueue_crawler_utility(text,text,text,text,text,text,text,jsonb,integer)'::regprocedure
+    )
+  ) < position(
+    'crawler-utility:'' || p_tenant_key' in pg_get_functiondef(
+      'public.admit_and_enqueue_crawler_utility(text,text,text,text,text,text,text,jsonb,integer)'::regprocedure
+    )
+  ),
+  'utility admission takes the global ceiling lock before the tenant lock'
+);
+SELECT ok(
+  pg_get_functiondef(
+    'public.admit_and_enqueue_crawler_utility(text,text,text,text,text,text,text,jsonb,integer)'::regprocedure
+  ) LIKE '%admission_class%scout%',
+  'Scout-class proxy rows do not consume utility admission ceilings'
 );
 
 CREATE TEMP TABLE generic_job AS
@@ -201,6 +228,53 @@ SELECT throws_ok(
   'P0001',
   'invalid utility request kind',
   'utility admission accepts only fixed utility request kinds'
+);
+
+SELECT is(
+  (public.admit_and_enqueue_crawler_utility(
+    'proxy:one', 'proxy', 'proxy:scout:example.test', 'request:one',
+    'scrape', 'proxy_scrape', 'https://example.test', '{}'::jsonb, 10000
+  )).request_kind,
+  'proxy',
+  'utility compatibility calls use bounded utility admission'
+);
+
+SELECT public.enqueue_crawler_job(
+  'proxy:target', 'proxy', 'tenant:target', 'request:target',
+  'scrape', 'proxy_scrape', 'https://example.test/target', '{}'::jsonb
+);
+SELECT public.enqueue_crawler_job(
+  'proxy:unrelated', 'proxy', 'tenant:other', 'request:other',
+  'scrape', 'proxy_scrape', 'https://example.test/unrelated', '{}'::jsonb
+);
+CREATE TEMP TABLE proxy_target_batch AS
+SELECT * FROM public.create_crawler_proxy_batch(
+  (SELECT id FROM public.crawler_jobs WHERE dedupe_key = 'proxy:target')
+);
+
+SELECT is(
+  (SELECT status FROM public.crawler_jobs WHERE dedupe_key = 'proxy:target'),
+  'batched',
+  'targeted proxy batch assigns the requested job'
+);
+SELECT is(
+  (SELECT status FROM public.crawler_jobs WHERE dedupe_key = 'proxy:unrelated'),
+  'queued',
+  'targeted proxy batch leaves unrelated work queued'
+);
+SELECT is(
+  (SELECT cardinality(job_ids) FROM proxy_target_batch),
+  1,
+  'targeted proxy batch contains exactly one job'
+);
+SELECT is(
+  (
+    SELECT batch_id FROM public.create_crawler_proxy_batch(
+      (SELECT id FROM public.crawler_jobs WHERE dedupe_key = 'proxy:target')
+    )
+  ),
+  (SELECT batch_id FROM proxy_target_batch),
+  'repeated targeted dispatch returns the existing pending batch'
 );
 
 SELECT * FROM finish();

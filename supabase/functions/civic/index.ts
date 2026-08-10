@@ -92,7 +92,8 @@ const TestSchema = z.object({
 
 const PROMISES_PREVIEW_CAP = 10;
 const PREVIEW_SNAPSHOT_TTL_MS = 30 * 60 * 1000;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 
@@ -348,7 +349,11 @@ async function discover(req: Request, user: AuthedUser): Promise<Response> {
 
   let urls: string[] = [];
   try {
-    urls = await mapSite(target, { limit: 200, includeSubdomains: true });
+    urls = await mapSite(target, {
+      limit: 200,
+      includeSubdomains: true,
+      tenantKey: user.id,
+    });
   } catch (e) {
     logEvent({
       level: "warn",
@@ -468,6 +473,7 @@ async function test(req: Request, user: AuthedUser): Promise<Response> {
   const preview = await previewCivicTrackedUrls(tracked_urls, criteria, {
     maxDocs: 5,
     maxPromisesPerDocument: PROMISES_PREVIEW_CAP,
+    tenantKey: user.id,
   });
   const allItems = preview.documents.flatMap((document) => document.items)
     .slice(0, PROMISES_PREVIEW_CAP);

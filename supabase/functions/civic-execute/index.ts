@@ -248,6 +248,7 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         // Firecrawl anti-bot fallback).
         result = await scrape(url, {
           workloadClass: "scout",
+          tenantKey: scout.user_id as string,
           formats: ["markdown", "rawHtml"],
           onlyMainContent: true,
         });
@@ -355,7 +356,10 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         ? normalizeCivicUrl(url)
         : null;
       if (directDocumentUrl) {
-        const documentHash = await civicDocumentContentHash(directDocumentUrl);
+        const documentHash = await civicDocumentContentHash(
+          directDocumentUrl,
+          scout.user_id as string,
+        );
         if (
           !shouldQueueCivicDocument(
             directDocumentUrl,
@@ -420,7 +424,10 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         if (queuedCount >= MAX_DOCS_PER_RUN) break;
         if (skipSet.has(docUrl)) continue;
 
-        const documentHash = await civicDocumentContentHash(docUrl);
+        const documentHash = await civicDocumentContentHash(
+          docUrl,
+          scout.user_id as string,
+        );
         if (
           !shouldQueueCivicDocument(
             docUrl,
@@ -681,8 +688,14 @@ async function loadQueuedSourceUrls(
   return new Set<string>(urls);
 }
 
-async function civicDocumentContentHash(sourceUrl: string): Promise<string> {
-  const parsed = await parseDocument(sourceUrl, { workloadClass: "scout" });
+async function civicDocumentContentHash(
+  sourceUrl: string,
+  tenantKey: string,
+): Promise<string> {
+  const parsed = await parseDocument(sourceUrl, {
+    workloadClass: "scout",
+    tenantKey,
+  });
   const markdown = (parsed.markdown ?? "").slice(0, 80_000);
   if (!markdown.trim()) {
     throw new Error(`civic document has no parseable text: ${sourceUrl}`);

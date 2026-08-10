@@ -507,3 +507,6 @@ verify_jwt = false
 
 [functions.crawler-dispatch]
 verify_jwt = false
+
+[functions.crawler-proxy]
+verify_jwt = false

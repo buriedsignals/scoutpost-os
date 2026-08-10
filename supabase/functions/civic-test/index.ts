@@ -78,7 +78,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   try {
     const results: UrlResult[] = [];
     for (const url of tracked_urls) {
-      results.push(await previewUrl(url, criteria));
+      results.push(await previewUrl(url, criteria, user.id));
     }
 
     logEvent({
@@ -107,10 +107,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
 async function previewUrl(
   url: string,
   criteria: string | undefined,
+  tenantKey: string,
 ): Promise<UrlResult> {
   const preview = await previewCivicTrackedUrls([url], criteria, {
     maxDocs: 5,
     maxPromisesPerDocument: 10,
+    tenantKey,
   });
   const promises: ExtractedPromise[] = preview.documents.flatMap((document) =>
     document.promises.map((promise) => ({

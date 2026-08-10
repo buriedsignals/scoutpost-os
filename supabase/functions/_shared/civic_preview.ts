@@ -54,12 +54,17 @@ export interface CivicPreviewBundle {
 export async function previewCivicTrackedUrls(
   trackedUrls: string[],
   criteria?: string,
-  opts: { maxDocs?: number; maxPromisesPerDocument?: number } = {},
+  opts: {
+    maxDocs?: number;
+    maxPromisesPerDocument?: number;
+    tenantKey?: string;
+  } = {},
 ): Promise<CivicPreviewBundle> {
   const { documentUrls } = await discoverCivicDocumentsFromTrackedPages(
     trackedUrls,
     {
       maxDocs: opts.maxDocs ?? 5,
+      tenantKey: opts.tenantKey,
     },
   );
 
@@ -77,7 +82,10 @@ export async function previewCivicTrackedUrls(
     try {
       // Doc-parse port: PDF → text, HTML → markdown. A scanned PDF throws
       // NeedsOcrError, caught here and skipped like any other parse failure.
-      scraped = await parseDocument(documentUrl, { workloadClass: "utility" });
+      scraped = await parseDocument(documentUrl, {
+        workloadClass: "utility",
+        tenantKey: opts.tenantKey,
+      });
     } catch {
       sourceResults.push({ url: documentUrl, outcome: "parse_failed" });
       continue;

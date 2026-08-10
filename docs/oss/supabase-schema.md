@@ -231,6 +231,24 @@ state, decision metadata, and terminal status. `cli_auth_rate_limits` stores
 hashed short-lived action buckets. Both device tables have RLS enabled and no
 client policy.
 
+### `crawler_jobs` and `crawler_batches`
+
+Private transport tables for hosted Render Workflows. `crawler_jobs` stores an
+opaque durable request, operation, status, retry state, continuation identity,
+and private result manifest; page content remains in short-lived private
+Storage objects. `crawler_batches` records one Render task submission and its
+opaque job membership. The `proxy` request kind supports the hosted `/scrape`
+and `/parse` compatibility endpoint and has a partial cleanup index on
+successful manifests. Proxy rows retain their transport request kind while a
+server-owned admission class routes scheduled Scout calls through normal
+admission and utility/system calls through atomic per-tenant and rolling
+24-hour guards. Immediate compatibility dispatch batches only the named proxy
+job. RLS is enabled and no client role has table or mutating RPC access.
+
+Docker self-hosting keeps the same HTTP contract but calls the local
+`scrape-service` directly, so it does not require these tables for browser
+execution and incurs no Render Workflow cost.
+
 ---
 
 ## Indexes

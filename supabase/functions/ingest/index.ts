@@ -264,7 +264,10 @@ async function runPipeline(
     sourceUrl = input.url!;
     // Route through the scrape port. HTML ingest is provider-agnostic and uses
     // the default Crawl4AI renderer unless compatibility mode is selected.
-    const result = await scrape(sourceUrl, { workloadClass: "utility" });
+    const result = await scrape(sourceUrl, {
+      workloadClass: "utility",
+      tenantKey: user.id,
+    });
     content = result.markdown ?? "";
     if (!sourceTitle && result.title) sourceTitle = result.title;
   } else {

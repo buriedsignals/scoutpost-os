@@ -279,6 +279,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           await workflowTransport.scrape({
             url,
             workloadClass: "utility",
+            tenantKey: scout.user_id as string,
             timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
             abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
             ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
@@ -933,6 +934,7 @@ async function runPipeline(
   const primaryOptions = {
     url: scout.url,
     workloadClass: "scout",
+    tenantKey: scout.user_id,
     timeoutMs: PRIMARY_SCRAPE_TIMEOUT_MS,
     abortAfterMs: PRIMARY_SCRAPE_ABORT_AFTER_MS,
     snapshot: snapshotHint,
@@ -1895,6 +1897,7 @@ async function runPhaseB(
       const subpageOptions = {
         url: subUrl,
         workloadClass: "scout",
+        tenantKey: scout.user_id,
         timeoutMs: SUBPAGE_SCRAPE_TIMEOUT_MS,
         abortAfterMs: SUBPAGE_SCRAPE_ABORT_AFTER_MS,
         snapshot: archiveGateOn ? "on_fallback" : undefined,

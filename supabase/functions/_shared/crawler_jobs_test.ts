@@ -65,6 +65,65 @@ Deno.test("utility enqueue uses atomic admission RPC", async () => {
   assertEquals(row.status, "queued");
 });
 
+Deno.test("utility proxy enqueue uses the atomic cost guard", async () => {
+  let called = "";
+  const svc = {
+    rpc(name: string, args: Record<string, unknown>) {
+      called = name;
+      return Promise.resolve({
+        data: { id: "job", dedupe_key: args.p_dedupe_key, status: "queued" },
+        error: null,
+      });
+    },
+  };
+  await enqueueCrawlerJob(svc as never, {
+    ...base,
+    requestKind: "proxy",
+    admissionClass: "utility",
+    scoutRunId: undefined,
+    scoutId: undefined,
+    userId: undefined,
+  });
+  assertEquals(called, "admit_and_enqueue_crawler_utility");
+});
+
+Deno.test("scout proxy enqueue bypasses utility admission", async () => {
+  let called = "";
+  let options: unknown;
+  const svc = {
+    rpc(name: string, args: Record<string, unknown>) {
+      called = name;
+      options = args.p_options;
+      return Promise.resolve({
+        data: { id: "job", dedupe_key: args.p_dedupe_key, status: "queued" },
+        error: null,
+      });
+    },
+  };
+  await enqueueCrawlerJob(svc as never, {
+    ...base,
+    requestKind: "proxy",
+    admissionClass: "scout",
+    scoutRunId: undefined,
+    scoutId: undefined,
+    userId: undefined,
+  });
+  assertEquals(called, "enqueue_crawler_job");
+  assertEquals(options, { admission_class: "scout" });
+});
+
+Deno.test("proxy enqueue requires an explicit admission class", async () => {
+  await assertRejects(
+    () =>
+      enqueueCrawlerJob({} as never, {
+        ...base,
+        requestKind: "proxy",
+      }),
+    Error,
+    "requires an admission class",
+  );
+});
+
 Deno.test("utility daily limit is bounded configuration", () => {
   assertEquals(crawlerUtilityDailyLimit("4321"), 4321);
   assertEquals(crawlerUtilityDailyLimit(undefined), 10_000);

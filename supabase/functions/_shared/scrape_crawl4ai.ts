@@ -10,6 +10,11 @@
  */
 
 import { ApiError } from "./errors.ts";
+import {
+  crawlerProxyTenantHeaders,
+  isCrawlerWorkflowProxyBase,
+  readCrawlerProxyError,
+} from "./crawler_proxy_contract.ts";
 import type {
   ScrapeOptions,
   ScrapeResult,
@@ -38,18 +43,23 @@ export async function crawl4aiScrape(
   // so the client fuse must sit outside that or heavy captures 504 here
   // while the service is still working.
   const abortAfterMs = opts.abortAfterMs ??
-    (snapshot ? timeoutMs * 2 + 25_000 : timeoutMs + 5_000);
+    (isCrawlerWorkflowProxyBase(base)
+      ? snapshot ? timeoutMs * 2 + 70_000 : timeoutMs + 45_000
+      : snapshot
+      ? timeoutMs * 2 + 25_000
+      : timeoutMs + 5_000);
 
   const ac = new AbortController();
   const fuse = setTimeout(() => ac.abort(), abortAfterMs);
-  let res: Response;
+  let d: Record<string, unknown>;
   try {
-    res = await fetch(`${base}/scrape`, {
+    const res = await fetch(`${base}/scrape`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json",
         "X-Scoutpost-Workload-Class": opts.workloadClass ?? "system",
+        ...crawlerProxyTenantHeaders(base, opts.tenantKey),
       },
       body: JSON.stringify({
         url,
@@ -58,8 +68,18 @@ export async function crawl4aiScrape(
       }),
       signal: ac.signal,
     });
+    if (!res.ok) {
+      // Match the Firecrawl provider exactly: every non-OK upstream response
+      // (including an upstream 504 body) maps to ApiError(502); only a
+      // client-side abort maps to 504.
+      throw new ApiError(
+        `crawl4ai scrape failed: ${res.status} ${await res.text()}`,
+        502,
+      );
+    }
+    // Keep the fuse alive while a Workflow response streams heartbeats.
+    d = await res.json();
   } catch (e) {
-    clearTimeout(fuse);
     if ((e as { name?: string }).name === "AbortError") {
       throw new ApiError(
         `crawl4ai scrape aborted after ${abortAfterMs}ms`,
@@ -67,21 +87,18 @@ export async function crawl4aiScrape(
       );
     }
     throw e;
+  } finally {
+    clearTimeout(fuse);
   }
-  clearTimeout(fuse);
-  if (!res.ok) {
-    // Match the Firecrawl provider exactly: every non-OK upstream response
-    // (including an upstream 504 body) → ApiError(502); only a *client-side*
-    // abort maps to 504. This keeps run_lifecycle error-class accounting
-    // identical across providers. The "<provider> scrape failed: <status>"
-    // shape preserves the transient classifier's `/failed:\s*(\d{3})/` match,
-    // so an upstream 5xx/429 is still detected as transient.
+  const proxyError = readCrawlerProxyError(d);
+  if (proxyError) {
     throw new ApiError(
-      `crawl4ai scrape failed: ${res.status} ${await res.text()}`,
+      `crawl4ai scrape failed: ${proxyError.status} ${
+        JSON.stringify(proxyError.detail)
+      }`,
       502,
     );
   }
-  const d = await res.json();
   const metadata = (d.metadata ?? {}) as Record<string, unknown>;
   const statusCode = typeof d.status_code === "number"
     ? d.status_code

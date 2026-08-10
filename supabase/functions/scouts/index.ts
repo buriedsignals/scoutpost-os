@@ -805,6 +805,7 @@ async function establishCivicBaseline(
     try {
       scraped = await scrape(url, {
         workloadClass: "utility",
+        tenantKey: scout.user_id,
         formats: ["markdown", "rawHtml"],
         onlyMainContent: false,
       });
@@ -884,6 +885,7 @@ async function establishCivicBaseline(
   for (const sourceUrl of documentUrls) {
     const document = await parseDocument(sourceUrl, {
       workloadClass: "utility",
+      tenantKey: scout.user_id,
     });
     const markdown = (document.markdown ?? "").slice(0, 80_000);
     if (!markdown.trim()) {
@@ -2100,6 +2102,7 @@ async function testScout(
     scraped = await scrape(url, {
       ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
       workloadClass: "utility",
+      tenantKey: user.id,
     });
   } catch (e) {
     logEvent({

@@ -234,7 +234,7 @@ export function extractCivicLinksFromPages(
 
 export async function discoverCivicDocumentsFromTrackedPages(
   trackedUrls: string[],
-  opts: { maxDocs?: number } = {},
+  opts: { maxDocs?: number; tenantKey?: string } = {},
 ): Promise<{ documentUrls: string[]; scrapedPages: number }> {
   const pages: CivicTrackedPage[] = [];
   let scrapedPages = 0;
@@ -249,7 +249,8 @@ export async function discoverCivicDocumentsFromTrackedPages(
       // production civic-execute already routes through the port — preview was
       // the last firecrawl-direct holdout (#233).
       const scraped = await scrape(trackedUrl, {
-        workloadClass: "scout",
+        workloadClass: "utility",
+        tenantKey: opts.tenantKey,
         formats: ["rawHtml"],
         onlyMainContent: false,
       });

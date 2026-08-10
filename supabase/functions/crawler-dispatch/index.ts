@@ -9,6 +9,7 @@ import {
 } from "../_shared/render_workflows.ts";
 import type { SupabaseClient } from "../_shared/supabase.ts";
 import { resumePageRuns } from "../_shared/page_workflow_resume.ts";
+import { sweepExpiredCrawlerProxyResults } from "../_shared/crawler_workflow_proxy.ts";
 
 declare const EdgeRuntime:
   | { waitUntil(promise: Promise<unknown>): void }
@@ -20,6 +21,11 @@ const Input = z.discriminatedUnion("mode", [
     mode: z.literal("single"),
     operation: z.enum(["scrape", "snapshot", "parse_pdf"]),
   }),
+  z.object({
+    mode: z.literal("immediate"),
+    operation: z.enum(["scrape", "snapshot", "parse_pdf"]),
+    job_id: z.string().uuid(),
+  }),
 ]);
 
 const scheduledPlans = [
@@ -27,6 +33,22 @@ const scheduledPlans = [
   { operation: "parse_pdf" as const, batchSize: 5, maxBatches: 4 },
   { operation: "snapshot" as const, batchSize: 1, maxBatches: 2 },
 ];
+
+export function crawlerDispatchPlans(
+  mode: "scheduled" | "single" | "immediate",
+  operation?: "scrape" | "snapshot" | "parse_pdf",
+) {
+  if (mode === "scheduled") return scheduledPlans;
+  return scheduledPlans.filter((plan) => plan.operation === operation).map(
+    (plan) => ({
+      ...plan,
+      // Immediate compatibility dispatch is target-specific. Scheduled
+      // dispatch retains the normal throughput-oriented batch sizes.
+      batchSize: mode === "immediate" ? 1 : plan.batchSize,
+      maxBatches: 1,
+    }),
+  );
+}
 
 const START_CONCURRENCY = 8;
 
@@ -75,6 +97,19 @@ export async function submitCrawlerBatch(
   }
 }
 
+export async function createImmediateCrawlerBatch(
+  svc: SupabaseClient,
+  jobId: string,
+): Promise<Array<{ batch_id: string }>> {
+  const { data, error } = await svc.rpc("create_crawler_proxy_batch", {
+    p_job_id: jobId,
+  });
+  if (error) throw new Error("crawler proxy batch creation failed");
+  return (data ?? []).map((row: { batch_id: string }) => ({
+    batch_id: row.batch_id,
+  }));
+}
+
 export async function handleCrawlerDispatch(req: Request): Promise<Response> {
   if (req.method !== "POST") return jsonError("method not allowed", 405);
   try {
@@ -90,19 +125,21 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
   }
 
   const svc = getServiceClient();
-  const { error: submissionError } = await svc.rpc(
-    "release_stale_crawler_submissions",
-  );
-  if (submissionError) {
-    return jsonError("crawler submission reconciliation failed", 500);
-  }
-  const { error: reconcileError } = await svc.rpc("reconcile_crawler_jobs");
-  if (reconcileError) return jsonError("crawler reconciliation failed", 500);
-  const { error: waitingError } = await svc.rpc(
-    "reconcile_waiting_scout_dispatches",
-  );
-  if (waitingError) {
-    console.warn("crawler waiting-run reconciliation failed");
+  if (input.mode !== "immediate") {
+    const { error: submissionError } = await svc.rpc(
+      "release_stale_crawler_submissions",
+    );
+    if (submissionError) {
+      return jsonError("crawler submission reconciliation failed", 500);
+    }
+    const { error: reconcileError } = await svc.rpc("reconcile_crawler_jobs");
+    if (reconcileError) return jsonError("crawler reconciliation failed", 500);
+    const { error: waitingError } = await svc.rpc(
+      "reconcile_waiting_scout_dispatches",
+    );
+    if (waitingError) {
+      console.warn("crawler waiting-run reconciliation failed");
+    }
   }
   let pageResumes = 0;
   if (input.mode === "scheduled") {
@@ -128,11 +165,10 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
       console.warn("crawler Page resume reconciliation failed");
     }
   }
-  const plans = input.mode === "single"
-    ? scheduledPlans.filter((plan) => plan.operation === input.operation).map(
-      (plan) => ({ ...plan, maxBatches: 1 }),
-    )
-    : scheduledPlans;
+  const plans = crawlerDispatchPlans(
+    input.mode,
+    input.mode === "scheduled" ? undefined : input.operation,
+  );
   let formed = 0;
   let submitted = 0;
   let released = 0;
@@ -143,31 +179,43 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
 
   for (const plan of plans) {
     if (stopStarting) break;
-    const { data: pending, error: pendingError } = await svc
-      .from("crawler_batches")
-      .select("id")
-      .eq("operation", plan.operation)
-      .eq("status", "pending")
-      .is("render_task_run_id", null)
-      .is("submission_reservation_token", null)
-      .order("created_at", { ascending: true })
-      .limit(plan.maxBatches);
-    if (pendingError) {
-      return jsonError("crawler pending batch read failed", 500);
-    }
-    const candidates = (pending ?? []).map((batch) => ({ batch_id: batch.id }));
-    const remaining = plan.maxBatches - candidates.length;
-    let created: Array<{ batch_id: string }> = [];
-    if (remaining > 0) {
-      const { data: batches, error } = await svc.rpc("create_crawler_batches", {
-        p_operation: plan.operation,
-        p_batch_size: plan.batchSize,
-        p_job_limit: plan.batchSize * remaining,
-      });
-      if (error) return jsonError("crawler batch creation failed", 500);
-      created = batches ?? [];
-      formed += created.length;
-      candidates.push(...created);
+    let candidates: Array<{ batch_id: string }> = [];
+    if (input.mode === "immediate") {
+      try {
+        candidates = await createImmediateCrawlerBatch(svc, input.job_id);
+      } catch {
+        return jsonError("crawler proxy batch creation failed", 500);
+      }
+      formed += candidates.length;
+    } else {
+      const { data: pending, error: pendingError } = await svc
+        .from("crawler_batches")
+        .select("id")
+        .eq("operation", plan.operation)
+        .eq("status", "pending")
+        .is("render_task_run_id", null)
+        .is("submission_reservation_token", null)
+        .order("created_at", { ascending: true })
+        .limit(plan.maxBatches);
+      if (pendingError) {
+        return jsonError("crawler pending batch read failed", 500);
+      }
+      candidates = (pending ?? []).map((batch) => ({ batch_id: batch.id }));
+      const remaining = plan.maxBatches - candidates.length;
+      if (remaining > 0) {
+        const { data: batches, error } = await svc.rpc(
+          "create_crawler_batches",
+          {
+            p_operation: plan.operation,
+            p_batch_size: plan.batchSize,
+            p_job_limit: plan.batchSize * remaining,
+          },
+        );
+        if (error) return jsonError("crawler batch creation failed", 500);
+        const created = batches ?? [];
+        formed += created.length;
+        candidates.push(...created);
+      }
     }
     // Render task starts are independent. Bounded parallelism keeps a busy
     // dispatch within the Edge Function deadline without creating an
@@ -216,6 +264,7 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
   }
 
   let reconciled = 0;
+  let proxyResultsCleaned = 0;
   if (input.mode === "scheduled") {
     try {
       // Task starts are never held behind Render reads. This dispatcher is the
@@ -223,6 +272,14 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
       reconciled = await refreshCrawlerRenderRuns(svc, 60);
     } catch {
       // Stale metrics remain visible; accepted task starts are not rolled back.
+    }
+    try {
+      proxyResultsCleaned = await sweepExpiredCrawlerProxyResults(
+        svc,
+        new Date(Date.now() - 30 * 60_000).toISOString(),
+      );
+    } catch {
+      console.warn("crawler proxy result cleanup failed");
     }
   }
 
@@ -234,6 +291,7 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
     deferred,
     ambiguous,
     reconciled,
+    proxy_results_cleaned: proxyResultsCleaned,
     page_resumes: pageResumes,
     batch_ids: batchIds,
   });

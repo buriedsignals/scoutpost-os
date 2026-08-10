@@ -5,7 +5,7 @@ import pytest
 from app import crawl_runner
 from app.crawl_runner import CrawlItem, classify_failure, run_item_safely
 from app.network_policy import UnsafeDestinationError
-from app.pdfparse import PrivateAddressError
+from app.pdfparse import NotAPdfError, PdfTooLargeError, PrivateAddressError
 
 from tests.conftest import make_settings
 
@@ -188,6 +188,18 @@ async def test_safe_wrapper_contains_guard_failure(monkeypatch):
 )
 def test_classify_failure(error, expected):
     assert classify_failure("a", error)["error_class"] == expected
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (NotAPdfError(), "not_a_pdf"),
+        (PdfTooLargeError(), "pdf_too_large"),
+        (PrivateAddressError(), "private_address"),
+    ],
+)
+def test_classify_failure_preserves_proxy_compatibility_sentinels(error, message):
+    assert classify_failure("a", error)["error"] == message
 
 
 async def test_runner_rejects_unknown_operation(monkeypatch):

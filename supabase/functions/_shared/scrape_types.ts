@@ -68,6 +68,9 @@ export interface ScrapeOptions {
   /** Content-free operations counter classification. Fixed by the calling
    * route; it is never read from an end-user request body. */
   workloadClass?: "scout" | "utility" | "system";
+  /** Verified user UUID, or a stable `system:<consumer>` identity for true
+   * system work. Required only when the hosted crawler proxy is configured. */
+  tenantKey?: string;
   formats?: Array<"markdown" | "html" | "rawHtml">;
   onlyMainContent?: boolean;
   /**
@@ -155,6 +158,7 @@ export interface PrimaryPageScrapeDeps {
 export interface PrimaryPageScrapeOptions {
   url: string;
   workloadClass?: "scout" | "utility" | "system";
+  tenantKey?: string;
   onlyMainContent?: boolean;
   timeoutMs?: number;
   abortAfterMs?: number;
