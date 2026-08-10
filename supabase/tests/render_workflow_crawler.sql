@@ -1,6 +1,6 @@
 BEGIN;
 SET LOCAL search_path = public, extensions;
-SELECT plan(29);
+SELECT plan(32);
 
 SELECT has_table('public', 'crawler_jobs', 'crawler job ledger exists');
 SELECT has_table('public', 'crawler_batches', 'crawler batch ledger exists');
@@ -275,6 +275,43 @@ SELECT is(
   ),
   (SELECT batch_id FROM proxy_target_batch),
   'repeated targeted dispatch returns the existing pending batch'
+);
+
+-- The Workflow may complete before the start API returns its task ID. The
+-- acknowledgement must retain that terminal state and still record the ID.
+CREATE TEMP TABLE terminal_ack_reservation AS
+SELECT public.reserve_crawler_batch_submission(
+  (SELECT batch_id FROM proxy_target_batch), 28
+) AS token;
+CREATE TEMP TABLE terminal_ack_claim AS
+SELECT * FROM public.claim_crawler_batch(
+  (SELECT batch_id FROM proxy_target_batch), 600
+);
+SELECT public.complete_crawler_job(
+  (SELECT id FROM terminal_ack_claim),
+  (SELECT lease_token FROM terminal_ack_claim),
+  true,
+  '{"artifacts":[]}'::jsonb
+);
+DO $$ BEGIN PERFORM public.reconcile_crawler_jobs(); END $$;
+
+SELECT ok(
+  public.mark_crawler_batch_submitted(
+    (SELECT batch_id FROM proxy_target_batch),
+    (SELECT token FROM terminal_ack_reservation),
+    'trn-fast-terminal'
+  ),
+  'a terminal batch accepts its late Render task acknowledgement'
+);
+SELECT is(
+  (SELECT status FROM public.crawler_batches WHERE id = (SELECT batch_id FROM proxy_target_batch)),
+  'complete',
+  'late task acknowledgement preserves the completed batch state'
+);
+SELECT is(
+  (SELECT render_task_run_id FROM public.crawler_batches WHERE id = (SELECT batch_id FROM proxy_target_batch)),
+  'trn-fast-terminal',
+  'late task acknowledgement records the Render task ID'
 );
 
 SELECT * FROM finish();
