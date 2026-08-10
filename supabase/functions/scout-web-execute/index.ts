@@ -73,6 +73,7 @@ import {
 import {
   buildPageContentDiff,
   type PageContentDiff,
+  pageTargetErrorMessage,
 } from "../_shared/page_scout_change.ts";
 import type { PageScoutCriteriaFinding } from "../_shared/page_scout_criteria.ts";
 import { analyzePageScoutAlert } from "../_shared/page_scout_alert_pipeline.ts";
@@ -909,6 +910,13 @@ async function runPipeline(
     }
   }
 
+  const rootStatusError = pageTargetErrorMessage(
+    detectionResult?.status_code,
+  );
+  if (rootStatusError) {
+    throw new ApiError(rootStatusError, 502);
+  }
+
   const effectiveRootUrl = chooseSubpageSourceUrl(
     detectionResult?.source_url,
     scout.url,
@@ -1094,7 +1102,7 @@ async function runPipeline(
   }
 
   if (!markdown.trim()) {
-    throw new ApiError("firecrawl returned empty markdown", 502);
+    throw new ApiError("scrape returned empty markdown", 502);
   }
   await markRunStage(svc, runId, "insert_units");
   // Keep the legacy local name for the rest of the pipeline below.
@@ -1866,6 +1874,21 @@ async function runPhaseB(
         )
         : await scrapePrimaryPageResilient(subpageOptions);
 
+      const subpageStatusError = pageTargetErrorMessage(
+        subScrape.status_code,
+      );
+      if (subpageStatusError) {
+        failed++;
+        logEvent({
+          level: "warn",
+          fn: "scout-web-execute",
+          event: "phase_b_target_error_status",
+          scout_id: scout.id,
+          requested_url: subUrl,
+          upstream_status: subScrape.status_code,
+        });
+        continue;
+      }
       if (!subScrape.markdown?.trim()) {
         failed++;
         continue;

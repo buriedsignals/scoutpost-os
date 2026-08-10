@@ -14,6 +14,17 @@ export interface PageContentDiff {
 const MAX_SUMMARY_LINES = 6;
 const MAX_LINE_CHARS = 500;
 
+/** Reject target error pages before their content can enter Page baselines. */
+export function pageTargetErrorMessage(status: unknown): string | null {
+  if (
+    typeof status !== "number" || !Number.isInteger(status) || status < 400 ||
+    status > 599
+  ) {
+    return null;
+  }
+  return `page returned HTTP ${status}`;
+}
+
 /**
  * Build a bounded, deterministic line diff from the same canonical content
  * used by Page Scout's hash comparison. The hash remains the cheap gate; this

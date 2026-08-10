@@ -174,6 +174,13 @@ async def test_safe_wrapper_contains_guard_failure(monkeypatch):
         (PrivateAddressError(), "terminal"),
         (UnsafeDestinationError(), "terminal"),
         (RuntimeError("status 502; Blocked by anti-bot protection"), "retryable"),
+        (
+            RuntimeError(
+                "Page.goto: net::ERR_EMPTY_RESPONSE at https://example.org"
+            ),
+            "anti_bot",
+        ),
+        (RuntimeError("Page.goto: net::ERR_CONNECTION_RESET"), "retryable"),
         (RuntimeError("captcha"), "anti_bot"),
         (RuntimeError("timed out"), "timeout"),
         (RuntimeError("upstream"), "retryable"),

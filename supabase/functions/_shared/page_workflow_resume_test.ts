@@ -1,4 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals.ts";
+import { assertNotEquals } from "https://deno.land/std@0.224.0/assert/assert_not_equals.ts";
 import { assertRejects } from "https://deno.land/std@0.224.0/assert/assert_rejects.ts";
 import { childStage } from "./page_workflow_transport.ts";
 import { resumePageRuns } from "./page_workflow_resume.ts";
@@ -8,6 +9,16 @@ Deno.test("child stage canonicalizes fragments and trailing slashes", () => {
     childStage("https://example.com/story/#section"),
     "child:https://example.com/story",
   );
+});
+
+Deno.test("child stage deterministically bounds long URLs", () => {
+  const shared = `https://example.com/${"long-path/".repeat(14)}`;
+  const first = childStage(`${shared}first-article`);
+  const second = childStage(`${shared}second-article`);
+
+  assertEquals(first.length, 100);
+  assertEquals(childStage(`${shared}first-article`), first);
+  assertNotEquals(first, second);
 });
 
 Deno.test("Page resume sends only opaque run and Scout ids", async () => {

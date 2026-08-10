@@ -5,7 +5,15 @@ import {
 import {
   buildPageContentDiff,
   decidePageScoutAlert,
+  pageTargetErrorMessage,
 } from "./page_scout_change.ts";
+
+Deno.test("Page target status rejects error pages without relabeling success", () => {
+  assertEquals(pageTargetErrorMessage(200), null);
+  assertEquals(pageTargetErrorMessage(undefined), null);
+  assertEquals(pageTargetErrorMessage(404), "page returned HTTP 404");
+  assertEquals(pageTargetErrorMessage(503), "page returned HTTP 503");
+});
 
 Deno.test("buildPageContentDiff ignores canonicalized technical noise", () => {
   const before =

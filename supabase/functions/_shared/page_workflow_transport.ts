@@ -8,6 +8,7 @@ import type {
 import { sha256HexBytes } from "./snapshot_store.ts";
 
 const RESULT_LIMIT = 16 * 1024 * 1024;
+const MAX_PIPELINE_STAGE_LENGTH = 100;
 const ACTIVE = new Set(["queued", "batched", "running", "retryable_failed"]);
 
 interface StoredCrawlerJob extends CrawlerJobRow {
@@ -234,7 +235,26 @@ export class PageWorkflowTransport {
 export function childStage(url: string): string {
   const parsed = new URL(url);
   parsed.hash = "";
-  return `child:${parsed.toString().replace(/\/+$/, "")}`;
+  const normalized = parsed.toString().replace(/\/+$/, "");
+  const stage = `child:${normalized}`;
+  if (stage.length <= MAX_PIPELINE_STAGE_LENGTH) return stage;
+
+  // The URL remains a separate part of the crawler dedupe key. This compact
+  // stage is therefore only a bounded, observable label; the hash prevents
+  // long URLs with the same prefix from becoming indistinguishable in logs.
+  const suffix = `:${fnv1aHex(normalized)}`;
+  return `${
+    stage.slice(0, MAX_PIPELINE_STAGE_LENGTH - suffix.length)
+  }${suffix}`;
+}
+
+function fnv1aHex(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 function manifestProvider(

@@ -161,6 +161,12 @@ def classify_failure(item_id: str, error: object) -> dict[str, Any]:
         ),
     ):
         error_class = "terminal"
+    # Patchright reports this exact Chromium network code when a target closes
+    # the browser connection without a response. Keep the match narrow: the
+    # Firecrawl fallback recovered every occurrence in the Page canary, while
+    # ordinary network failures should retain the normal retry path.
+    elif "net::err_empty_response" in lowered:
+        error_class = "anti_bot"
     elif re.search(r"\bstatus 5\d\d\b", lowered):
         error_class = "retryable"
     elif any(word in lowered for word in ("anti-bot", "captcha", "challenge")):
