@@ -9,6 +9,7 @@ import {
   extractCivicLinksFromPages,
   filterCivicDiscoveryCandidates,
   isCivicDirectDocumentUrl,
+  isCivicMeetingDocumentLink,
   isCivicRecordDetailUrl,
   isCivicScrapableUrl,
   isEmptyQueryStubUrl,
@@ -139,7 +140,10 @@ Deno.test("isCivicRecordDetailUrl flags single-record leaves, not listings/nav",
   );
   // Listing params — kept.
   assertEquals(isCivicRecordDetailUrl("https://x.gov/protokolle?all=1"), false);
-  assertEquals(isCivicRecordDetailUrl("https://x.gov/sitzungen/termine/"), false);
+  assertEquals(
+    isCivicRecordDetailUrl("https://x.gov/sitzungen/termine/"),
+    false,
+  );
 });
 
 Deno.test("civic discovery selects the listing over individual meeting leaves (#233)", () => {
@@ -166,7 +170,8 @@ Deno.test("civic discovery never selects an empty-query template stub (#233)", (
   // Real shape of the Zurich map: the empty-gid template outscores the calendar
   // under the old logic (government terms + a search bonus), then previews to
   // zero documents. It must be dropped from both ranking and the merged filter.
-  const stub = "https://www.gemeinderat-zuerich.ch/sitzungen/sitzung/index.php?gid=";
+  const stub =
+    "https://www.gemeinderat-zuerich.ch/sitzungen/sitzung/index.php?gid=";
   const listing = "https://www.gemeinderat-zuerich.ch/sitzungen/termine";
 
   const ranked = rankCivicDiscoveryUrls([stub, listing]);
@@ -278,6 +283,63 @@ Deno.test("classifyCivicMeetingUrls excludes unsupported asset URLs before keywo
   assertEquals(urls, [
     "https://city.example.org/council/agenda/2026-05-01",
   ]);
+});
+
+Deno.test("classifyCivicMeetingUrls rejects a generic Pontresina meeting archive", async () => {
+  const archive = {
+    url:
+      "https://www.gemeinde-pontresina.ch/de/aktuelles/gemeindeversammlungen",
+    anchorText: "Protokollarchiv Gemeindeversammlungen",
+  };
+  const datedHtml = {
+    url:
+      "https://www.gemeinde-pontresina.ch/de/aktuelles/gemeindeversammlungen/2026-06-22",
+    anchorText: "Protokoll Gemeindeversammlung 2026-2 vom 22. Juni 2026",
+  };
+  const pdf = {
+    url:
+      "https://www.gemeinde-pontresina.ch/media/protokoll-gemeindeversammlung.pdf",
+    anchorText: "Protokoll der Gemeindeversammlung",
+  };
+
+  assertEquals(isCivicMeetingDocumentLink(archive), false);
+  assertEquals(isCivicMeetingDocumentLink(datedHtml), true);
+  assertEquals(isCivicMeetingDocumentLink(pdf), true);
+  assertEquals(await classifyCivicMeetingUrls([archive, datedHtml, pdf]), [
+    datedHtml.url,
+    pdf.url,
+  ]);
+});
+
+Deno.test("Civic document links reject annual archives but keep dated and identified leaves", () => {
+  assertEquals(
+    isCivicMeetingDocumentLink({
+      url: "https://city.example/council/minutes/2026",
+      anchorText: "Minutes archive 2026",
+    }),
+    false,
+  );
+  assertEquals(
+    isCivicMeetingDocumentLink({
+      url: "https://city.example/council/minutes/2026-08-10",
+      anchorText: "Minutes 10 August 2026",
+    }),
+    true,
+  );
+  assertEquals(
+    isCivicMeetingDocumentLink({
+      url: "https://city.example/council/minutes/summer-session",
+      anchorText: "Protokoll vom 22. Juni 2026",
+    }),
+    true,
+  );
+  assertEquals(
+    isCivicMeetingDocumentLink({
+      url: "https://city.example/council/meeting/48219",
+      anchorText: "Meeting record",
+    }),
+    true,
+  );
 });
 
 Deno.test("isCivicScrapableUrl rejects image, video, and archive assets", () => {

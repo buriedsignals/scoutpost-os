@@ -78,6 +78,24 @@ export type CivicClassification =
   | { outcome: "eligible"; item: CivicEligibleItem }
   | { outcome: "rejected"; code: CivicRejectionCode };
 
+/** Immediate Civic emails announce newly stored promises only. Decisions remain
+ * useful fact leads, but they have no deadline reminder and never trigger this
+ * delivery path. */
+export function shouldAlertForNewCivicItem(
+  item: CivicEligibleItem,
+  createdCanonical: boolean,
+): boolean {
+  return createdCanonical && item.kind === "promise";
+}
+
+export function retainCivicPromiseAlertItems<T extends { unit_id: string }>(
+  items: T[],
+  promiseUnitIds: Iterable<string>,
+): T[] {
+  const allowed = new Set(promiseUnitIds);
+  return items.filter((item) => allowed.has(item.unit_id));
+}
+
 /**
  * Stable model schema shared by preview and the worker. `additionalProperties`
  * remains false so unknown model fields cannot cross the policy boundary.
@@ -148,7 +166,7 @@ export const CIVIC_VERIFIER_SCHEMA: Record<string, unknown> = {
 // obligation. Reject only calendar/logistics language, not the word
 // "meeting" itself (an action can genuinely be due at a meeting).
 const SCHEDULE_PATTERN =
-  /\b(calendar|agenda|recess|overflow meeting|public comment|office hours?|workshop|hearing|sessions?)\b|\b(sitzung|sitzungen|termine)\b|\bwill\s+hold\s+(?:an?\s+)?meetings?\b|\bmeetings?\s+(?:starts?|ends?|is scheduled)\b|\bstarts?\s+at\b|\bends?\s+at\b/i;
+  /\b(calendar|agenda|recess|overflow meeting|public comment|office hours?|workshop|hearing|sessions?)\b|\b(sitzung|sitzungen|termine)\b|\b(?:will|may)\s+hold\s+(?:(?:an?|the|its|their)\s+)?(?:(?:up\s+to\s+)?(?:\d+|one|two|three|four|five)\s+)?(?:(?:\d{4}(?:-\d+)?)\s+)?(?:(?:additional|community|council|committee|board|municipal|special|regular|extraordinary)\s+)*meetings?\b|\bmeetings?\s+(?:starts?|ends?|is scheduled)\b|\bstarts?\s+at\b|\bends?\s+at\b/i;
 const PROCEDURAL_PATTERN =
   /\b(roll call|approval of minutes|approve(?:d)? minutes|procedural|adjourn(?:ment)?)\b/i;
 const ASPIRATIONAL_PATTERN =

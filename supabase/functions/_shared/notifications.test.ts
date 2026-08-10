@@ -14,6 +14,7 @@ import {
   buildBaseHtml,
   buildPageScoutMatchedArticles,
   buildProfileUrl,
+  civicPromisesSavedSummary,
   escapeHtml,
   groupFactsBySource,
   markdownToHtml,
@@ -570,6 +571,13 @@ Deno.test("Civic Scout renders markdown promises with the civic cue", () => {
   assertStringIncludes(html, "<strong>Commit to a 30% reduction</strong>");
   assertStringIncludes(html, 'href="https://oakland.example/m.pdf"');
   assertStringIncludes(html, EMAIL_STRINGS.en.civic_scout_cue);
+});
+
+Deno.test("Civic Scout explains that extracted promises were saved for later", () => {
+  assertEquals(
+    civicPromisesSavedSummary("- Finish the school by June 2027."),
+    "These promises were saved for future deadline reminders:\n\n- Finish the school by June 2027.",
+  );
 });
 
 Deno.test("Social Scout renders caution section only when removed posts exist", () => {

@@ -19,7 +19,10 @@ import {
   CIVIC_ACCOUNTABILITY_FIXTURES,
   CIVIC_FIXTURE_REFERENCE_DATE,
 } from "./civic-accountability-fixtures.ts";
-import { classifyCivicCandidate } from "../../supabase/functions/_shared/civic_accountability.ts";
+import {
+  classifyCivicCandidate,
+  shouldAlertForNewCivicItem,
+} from "../../supabase/functions/_shared/civic_accountability.ts";
 
 Deno.test("civic benchmark reports the exact non-terminal queue lease", () => {
   assertEquals(
@@ -46,10 +49,34 @@ Deno.test("civic benchmark reports the exact non-terminal queue lease", () => {
 });
 
 Deno.test("Zurich calendar is a semantic-zero hard negative", () => {
-  assertEquals(calendarSemanticFailure(0), null);
+  const clean = {
+    promiseCount: 0,
+    unitCount: 0,
+    occurrenceCount: 0,
+    alertItemCount: 0,
+    alertDeliveryCount: 0,
+    notificationStatus: "skipped",
+  };
+  assertEquals(calendarSemanticFailure(clean), null);
   assertEquals(
-    calendarSemanticFailure(1),
-    "calendar hard-negative produced 1 promise tracker row(s)",
+    calendarSemanticFailure({ ...clean, occurrenceCount: 1 }),
+    "calendar hard-negative produced 1 Civic occurrence(s)",
+  );
+  assertEquals(
+    calendarSemanticFailure({ ...clean, unitCount: 1 }),
+    "calendar hard-negative produced 1 Civic unit(s)",
+  );
+  assertEquals(
+    calendarSemanticFailure({ ...clean, alertItemCount: 1 }),
+    "calendar hard-negative produced 1 immediate alert item(s)",
+  );
+  assertEquals(
+    calendarSemanticFailure({ ...clean, alertDeliveryCount: 1 }),
+    "calendar hard-negative produced 1 immediate alert delivery record(s)",
+  );
+  assertEquals(
+    calendarSemanticFailure({ ...clean, notificationStatus: "sent" }),
+    "calendar hard-negative sent an immediate notification (sent)",
   );
 });
 
@@ -250,4 +277,28 @@ Deno.test("versioned Civic corpus meets minimum labels and policy outcomes", () 
     new Set(CIVIC_ACCOUNTABILITY_FIXTURES.map((fixture) => fixture.language)),
     new Set(["en", "de", "fr"]),
   );
+});
+
+Deno.test("Civic benchmark alert oracle accepts a new promise and rejects a decision", () => {
+  const promiseFixture = CIVIC_ACCOUNTABILITY_FIXTURES.find((fixture) =>
+    fixture.expected === "promise"
+  );
+  const decisionFixture = CIVIC_ACCOUNTABILITY_FIXTURES.find((fixture) =>
+    fixture.expected === "decision"
+  );
+  if (!promiseFixture || !decisionFixture) throw new Error("fixtures missing");
+
+  const promiseResult = classifyCivicCandidate(promiseFixture.candidate, {
+    today: CIVIC_FIXTURE_REFERENCE_DATE,
+  });
+  const decisionResult = classifyCivicCandidate(decisionFixture.candidate, {
+    today: CIVIC_FIXTURE_REFERENCE_DATE,
+  });
+  if (promiseResult.outcome !== "eligible") throw new Error("promise rejected");
+  if (decisionResult.outcome !== "eligible") {
+    throw new Error("decision rejected");
+  }
+
+  assertEquals(shouldAlertForNewCivicItem(promiseResult.item, true), true);
+  assertEquals(shouldAlertForNewCivicItem(decisionResult.item, true), false);
 });

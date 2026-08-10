@@ -284,9 +284,7 @@ export async function classifyCivicMeetingUrls(
   );
 
   if (keywordMatches.length > 0) {
-    const documentLinks = keywordMatches.filter((link) =>
-      isPdfUrl(link.url) || urlPathDepth(link.url) > 2
-    );
+    const documentLinks = keywordMatches.filter(isCivicMeetingDocumentLink);
     return documentLinks.sort(compareCivicLinks).map((link) => link.url);
   }
 
@@ -325,11 +323,51 @@ export async function classifyCivicMeetingUrls(
           return true;
         })
         .map((idx) => scrapableLinks[idx])
+        .filter(isCivicMeetingDocumentLink)
         .sort(compareCivicLinks);
     return classified.map((link) => link.url);
   } catch {
     return [];
   }
+}
+
+/**
+ * A meeting keyword alone identifies both archive/listing pages and individual
+ * papers. Only leaf documents may enter extraction: PDFs, populated record-ID
+ * pages, or HTML links carrying a full date in their URL or label.
+ * This rejects archive links such as Pontresina's bare
+ * `/de/aktuelles/gemeindeversammlungen`, which previously produced meeting-date
+ * summaries instead of accountability leads.
+ */
+export function isCivicMeetingDocumentLink(link: CivicLink): boolean {
+  if (isPdfUrl(link.url) || isCivicRecordDetailUrl(link.url)) return true;
+  const evidence = `${link.url} ${link.anchorText}`;
+  if (
+    /(?:^|\D)(?:19|20)\d{2}[-/.](?:0?[1-9]|1[0-2])[-/.](?:0?[1-9]|[12]\d|3[01])(?:\D|$)/
+      .test(
+        evidence,
+      ) ||
+    /(?:^|\D)(?:0?[1-9]|[12]\d|3[01])[-/.](?:0?[1-9]|1[0-2])[-/.](?:19|20)\d{2}(?:\D|$)/
+      .test(
+        evidence,
+      ) ||
+    /(?:^|\D)(?:0?[1-9]|[12]\d|3[01])\.?\s+[\p{L}]{3,}\s+(?:19|20)\d{2}(?:\D|$)/u
+      .test(evidence) ||
+    /(?:^|\D)[\p{L}]{3,}\s+(?:0?[1-9]|[12]\d|3[01]),?\s+(?:19|20)\d{2}(?:\D|$)/u
+      .test(evidence)
+  ) return true;
+
+  try {
+    const leaf = decodeURIComponent(new URL(link.url).pathname).split("/")
+      .filter(Boolean).at(-1) ?? "";
+    if (
+      /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(leaf) ||
+      /^\d{4,}$/.test(leaf) && !/^(?:19|20)\d{2}$/.test(leaf)
+    ) return true;
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 /**
@@ -578,14 +616,6 @@ function isPdfUrl(url: string): boolean {
     return new URL(url).pathname.toLowerCase().endsWith(".pdf");
   } catch {
     return url.split(/[?#]/)[0].toLowerCase().endsWith(".pdf");
-  }
-}
-
-function urlPathDepth(url: string): number {
-  try {
-    return new URL(url).pathname.split("/").filter(Boolean).length;
-  } catch {
-    return 0;
   }
 }
 

@@ -53,7 +53,8 @@ pg_cron/pg_net
        - scrape tracked listing pages through the provider port
        - compare versioned local canonical baselines per tracked URL
        - parse same-domain document links from listing HTML
-       - classify meeting documents with keyword stage and LLM fallback
+       - classify individual meeting papers with keyword stage and LLM fallback
+       - reject bare calendar/archive pages as extraction documents
        - enqueue unseen documents in civic_extraction_queue
        - refresh scout run / baseline metadata
 
@@ -101,6 +102,19 @@ deadline. Semantic zero after successful evaluation is a healthy result.
 AI-extracted accountability leads must be verified against their cited official
 evidence before publication. Fulfilled/broken status remains a human/editorial
 judgment; Civic never infers it automatically.
+
+## Notification Contract
+
+- A scheduled run may send one immediate email only when it creates at least
+  one new canonical promise. The email lists those promises and says they were
+  saved for future deadline reminders.
+- Material decisions remain visible as fact leads but never trigger an
+  immediate Civic email.
+- Calendars, meeting dates, and meeting archive/listing updates create no Civic
+  units and no email.
+- `promise-digest` is the separate deadline path. It emails an open promise
+  when its supported fulfilment date arrives and does not resend the same due
+  reminder.
 
 ## Data Model
 

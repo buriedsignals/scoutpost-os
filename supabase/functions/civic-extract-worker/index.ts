@@ -52,6 +52,8 @@ import {
   type CivicCandidate,
   type CivicEligibleItem,
   classifyCivicCandidates,
+  retainCivicPromiseAlertItems,
+  shouldAlertForNewCivicItem,
 } from "../_shared/civic_accountability.ts";
 import { upsertCivicDocumentMembership } from "../_shared/civic_document_membership.ts";
 
@@ -540,7 +542,9 @@ async function processItem(
 
     if (result.createdCanonical) {
       inserted += 1;
-      alertItems.push({ unit_id: result.unitId, statement: item.statement });
+      if (shouldAlertForNewCivicItem(item, true)) {
+        alertItems.push({ unit_id: result.unitId, statement: item.statement });
+      }
     } else if (result.mergedExisting && result.occurrenceCreated) {
       mergedExisting += 1;
     }
@@ -557,8 +561,9 @@ async function processItem(
     });
   }
 
-  // Persist new canonical IDs before queue completion. The last document to
-  // settle reads this run-scoped ledger and sends one complete alert.
+  // Persist newly stored promise IDs before queue completion. The last
+  // document to settle reads this run-scoped ledger and sends one complete
+  // "saved for later reminder" alert. Decisions never enter this ledger.
   if (
     row.scout_run_id && ingestionMode === "scheduled" && alertItems.length > 0
   ) {
@@ -665,14 +670,57 @@ async function processItem(
         const { data: pendingAlertItems, error: pendingAlertItemsError } =
           await svc
             .from("civic_run_alert_items")
-            .select("id, statement, source_url, source_title")
+            .select("id, unit_id, statement, source_url, source_title")
             .eq("scout_run_id", row.scout_run_id)
             .is("delivered_at", null);
         if (pendingAlertItemsError) {
           throw new Error(pendingAlertItemsError.message);
         }
-        if (!pendingAlertItems?.length) {
-          // A settled semantic-zero run has no alert to deliver.
+        const candidateUnitIds = (pendingAlertItems ?? []).map((item) =>
+          item.unit_id
+        );
+        const { data: promiseRows, error: promiseRowsError } = candidateUnitIds
+            .length > 0
+          ? await svc.from("promises").select("unit_id")
+            .eq("user_id", userId)
+            .in("unit_id", candidateUnitIds)
+          : { data: [], error: null };
+        if (promiseRowsError) throw new Error(promiseRowsError.message);
+        const promiseAlertItems = retainCivicPromiseAlertItems(
+          pendingAlertItems ?? [],
+          (promiseRows ?? []).map((promise) => promise.unit_id),
+        );
+
+        if (promiseAlertItems.length === 0) {
+          // Neutralize empty or legacy decision-only deliveries without ever
+          // reaching the provider. The delivery schema predates a `skipped`
+          // terminal state, so `sent` here means terminal/consumed; the run
+          // keeps the accurate user-facing `skipped` notification status.
+          if (pendingAlertItems?.length) {
+            const { error: neutralizeError } = await svc.from(
+              "civic_run_alert_items",
+            )
+              .update({ delivered_at: new Date().toISOString() })
+              .in("id", pendingAlertItems.map((item) => item.id))
+              .is("delivered_at", null);
+            if (neutralizeError) throw new Error(neutralizeError.message);
+          }
+          await markNotificationResult(svc, row.scout_run_id, "skipped", {
+            reason: "no_new_promises",
+          });
+          const { error: skippedFinalizeError } = await svc.rpc(
+            "finalize_civic_run_alert_delivery",
+            {
+              p_delivery_id: claim.delivery_id,
+              p_worker_id: workerId,
+              p_fencing_token: claim.fencing_token,
+              p_state: "sent",
+              p_error: "skipped_no_new_promises",
+            },
+          );
+          if (skippedFinalizeError) {
+            throw new Error(skippedFinalizeError.message);
+          }
         } else {
           if (!claim.needs_provider_submission) {
             const { error: reconciledError } = await svc.rpc(
@@ -702,7 +750,7 @@ async function processItem(
               msg: e instanceof Error ? e.message : String(e),
             })
           );
-          const summary = pendingAlertItems
+          const summary = promiseAlertItems
             .slice(0, 10)
             .map((item) => {
               const title = (item.source_title ?? item.source_url).replace(
@@ -763,7 +811,7 @@ async function processItem(
               "civic_run_alert_items",
             )
               .update({ delivered_at: new Date().toISOString() })
-              .in("id", pendingAlertItems.map((item) => item.id))
+              .in("id", (pendingAlertItems ?? []).map((item) => item.id))
               .is("delivered_at", null);
             if (deliveredError) throw new Error(deliveredError.message);
           }

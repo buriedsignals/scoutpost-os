@@ -535,7 +535,7 @@ export async function sendCivicAlert(
       contextLabel: getString("key_findings", language),
       headerTitle,
       headerSubtitle: params.scoutName,
-      summary: params.summary,
+      summary: civicPromisesSavedSummary(params.summary),
       articles: [],
       articlesSectionTitle: "",
       cueText: getString("civic_scout_cue", language),
@@ -543,10 +543,15 @@ export async function sendCivicAlert(
     });
 
     return {
-      subject: `\uD83C\uDFDB\uFE0F Civic Scout: ${params.scoutName}`,
+      subject:
+        `\uD83C\uDFDB\uFE0F Civic Scout: New promises saved \u2014 ${params.scoutName}`,
       html,
     };
   }, params.providerIdempotencyKey);
+}
+
+export function civicPromisesSavedSummary(summary: string): string {
+  return `These promises were saved for future deadline reminders:\n\n${summary}`;
 }
 
 export async function sendSocialAlert(

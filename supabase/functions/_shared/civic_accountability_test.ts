@@ -6,6 +6,8 @@ import {
   type CivicRejectionCode,
   classifyCivicCandidate,
   classifyCivicCandidates,
+  retainCivicPromiseAlertItems,
+  shouldAlertForNewCivicItem,
 } from "./civic_accountability.ts";
 
 const TODAY = "2026-08-10";
@@ -74,6 +76,46 @@ Deno.test("Civic accountability accepts an adopted material decision without a d
   if (result.outcome === "eligible") assertEquals(result.item.kind, "decision");
 });
 
+Deno.test("Civic immediate alerts announce only newly stored promises", () => {
+  const promiseResult = classifyCivicCandidate(promise(), { today: TODAY });
+  if (promiseResult.outcome !== "eligible") throw new Error("promise rejected");
+  assertEquals(shouldAlertForNewCivicItem(promiseResult.item, true), true);
+  assertEquals(shouldAlertForNewCivicItem(promiseResult.item, false), false);
+
+  const decisionResult = classifyCivicCandidate({
+    kind: "decision",
+    statement: "Council adopted the housing affordability ordinance.",
+    context: "The council voted to adopt the housing affordability ordinance.",
+    adopting_body: "Council",
+    decision_kind: "ordinance adoption",
+    adopted: true,
+    material: true,
+    criteria_match: true,
+    evidence_supported: true,
+    meeting_date: "2026-08-01",
+  }, { today: TODAY });
+  if (decisionResult.outcome !== "eligible") {
+    throw new Error("decision rejected");
+  }
+  assertEquals(shouldAlertForNewCivicItem(decisionResult.item, true), false);
+});
+
+Deno.test("Civic delivery drops legacy decision alert rows", () => {
+  const promiseItem = { id: "alert-promise", unit_id: "promise-unit" };
+  const decisionItem = { id: "alert-decision", unit_id: "decision-unit" };
+  assertEquals(
+    retainCivicPromiseAlertItems(
+      [promiseItem, decisionItem],
+      ["promise-unit"],
+    ),
+    [promiseItem],
+  );
+  assertEquals(
+    retainCivicPromiseAlertItems([decisionItem], []),
+    [],
+  );
+});
+
 Deno.test("Civic accountability rejects the Zurich calendar pattern", () => {
   const result = classifyCivicCandidate(
     promise({
@@ -90,6 +132,24 @@ Deno.test("Civic accountability rejects the Zurich calendar pattern", () => {
     }),
     { today: TODAY },
   );
+
+  assertEquals(result, { outcome: "rejected", code: "routine_schedule" });
+});
+
+Deno.test("Civic accountability rejects a named municipal meeting date", () => {
+  const result = classifyCivicCandidate({
+    kind: "decision",
+    statement:
+      "The municipality of Pontresina will hold its 2026-2 community meeting on June 22, 2026.",
+    context: "Gemeindeversammlung 2026-2 vom 22. Juni 2026",
+    adopting_body: "Municipality of Pontresina",
+    decision_kind: "community meeting",
+    adopted: true,
+    material: true,
+    criteria_match: true,
+    evidence_supported: true,
+    meeting_date: "2026-06-22",
+  }, { today: TODAY });
 
   assertEquals(result, { outcome: "rejected", code: "routine_schedule" });
 });
@@ -117,6 +177,21 @@ Deno.test("Civic accountability permits an action explicitly due at a meeting", 
       due_date: "2026-11-30",
       due_date_text: "at the 30 November 2026 council meeting",
       date_role: "fulfilment",
+    }),
+    { today: TODAY },
+  );
+  assertEquals(result.outcome, "eligible");
+});
+
+Deno.test("Civic schedule filter preserves an accountability promise mentioning a meeting", () => {
+  const result = classifyCivicCandidate(
+    promise({
+      statement:
+        "The mayor will hold the contractor accountable for completing the school by 30 November 2026.",
+      context:
+        "At the September meeting, the adopted motion states that the mayor will hold the contractor accountable for completing the school by 30 November 2026.",
+      actor: "mayor",
+      action: "hold the contractor accountable for completing the school",
     }),
     { today: TODAY },
   );
