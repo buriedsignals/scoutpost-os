@@ -17,11 +17,12 @@ import {
   readConfigFile,
   resolvePath,
   unwrapItems,
+  validateApiUrl,
   writeConfigFile,
 } from "../lib/client.ts";
 import { VERSION } from "../lib/version.ts";
 import { authUsageExitCode } from "./auth.ts";
-import { run as runConfig } from "./config.ts";
+import { parseConfigSet, run as runConfig } from "./config.ts";
 import { run as runCivic } from "./civic.ts";
 import { run as runIngest } from "./ingest.ts";
 import { resolveSocialMonitorMode, run as runScouts } from "./scouts.ts";
@@ -32,8 +33,10 @@ async function withTempHome(
   fn: () => void | Promise<void>,
 ): Promise<void> {
   const originalHome = Deno.env.get("HOME");
+  const originalAppData = Deno.env.get("APPDATA");
   const tmp = await Deno.makeTempDir({ prefix: "scout-test-" });
   Deno.env.set("HOME", tmp);
+  Deno.env.set("APPDATA", tmp);
   try {
     await fn();
   } finally {
@@ -42,6 +45,8 @@ async function withTempHome(
     } else {
       Deno.env.set("HOME", originalHome);
     }
+    if (originalAppData === undefined) Deno.env.delete("APPDATA");
+    else Deno.env.set("APPDATA", originalAppData);
     try {
       await Deno.remove(tmp, { recursive: true });
     } catch {
@@ -59,7 +64,12 @@ Deno.test("auth --help is successful while a missing subcommand is an error", ()
 Deno.test("config set + get round-trip", async () => {
   await withTempHome(() => {
     const path = configPath();
-    assertStringIncludes(path, "/.scoutpost/config.json");
+    assertStringIncludes(
+      path,
+      Deno.build.os === "windows"
+        ? "\\Scoutpost\\config.json"
+        : "/.scoutpost/config.json",
+    );
 
     // Initially absent
     const empty = readConfigFile();
@@ -84,6 +94,35 @@ Deno.test("config set + get round-trip", async () => {
   });
 });
 
+Deno.test("config credentials require protected stdin", async () => {
+  assertEquals(
+    await parseConfigSet(["api_key", "--stdin"], async () => "cj_protected"),
+    { key: "api_key", value: "cj_protected" },
+  );
+  await assertRejects(
+    () => parseConfigSet(["api_key=cj_leaked"]),
+    Error,
+    "Refusing api_key in command arguments",
+  );
+  await assertRejects(
+    () =>
+      parseConfigSet(
+        ["api_url", "--stdin"],
+        async () => "https://example.test",
+      ),
+    Error,
+    "only for a credential key",
+  );
+});
+
+Deno.test("config unset removes a credential through the configured store", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({ api_key: "cj_remove_me" });
+    await runConfig(["unset", "api_key"]);
+    assertEquals(readConfigFile().api_key, undefined);
+  });
+});
+
 Deno.test("config write uses private POSIX permissions when modes are available", async () => {
   await withTempHome(() => {
     writeConfigFile({
@@ -103,14 +142,14 @@ Deno.test("config write uses private POSIX permissions when modes are available"
 });
 
 Deno.test("config get never prints a complete credential", async () => {
-  await withTempHome(() => {
+  await withTempHome(async () => {
     const secret = "cj_SUPERSECRET012345678901234";
     writeConfigFile({ api_key: secret });
     const output: string[] = [];
     const originalLog = console.log;
     console.log = (message?: unknown) => output.push(String(message ?? ""));
     try {
-      runConfig(["get", "api_key"]);
+      await runConfig(["get", "api_key"]);
     } finally {
       console.log = originalLog;
     }
@@ -319,6 +358,35 @@ Deno.test("loadConfig — throws if api_url missing", async () => {
   await withTempHome(() => {
     writeConfigFile({ api_key: "cj_test_key" });
     assertThrows(() => loadConfig(), Error, "api_url not set");
+  });
+});
+
+Deno.test("api_url requires HTTPS except exact loopback and forbids URL credentials", () => {
+  assertEquals(
+    validateApiUrl("https://scoutpost.ai/functions/v1/"),
+    "https://scoutpost.ai/functions/v1",
+  );
+  assertEquals(
+    validateApiUrl("http://127.0.0.1:8787"),
+    "http://127.0.0.1:8787",
+  );
+  assertThrows(() => validateApiUrl("http://example.test/api"), Error, "HTTPS");
+  assertThrows(
+    () => validateApiUrl("https://user:pass@example.test/api"),
+    Error,
+    "credentials",
+  );
+  assertThrows(
+    () => validateApiUrl("https://example.test/api?redirect=evil"),
+    Error,
+    "query",
+  );
+});
+
+Deno.test("loadConfig refuses a credential-bearing non-loopback HTTP target", async () => {
+  await withTempHome(() => {
+    writeConfigFile({ api_url: "http://example.test/api", api_key: "cj_test" });
+    assertThrows(() => loadConfig(), Error, "HTTPS");
   });
 });
 
@@ -576,6 +644,38 @@ Deno.test("apiFetch — surfaces non-2xx as a thrown Error", async () => {
         Error,
         "401",
       );
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});
+
+Deno.test("apiFetch — refuses redirects and bounded-response overflow", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://x.supabase.co",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+    const origFetch = globalThis.fetch;
+    let redirect: RequestRedirect | undefined;
+    globalThis.fetch =
+      ((_input: string | URL | Request, init?: RequestInit) => {
+        redirect = init?.redirect;
+        return Promise.resolve(
+          new Response("x", {
+            status: 200,
+            headers: { "Content-Length": String(1024 * 1024 + 1) },
+          }),
+        );
+      }) as typeof fetch;
+    try {
+      await assertRejects(
+        () => apiFetch("/functions/v1/units"),
+        Error,
+        "1 MiB",
+      );
+      assertEquals(redirect, "error");
     } finally {
       globalThis.fetch = origFetch;
     }

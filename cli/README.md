@@ -7,8 +7,8 @@ legacy JWT bearer token.
 
 ### npm package (recommended)
 
-The package downloads the signed native binary for supported macOS and Linux
-platforms:
+The package downloads the signed native binary for supported macOS, Linux, and
+Windows x86_64 platforms. Windows installs an Authenticode-signed `.exe`:
 
 ```bash
 npm install --global scoutpost-cli
@@ -36,7 +36,7 @@ If you want a self-contained executable instead of a Deno shim:
 ```bash
 git clone https://github.com/buriedsignals/scoutpost-os.git
 cd scoutpost-os/cli
-deno task compile-mac-arm        # or compile-mac-x86 on Intel
+deno task compile-mac-arm        # or compile-mac-x86 / compile-linux-x86 / compile-windows-x86
 sudo mv dist/scout-darwin-arm64 /usr/local/bin/scout
 sudo chmod +x /usr/local/bin/scout
 ```
@@ -67,8 +67,11 @@ scout auth status
 ```
 
 The CLI opens a Scoutpost approval page or prints its URL for a remote/headless
-shell. Approval creates a dedicated API key, but the key is never displayed. It
-is verified and stored with private permissions in `~/.scoutpost/config.json`.
+shell. Approval creates a dedicated API key, but the key is never displayed.
+It is verified before storage. Windows keeps `api_key` and legacy `auth_token`
+in Windows Credential Manager for the current user; only non-secret settings
+are written under `%APPDATA%\\Scoutpost\\config.json`. macOS and Linux retain
+the owner-only `~/.scoutpost/config.json` compatibility path.
 
 Re-running login against the same site is a no-op while the credential remains
 valid. Use `--switch` to explicitly replace a configuration for another site, or
@@ -83,25 +86,31 @@ revocation fails, the CLI says so and gives a key-management recovery link.
 
 ## Manual configuration and recovery
 
-Config lives at `~/.scoutpost/config.json`. Set an api_url and **either** an
+Public configuration lives at `~/.scoutpost/config.json` on macOS/Linux and
+`%APPDATA%\\Scoutpost\\config.json` on Windows. Set an api_url and **either** an
 `api_key` (created under Connect Agent → API keys & REST) or a legacy
-`auth_token` JWT. This path remains for scripts, CI, and recovery:
+`auth_token` JWT. On Windows, those two credential fields are stored in
+Credential Manager rather than the JSON file. This path remains for scripts,
+CI, and recovery:
 
 ```bash
 # Hosted Scoutpost — recommended
 scout config set api_url=https://scoutpost.ai/functions/v1
-scout config set api_key=cj_xxxxxxxxxxxxxxxxxx
-scout config set supabase_anon_key=<SUPABASE_ANON_KEY>
+printf '%s\\n' \"$SCOUTPOST_API_KEY\" | scout config set api_key --stdin
+printf '%s\\n' \"$SUPABASE_ANON_KEY\" | scout config set supabase_anon_key --stdin
 
 # Self-hosted Supabase Edge Functions
 scout config set api_url=https://<project-ref>.supabase.co
-scout config set api_key=cj_xxxxxxxxxxxxxxxxxx
-scout config set supabase_anon_key=<SUPABASE_ANON_KEY>
+printf '%s\\n' \"$SCOUTPOST_API_KEY\" | scout config set api_key --stdin
+printf '%s\\n' \"$SUPABASE_ANON_KEY\" | scout config set supabase_anon_key --stdin
 
 # Legacy JWT path
-scout config set auth_token=<JWT>          # paste from browser devtools if needed
+printf '%s\\n' \"$SCOUTPOST_AUTH_TOKEN\" | scout config set auth_token --stdin
 scout config show
 ```
+
+Load those environment variables from a password manager or a hidden prompt;
+do not put credential values directly in command arguments or shell history.
 
 ### Auth precedence
 
@@ -204,3 +213,14 @@ deno task compile-all            # build all 4 release targets locally
 ## Releasing
 
 See `cli/CLAUDE.md` for the release procedure and conventions.
+
+The Windows `cli-v*` release leg signs with Azure Artifact Signing through
+short-lived GitHub OIDC. Before creating a release tag, configure repository
+secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID`, plus
+repository variables `AZURE_ARTIFACT_SIGNING_ENDPOINT`,
+`AZURE_ARTIFACT_SIGNING_ACCOUNT`, `AZURE_ARTIFACT_SIGNING_PROFILE`, and
+`AZURE_ARTIFACT_SIGNING_PUBLISHER_SUBJECT`. The publisher value must be the
+exact `SignerCertificate.Subject` issued by the approved public certificate
+profile. The workflow refuses to publish a missing, invalid, untimestamped, or
+differently signed Windows executable. Do not store an Azure client secret or
+exportable signing key in GitHub.

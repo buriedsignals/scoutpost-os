@@ -1,12 +1,14 @@
 {
   "tasks": {
-    "test": "deno test commands/ lib/ scripts/ --allow-net --allow-env --allow-read --allow-write",
-    "run": "deno run --allow-net --allow-env --allow-read --allow-write --allow-run=/usr/bin/open,/usr/bin/xdg-open scout.ts",
+    "test": "deno test commands/ lib/ scripts/ --allow-net --allow-env --allow-read --allow-write --allow-ffi",
+    "run": "deno run --allow-net --allow-env --allow-read --allow-write --allow-ffi --allow-run=/usr/bin/open,/usr/bin/xdg-open scout.ts",
     "compile-mac-arm": "deno compile --target aarch64-apple-darwin --output dist/scout-darwin-arm64 --allow-net --allow-env --allow-read --allow-write --allow-run=/usr/bin/open scout.ts",
     "compile-mac-x86": "deno compile --target x86_64-apple-darwin --output dist/scout-darwin-x86_64 --allow-net --allow-env --allow-read --allow-write --allow-run=/usr/bin/open scout.ts",
     "compile-linux-arm": "deno compile --target aarch64-unknown-linux-gnu --output dist/scout-linux-arm64 --allow-net --allow-env --allow-read --allow-write --allow-run=/usr/bin/xdg-open scout.ts",
     "compile-linux-x86": "deno compile --target x86_64-unknown-linux-gnu --output dist/scout-linux-x86_64 --allow-net --allow-env --allow-read --allow-write --allow-run=/usr/bin/xdg-open scout.ts",
-    "compile-all": "deno task compile-mac-arm && deno task compile-mac-x86 && deno task compile-linux-arm && deno task compile-linux-x86"
+    "compile-windows-x86": "deno compile --target x86_64-pc-windows-msvc --output dist/scout-windows-x86_64.exe --allow-net --allow-env --allow-read --allow-write --allow-ffi scout.ts",
+    "smoke-windows": "deno run --allow-net --allow-env --allow-read --allow-write --allow-ffi --allow-run=dist/scout-windows-x86_64.exe scripts/smoke-windows.ts",
+    "compile-all": "deno task compile-mac-arm && deno task compile-mac-x86 && deno task compile-linux-arm && deno task compile-linux-x86 && deno task compile-windows-x86"
   },
   "fmt": { "indentWidth": 2, "semiColons": true }
 }

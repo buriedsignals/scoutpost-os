@@ -59,26 +59,33 @@ the workflow uses `NPM_TOKEN`.
    ```
 4. `.github/workflows/cli-release.yml` fires (on the private monorepo,
    where the Apple + npm secrets live):
-   - 4 matrix builds (mac arm/x86, linux arm/x86)
+   - 5 matrix builds (mac arm/x86, linux arm/x86, Windows x86_64)
    - macOS binaries are code-signed + notarized via Apple
    - `release` job publishes on the PUBLIC mirror
      (`buriedsignals/scoutpost-os`) under the tag **`scout-v<version>`**
      (the private git tag is `cli-v<version>`; the public release uses
      `scout-v` to match the binary asset names and the npm postinstall
-     download URL) with 4 binaries + 4 sha256 files, via `OSS_RELEASE_PAT`.
+     download URL) with 5 binaries + 5 sha256 files, via `MIRROR_PAT`.
      Anyone can `curl` the assets without auth.
    - `npm-publish` job publishes the **`scoutpost-cli`** npm package
      (`npm i -g scoutpost-cli` → `scout` on PATH). It sets the package
-     version from the tag, HEAD-verifies all four `scout-v<version>`
+     version from the tag, HEAD-verifies all five `scout-v<version>`
      binaries are attached (so it never ships a package whose macOS
      postinstall would 404 when notary legs stalled), then `npm publish`.
      Needs the `NPM_TOKEN` secret (see Secrets below). The postinstall
      download coordinates live in `cli/scripts/release.js` — the
      `scout-v` prefix and `buriedsignals/scoutpost-os` slug there MUST
      stay in sync with the `release` job's `tag_name`.
-   - `smoke` job installs `scoutpost-cli@<version>` from npm on all four
+   - `smoke` job installs `scoutpost-cli@<version>` from npm on all five
      platforms and asserts `scout --help` works and `scout` resolves in
      the npm global bin dir.
+
+Windows releases are built and smoke-tested natively on `windows-2025`, store
+`api_key`/`auth_token` in Windows Credential Manager, and are signed on tagged
+releases with `azure/artifact-signing-action@v2.0.0`. OIDC repository secrets
+are `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID`; repository
+variables are `AZURE_ARTIFACT_SIGNING_ENDPOINT`,
+`AZURE_ARTIFACT_SIGNING_ACCOUNT`, and `AZURE_ARTIFACT_SIGNING_PROFILE`.
 5. Smoke test after public assets exist: `curl -fsSL https://github.com/buriedsignals/scoutpost-os/releases/latest/download/scout-darwin-arm64 -o /tmp/scout && chmod +x /tmp/scout && /tmp/scout --version`.
    Until then, smoke test the source install: `deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts && scout --version`.
 

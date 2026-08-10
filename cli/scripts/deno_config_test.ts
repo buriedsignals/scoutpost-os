@@ -14,4 +14,9 @@ Deno.test("compiled binaries only allow the native browser opener", () => {
     assert(config.tasks[name].includes("--allow-run=/usr/bin/xdg-open"));
     assertFalse(config.tasks[name].includes("/usr/bin/open"));
   }
+
+  assert(config.tasks["compile-windows-x86"].includes("--allow-ffi"));
+  assertFalse(config.tasks["compile-windows-x86"].includes("--allow-run"));
+  assertFalse(config.tasks["compile-windows-x86"].includes("cmd.exe"));
+  assertFalse(config.tasks["compile-windows-x86"].includes("/usr/bin/"));
 });

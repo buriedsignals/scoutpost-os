@@ -377,11 +377,12 @@ directly from the public mirror with Deno.
   `-alpha1`
 - Current install (anyone, no auth):
   `deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts`
-- Planned binaries: `scout-darwin-arm64`, `scout-darwin-x86_64`,
-  `scout-linux-arm64`, `scout-linux-x86_64` — each with a sibling `.sha256`
+- Release binaries: `scout-darwin-arm64`, `scout-darwin-x86_64`,
+  `scout-linux-arm64`, `scout-linux-x86_64`, and
+  `scout-windows-x86_64.exe` — each with a sibling `.sha256`
   file after the first public release is published.
 - Release workflow runs on the private monorepo (where signing secrets live)
-  and publishes cross-repo via `OSS_RELEASE_PAT`.
+  and publishes cross-repo via `MIRROR_PAT`.
 - Apple secrets (on this repo only) are listed in `cli/AGENTS.md`. Cert
   expires 2031; Apple Developer Program renews 2026-04-20 ($109/yr);
   renewal decision point 2027-04-15.

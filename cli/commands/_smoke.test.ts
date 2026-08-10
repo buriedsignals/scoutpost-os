@@ -29,8 +29,10 @@ const SKIP_REASON = SKIP
 
 async function withSmokeConfig(fn: () => Promise<void>): Promise<void> {
   const originalHome = Deno.env.get("HOME");
+  const originalAppData = Deno.env.get("APPDATA");
   const tmp = await Deno.makeTempDir({ prefix: "scout-smoke-" });
   Deno.env.set("HOME", tmp);
+  Deno.env.set("APPDATA", tmp);
   try {
     writeConfigFile({
       api_url: API_URL!,
@@ -41,6 +43,8 @@ async function withSmokeConfig(fn: () => Promise<void>): Promise<void> {
   } finally {
     if (originalHome === undefined) Deno.env.delete("HOME");
     else Deno.env.set("HOME", originalHome);
+    if (originalAppData === undefined) Deno.env.delete("APPDATA");
+    else Deno.env.set("APPDATA", originalAppData);
     try {
       await Deno.remove(tmp, { recursive: true });
     } catch {

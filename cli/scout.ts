@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-env --allow-read --allow-write --allow-run=/usr/bin/open,/usr/bin/xdg-open
+#!/usr/bin/env -S deno run --allow-net --allow-env --allow-read --allow-write --allow-ffi --allow-run=/usr/bin/open,/usr/bin/xdg-open
 // scout — Scoutpost CLI
 // Entry point: dispatches subcommands to commands/<name>.ts
 
@@ -53,7 +53,7 @@ function printUsage(): void {
     "",
     "Commands:",
     "  auth       Sign in, check status, or revoke the local CLI credential",
-    "  config     Manage ~/.scoutpost/config.json (api_url, api_key, auth_token)",
+    "  config     Manage public settings and OS-protected credentials",
     "  civic      Discover, preview, and inspect Civic accountability leads",
     "  projects   List, add, show, delete projects",
     "  promises   Read Civic promises and apply human lifecycle status",

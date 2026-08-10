@@ -11,11 +11,12 @@ import {
   SUPPORTED_ASSETS,
 } from "./platform.js";
 
-Deno.test("getTargetAsset: happy path for all four supported targets", () => {
+Deno.test("getTargetAsset: happy path for all five supported targets", () => {
   assertEquals(getTargetAsset("darwin", "arm64"), "scout-darwin-arm64");
   assertEquals(getTargetAsset("darwin", "x64"), "scout-darwin-x86_64");
   assertEquals(getTargetAsset("linux", "arm64"), "scout-linux-arm64");
   assertEquals(getTargetAsset("linux", "x64"), "scout-linux-x86_64");
+  assertEquals(getTargetAsset("win32", "x64"), "scout-windows-x86_64.exe");
 });
 
 Deno.test("getTargetAsset: accepts aarch64 and x86_64 arch aliases", () => {
@@ -24,7 +25,6 @@ Deno.test("getTargetAsset: accepts aarch64 and x86_64 arch aliases", () => {
 });
 
 Deno.test("getTargetAsset: unsupported platforms and arches map to null", () => {
-  assertEquals(getTargetAsset("win32", "x64"), null);
   assertEquals(getTargetAsset("darwin", "ia32"), null);
   assertEquals(getTargetAsset("freebsd", "x64"), null);
   assertEquals(getTargetAsset("linux", "riscv64"), null);
@@ -41,7 +41,7 @@ Deno.test("normalizeArch canonicalizes known arches, rejects others", () => {
 Deno.test("getTargetKey builds platform-arch keys", () => {
   assertEquals(getTargetKey("darwin", "arm64"), "darwin-arm64");
   assertEquals(getTargetKey("linux", "x64"), "linux-x86_64");
-  assertEquals(getTargetKey("win32", "x64"), null);
+  assertEquals(getTargetKey("win32", "x64"), "win32-x86_64");
 });
 
 Deno.test("every returned asset is a real release asset name", () => {
@@ -52,15 +52,19 @@ Deno.test("every returned asset is a real release asset name", () => {
     "scout-darwin-x86_64",
     "scout-linux-arm64",
     "scout-linux-x86_64",
+    "scout-windows-x86_64.exe",
   ];
   assertEquals([...SUPPORTED_ASSETS].sort(), [...expected].sort());
 
-  for (const [platform, arch] of [
-    ["darwin", "arm64"],
-    ["darwin", "x64"],
-    ["linux", "arm64"],
-    ["linux", "x64"],
-  ] as const) {
+  for (
+    const [platform, arch] of [
+      ["darwin", "arm64"],
+      ["darwin", "x64"],
+      ["linux", "arm64"],
+      ["linux", "x64"],
+      ["win32", "x64"],
+    ] as const
+  ) {
     const asset = getTargetAsset(platform, arch);
     assert(asset !== null && expected.includes(asset));
   }

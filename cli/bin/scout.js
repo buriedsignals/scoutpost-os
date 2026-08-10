@@ -6,8 +6,7 @@
 // `bin` field). It locates the native `deno compile` binary for the current
 // platform — downloaded into this same `bin/` dir by scripts/postinstall.js —
 // and execs it, proxying argv, stdio, exit code, and signals. This mirrors the
-// in-house dev-browser precedent, minus its Windows and musl branches (scout
-// does not build those targets).
+// in-house dev-browser precedent. Linux musl remains intentionally unsupported.
 
 import { spawn } from "node:child_process";
 import { accessSync, chmodSync, constants, existsSync } from "node:fs";

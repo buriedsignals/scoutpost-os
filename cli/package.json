@@ -14,6 +14,8 @@
     "scripts/platform.js",
     "scripts/postinstall.js",
     "scripts/release.js",
+    "scripts/checksums.json",
+    "bin/scout-*",
     "README.md",
     "LICENSE"
   ],

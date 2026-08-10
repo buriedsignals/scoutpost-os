@@ -44,9 +44,15 @@ scout auth logout
 - `--no-browser` supports remote shells. The CLI always prints the safe
   verification URL and short matching code, then continues polling.
 
-Manual `scout config set api_key=…` and legacy JWT configurations remain
-compatible for scripts and recovery, but browser login is the recommended
-interactive path.
+Manual API-key and legacy JWT configurations remain compatible for scripts and
+recovery, but secret values are accepted only through protected stdin:
+
+```bash
+printf '%s\n' "$SCOUTPOST_API_KEY" | scout config set api_key --stdin
+printf '%s\n' "$SCOUTPOST_AUTH_TOKEN" | scout config set auth_token --stdin
+```
+
+Browser login is the recommended interactive path.
 
 ## Connect Agent modal
 

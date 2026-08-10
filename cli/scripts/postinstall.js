@@ -21,13 +21,19 @@ import {
   renameSync,
   rmSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { get } from "node:https";
 import { arch, platform } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { dirname, isAbsolute, join, sep } from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { getTargetAsset, SUPPORTED_PLATFORMS } from "./platform.js";
-import { buildDownloadUrl } from "./release.js";
+import {
+  buildDownloadUrl,
+  validateChecksumManifest,
+  validateDownloadURL,
+} from "./release.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(here, "..");
@@ -38,7 +44,8 @@ const packageJson = JSON.parse(
 const version = packageJson.version;
 
 const REQUEST_TIMEOUT_MS = 30_000;
-const MAX_REDIRECTS = 10;
+const MAX_REDIRECTS = 5;
+const MAX_BINARY_BYTES = 250 * 1024 * 1024;
 
 function formatError(error) {
   return error instanceof Error ? error.message : String(error);
@@ -77,7 +84,68 @@ function ensureExecutable(binaryPath) {
   }
 }
 
-function downloadFile(url, destination) {
+async function sha256File(path) {
+  const bytes = readFileSync(path);
+  if (bytes.byteLength > MAX_BINARY_BYTES) {
+    throw new Error("Native binary exceeds its size limit");
+  }
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function verifyWindowsSignature(binaryPath, expectedPublisher) {
+  if (platform() !== "win32") return;
+  const systemRoot = process.env.SystemRoot;
+  if (!systemRoot || !isAbsolute(systemRoot) || /[\0\r\n]/.test(systemRoot)) {
+    throw new Error(
+      "Windows system directory is unavailable for signature verification",
+    );
+  }
+  const powershell = join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  const script = [
+    "$ErrorActionPreference='Stop'",
+    "$p=[Console]::In.ReadLine()",
+    "$s=Get-AuthenticodeSignature -LiteralPath $p",
+    "[pscustomobject]@{status=[string]$s.Status;subject=if($null-eq $s.SignerCertificate){''}else{[string]$s.SignerCertificate.Subject};timestamp=($null-ne $s.TimeStamperCertificate)}|ConvertTo-Json -Compress",
+  ].join(";");
+  const result = spawnSync(powershell, [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    script,
+  ], {
+    input: `${binaryPath}\n`,
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 15_000,
+    maxBuffer: 32_768,
+  });
+  if (result.status !== 0 || result.error) {
+    throw new Error("Windows Authenticode verification failed");
+  }
+  let signature;
+  try {
+    signature = JSON.parse(result.stdout);
+  } catch {
+    throw new Error("Windows Authenticode verification returned invalid data");
+  }
+  if (
+    signature.status !== "Valid" || signature.subject !== expectedPublisher ||
+    signature.timestamp !== true
+  ) {
+    throw new Error(
+      "Native Windows binary is not signed and timestamped by the approved publisher",
+    );
+  }
+}
+
+function downloadFile(url, destination, expectedSha256) {
   const tempPath = `${destination}.download`;
   rmSync(tempPath, { force: true });
 
@@ -95,8 +163,15 @@ function downloadFile(url, destination) {
     };
 
     const request = (currentUrl, redirectsRemaining) => {
+      let approvedURL;
+      try {
+        approvedURL = validateDownloadURL(currentUrl);
+      } catch (error) {
+        rejectOnce(error);
+        return;
+      }
       const req = get(
-        currentUrl,
+        approvedURL,
         {
           headers: {
             Accept: "application/octet-stream",
@@ -110,11 +185,13 @@ function downloadFile(url, destination) {
           if (status >= 300 && status < 400 && response.headers.location) {
             response.resume();
             if (redirectsRemaining === 0) {
-              rejectOnce(new Error(`Too many redirects while downloading ${url}`));
+              rejectOnce(
+                new Error(`Too many redirects while downloading ${url}`),
+              );
               return;
             }
             request(
-              new URL(response.headers.location, currentUrl),
+              new URL(response.headers.location, approvedURL),
               redirectsRemaining - 1,
             );
             return;
@@ -122,21 +199,62 @@ function downloadFile(url, destination) {
 
           if (status !== 200) {
             response.resume();
-            rejectOnce(new Error(`HTTP ${status || "unknown"} from ${currentUrl}`));
+            rejectOnce(
+              new Error(`HTTP ${status || "unknown"} from ${currentUrl}`),
+            );
             return;
           }
 
-          const file = createWriteStream(tempPath);
+          const declaredSize = Number(response.headers["content-length"] ?? 0);
+          if (
+            !Number.isSafeInteger(declaredSize) || declaredSize < 0 ||
+            declaredSize > MAX_BINARY_BYTES
+          ) {
+            response.resume();
+            rejectOnce(
+              new Error("Native binary Content-Length is invalid or too large"),
+            );
+            return;
+          }
+
+          const file = createWriteStream(tempPath, {
+            flags: "wx",
+            mode: 0o700,
+          });
+          const hash = createHash("sha256");
+          let received = 0;
           const onError = (error) =>
             rejectOnce(new Error(`${currentUrl}: ${formatError(error)}`));
           file.on("error", onError);
           response.on("error", onError);
-          response.on("aborted", () =>
-            rejectOnce(new Error(`Download aborted for ${currentUrl}`)));
+          response.on(
+            "aborted",
+            () => rejectOnce(new Error(`Download aborted for ${currentUrl}`)),
+          );
+          response.on("data", (chunk) => {
+            received += chunk.length;
+            if (received > MAX_BINARY_BYTES) {
+              response.destroy(
+                new Error("Native binary exceeds its size limit"),
+              );
+              return;
+            }
+            hash.update(chunk);
+          });
           response.pipe(file);
           file.on("finish", () => {
             file.close(() => {
               try {
+                if (declaredSize && received !== declaredSize) {
+                  throw new Error(
+                    "Native binary length does not match Content-Length",
+                  );
+                }
+                if (hash.digest("hex") !== expectedSha256) {
+                  throw new Error(
+                    "Native binary checksum does not match the signed release manifest",
+                  );
+                }
                 renameSync(tempPath, destination);
                 resolveOnce();
               } catch (error) {
@@ -147,8 +265,11 @@ function downloadFile(url, destination) {
         },
       );
 
-      req.on("error", (error) =>
-        rejectOnce(new Error(`${currentUrl}: ${formatError(error)}`)));
+      req.on(
+        "error",
+        (error) =>
+          rejectOnce(new Error(`${currentUrl}: ${formatError(error)}`)),
+      );
       req.setTimeout(REQUEST_TIMEOUT_MS, () => {
         req.destroy(new Error(`Request timed out after 30s for ${currentUrl}`));
       });
@@ -175,18 +296,38 @@ async function main() {
   const binaryPath = join(binDir, asset);
   mkdirSync(binDir, { recursive: true });
 
+  const manifest = JSON.parse(
+    readFileSync(join(here, "checksums.json"), "utf8"),
+  );
+  const expected = validateChecksumManifest(
+    manifest,
+    version,
+    asset,
+    platform() === "win32",
+  );
+
   if (existsSync(binaryPath)) {
-    ensureExecutable(binaryPath);
-    console.log(`scoutpost-cli: native binary already present (${asset}).`);
-    return;
+    if (await sha256File(binaryPath) !== expected.digest) {
+      rmSync(binaryPath, { force: true });
+    } else {
+      verifyWindowsSignature(binaryPath, expected.publisherSubject);
+      ensureExecutable(binaryPath);
+      console.log(
+        `scoutpost-cli: verified native binary already present (${asset}).`,
+      );
+      return;
+    }
   }
 
   const downloadUrl = buildDownloadUrl(asset, version);
-  console.log(`scoutpost-cli: downloading ${asset} for ${platform()}-${arch()}...`);
+  console.log(
+    `scoutpost-cli: downloading ${asset} for ${platform()}-${arch()}...`,
+  );
   console.log(`  ${downloadUrl}`);
 
   try {
-    await downloadFile(downloadUrl, binaryPath);
+    await downloadFile(downloadUrl, binaryPath, expected.digest);
+    verifyWindowsSignature(binaryPath, expected.publisherSubject);
     ensureExecutable(binaryPath);
     console.log(`scoutpost-cli: installed native binary (${asset}).`);
   } catch (error) {
@@ -204,7 +345,9 @@ async function main() {
 const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === invokedPath) {
   main().catch((error) => {
-    console.error(`Error: scoutpost-cli postinstall failed: ${formatError(error)}`);
+    console.error(
+      `Error: scoutpost-cli postinstall failed: ${formatError(error)}`,
+    );
     process.exitCode = 1;
   });
 }

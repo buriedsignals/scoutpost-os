@@ -1,5 +1,7 @@
 // Shared REST client + helpers for scout
 
+import { WindowsCredentialStore } from "./windows_credentials.ts";
+
 export interface Config {
   api_url?: string;
   auth_token?: string;
@@ -21,17 +23,69 @@ export interface Config {
 
 export const KNOWN_HOSTED_SUPABASE_PROJECT_REF = "gfmdziplticfoak" + "hrfpt";
 
-export function configDir(): string {
-  const home = Deno.env.get("HOME");
+export interface CredentialStore {
+  get(key: string): string | undefined;
+  set(key: string, value: string): void;
+  delete(key: string): void;
+}
+
+const CREDENTIAL_FIELDS = ["api_key", "auth_token"] as const;
+const API_TIMEOUT_MS = 15_000;
+const MAX_API_RESPONSE_BYTES = 1024 * 1024;
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+export function validateApiUrl(raw: string): string {
+  if (!raw || /[\0\r\n]/.test(raw)) throw new Error("api_url is invalid");
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(
+      "api_url must be an absolute HTTPS URL (HTTP is allowed only for loopback)",
+    );
+  }
+  const loopbackHttp = parsed.protocol === "http:" &&
+    LOOPBACK_HOSTS.has(parsed.hostname);
+  if (
+    (parsed.protocol !== "https:" && !loopbackHttp) || parsed.username ||
+    parsed.password ||
+    parsed.search || parsed.hash
+  ) {
+    throw new Error(
+      "api_url must use HTTPS without credentials, query, or fragment (HTTP is allowed only for loopback)",
+    );
+  }
+  parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+  return parsed.href.replace(/\/$/, "");
+}
+
+function platformCredentialStore(): CredentialStore | null {
+  return Deno.build.os === "windows" ? new WindowsCredentialStore() : null;
+}
+
+export function configDir(
+  os = Deno.build.os,
+  env: Pick<typeof Deno.env, "get"> = Deno.env,
+): string {
+  if (os === "windows") {
+    const appData = env.get("APPDATA");
+    if (!appData) throw new Error("APPDATA environment variable is not set");
+    return `${appData}\\Scoutpost`;
+  }
+  const home = env.get("HOME");
   if (!home) throw new Error("HOME environment variable is not set");
   return `${home}/.scoutpost`;
 }
 
-export function configPath(): string {
-  return `${configDir()}/config.json`;
+export function configPath(
+  os = Deno.build.os,
+  env: Pick<typeof Deno.env, "get"> = Deno.env,
+): string {
+  const dir = configDir(os, env);
+  return os === "windows" ? `${dir}\\config.json` : `${dir}/config.json`;
 }
 
-export function readConfigFile(): Config {
+function readPublicConfigFile(): Config {
   try {
     const raw = Deno.readTextFileSync(configPath());
     return JSON.parse(raw) as Config;
@@ -41,7 +95,14 @@ export function readConfigFile(): Config {
   }
 }
 
-export function writeConfigFile(cfg: Config): void {
+function publicConfig(cfg: Config): Config {
+  const sanitized = { ...cfg };
+  delete sanitized.api_key;
+  delete sanitized.auth_token;
+  return sanitized;
+}
+
+function writePublicConfigFile(cfg: Config): void {
   const dir = configDir();
   const path = configPath();
   Deno.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -68,6 +129,64 @@ export function writeConfigFile(cfg: Config): void {
     } catch {
       // Preserve the original write error. The temporary file was created
       // with mode 0600 even if cleanup is unavailable.
+    }
+    throw error;
+  }
+}
+
+export function readConfigFile(
+  credentialStore: CredentialStore | null = platformCredentialStore(),
+): Config {
+  const cfg = readPublicConfigFile();
+  if (!credentialStore) return cfg;
+
+  // One-time fail-closed migration for pre-Windows-support config files. The
+  // plaintext file is replaced only after Credential Manager accepts both
+  // values; a failed migration leaves the original intact.
+  if (CREDENTIAL_FIELDS.some((field) => cfg[field] !== undefined)) {
+    writeConfigFile(cfg, credentialStore);
+    return cfg;
+  }
+  for (const field of CREDENTIAL_FIELDS) {
+    const value = credentialStore.get(field);
+    if (value !== undefined) cfg[field] = value;
+  }
+  return cfg;
+}
+
+export function writeConfigFile(
+  cfg: Config,
+  credentialStore: CredentialStore | null = platformCredentialStore(),
+): void {
+  if (!credentialStore) {
+    writePublicConfigFile(cfg);
+    return;
+  }
+
+  // Read the complete rollback state before the first mutation. If a
+  // credential read fails, nothing is changed; a partially populated rollback
+  // map must never be interpreted as permission to delete an unread value.
+  const prior = new Map<string, string | undefined>();
+  for (const field of CREDENTIAL_FIELDS) {
+    prior.set(field, credentialStore.get(field));
+  }
+  try {
+    for (const field of CREDENTIAL_FIELDS) {
+      const value = cfg[field];
+      if (value === undefined) credentialStore.delete(field);
+      else credentialStore.set(field, value);
+    }
+    writePublicConfigFile(publicConfig(cfg));
+  } catch (error) {
+    for (const field of CREDENTIAL_FIELDS) {
+      try {
+        const value = prior.get(field);
+        if (value === undefined) credentialStore.delete(field);
+        else credentialStore.set(field, value);
+      } catch {
+        // Preserve the original failure. The caller receives a hard error and
+        // must not assume the credential/config transaction committed.
+      }
     }
     throw error;
   }
@@ -135,15 +254,16 @@ export function loadConfig(): ResolvedConfig {
         "  Self-hosted Supabase: scout config set api_url=https://<project>.supabase.co",
     );
   }
+  cfg.api_url = validateApiUrl(cfg.api_url);
   if (!cfg.api_key && !cfg.auth_token) {
     throw new Error(
       "No credential set. Run browser authentication:\n" +
         "  scout auth login --site https://scoutpost.ai\n" +
         "For manual REST/CI recovery, generate a key under Connect Agent → API keys & REST, then:\n" +
-        "  scout config set api_key=cj_xxx\n" +
+        "  printf '%s\\n' \"$SCOUTPOST_API_KEY\" | scout config set api_key --stdin\n" +
         "  scout config set api_url=https://scoutpost.ai/functions/v1\n" +
         "  For hosted or raw Edge Functions, also set:\n" +
-        "  scout config set supabase_anon_key=<SUPABASE_ANON_KEY>",
+        "  printf '%s\\n' \"$SUPABASE_ANON_KEY\" | scout config set supabase_anon_key --stdin",
     );
   }
   // Warn (don't fail) if api_key is set against Edge Functions without anon key
@@ -156,7 +276,7 @@ export function loadConfig(): ResolvedConfig {
   ) {
     console.error(
       "[warning] api_key set without supabase_anon_key. Edge Functions require " +
-        "an `apikey:` header. Run: scout config set supabase_anon_key=<anon key>",
+        "an `apikey:` header. Pipe the value to: scout config set supabase_anon_key --stdin",
     );
   }
   warnIfKnownHostedSupabaseTarget(cfg.api_url);
@@ -197,8 +317,31 @@ export async function apiFetch<T = unknown>(
   }
   headers.set("Accept", "application/json");
 
-  const res = await fetch(url, { ...init, headers });
-  const text = await res.text();
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(new Error("Scoutpost API request timed out")),
+    API_TIMEOUT_MS,
+  );
+  const upstreamSignal = init.signal;
+  const abortFromUpstream = () => controller.abort(upstreamSignal?.reason);
+  if (upstreamSignal?.aborted) abortFromUpstream();
+  else {upstreamSignal?.addEventListener("abort", abortFromUpstream, {
+      once: true,
+    });}
+  let res: Response;
+  let text: string;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers,
+      redirect: "error",
+      signal: controller.signal,
+    });
+    text = await readBoundedResponse(res);
+  } finally {
+    clearTimeout(timeout);
+    upstreamSignal?.removeEventListener("abort", abortFromUpstream);
+  }
   let parsed: unknown = text;
   if (text) {
     try {
@@ -223,6 +366,35 @@ export async function apiFetch<T = unknown>(
   }
 
   return parsed as T;
+}
+
+async function readBoundedResponse(response: Response): Promise<string> {
+  if (!response.body) return "";
+  const declared = Number(response.headers.get("Content-Length") ?? 0);
+  if (declared > MAX_API_RESPONSE_BYTES) {
+    await response.body.cancel();
+    throw new Error("Scoutpost API response exceeds the 1 MiB limit");
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const next = await reader.read();
+    if (next.done) break;
+    size += next.value.byteLength;
+    if (size > MAX_API_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw new Error("Scoutpost API response exceeds the 1 MiB limit");
+    }
+    chunks.push(next.value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 export function unwrapItems<T>(data: unknown): T[] {

@@ -20,6 +20,14 @@ Deno.test("browser launcher uses only the supported platform opener", () => {
   );
   assertEquals(
     browserCommand("https://example.test", {
+      os: "windows",
+      ssh: false,
+      graphical: true,
+    }),
+    null,
+  );
+  assertEquals(
+    browserCommand("https://example.test", {
       os: "linux",
       ssh: true,
       graphical: true,
