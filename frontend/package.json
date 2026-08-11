@@ -45,7 +45,7 @@
     "vitest": "^4.1.6"
   },
   "dependencies": {
-    "@inlang/paraglide-js": "^2.16.0",
+    "@inlang/paraglide-js": "^2.18.2",
     "@supabase/supabase-js": "2.105.1",
     "dompurify": "^3.2.3",
     "lucide-svelte": "^0.468.0",
