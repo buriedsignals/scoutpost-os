@@ -986,6 +986,7 @@ async function runPipeline(
     page_comparison_strategy: comparisonStrategy,
     page_comparison_ratio: comparisonRatio ?? null,
     page_comparison_strategy_changed: rootComparison.comparisonStrategyChanged,
+    page_change_class: rootDiff.changeClass,
   });
 
   if (scrapeStrategy !== "combined" || scrapeWarning) {

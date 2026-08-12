@@ -7,7 +7,7 @@ Website monitoring with change detection and criteria matching.
 ## Overview
 
 Page Scouts monitor specific URLs for content changes. Users choose between two modes:
-- **Any Change**: Notifies on any normalized comparison-content change (criteria is null, skips LLM analysis)
+- **Any Change**: Notifies on any alertable normalized comparison-content change (criteria is null, skips LLM analysis)
 - **Specific Criteria**: Notifies only when changes match user-defined criteria (LLM-analyzed)
 
 The current UI opens on **Specific Criteria** so journalists state what matters
@@ -60,15 +60,14 @@ It preserves ordinary text, headings, publication dates, and article links. The
 canonicalizer is versioned (`web-md-v2`) and stored alongside each baseline in
 `raw_captures.canonicalizer_version`.
 
-Ordering is not globally suppressed because a ranking or agenda move can be
-meaningful. Pure line reorders and rank changes in numbered lists are instead
-represented deterministically as `MOVED` evidence. Repeated wording retains
-its exact occurrence index, count change, surrounding context, and nearest
-Markdown heading so an additional copy is not presented as newly written text.
-For Specific Criteria scouts, the criteria judge treats movement and identical
-copies as non-substantive by default. They match only when the saved criteria
-explicitly concerns order/rank, occurrence count, or a named section, locale,
-entity, or scope to which the wording was added or removed.
+Page Scout deterministically classifies same-scope line/rank reordering and
+same-scope duplicate-only count changes as non-alerting noise. This hard gate
+applies to both Any Change and Specific Criteria, and the criteria model is not
+called for those deltas. Moving or copying identical wording across Markdown
+sections remains alertable because it can change the locale, entity, or policy
+scope to which a rule applies. Mixed deltas retain exact `MOVED` evidence plus
+occurrence counts, surrounding context, and nearest headings for criteria
+evaluation.
 
 ## Execution Pipeline
 
@@ -94,7 +93,8 @@ entity, or scope to which the wording was added or removed.
 │      fairly under the cap, and compare each child independently │
 │           ▼                                                     │
 │  Stage 3: Alert decision from normalized delta                  │
-│  ├─ Any Change: any non-empty normalized content delta          │
+│  ├─ Hard-filter same-scope reorder/duplicate-only noise         │
+│  ├─ Any Change: any remaining normalized content delta          │
 │  └─ Specific Changes: structured match on ADDED/REMOVED/MOVED   │
 │      (no generated description is required)                     │
 │           ▼                                                     │

@@ -23,8 +23,16 @@ export interface PageContentMove {
   kind: "line" | "numbered";
 }
 
+export type PageContentChangeClass =
+  | "none"
+  | "same_scope_reorder"
+  | "same_scope_duplicate_only"
+  | "content";
+
 export interface PageContentDiff {
   hasChanges: boolean;
+  /** Deterministic alert classification after canonical comparison. */
+  changeClass: PageContentChangeClass;
   before: string;
   after: string;
   added: string[];
@@ -63,6 +71,7 @@ export function buildPageContentDiff(
   if (before === after) {
     return {
       hasChanges: false,
+      changeClass: "none",
       before,
       after,
       added: [],
@@ -99,6 +108,12 @@ export function buildPageContentDiff(
     : [];
   const added = addedOccurrences.map((item) => item.text);
   const removed = removedOccurrences.map((item) => item.text);
+  const changeClass = classifyPageContentChange(
+    beforeLines,
+    afterLines,
+    beforeSections,
+    afterSections,
+  );
   const summaryAdded = addedOccurrences.slice(0, MAX_SUMMARY_LINES).map(
     summarizeOccurrence,
   );
@@ -123,6 +138,7 @@ export function buildPageContentDiff(
     // Canonical inequality is the authoritative change signal. The arrays are
     // only a bounded representation and may omit distant changed passages.
     hasChanges: true,
+    changeClass,
     before,
     after,
     added,
@@ -152,13 +168,17 @@ function renderSummarySection(label: string, lines: string[]): string {
 export function decidePageScoutAlert(input: {
   mode: PageScoutAlertMode;
   changeStatus: "new" | "same" | "changed" | "removed";
-  hasNormalizedDiff: boolean;
+  hasAlertableDiff: boolean;
   criteriaMatched: boolean | null;
   initialBaseline: boolean;
 }): boolean {
   if (input.initialBaseline || input.changeStatus === "same") return false;
-  if (!input.hasNormalizedDiff) return false;
+  if (!input.hasAlertableDiff) return false;
   return input.mode === "any" ? true : input.criteriaMatched === true;
+}
+
+export function isAlertablePageContentDiff(diff: PageContentDiff): boolean {
+  return diff.changeClass === "content";
 }
 
 export function pageContentLines(content: string): string[] {
@@ -331,6 +351,61 @@ function counts(lines: string[]): Map<string, number> {
     result.set(line, (result.get(line) ?? 0) + 1);
   }
   return result;
+}
+
+function classifyPageContentChange(
+  beforeLines: string[],
+  afterLines: string[],
+  beforeSections: string[],
+  afterSections: string[],
+): PageContentChangeClass {
+  if (hasRepeatedHeading(beforeLines) || hasRepeatedHeading(afterLines)) {
+    return "content";
+  }
+  const beforeCounts = scopedIdentityCounts(beforeLines, beforeSections);
+  const afterCounts = scopedIdentityCounts(afterLines, afterSections);
+  if (!sameIdentityKeys(beforeCounts, afterCounts)) return "content";
+
+  for (const [key, count] of beforeCounts) {
+    if (afterCounts.get(key) !== count) {
+      return "same_scope_duplicate_only";
+    }
+  }
+  return "same_scope_reorder";
+}
+
+function hasRepeatedHeading(lines: string[]): boolean {
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (!/^#{1,6}\s+\S/.test(line)) continue;
+    if (seen.has(line)) return true;
+    seen.add(line);
+  }
+  return false;
+}
+
+function scopedIdentityCounts(
+  lines: string[],
+  sections: string[],
+): Map<string, number> {
+  const result = new Map<string, number>();
+  for (const [index, line] of lines.entries()) {
+    const identity = numberedLine(line)?.body ?? line;
+    const key = `${sections[index] ?? ""}\u0000${identity}`;
+    result.set(key, (result.get(key) ?? 0) + 1);
+  }
+  return result;
+}
+
+function sameIdentityKeys(
+  before: Map<string, number>,
+  after: Map<string, number>,
+): boolean {
+  if (before.size !== after.size) return false;
+  for (const key of before.keys()) {
+    if (!after.has(key)) return false;
+  }
+  return true;
 }
 
 interface NumberedLine {

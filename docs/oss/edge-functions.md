@@ -66,6 +66,10 @@ gate; otherwise it compares the complete Markdown. Every raw capture retains
 the complete Markdown for evidence even when a focused comparison is used.
 Changing comparison strategy is a silent first cutover, then later runs compare
 against the newest successful baseline with the same strategy.
+Same-scope pure reorders and duplicate-only count changes are classified in
+code and cannot alert in either Any Change or Specific Criteria mode. Copies or
+moves across sections remain eligible because they can represent a scope
+change.
 
 ## Auth
 

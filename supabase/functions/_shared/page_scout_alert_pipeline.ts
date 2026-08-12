@@ -5,6 +5,7 @@ import {
 } from "./page_scout_criteria.ts";
 import {
   decidePageScoutAlert,
+  isAlertablePageContentDiff,
   type PageContentDiff,
   pageContentLines,
   type PageContentMove,
@@ -42,9 +43,9 @@ export interface PageScoutAlertAnalysis<TEnrichment> {
 }
 
 /**
- * Resolve the semantic Page Scout alert gate once, before optional unit
- * enrichment. The criteria agent owns the multilingual match judgment; this
- * function only enforces how that judgment propagates through the pipeline.
+ * Resolve the Page Scout alert gate once, before optional unit enrichment.
+ * Code hard-suppresses proven same-scope reorder/duplicate-only noise; the
+ * criteria agent owns the remaining multilingual match judgment.
  */
 export async function analyzePageScoutAlert<TEnrichment = never>(
   input: PageScoutAlertAnalysisInput,
@@ -53,8 +54,9 @@ export async function analyzePageScoutAlert<TEnrichment = never>(
   const criteria = input.criteria?.trim() ?? "";
   const hasCriteria = criteria.length > 0;
   const criteriaDelta = renderPageScoutCriteriaDelta(input.diff);
+  const hasAlertableDiff = isAlertablePageContentDiff(input.diff);
   const shouldEvaluate = hasCriteria &&
-    input.diff.hasChanges &&
+    hasAlertableDiff &&
     input.changeStatus !== "same" &&
     !input.initialBaseline;
 
@@ -71,7 +73,7 @@ export async function analyzePageScoutAlert<TEnrichment = never>(
   const alertEligible = decidePageScoutAlert({
     mode: hasCriteria ? "specific" : "any",
     changeStatus: input.changeStatus,
-    hasNormalizedDiff: input.diff.hasChanges,
+    hasAlertableDiff,
     criteriaMatched: criteriaDecision?.matches ?? null,
     initialBaseline: input.initialBaseline,
   });

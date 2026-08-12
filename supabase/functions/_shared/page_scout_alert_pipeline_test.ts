@@ -135,7 +135,7 @@ Deno.test("criteria delta keeps duplicate numbered movement in its own section",
   assertStringIncludes(delta, "1 -> 2 | Repeated item");
 });
 
-Deno.test("criteria delta exposes pure reordering as move evidence", () => {
+Deno.test("criteria delta retains pure reordering as diagnostic move evidence", () => {
   const delta = renderPageScoutCriteriaDelta(buildPageContentDiff(
     "1. Austria\n2. Belgium\n3. Croatia",
     "1. Belgium\n2. Austria\n3. Croatia",
@@ -272,6 +272,64 @@ Deno.test("specific-change pipeline: initial baselines and unchanged pages never
     assertEquals(result.enrichment, null);
     assertEquals(calls, { decisions: 0, enrichments: 0 });
   }
+});
+
+Deno.test("same-scope reorder and duplicate-only noise are hard-suppressed in both modes", async () => {
+  const noiseDiffs = [
+    buildPageContentDiff(
+      "Registration\nVenue\nSchedule",
+      "Venue\nRegistration\nSchedule",
+    ),
+    buildPageContentDiff(
+      "1. Austria\n2. Belgium\n3. Croatia",
+      "1. Belgium\n2. Austria\n3. Croatia",
+    ),
+    buildPageContentDiff(
+      "## Policy\nExisting rule\nRepeated rule",
+      "## Policy\nRepeated rule\nExisting rule\nRepeated rule",
+    ),
+    buildPageContentDiff(
+      "## Policy\n1. Shared rule\n2. Other rule",
+      "## Policy\n1. Shared rule\n2. Shared rule\n3. Other rule",
+    ),
+  ];
+
+  for (const diff of noiseDiffs) {
+    for (const criteria of [null, "Alert on any policy change."]) {
+      let decisions = 0;
+      const result = await analyzePageScoutAlert({
+        criteria,
+        diff,
+        changeStatus: "changed",
+        initialBaseline: false,
+        timeoutMs: 1_000,
+      }, {
+        evaluateCriteria: () => {
+          decisions++;
+          return Promise.resolve(MATCH);
+        },
+      });
+
+      assertEquals(result.alertEligible, false);
+      assertEquals(result.criteriaDecision, null);
+      assertEquals(decisions, 0);
+    }
+  }
+});
+
+Deno.test("cross-section identical wording remains alertable in Any Change", async () => {
+  const result = await analyzePageScoutAlert({
+    criteria: null,
+    diff: buildPageContentDiff(
+      "## European Union\nShared rule\n## Italy\nExisting rule",
+      "## European Union\nShared rule\n## Italy\nShared rule\nExisting rule",
+    ),
+    changeStatus: "changed",
+    initialBaseline: false,
+    timeoutMs: 1_000,
+  });
+
+  assertEquals(result.alertEligible, true);
 });
 
 Deno.test("any-change pipeline remains independent of the criteria agent", async () => {

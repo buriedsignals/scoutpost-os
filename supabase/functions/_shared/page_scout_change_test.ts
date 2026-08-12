@@ -20,7 +20,9 @@ Deno.test("buildPageContentDiff ignores canonicalized technical noise", () => {
     "Updated 2 minutes ago\n\n![Hero](https://cdn.test/a.png)\nPrice: CHF 50";
   const after =
     "Updated 8 minutes ago\n\n![Hero](https://cdn.test/b.png)\nPrice: CHF 50";
-  assertEquals(buildPageContentDiff(before, after).hasChanges, false);
+  const diff = buildPageContentDiff(before, after);
+  assertEquals(diff.hasChanges, false);
+  assertEquals(diff.changeClass, "none");
 });
 
 Deno.test("buildPageContentDiff captures user-visible additions and removals", () => {
@@ -29,6 +31,7 @@ Deno.test("buildPageContentDiff captures user-visible additions and removals", (
     "# Registration\nOpens 15 August\nPrice CHF 50",
   );
   assertEquals(diff.hasChanges, true);
+  assertEquals(diff.changeClass, "content");
   assertEquals(diff.removed, ["Opens 1 August"]);
   assertEquals(diff.added, ["Opens 15 August"]);
   assertStringIncludes(diff.summary, "Opens 15 August");
@@ -82,12 +85,13 @@ Deno.test("buildPageContentDiff excludes unchanged matching text between edits",
   assertEquals(diff.summary.includes("Registration opens 1 August"), false);
 });
 
-Deno.test("a visible content reorder is Any Change but never fabricates removal evidence", () => {
+Deno.test("a same-scope line reorder is deterministic non-alerting noise", () => {
   const diff = buildPageContentDiff(
     "Registration\nVenue\nSchedule",
     "Venue\nRegistration\nSchedule",
   );
   assertEquals(diff.hasChanges, true);
+  assertEquals(diff.changeClass, "same_scope_reorder");
   assertEquals(diff.removed, []);
   assertEquals(diff.added, []);
   assertEquals(diff.moves.length, 1);
@@ -107,6 +111,7 @@ Deno.test("numbered list reordering is represented as deterministic moves", () =
 
   assertEquals(diff.added, []);
   assertEquals(diff.removed, []);
+  assertEquals(diff.changeClass, "same_scope_reorder");
   assertEquals(
     diff.moves.map((move) => ({
       text: move.text,
@@ -142,6 +147,7 @@ Deno.test("diff occurrences retain the exact location of repeated added text", (
   assertEquals(occurrence?.index, 4);
   assertEquals(occurrence?.previousCount, 1);
   assertEquals(occurrence?.currentCount, 2);
+  assertEquals(diff.changeClass, "content");
   assertStringIncludes(diff.summary, "Additional occurrence (1 → 2)");
 });
 
@@ -156,6 +162,7 @@ Deno.test("repeated lines use stable local context before global ordinal fallbac
     previousCount: 1,
     currentCount: 2,
   }]);
+  assertEquals(diff.changeClass, "same_scope_duplicate_only");
 });
 
 Deno.test("removing a repeated line retains the removed local occurrence", () => {
@@ -169,6 +176,101 @@ Deno.test("removing a repeated line retains the removed local occurrence", () =>
     previousCount: 2,
     currentCount: 1,
   }]);
+  assertEquals(diff.changeClass, "same_scope_duplicate_only");
+});
+
+Deno.test("numbered copies remain duplicate-only when later ranks shift", () => {
+  const diff = buildPageContentDiff(
+    ["## Rules", "1. Shared rule", "2. Other rule"].join("\n"),
+    [
+      "## Rules",
+      "1. Shared rule",
+      "2. Shared rule",
+      "3. Other rule",
+    ].join("\n"),
+  );
+
+  assertEquals(diff.addedOccurrences, [{
+    text: "2. Shared rule",
+    index: 2,
+    previousCount: 0,
+    currentCount: 1,
+  }]);
+  assertEquals(diff.moves.map((move) => move.text), ["Other rule"]);
+  assertEquals(diff.changeClass, "same_scope_duplicate_only");
+});
+
+Deno.test("numbered marker-only changes are same-scope reorder noise", () => {
+  const diff = buildPageContentDiff(
+    "## Rules\n1. Shared rule",
+    "## Rules\n1) Shared rule",
+  );
+
+  assertEquals(diff.changeClass, "same_scope_reorder");
+});
+
+Deno.test("duplicate churn mixed with new wording remains alertable", () => {
+  const diff = buildPageContentDiff(
+    "## Rules\nShared rule\nOther rule",
+    "## Rules\nShared rule\nShared rule\nNew rule",
+  );
+
+  assertEquals(diff.changeClass, "content");
+});
+
+Deno.test("copying identical wording into another section remains alertable", () => {
+  const diff = buildPageContentDiff(
+    [
+      "## European Union",
+      "Software wallets are allowed with limitations.",
+      "## Italy",
+      "Existing Italy rule.",
+    ].join("\n"),
+    [
+      "## European Union",
+      "Software wallets are allowed with limitations.",
+      "## Italy",
+      "Software wallets are allowed with limitations.",
+      "Existing Italy rule.",
+    ].join("\n"),
+  );
+
+  assertEquals(diff.changeClass, "content");
+});
+
+Deno.test("moving identical wording into another section remains alertable", () => {
+  const diff = buildPageContentDiff(
+    [
+      "## European Union",
+      "Software wallets are allowed with limitations.",
+      "## Italy",
+      "Existing Italy rule.",
+    ].join("\n"),
+    [
+      "## European Union",
+      "## Italy",
+      "Software wallets are allowed with limitations.",
+      "Existing Italy rule.",
+    ].join("\n"),
+  );
+
+  assertEquals(diff.added, []);
+  assertEquals(diff.removed, []);
+  assertEquals(diff.changeClass, "content");
+});
+
+Deno.test("repeated identical headings disable hard suppression", () => {
+  const reorder = buildPageContentDiff(
+    "## Region\nFirst rule\n## Region\nSecond rule",
+    "## Region\nSecond rule\n## Region\nFirst rule",
+  );
+  const duplicate = buildPageContentDiff(
+    "## Region\nShared rule\n## Region\nOther rule",
+    "## Region\nShared rule\n## Region\nShared rule\nOther rule",
+  );
+
+  assertEquals(reorder.changeClass, "content");
+  assertEquals(duplicate.changeClass, "content");
 });
 
 Deno.test("identical numbered bodies are matched inside their Markdown section", () => {
@@ -223,12 +325,12 @@ Deno.test("large heading-free repeated-line documents retain indexed fallback ev
   }]);
 });
 
-Deno.test("PS-ANY-001 Any Change follows a real normalized delta, not units or prose", () => {
+Deno.test("PS-ANY-001 Any Change follows an alertable normalized delta", () => {
   assertEquals(
     decidePageScoutAlert({
       mode: "any",
       changeStatus: "changed",
-      hasNormalizedDiff: true,
+      hasAlertableDiff: true,
       criteriaMatched: null,
       initialBaseline: false,
     }),
@@ -238,7 +340,7 @@ Deno.test("PS-ANY-001 Any Change follows a real normalized delta, not units or p
     decidePageScoutAlert({
       mode: "any",
       changeStatus: "changed",
-      hasNormalizedDiff: false,
+      hasAlertableDiff: false,
       criteriaMatched: null,
       initialBaseline: false,
     }),
@@ -251,7 +353,7 @@ Deno.test("Specific Changes follows the criteria decision on the delta", () => {
     decidePageScoutAlert({
       mode: "specific",
       changeStatus: "changed",
-      hasNormalizedDiff: true,
+      hasAlertableDiff: true,
       criteriaMatched: true,
       initialBaseline: false,
     }),
@@ -261,7 +363,7 @@ Deno.test("Specific Changes follows the criteria decision on the delta", () => {
     decidePageScoutAlert({
       mode: "specific",
       changeStatus: "changed",
-      hasNormalizedDiff: true,
+      hasAlertableDiff: true,
       criteriaMatched: false,
       initialBaseline: false,
     }),
@@ -274,7 +376,7 @@ Deno.test("initial baselines never alert but a post-activation child addition ca
     decidePageScoutAlert({
       mode: "any",
       changeStatus: "new",
-      hasNormalizedDiff: true,
+      hasAlertableDiff: true,
       criteriaMatched: null,
       initialBaseline: true,
     }),
@@ -284,7 +386,7 @@ Deno.test("initial baselines never alert but a post-activation child addition ca
     decidePageScoutAlert({
       mode: "any",
       changeStatus: "new",
-      hasNormalizedDiff: true,
+      hasAlertableDiff: true,
       criteriaMatched: null,
       initialBaseline: false,
     }),
