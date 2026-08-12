@@ -1,10 +1,16 @@
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
+import {
+  assertEquals,
+  assertStrictEquals,
+  assertStringIncludes,
+  assertThrows,
+} from "jsr:@std/assert";
 
 import {
   configDir,
   configPath,
   type CredentialStore,
   readConfigFile,
+  withRuntimeCredential,
   writeConfigFile,
 } from "./client.ts";
 
@@ -62,6 +68,93 @@ Deno.test("Windows config path uses APPDATA instead of assuming HOME", () => {
   assertEquals(
     configPath("windows", env),
     "C:\\Users\\Reporter\\AppData\\Roaming\\Scoutpost\\config.json",
+  );
+});
+
+Deno.test("runtime credential overlays hosted public config without mutating it", () => {
+  const publicConfig = {
+    api_url: "https://scoutpost.ai/functions/v1/",
+    supabase_anon_key: "public-gateway-value",
+  };
+  const resolved = withRuntimeCredential(publicConfig, {
+    get: (name: string) => {
+      if (name === "SCOUTPOST_API_KEY") return "cj_runtime-only";
+      if (name === "SCOUTPOST_API_KEY_AUDIENCE") {
+        return "https://scoutpost.ai/functions/v1";
+      }
+      return undefined;
+    },
+  });
+
+  assertEquals(resolved.api_key, "cj_runtime-only");
+  assertEquals(publicConfig, {
+    api_url: "https://scoutpost.ai/functions/v1/",
+    supabase_anon_key: "public-gateway-value",
+  });
+});
+
+Deno.test("ambient API key without an audience marker preserves existing config", () => {
+  const config = {
+    api_url: "https://self-hosted.example/functions/v1",
+    api_key: "cj_configured",
+  };
+  const resolved = withRuntimeCredential(config, {
+    get: (name: string) =>
+      name === "SCOUTPOST_API_KEY" ? "cj_ambient" : undefined,
+  });
+
+  assertStrictEquals(resolved, config);
+  assertEquals(resolved.api_key, "cj_configured");
+});
+
+Deno.test("runtime credential requires a valid key and exact hosted audience", () => {
+  const hostedConfig = { api_url: "https://scoutpost.ai/functions/v1" };
+  const runtimeEnv = (
+    key: string | undefined,
+    audience: string | undefined,
+  ) => ({
+    get: (name: string) => {
+      if (name === "SCOUTPOST_API_KEY") return key;
+      if (name === "SCOUTPOST_API_KEY_AUDIENCE") return audience;
+      return undefined;
+    },
+  });
+
+  assertThrows(
+    () =>
+      withRuntimeCredential(
+        hostedConfig,
+        runtimeEnv(undefined, hostedConfig.api_url),
+      ),
+    Error,
+    "SCOUTPOST_API_KEY is invalid",
+  );
+  assertThrows(
+    () =>
+      withRuntimeCredential(
+        hostedConfig,
+        runtimeEnv("secret\nleak", hostedConfig.api_url),
+      ),
+    Error,
+    "SCOUTPOST_API_KEY is invalid",
+  );
+  assertThrows(
+    () =>
+      withRuntimeCredential(
+        hostedConfig,
+        runtimeEnv("cj_runtime-only", "https://attacker.example"),
+      ),
+    Error,
+    "SCOUTPOST_API_KEY audience is invalid",
+  );
+  assertThrows(
+    () =>
+      withRuntimeCredential(
+        { api_url: "https://attacker.example" },
+        runtimeEnv("cj_runtime-only", hostedConfig.api_url),
+      ),
+    Error,
+    "not valid for the configured api_url",
   );
 });
 

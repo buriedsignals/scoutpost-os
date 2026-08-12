@@ -95,6 +95,8 @@ sed -i '/app\.include_router(auth\.router/d' backend/app/main.py
 # Backend: remove SaaS-only billing and credit management
 rm -f backend/app/utils/credits.py
 rm -f backend/app/services/cron.py
+rm -f backend/scripts/grant_pro.py
+rm -f backend/tests/unit/scripts/test_grant_pro.py
 
 # Backend: remove feedback router (Linear integration — SaaS-only)
 rm -f backend/app/routers/feedback.py
@@ -193,6 +195,7 @@ rm -f supabase/migrations/00093_user_update_email_deliveries.sql
 rm -f supabase/migrations/00094_user_update_email_recipients_rpc.sql
 rm -f supabase/migrations/00095_drop_user_update_email_storage.sql
 rm -f supabase/migrations/00097_product_update_email_preference.sql
+rm -f supabase/migrations/20260812095951_user_entitlement_overrides.sql
 rm -f supabase/migrations/00067_monthly_usage_report_cron.sql
 
 # Private live benchmark harness. These scripts assume hosted Supabase Auth

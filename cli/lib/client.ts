@@ -30,6 +30,8 @@ export interface CredentialStore {
 }
 
 const CREDENTIAL_FIELDS = ["api_key", "auth_token"] as const;
+const SCOUTPOST_RUNTIME_CREDENTIAL_AUDIENCE =
+  "https://scoutpost.ai/functions/v1";
 const API_TIMEOUT_MS = 15_000;
 // Civic discovery, preview, and creation perform bounded provider work inside
 // Supabase Edge Functions. Keep this above the proxy's full connect/write/read
@@ -250,8 +252,49 @@ export interface ResolvedConfig {
   supabase_anon_key?: string;
 }
 
+/**
+ * Overlay the Engine-injected Scoutpost credential without ever writing it to
+ * disk. The audience marker is the opt-in boundary: an unrelated ambient
+ * SCOUTPOST_API_KEY remains ignored, preserving the existing config path.
+ */
+export function withRuntimeCredential(
+  cfg: Config,
+  env: Pick<typeof Deno.env, "get"> = Deno.env,
+): Config {
+  const audience = env.get("SCOUTPOST_API_KEY_AUDIENCE");
+  if (audience === undefined) return cfg;
+  if (audience !== SCOUTPOST_RUNTIME_CREDENTIAL_AUDIENCE) {
+    throw new Error("SCOUTPOST_API_KEY audience is invalid");
+  }
+
+  const value = env.get("SCOUTPOST_API_KEY");
+  if (
+    value === undefined || value.length < 1 || value.length > 16_384 ||
+    /[\0\r\n]/.test(value)
+  ) {
+    throw new Error("SCOUTPOST_API_KEY is invalid");
+  }
+
+  let configured: string;
+  try {
+    configured = validateApiUrl(cfg.api_url ?? "");
+  } catch {
+    throw new Error(
+      "SCOUTPOST_API_KEY is not valid for the configured api_url",
+    );
+  }
+  if (configured !== audience) {
+    throw new Error(
+      "SCOUTPOST_API_KEY is not valid for the configured api_url",
+    );
+  }
+  return { ...cfg, api_key: value };
+}
+
 export function loadConfig(): ResolvedConfig {
-  const cfg = readConfigFile();
+  // Engine supplies the secret only to the launched process. Overlay it after
+  // reading public config so no later config write can persist it accidentally.
+  const cfg = withRuntimeCredential(readConfigFile());
   if (!cfg.api_url) {
     throw new Error(
       "api_url not set.\n" +
