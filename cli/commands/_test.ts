@@ -145,22 +145,26 @@ Deno.test("config unset removes a credential through the configured store", asyn
   });
 });
 
-Deno.test("config write uses private POSIX permissions when modes are available", async () => {
-  await withTempHome(() => {
-    writeConfigFile({
-      api_url: "https://example.test/api",
-      api_key: "cj_secret",
-    });
+Deno.test({
+  name: "config write uses private POSIX permissions when modes are available",
+  ignore: Deno.build.os === "windows",
+  fn: async () => {
+    await withTempHome(() => {
+      writeConfigFile({
+        api_url: "https://example.test/api",
+        api_key: "cj_secret",
+      });
 
-    const dirMode = Deno.statSync(configDir()).mode;
-    const fileMode = Deno.statSync(configPath()).mode;
-    if (dirMode !== null) {
-      assertEquals(dirMode & 0o777, 0o700);
-    }
-    if (fileMode !== null) {
-      assertEquals(fileMode & 0o777, 0o600);
-    }
-  });
+      const dirMode = Deno.statSync(configDir()).mode;
+      const fileMode = Deno.statSync(configPath()).mode;
+      if (dirMode !== null) {
+        assertEquals(dirMode & 0o777, 0o700);
+      }
+      if (fileMode !== null) {
+        assertEquals(fileMode & 0o777, 0o600);
+      }
+    });
+  },
 });
 
 Deno.test("config get never prints a complete credential", async () => {
