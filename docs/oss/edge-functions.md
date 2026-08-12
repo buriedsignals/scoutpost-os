@@ -17,7 +17,7 @@ Source files: `supabase/functions/`
 | `execute-scout` | Scheduled dispatcher; queues Page/Beat/Civic and directly routes Social/Fleet. |
 | `scout-dispatch-drain` | Capacity-limited durable Page/Beat/Civic queue worker. |
 | `manage-schedule` | pg_cron / pg_net schedule lifecycle. |
-| `scout-web-execute` | Page Scout execution and change detection. |
+| `scout-web-execute` | Page Scout execution and change detection: compares a quality-gated focused document when available while retaining the full capture as evidence; a first strategy cutover establishes its baseline silently. |
 | `scout-beat-execute` | Beat / Location Scout execution. |
 | `social-test` | Social profile validation and baseline preview. |
 | `transport-test` | Authenticated, Pro/Team Fleet live-data check that returns stable baseline IDs without creating a scout or spending credits. |
@@ -58,6 +58,14 @@ Scout schedules use Postgres-native cron:
 4. Type-specific functions write `scout_runs`, units, queue rows, snapshots, and notifications.
 
 This replaces EventBridge/Lambda scheduling. Do not add new EventBridge or Lambda requirements to OSS docs.
+
+## Page Scout comparison
+
+Page Scout uses the focused semantic projection only when it passes its quality
+gate; otherwise it compares the complete Markdown. Every raw capture retains
+the complete Markdown for evidence even when a focused comparison is used.
+Changing comparison strategy is a silent first cutover, then later runs compare
+against the newest successful baseline with the same strategy.
 
 ## Auth
 

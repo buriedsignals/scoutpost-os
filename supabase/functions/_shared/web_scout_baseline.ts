@@ -11,6 +11,7 @@ import {
 import {
   WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
   webCanonicalHash,
+  webComparisonContent,
 } from "./web_content_canonical.ts";
 import {
   type CaptureOutcome,
@@ -137,11 +138,14 @@ export async function establishWebBaseline(
         "unable to establish page baseline from empty content",
       );
     }
+    const comparison = webComparisonContent(scrape);
     await writeCanonicalBaseline(svc, {
       userId: scout.user_id,
       scoutId: scout.id,
       sourceUrl: scout.url,
       markdown: scrape.markdown,
+      comparisonMarkdown: comparison.markdown,
+      comparisonStrategy: comparison.strategy,
       scoutRunId,
       now: deps.now(),
     });
@@ -284,6 +288,7 @@ export async function captureWebBaselineSnapshot(
     });
     return null;
   }
+  const comparison = webComparisonContent(detection);
 
   let outcome: CaptureOutcome;
   try {
@@ -296,7 +301,7 @@ export async function captureWebBaselineSnapshot(
       requestedUrl: scout.url,
       fallbackMarkdown: detection.markdown,
       contentSha256: await sha256Hex(detection.markdown),
-      canonicalContentSha256: await webCanonicalHash(detection.markdown),
+      canonicalContentSha256: await webCanonicalHash(comparison.markdown),
       allowedExactUrl: scout.url,
     }, detection);
   } catch (e) {

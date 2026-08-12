@@ -50,7 +50,9 @@ async def execute_crawl(
     )
     if not getattr(raw, "success", False):
         raise CrawlResultError(crawl_failure_detail(raw))
-    result = map_crawl_result(raw, requested_url=url)
+    # Projection parses HTML and runs a second Markdown conversion; keep that
+    # CPU-bound work off the FastAPI event loop while other crawls progress.
+    result = await asyncio.to_thread(map_crawl_result, raw, requested_url=url)
     if snapshot:
         try:
             payload, error = await asyncio.to_thread(build_snapshot_payload, raw)

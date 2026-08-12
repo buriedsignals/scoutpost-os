@@ -19,6 +19,8 @@ interface Capture {
   scout_run_id: string | null;
   content_sha256: string | null;
   content_md: string | null;
+  comparison_md?: string | null;
+  comparison_strategy?: string | null;
   canonical_content_sha256: string | null;
   canonicalizer_version: string | null;
   source_url?: string;
@@ -332,10 +334,138 @@ Deno.test("compareCanonicalContentForUrl returns the exact successful prior cont
     {
       status: "changed",
       previousMarkdown: previous,
+      previousFullMarkdown: previous,
       previousCaptureId: "baseline",
+      comparisonStrategyChanged: false,
       successfulMarkdownHistory: [previous],
     },
   );
+});
+
+Deno.test("compareCanonicalContentForUrl compares the focused document but retains the full capture", async () => {
+  const previousFull = "Navigation\nPolicy before\nFooter";
+  const previousComparison = "Policy before";
+  const { svc } = fakeSvc({
+    captures: [{
+      id: "focused-baseline",
+      scout_run_id: null,
+      content_sha256: null,
+      content_md: previousFull,
+      comparison_md: previousComparison,
+      comparison_strategy: "main",
+      canonical_content_sha256: await canonicalOf(previousComparison),
+      canonicalizer_version: WEB_CANONICALIZER_VERSION,
+    }],
+  });
+
+  assertEquals(
+    await compareCanonicalContentForUrl(svc, "s1", "Policy after", {
+      comparisonStrategy: "main",
+    }),
+    {
+      status: "changed",
+      previousMarkdown: previousComparison,
+      previousFullMarkdown: previousFull,
+      previousCaptureId: "focused-baseline",
+      comparisonStrategyChanged: false,
+      successfulMarkdownHistory: [previousComparison],
+    },
+  );
+});
+
+Deno.test("a full-to-focused strategy switch silently establishes a comparable baseline", async () => {
+  const previousFull = "Navigation before\nPolicy before\nFooter before";
+  const { svc } = fakeSvc({
+    captures: [{
+      id: "full-baseline",
+      scout_run_id: null,
+      content_sha256: null,
+      content_md: previousFull,
+      comparison_md: null,
+      comparison_strategy: "full",
+      canonical_content_sha256: await canonicalOf(previousFull),
+      canonicalizer_version: WEB_CANONICALIZER_VERSION,
+    }],
+  });
+
+  const comparison = await compareCanonicalContentForUrl(
+    svc,
+    "s1",
+    "Policy after",
+    { comparisonStrategy: "main" },
+  );
+  assertEquals(comparison.status, "same");
+  assertEquals(comparison.comparisonStrategyChanged, true);
+  assertEquals(comparison.previousFullMarkdown, previousFull);
+});
+
+Deno.test("alternating main and provider_main captures keep later changes on same-strategy history", async () => {
+  const mainBefore = "Main policy before";
+  const providerBefore = "Provider policy before";
+  const { svc } = fakeSvc({
+    captures: [
+      {
+        id: "provider-newest",
+        scout_run_id: "run-provider",
+        content_sha256: null,
+        content_md: "provider full",
+        comparison_md: providerBefore,
+        comparison_strategy: "provider_main",
+        canonical_content_sha256: await canonicalOf(providerBefore),
+        canonicalizer_version: WEB_CANONICALIZER_VERSION,
+      },
+      {
+        id: "main-prior",
+        scout_run_id: "run-main",
+        content_sha256: null,
+        content_md: "main full",
+        comparison_md: mainBefore,
+        comparison_strategy: "main",
+        canonical_content_sha256: await canonicalOf(mainBefore),
+        canonicalizer_version: WEB_CANONICALIZER_VERSION,
+      },
+    ],
+    runs: [
+      { id: "run-provider", status: "success" },
+      { id: "run-main", status: "success" },
+    ],
+  });
+
+  const comparison = await compareCanonicalContentForUrl(
+    svc,
+    "s1",
+    "Main policy after",
+    { comparisonStrategy: "main" },
+  );
+  assertEquals(comparison.status, "changed");
+  assertEquals(comparison.previousCaptureId, "main-prior");
+  assertEquals(comparison.previousMarkdown, mainBefore);
+  assertEquals(comparison.comparisonStrategyChanged, false);
+});
+
+Deno.test("a v1-to-focused cutover is silent because the old semantic document cannot be reconstructed", async () => {
+  const { svc, updates } = fakeSvc({
+    captures: [{
+      id: "v1-baseline",
+      scout_run_id: null,
+      content_sha256: null,
+      content_md: "Navigation before\nPolicy before\nFooter before",
+      comparison_md: null,
+      comparison_strategy: null,
+      canonical_content_sha256: await canonicalOf("old v1 document"),
+      canonicalizer_version: "web-md-v1",
+    }],
+  });
+
+  const comparison = await compareCanonicalContentForUrl(
+    svc,
+    "s1",
+    "Policy after",
+    { comparisonStrategy: "main" },
+  );
+  assertEquals(comparison.status, "same");
+  assertEquals(comparison.comparisonStrategyChanged, true);
+  assertEquals(updates, []);
 });
 
 Deno.test("hashChangeStatusForUrl only counts baselines from successful runs", async () => {
@@ -562,6 +692,26 @@ Deno.test("writeCanonicalBaseline inserts a canonical capture", async () => {
     row.canonical_content_sha256,
     await canonicalOf("meeting minutes"),
   );
+  assertEquals(row.comparison_md, null);
+  assertEquals(row.comparison_strategy, "full");
+});
+
+Deno.test("writeCanonicalBaseline stores full evidence separately from focused comparison content", async () => {
+  const { svc, inserts } = fakeSvc({});
+  await writeCanonicalBaseline(svc, {
+    userId: "u1",
+    scoutId: "s1",
+    sourceUrl: "https://example.test/policy",
+    markdown: "Navigation\nPolicy body\nFooter",
+    comparisonMarkdown: "Policy body",
+    comparisonStrategy: "main",
+  });
+
+  const row = inserts[0];
+  assertEquals(row.content_md, "Navigation\nPolicy body\nFooter");
+  assertEquals(row.comparison_md, "Policy body");
+  assertEquals(row.comparison_strategy, "main");
+  assertEquals(row.canonical_content_sha256, await canonicalOf("Policy body"));
 });
 
 Deno.test("writeCanonicalBaseline defaults run id to null and tolerates an odd now", async () => {

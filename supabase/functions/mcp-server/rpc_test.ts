@@ -11,6 +11,7 @@
 import {
   assertEquals,
   assertExists,
+  assertStringIncludes,
   assertThrows,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { createScoutBodyForMcp, TOOLS } from "./rpc.ts";
@@ -28,6 +29,18 @@ Deno.test("mcp create_scout does not advertise retired Page provider selection",
     properties?: Record<string, unknown>;
   }).properties ?? {};
   assertEquals("provider" in properties, false);
+});
+
+Deno.test("mcp Page Scout criteria schema explains noisy Any Change fallback", () => {
+  for (const name of ["create_scout", "update_scout"]) {
+    const tool = TOOLS.find((candidate) => candidate.name === name);
+    assertExists(tool);
+    const criteria = (tool!.inputSchema as {
+      properties: { criteria?: { description?: string } };
+    }).properties.criteria;
+    assertStringIncludes(criteria?.description ?? "", "Specific Criteria");
+    assertStringIncludes(criteria?.description ?? "", "Any Change");
+  }
 });
 
 Deno.test("mcp parity: create/update_scout advertise the archive + wayback toggle", () => {

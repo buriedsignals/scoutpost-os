@@ -1,4 +1,7 @@
-import { assert, assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import {
+  assert,
+  assertEquals,
+} from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { firecrawlScrape } from "./scrape_firecrawl.ts";
 
 function withEnv(fn: () => Promise<void>): () => Promise<void> {
@@ -27,7 +30,10 @@ Deno.test(
               markdown: "# page",
               rawHtml: "<html>page</html>",
               screenshot: "https://cdn.firecrawl.dev/s.png",
-              metadata: { sourceURL: "https://x.example/final", statusCode: 200 },
+              metadata: {
+                sourceURL: "https://x.example/final",
+                statusCode: 200,
+              },
             },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -35,7 +41,9 @@ Deno.test(
       );
     }) as typeof fetch;
 
-    const result = await firecrawlScrape("https://x.example", { snapshot: true });
+    const result = await firecrawlScrape("https://x.example", {
+      snapshot: true,
+    });
     const formats = seenBody.formats as Array<unknown>;
     // rawHtml already present (not duplicated) + the screenshot object appended.
     assert(formats.includes("rawHtml"));
@@ -48,6 +56,8 @@ Deno.test(
     );
     assertEquals(result.screenshot_url, "https://cdn.firecrawl.dev/s.png");
     assertEquals(result.rawHtml, "<html>page</html>");
+    assertEquals(result.comparison_markdown, "# page");
+    assertEquals(result.comparison_strategy, "provider_main");
   }),
 );
 
@@ -75,6 +85,27 @@ Deno.test(
     const formats = seenBody.formats as Array<unknown>;
     assert(!formats.some((f) => typeof f === "object")); // no screenshot format object
     assertEquals(result.screenshot_url, undefined); // ignored when not requested
+    assertEquals(result.comparison_markdown, "# page");
+    assertEquals(result.comparison_strategy, "provider_main");
+  }),
+);
+
+Deno.test(
+  "firecrawlScrape marks an explicitly complete document as full comparison content",
+  withEnv(async () => {
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ data: { markdown: "complete page", metadata: {} } }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )) as typeof fetch;
+
+    const result = await firecrawlScrape("https://x.example", {
+      onlyMainContent: false,
+    });
+    assertEquals(result.comparison_markdown, null);
+    assertEquals(result.comparison_strategy, "full");
   }),
 );
 

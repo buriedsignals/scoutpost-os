@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -36,6 +37,26 @@ async def test_runner_maps_success(monkeypatch):
     )
     assert outcome["ok"] is True
     assert outcome["result"]["markdown"] == "hello"
+
+
+async def test_execute_crawl_projects_mapping_off_the_event_loop(monkeypatch):
+    raw = SimpleNamespace(success=True)
+    mapped_on = []
+
+    def blocking_projection(_raw, *, requested_url):
+        mapped_on.append(threading.current_thread())
+        return {"source_url": requested_url, "markdown": "projected"}
+
+    monkeypatch.setattr(crawl_runner, "map_crawl_result", blocking_projection)
+    result = await crawl_runner.execute_crawl(
+        FakeScraper(result=raw),
+        "https://example.org",
+        timeout_ms=1_000,
+        snapshot=False,
+    )
+
+    assert result["markdown"] == "projected"
+    assert mapped_on[0] is not threading.current_thread()
 
 
 async def test_runner_classifies_timeout_and_scraper_error(monkeypatch):

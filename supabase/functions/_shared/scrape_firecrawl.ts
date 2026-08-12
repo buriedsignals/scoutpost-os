@@ -43,10 +43,11 @@ export async function firecrawlScrape(
     if (!formats.includes("rawHtml")) formats.push("rawHtml");
     formats.push({ type: "screenshot", fullPage: true });
   }
+  const onlyMainContent = opts.onlyMainContent ?? true;
   const body: Record<string, unknown> = {
     url,
     formats,
-    onlyMainContent: opts.onlyMainContent ?? true,
+    onlyMainContent,
     timeout: timeoutMs,
   };
   const pdfMode = opts.pdfMode === undefined ? "fast" : opts.pdfMode;
@@ -95,8 +96,12 @@ export async function firecrawlScrape(
       : typeof metadata.url === "string" && metadata.url.trim()
       ? metadata.url
       : url;
+  const markdown = typeof d.markdown === "string" ? d.markdown : "";
   return {
-    markdown: d.markdown ?? "",
+    markdown,
+    comparison_markdown: onlyMainContent && markdown.trim() ? markdown : null,
+    comparison_strategy: onlyMainContent ? "provider_main" : "full",
+    comparison_ratio: onlyMainContent ? 1 : undefined,
     html: d.html,
     rawHtml: d.rawHtml ?? null,
     title: d.metadata?.title,

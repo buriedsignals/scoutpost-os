@@ -36,7 +36,6 @@ import {
   scrapeProvider,
 } from "../_shared/scrape.ts";
 import {
-  type CanonicalChangeStatus,
   type CanonicalContentComparison,
   compareCanonicalContentForUrl,
 } from "../_shared/canonical_baseline.ts";
@@ -119,6 +118,7 @@ import {
   WEB_CANONICALIZER_VERSION,
   WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
   webCanonicalHash,
+  webComparisonContent,
 } from "../_shared/web_content_canonical.ts";
 import {
   CREDIT_COSTS,
@@ -917,20 +917,9 @@ async function runPipeline(
   const snapshotHint: "on_fallback" | undefined = archiveGateOn
     ? "on_fallback"
     : undefined;
-  let markdown: string;
-  let changeStatus: CanonicalChangeStatus;
-  let scrapeTitle: string | null = null;
-
-  let rawHtml: string | null = null;
-  let scrapeMetadata: Record<string, unknown> | undefined;
-  let scrapeStrategy = "combined";
-  let scrapeWarning: string | undefined;
-  let servedBy: string | undefined;
   // The full detection scrape result is retained (not just its fields) so the
   // background archive capture can read served_by + any KTD9 same-fetch
   // artifacts (screenshot_url/rawHtml) that a fallback-served fetch carried.
-  let detectionResult: PrimaryPageScrapeResult | null = null;
-
   const primaryOptions = {
     url: scout.url,
     workloadClass: "scout",
@@ -943,15 +932,18 @@ async function runPipeline(
   const fresh = workflowTransport
     ? await workflowTransport.scrape(primaryOptions, "root")
     : await scrapePrimaryPageResilient(primaryOptions);
-  detectionResult = fresh;
-  markdown = fresh.markdown ?? "";
-  rawHtml = fresh.rawHtml ?? null;
-  scrapeTitle = fresh.title ?? null;
-  scrapeMetadata = fresh.metadata;
-  scrapeStrategy = fresh.scrape_strategy;
-  scrapeWarning = fresh.scrape_warning;
-  servedBy = fresh.served_by;
-  changeStatus = "new";
+  const detectionResult: PrimaryPageScrapeResult = fresh;
+  const markdown = fresh.markdown ?? "";
+  const rootCurrentComparison = webComparisonContent(fresh);
+  const comparisonMarkdown = rootCurrentComparison.markdown;
+  const comparisonStrategy = rootCurrentComparison.strategy;
+  const comparisonRatio = rootCurrentComparison.ratio;
+  const rawHtml = fresh.rawHtml ?? null;
+  const scrapeTitle = fresh.title ?? null;
+  const scrapeMetadata = fresh.metadata;
+  const scrapeStrategy = fresh.scrape_strategy;
+  const scrapeWarning = fresh.scrape_warning;
+  const servedBy = fresh.served_by;
 
   const rootStatusError = pageTargetErrorMessage(
     detectionResult?.status_code,
@@ -973,20 +965,27 @@ async function runPipeline(
 
   // The local per-source canonical baseline is the sole alert authority.
   const rootComparison: CanonicalContentComparison =
-    await compareCanonicalContentForUrl(svc, scout.id, markdown, {
+    await compareCanonicalContentForUrl(svc, scout.id, comparisonMarkdown, {
       sourceUrl: scout.url,
       fn: "scout-web-execute",
+      comparisonStrategy,
     });
-  changeStatus = rootComparison.status;
+  const changeStatus = rootComparison.status;
   const rootDiff: PageContentDiff = rootComparison.previousMarkdown === null
-    ? buildPageContentDiff("", markdown)
-    : buildPageContentDiff(rootComparison.previousMarkdown, markdown);
+    ? buildPageContentDiff("", comparisonMarkdown)
+    : buildPageContentDiff(
+      rootComparison.previousMarkdown,
+      comparisonMarkdown,
+    );
 
   // Which backend ACTUALLY served the content — differs from scrape_provider
   // when the anti-bot fallback fired (crawl4ai blocked → firecrawl). The
   // weekly scoreboard monitors this to prove the fallback path stays healthy.
   await mergeRunMetadata(svc, runId, {
     scrape_provider_served: servedBy ?? scrapeProvider(),
+    page_comparison_strategy: comparisonStrategy,
+    page_comparison_ratio: comparisonRatio ?? null,
+    page_comparison_strategy_changed: rootComparison.comparisonStrategyChanged,
   });
 
   if (scrapeStrategy !== "combined" || scrapeWarning) {
@@ -1058,10 +1057,10 @@ async function runPipeline(
     "page_scout_initial_candidates",
     scout.url,
   );
-  const priorRootCandidates = rootComparison.previousMarkdown
+  const priorRootCandidates = rootComparison.previousFullMarkdown
     ? capPageScoutCandidates(filterSubpageUrls(
       extractSubpageLinksFromMarkdown(
-        rootComparison.previousMarkdown,
+        rootComparison.previousFullMarkdown,
         scout.url,
       ).map(([url]) => url),
       scout.url,
@@ -1108,6 +1107,8 @@ async function runPipeline(
         sourceUrl: scout.url,
         sourceDomain: deriveSourceDomain(scout.url),
         markdown,
+        comparisonMarkdown,
+        comparisonStrategy,
         contentHash,
         workflowEffectKey: workflowTransport
           ? `page:${runId}:root:${normalizeUrlKey(scout.url)}`
@@ -1147,6 +1148,8 @@ async function runPipeline(
   // Keep the legacy local name for the rest of the pipeline below.
   const scrape = {
     markdown,
+    comparisonMarkdown,
+    comparisonStrategy,
     change_status: changeStatus,
     title: scrapeTitle,
     rawHtml,
@@ -1164,6 +1167,8 @@ async function runPipeline(
     sourceUrl: scout.url,
     sourceDomain,
     markdown,
+    comparisonMarkdown,
+    comparisonStrategy,
     contentHash,
     workflowEffectKey: workflowTransport
       ? `page:${runId}:root:${normalizeUrlKey(scout.url)}`
@@ -1189,7 +1194,7 @@ async function runPipeline(
         requestedUrl: scout.url,
         fallbackMarkdown: markdown,
         contentSha256: contentHash,
-        canonicalContentSha256: await webCanonicalHash(markdown),
+        canonicalContentSha256: await webCanonicalHash(comparisonMarkdown),
         allowedExactUrl: scout.url,
       } satisfies CaptureStoreContext,
     }
@@ -1548,6 +1553,11 @@ function renderCriteriaFindings(
           : "",
         finding.afterQuote
           ? `**After:** ${escapeMarkdown(finding.afterQuote)}`
+          : "",
+        finding.movement
+          ? `**Moved:** ${
+            escapeMarkdown(finding.movement.text)
+          } (${finding.movement.from} → ${finding.movement.to})`
           : "",
       ].filter(Boolean).join("\n")
     ),
@@ -1990,17 +2000,23 @@ async function runPhaseB(
       }
       effectiveUrls.push({ requested: subUrl, effective: subSourceUrl });
 
+      const subCurrentComparison = webComparisonContent(subScrape);
+
       const comparison = await compareCanonicalContentForUrl(
         svc,
         scout.id,
-        subScrape.markdown,
-        { sourceUrl: subSourceUrl, fn: "scout-web-execute" },
+        subCurrentComparison.markdown,
+        {
+          sourceUrl: subSourceUrl,
+          fn: "scout-web-execute",
+          comparisonStrategy: subCurrentComparison.strategy,
+        },
       );
       const subDiff = comparison.previousMarkdown === null
-        ? buildPageContentDiff("", subScrape.markdown)
+        ? buildPageContentDiff("", subCurrentComparison.markdown)
         : buildPageContentDiff(
           comparison.previousMarkdown,
-          subScrape.markdown,
+          subCurrentComparison.markdown,
         );
       const initialChildBaseline = isInitialChildBaseline({
         status: comparison.status,
@@ -2038,6 +2054,8 @@ async function runPhaseB(
         sourceUrl: subSourceUrl,
         sourceDomain: subSourceDomain,
         markdown: subScrape.markdown,
+        comparisonMarkdown: subCurrentComparison.markdown,
+        comparisonStrategy: subCurrentComparison.strategy,
         contentHash: subContentHash,
         workflowEffectKey: workflowTransport
           ? `page:${runId}:child:${normalizeUrlKey(subSourceUrl)}`
@@ -2066,7 +2084,9 @@ async function runPhaseB(
             requestedUrl: subSourceUrl,
             fallbackMarkdown: subScrape.markdown,
             contentSha256: subContentHash,
-            canonicalContentSha256: await webCanonicalHash(subScrape.markdown),
+            canonicalContentSha256: await webCanonicalHash(
+              subCurrentComparison.markdown,
+            ),
             allowedScopeRootUrl: scout.url,
             allowedExactUrl: subSourceUrl,
           },
@@ -2234,6 +2254,8 @@ async function insertRawCapture(
     sourceUrl: string;
     sourceDomain: string | null;
     markdown: string;
+    comparisonMarkdown: string;
+    comparisonStrategy: string;
     contentHash: string;
     workflowEffectKey?: string | null;
   },
@@ -2255,8 +2277,14 @@ async function insertRawCapture(
       source_url: input.sourceUrl,
       source_domain: input.sourceDomain,
       content_md: input.markdown,
+      comparison_md: input.comparisonStrategy === "full"
+        ? null
+        : input.comparisonMarkdown,
+      comparison_strategy: input.comparisonStrategy,
       content_sha256: input.contentHash,
-      canonical_content_sha256: await webCanonicalHash(input.markdown),
+      canonical_content_sha256: await webCanonicalHash(
+        input.comparisonMarkdown,
+      ),
       canonicalizer_version: WEB_CANONICALIZER_VERSION,
       token_count: Math.ceil(input.markdown.length / 4),
       captured_at: new Date().toISOString(),

@@ -104,6 +104,9 @@ export async function crawl4aiScrape(
     ? d.status_code
     : undefined;
   const markdown = typeof d.markdown === "string" ? d.markdown : "";
+  const comparisonMarkdown = typeof d.comparison_markdown === "string"
+    ? d.comparison_markdown
+    : null;
   const rawHtml = typeof d.rawHtml === "string" ? d.rawHtml : "";
   // Crawl4AI can report a challenge page as a successful browser run. Do not
   // let that empty document become a durable "same" baseline: surface it as
@@ -121,6 +124,12 @@ export async function crawl4aiScrape(
     : url;
   return {
     markdown,
+    comparison_markdown: comparisonMarkdown?.trim() ? comparisonMarkdown : null,
+    comparison_strategy: comparisonStrategy(d.comparison_strategy),
+    comparison_ratio: typeof d.comparison_ratio === "number" &&
+        Number.isFinite(d.comparison_ratio)
+      ? d.comparison_ratio
+      : undefined,
     html: typeof d.html === "string" ? d.html : undefined,
     rawHtml: rawHtml || null,
     title: typeof d.title === "string" ? d.title : undefined,
@@ -141,6 +150,16 @@ export async function crawl4aiScrape(
       }
       : {}),
   };
+}
+
+function comparisonStrategy(
+  value: unknown,
+): ScrapeResult["comparison_strategy"] {
+  return ["main", "role_main", "article", "provider_main", "full"].includes(
+      String(value),
+    )
+    ? value as ScrapeResult["comparison_strategy"]
+    : "full";
 }
 
 function mapResponseHeaders(

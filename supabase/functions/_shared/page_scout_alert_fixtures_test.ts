@@ -16,9 +16,17 @@ Deno.test("Page Scout alert acceptance corpus covers multilingual positive and n
 
   for (const fixture of PAGE_SCOUT_ALERT_FIXTURES) {
     assert(fixture.criteria.trim(), `${fixture.id}: criteria required`);
-    assert(
+    assertEquals(
       buildPageContentDiff(fixture.before, fixture.after).hasChanges,
-      `${fixture.id}: fixture must reach the semantic decision stage`,
+      fixture.expectedNormalizedChange ?? true,
+      `${fixture.id}: deterministic normalization stage mismatch`,
     );
+    if (fixture.expectedNormalizedChange === false) {
+      assertEquals(
+        fixture.expectedAlert,
+        false,
+        `${fixture.id}: a deterministically suppressed delta cannot alert`,
+      );
+    }
   }
 });

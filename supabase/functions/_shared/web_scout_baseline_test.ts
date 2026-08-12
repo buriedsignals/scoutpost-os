@@ -79,7 +79,7 @@ Deno.test("ensureWebBaseline stores canonical baseline state through the scrape 
   assertEquals(inserts.map((entry) => entry.table), ["raw_captures"]);
   assertEquals(
     (inserts[0].payload as Record<string, unknown>).canonicalizer_version,
-    "web-md-v1",
+    "web-md-v2",
   );
   assertEquals(
     typeof (inserts[0].payload as Record<string, unknown>)

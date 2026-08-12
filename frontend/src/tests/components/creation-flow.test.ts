@@ -48,6 +48,17 @@ describe('shared scout creation hierarchy', () => {
 		expect(screen.getByRole('button', { name: /test scraper/i })).toBeEnabled();
 	});
 
+	it('warns before enabling whole-page Any Change monitoring', async () => {
+		render(PageScoutView);
+		expect(screen.queryByRole('note')).not.toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('radio', { name: /any change/i }));
+
+		expect(screen.getByRole('note')).toHaveTextContent(
+			/alert on cookie notices, forms, navigation and other page chrome/i
+		);
+	});
+
 	it('moves primary emphasis to the next enabled step', async () => {
 		const { rerender } = render(StepButtons, {
 			props: {

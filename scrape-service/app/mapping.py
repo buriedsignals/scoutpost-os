@@ -21,6 +21,8 @@ Field mapping (SCRAPING-MIGRATION-PRD KTD2):
 from datetime import datetime, timezone
 from typing import Any
 
+from .main_content import project_main_content
+
 
 def _extract_markdown(raw: Any) -> str:
     # Crawl4AI's markdown field is a MarkdownGenerationResult (raw_markdown /
@@ -42,12 +44,23 @@ def map_crawl_result(result: Any, requested_url: str) -> dict[str, Any]:
     metadata = getattr(result, "metadata", None) or {}
     title = metadata.get("title") if isinstance(metadata, dict) else None
     source_url = getattr(result, "url", None) or requested_url
+    markdown = _extract_markdown(getattr(result, "markdown", None))
+    projection = project_main_content(
+        getattr(result, "html", None),
+        markdown,
+        source_url,
+    )
     # response_headers (PAGE-ARCHIVE-PRD U1): the snapshot record persists
     # selected response headers as capture metadata (KTD4). Mapped for every
     # scrape — harmless without snapshot, required with it.
     headers = getattr(result, "response_headers", None)
     return {
-        "markdown": _extract_markdown(getattr(result, "markdown", None)),
+        "markdown": markdown,
+        "comparison_markdown": (
+            projection.markdown if projection.strategy != "full" else None
+        ),
+        "comparison_strategy": projection.strategy,
+        "comparison_ratio": projection.ratio,
         "rawHtml": getattr(result, "html", None),
         "html": getattr(result, "cleaned_html", None),
         "title": title,

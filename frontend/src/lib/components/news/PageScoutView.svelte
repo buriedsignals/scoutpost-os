@@ -153,6 +153,10 @@
 								]}
 							/>
 						</div>
+					{:else}
+						<p class="any-change-warning" role="note">
+							{m.webScout_anyChangeWarning()}
+						</p>
 					{/if}
 				</div>
 
@@ -230,4 +234,13 @@
 
 
 	.criteria-detail { margin-top: 0.75rem; }
+	.any-change-warning {
+		margin: 0.75rem 0 0;
+		padding: 0.75rem;
+		border: 1px solid color-mix(in oklab, var(--color-warning) 34%, var(--color-border));
+		background: color-mix(in oklab, var(--color-warning) 10%, var(--color-card));
+		color: var(--color-ink-muted);
+		font-size: 0.75rem;
+		line-height: 1.45;
+	}
 </style>

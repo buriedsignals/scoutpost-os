@@ -21,8 +21,12 @@ export type CanonicalChangeStatus = "new" | "same" | "changed";
 
 export interface CanonicalContentComparison {
   status: CanonicalChangeStatus;
+  /** Previous quality-gated comparison document. */
   previousMarkdown: string | null;
+  /** Previous complete document, retained for discovery and evidence. */
+  previousFullMarkdown: string | null;
   previousCaptureId: string | null;
+  comparisonStrategyChanged: boolean;
   /** Successful baselines in newest-first order. Used to distinguish children
    * present at index establishment from links added after activation. */
   successfulMarkdownHistory: string[];
@@ -90,7 +94,7 @@ export async function hashChangeStatusForUrl(
   svc: SupabaseClient,
   scoutId: string,
   markdown: string,
-  opts: { sourceUrl?: string; fn?: string } = {},
+  opts: { sourceUrl?: string; fn?: string; comparisonStrategy?: string } = {},
 ): Promise<CanonicalChangeStatus> {
   return (await compareCanonicalContentForUrl(svc, scoutId, markdown, opts))
     .status;
@@ -105,12 +109,14 @@ export async function compareCanonicalContentForUrl(
   svc: SupabaseClient,
   scoutId: string,
   markdown: string,
-  opts: { sourceUrl?: string; fn?: string } = {},
+  opts: { sourceUrl?: string; fn?: string; comparisonStrategy?: string } = {},
 ): Promise<CanonicalContentComparison> {
   const fresh = (): CanonicalContentComparison => ({
     status: "new",
     previousMarkdown: null,
+    previousFullMarkdown: null,
     previousCaptureId: null,
+    comparisonStrategyChanged: false,
     successfulMarkdownHistory: [],
   });
   if (!markdown.trim()) return fresh();
@@ -120,7 +126,7 @@ export async function compareCanonicalContentForUrl(
   let query = svc
     .from("raw_captures")
     .select(
-      "id, scout_run_id, content_sha256, content_md, canonical_content_sha256, canonicalizer_version",
+      "id, scout_run_id, content_sha256, content_md, comparison_md, comparison_strategy, canonical_content_sha256, canonicalizer_version",
     )
     .eq("scout_id", scoutId);
   if (opts.sourceUrl) {
@@ -150,6 +156,8 @@ export async function compareCanonicalContentForUrl(
     scout_run_id: string | null;
     content_sha256: string | null;
     content_md: string | null;
+    comparison_md?: string | null;
+    comparison_strategy?: string | null;
     canonical_content_sha256: string | null;
     canonicalizer_version: string | null;
   }>;
@@ -182,27 +190,52 @@ export async function compareCanonicalContentForUrl(
     }
   }
 
-  const latestBaseline = captures.find((capture) =>
+  const successfulCaptures = captures.filter((capture) =>
     !capture.scout_run_id || successfulRunIds.has(capture.scout_run_id)
   );
+  const currentStrategy = opts.comparisonStrategy ?? "full";
+  // A provider can legitimately alternate between equivalent extraction
+  // strategies. Prefer the newest comparable v2 baseline so alternating
+  // main/provider_main captures do not silently rebaseline on every run.
+  // If this is the first capture for a strategy, retain the existing silent
+  // cutover against the newest successful baseline.
+  const latestBaseline =
+    successfulCaptures.find((capture) =>
+      capture.canonicalizer_version === WEB_CANONICALIZER_VERSION &&
+      (capture.comparison_strategy ?? "full") === currentStrategy
+    ) ?? successfulCaptures[0];
   if (!latestBaseline) return fresh();
-  const successfulMarkdownHistory = captures
-    .filter((capture) =>
-      (!capture.scout_run_id ||
-        successfulRunIds.has(capture.scout_run_id)) &&
-      typeof capture.content_md === "string" &&
-      capture.content_md.trim().length > 0
-    )
-    .map((capture) => capture.content_md as string);
+  const successfulMarkdownHistory = successfulCaptures
+    .filter((capture) => {
+      const capturedMarkdown = capture.comparison_md ?? capture.content_md;
+      return typeof capturedMarkdown === "string" &&
+        capturedMarkdown.trim().length > 0;
+    })
+    .map((capture) => (capture.comparison_md ?? capture.content_md) as string);
+
+  const previousMarkdown = latestBaseline.comparison_md?.trim()
+    ? latestBaseline.comparison_md
+    : latestBaseline.content_md;
+  const previousStrategy = latestBaseline.comparison_strategy ?? "full";
+  const strategyChanged = latestBaseline.canonicalizer_version ===
+      WEB_CANONICALIZER_VERSION && previousStrategy !== currentStrategy;
 
   const result = (
     status: CanonicalChangeStatus,
+    comparisonStrategyChanged = false,
   ): CanonicalContentComparison => ({
     status,
-    previousMarkdown: latestBaseline.content_md,
+    previousMarkdown,
+    previousFullMarkdown: latestBaseline.content_md,
     previousCaptureId: latestBaseline.id,
+    comparisonStrategyChanged,
     successfulMarkdownHistory,
   });
+
+  // Full and focused documents are intentionally incomparable. Rebaseline
+  // silently when the quality-gated strategy changes instead of producing a
+  // synthetic whole-page alert.
+  if (strategyChanged) return result("same", true);
 
   if (
     latestBaseline.canonicalizer_version === WEB_CANONICALIZER_VERSION &&
@@ -215,18 +248,26 @@ export async function compareCanonicalContentForUrl(
     );
   }
 
+  // v1 Page captures have no stored semantic projection. A focused v2 render
+  // therefore becomes a silent cutover baseline; reconstructing old <main>
+  // content from Markdown would fabricate structure that no longer exists.
+  if (currentStrategy !== "full" && !latestBaseline.comparison_md?.trim()) {
+    return result("same", true);
+  }
+
   if (
-    typeof latestBaseline.content_md === "string" &&
-    latestBaseline.content_md.trim()
+    typeof previousMarkdown === "string" &&
+    previousMarkdown.trim()
   ) {
     const priorCanonicalHash = await webCanonicalHash(
-      latestBaseline.content_md,
+      previousMarkdown,
     );
     await svc
       .from("raw_captures")
       .update({
         canonical_content_sha256: priorCanonicalHash,
         canonicalizer_version: WEB_CANONICALIZER_VERSION,
+        comparison_strategy: currentStrategy,
       })
       .eq("id", latestBaseline.id);
     return result(priorCanonicalHash === canonicalHash ? "same" : "changed");
@@ -249,11 +290,17 @@ export async function writeCanonicalBaseline(
     scoutId: string;
     sourceUrl: string;
     markdown: string;
+    comparisonMarkdown?: string | null;
+    comparisonStrategy?: string;
     scoutRunId?: string | null;
     now?: string;
   },
 ): Promise<void> {
   const nowIso = args.now ?? new Date().toISOString();
+  const comparisonMarkdown = args.comparisonMarkdown?.trim()
+    ? args.comparisonMarkdown
+    : args.markdown;
+  const comparisonStrategy = args.comparisonStrategy ?? "full";
   const { error } = await svc.from("raw_captures").insert({
     user_id: args.userId,
     scout_id: args.scoutId,
@@ -262,7 +309,9 @@ export async function writeCanonicalBaseline(
     source_domain: deriveSourceDomain(args.sourceUrl),
     content_md: args.markdown,
     content_sha256: await sha256Hex(args.markdown),
-    canonical_content_sha256: await webCanonicalHash(args.markdown),
+    comparison_md: comparisonStrategy === "full" ? null : comparisonMarkdown,
+    comparison_strategy: comparisonStrategy,
+    canonical_content_sha256: await webCanonicalHash(comparisonMarkdown),
     canonicalizer_version: WEB_CANONICALIZER_VERSION,
     token_count: Math.ceil(args.markdown.length / 4),
     captured_at: nowIso,

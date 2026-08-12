@@ -36,6 +36,9 @@ Deno.test(
         new Response(
           JSON.stringify({
             markdown: "# Page",
+            comparison_markdown: "# Main content",
+            comparison_strategy: "main",
+            comparison_ratio: 0.75,
             rawHtml: "<html>raw</html>",
             html: "<body>clean</body>",
             title: "Page",
@@ -57,6 +60,9 @@ Deno.test(
     assertEquals(seenAuth, "Bearer tok-123");
     assertEquals(seenBody.timeout_ms, 30_000);
     assertEquals(result.markdown, "# Page");
+    assertEquals(result.comparison_markdown, "# Main content");
+    assertEquals(result.comparison_strategy, "main");
+    assertEquals(result.comparison_ratio, 0.75);
     assertEquals(result.rawHtml, "<html>raw</html>");
     assertEquals(result.html, "<body>clean</body>");
     assertEquals(result.title, "Page");
@@ -99,6 +105,9 @@ Deno.test(
 
     const result = await crawl4aiScrape("https://example.org/page");
     assertEquals(result.markdown, "body");
+    assertEquals(result.comparison_markdown, null);
+    assertEquals(result.comparison_strategy, "full");
+    assertEquals(result.comparison_ratio, undefined);
     assertEquals(result.rawHtml, null);
     assertEquals(result.html, undefined);
     assertEquals(result.title, undefined);

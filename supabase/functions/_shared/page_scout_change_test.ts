@@ -90,7 +90,137 @@ Deno.test("a visible content reorder is Any Change but never fabricates removal 
   assertEquals(diff.hasChanges, true);
   assertEquals(diff.removed, []);
   assertEquals(diff.added, []);
-  assertEquals(diff.summary, "");
+  assertEquals(diff.moves.length, 1);
+  assertEquals(diff.moves[0].text, "Venue");
+  assertEquals({ from: diff.moves[0].from, to: diff.moves[0].to }, {
+    from: 2,
+    to: 1,
+  });
+  assertStringIncludes(diff.summary, "**Moved:**");
+});
+
+Deno.test("numbered list reordering is represented as deterministic moves", () => {
+  const diff = buildPageContentDiff(
+    "1. Austria\n2. Belgium\n3. Croatia",
+    "1. Belgium\n2. Austria\n3. Croatia",
+  );
+
+  assertEquals(diff.added, []);
+  assertEquals(diff.removed, []);
+  assertEquals(
+    diff.moves.map((move) => ({
+      text: move.text,
+      from: move.from,
+      to: move.to,
+    })),
+    [
+      { text: "Belgium", from: 2, to: 1 },
+      { text: "Austria", from: 1, to: 2 },
+    ],
+  );
+  assertStringIncludes(diff.summary, "Belgium (2 → 1)");
+});
+
+Deno.test("diff occurrences retain the exact location of repeated added text", () => {
+  const repeated =
+    "Google allows ads promoting cryptocurrency exchanges and software wallets.";
+  const diff = buildPageContentDiff(
+    ["## European Union", repeated, "Existing qualification"].join("\n"),
+    [
+      "## European Union",
+      repeated,
+      "Existing qualification",
+      "## Iceland",
+      repeated,
+      "New qualification",
+    ].join("\n"),
+  );
+
+  const occurrence = diff.addedOccurrences.find((item) =>
+    item.text === repeated
+  );
+  assertEquals(occurrence?.index, 4);
+  assertEquals(occurrence?.previousCount, 1);
+  assertEquals(occurrence?.currentCount, 2);
+  assertStringIncludes(diff.summary, "Additional occurrence (1 → 2)");
+});
+
+Deno.test("repeated lines use stable local context before global ordinal fallback", () => {
+  const diff = buildPageContentDiff(
+    ["## Rules", "Existing rule", "Repeated rule"].join("\n"),
+    ["## Rules", "Repeated rule", "Existing rule", "Repeated rule"].join("\n"),
+  );
+  assertEquals(diff.addedOccurrences, [{
+    text: "Repeated rule",
+    index: 1,
+    previousCount: 1,
+    currentCount: 2,
+  }]);
+});
+
+Deno.test("removing a repeated line retains the removed local occurrence", () => {
+  const diff = buildPageContentDiff(
+    ["## Rules", "Repeated rule", "Existing rule", "Repeated rule"].join("\n"),
+    ["## Rules", "Existing rule", "Repeated rule"].join("\n"),
+  );
+  assertEquals(diff.removedOccurrences, [{
+    text: "Repeated rule",
+    index: 1,
+    previousCount: 2,
+    currentCount: 1,
+  }]);
+});
+
+Deno.test("identical numbered bodies are matched inside their Markdown section", () => {
+  const diff = buildPageContentDiff(
+    [
+      "## First",
+      "1. Repeated item",
+      "2. First-only item",
+      "## Second",
+      "1. Repeated item",
+      "2. Second-only item",
+    ].join("\n"),
+    [
+      "## First",
+      "1. First-only item",
+      "2. Repeated item",
+      "## Second",
+      "1. Repeated item",
+      "2. Second-only item",
+    ].join("\n"),
+  );
+  const repeated = diff.moves.find((move) => move.text === "Repeated item");
+  assertEquals(
+    repeated && {
+      from: repeated.from,
+      to: repeated.to,
+      beforeIndex: repeated.beforeIndex,
+      afterIndex: repeated.afterIndex,
+    },
+    { from: 1, to: 2, beforeIndex: 1, afterIndex: 2 },
+  );
+});
+
+Deno.test("movement evidence is complete beyond fifty reordered lines", () => {
+  const before = Array.from({ length: 60 }, (_, index) => `Line ${index}`);
+  const diff = buildPageContentDiff(
+    before.join("\n"),
+    [...before].reverse().join("\n"),
+  );
+  assertEquals(diff.moves.length > 50, true);
+});
+
+Deno.test("large heading-free repeated-line documents retain indexed fallback evidence", () => {
+  const before = Array.from({ length: 4_000 }, () => "Repeated body");
+  const after = ["Repeated body", ...before];
+  const diff = buildPageContentDiff(before.join("\n"), after.join("\n"));
+  assertEquals(diff.addedOccurrences, [{
+    text: "Repeated body",
+    index: 4_000,
+    previousCount: 4_000,
+    currentCount: 4_001,
+  }]);
 });
 
 Deno.test("PS-ANY-001 Any Change follows a real normalized delta, not units or prose", () => {

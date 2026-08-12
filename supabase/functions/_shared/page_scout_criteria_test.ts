@@ -25,6 +25,7 @@ Deno.test("an explicit grounded agent decision makes a substantive change alert-
         findings: [{
           before_id: "R1",
           after_id: "A1",
+          move_id: "",
           explanation: "Die Frist wurde vom 1. auf den 15. August verschoben.",
         }],
       }),
@@ -42,6 +43,80 @@ Deno.test("an explicit grounded agent decision makes a substantive change alert-
     result.agentReason,
     "Die im Kriterium genannte Anmeldefrist hat sich geändert.",
   );
+});
+
+Deno.test("an ordered move can ground a criteria finding", async () => {
+  const criteria = "Alert when Belgium changes position in the list.";
+  const result = await evaluatePageScoutCriteria({
+    criteria,
+    delta: "MOVED[M1]: 2 -> 1 | Belgium",
+    timeoutMs: 100,
+  }, {
+    decisionExtract: () =>
+      Promise.resolve({
+        alert_warranted: true,
+        certainty: "certain" as const,
+        reason: "Belgium moved to the first position.",
+        findings: [{
+          before_id: "",
+          after_id: "",
+          move_id: "M1",
+          explanation: "Belgium moved from position 2 to position 1.",
+        }],
+      }),
+  });
+
+  assertEquals(result.matches, true);
+  assertEquals(result.matchingPassages, ["Belgium"]);
+  assertEquals(result.acceptedFindings, [{
+    beforeQuote: "",
+    afterQuote: "",
+    movement: { text: "Belgium", from: 2, to: 1 },
+    criterion: criteria,
+    explanation: "Belgium moved from position 2 to position 1.",
+  }]);
+});
+
+Deno.test("the criteria judge defaults reorder and identical-copy evidence to non-substantive", async () => {
+  let prompt = "";
+  let systemInstruction = "";
+  const result = await evaluatePageScoutCriteria({
+    criteria:
+      "Alert only on substantive changes to cryptocurrency policy wording.",
+    delta: [
+      "SECTION: ## Italy",
+      "OCCURRENCE: identical text count changed from 1 to 2; this is an additional occurrence, not new wording.",
+      "ADDED[A1]: Software wallets are allowed with limitations.",
+      "MOVED[M1]: 8 -> 3 | Software wallets",
+    ].join("\n"),
+    timeoutMs: 100,
+  }, {
+    decisionExtract: (value, _schema, options) => {
+      prompt = value;
+      systemInstruction = options.systemInstruction ?? "";
+      return Promise.resolve({
+        alert_warranted: false,
+        certainty: "certain" as const,
+        reason:
+          "The wording is unchanged and only its occurrence and position changed.",
+        findings: [],
+      });
+    },
+  });
+
+  assertStringIncludes(
+    systemInstruction,
+    "Treat pure reordering and additional or removed copies of identical wording as non-substantive by default",
+  );
+  assertStringIncludes(
+    prompt,
+    "Ignore it unless the saved criteria explicitly asks about order, rank, position, or list placement.",
+  );
+  assertStringIncludes(
+    prompt,
+    "the containing SECTION shows that the same rule was newly applied to or removed from a locale, entity, or scope named by the criteria",
+  );
+  assertEquals(result.matches, false);
 });
 
 Deno.test("the final agent judgment keeps changed UI instructions silent", async () => {
@@ -131,6 +206,7 @@ Deno.test("a positive agent decision with unknown evidence IDs fails closed", as
             findings: [{
               before_id: "R1",
               after_id: "A2",
+              move_id: "",
               explanation: "Registration closed.",
             }],
           }),
@@ -143,10 +219,30 @@ Deno.test("a positive agent decision with unknown evidence IDs fails closed", as
 Deno.test("positive findings cannot select context, cross-side, or empty evidence IDs", async () => {
   for (
     const finding of [
-      { before_id: "C1", after_id: "", explanation: "Context only." },
-      { before_id: "A1", after_id: "", explanation: "Wrong side." },
-      { before_id: "", after_id: "R1", explanation: "Wrong side." },
-      { before_id: "", after_id: "", explanation: "No evidence." },
+      {
+        before_id: "C1",
+        after_id: "",
+        move_id: "",
+        explanation: "Context only.",
+      },
+      {
+        before_id: "A1",
+        after_id: "",
+        move_id: "",
+        explanation: "Wrong side.",
+      },
+      {
+        before_id: "",
+        after_id: "R1",
+        move_id: "",
+        explanation: "Wrong side.",
+      },
+      {
+        before_id: "",
+        after_id: "",
+        move_id: "",
+        explanation: "No evidence.",
+      },
     ]
   ) {
     await assertRejects(
@@ -190,6 +286,7 @@ Deno.test("malformed evidence labels cannot cross sides", async () => {
             findings: [{
               before_id: "A1",
               after_id: "",
+              move_id: "",
               explanation: "Registration changed.",
             }],
           }),
@@ -219,6 +316,7 @@ Deno.test("evidence IDs ground expanded policy bullets without copying Markdown"
         findings: [{
           before_id: "",
           after_id: "A1",
+          move_id: "",
           explanation: "The policy now explicitly prohibits this content.",
         }],
       }),
@@ -248,11 +346,13 @@ Deno.test("duplicate evidence-ID findings deduplicate after resolution", async (
           {
             before_id: "",
             after_id: "A1",
+            move_id: "",
             explanation: "Registration closed.",
           },
           {
             before_id: "",
             after_id: "A1",
+            move_id: "",
             explanation: "Duplicate finding.",
           },
         ],
@@ -343,6 +443,7 @@ Deno.test("the evaluator makes one authoritative decision over the complete boun
         findings: [{
           before_id: "R1",
           after_id: "",
+          move_id: "",
           explanation: "The registration statement was removed.",
         }],
       });

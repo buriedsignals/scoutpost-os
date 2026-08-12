@@ -91,6 +91,15 @@ completed_at      TIMESTAMPTZ
 expires_at        TIMESTAMPTZ  -- NOW() + 90 days (TTL)
 ```
 
+### `raw_captures`
+
+Short-lived source captures and Page Scout comparison baselines. `content_md`
+retains the complete captured Markdown for evidence. `comparison_md` stores the
+quality-gated focused comparison Markdown when a semantic landmark is accepted
+(otherwise it is null and the complete document is compared); `comparison_strategy`
+records that choice (`main`, `role_main`, `article`, `provider_main`, or `full`).
+The canonical hash and canonicalizer version identify compatible baselines.
+
 ### `execution_records`
 
 Summary cards shown in the scout history UI. Also used for execution-level deduplication:

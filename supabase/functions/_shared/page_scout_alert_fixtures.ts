@@ -5,6 +5,8 @@ export interface PageScoutAlertFixture {
   before: string;
   after: string;
   expectedAlert: boolean;
+  /** False when deterministic normalization should stop before AI review. */
+  expectedNormalizedChange?: boolean;
   failureClass: string;
 }
 
@@ -40,6 +42,7 @@ export const PAGE_SCOUT_ALERT_FIXTURES: PageScoutAlertFixture[] = [
       "false",
     ].join("\n"),
     expectedAlert: false,
+    expectedNormalizedChange: false,
     failureClass: "unrelated-feedback-identifier",
   },
   {
@@ -74,6 +77,7 @@ export const PAGE_SCOUT_ALERT_FIXTURES: PageScoutAlertFixture[] = [
     before: "Règles en vigueur\n* Les annonces trompeuses sont interdites.",
     after: "Règles en vigueur\n- Les annonces trompeuses sont interdites.",
     expectedAlert: false,
+    expectedNormalizedChange: false,
     failureClass: "format-only-list-marker",
   },
   {

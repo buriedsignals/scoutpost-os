@@ -40,7 +40,7 @@ function changedDiff() {
   );
 }
 
-Deno.test("criteria delta includes context for Google feedback identifier churn", () => {
+Deno.test("criteria delta suppresses Google feedback identifier churn", () => {
   const before = [
     "Policy body unchanged.",
     "Enable Dark Mode",
@@ -56,34 +56,93 @@ Deno.test("criteria delta includes context for Google feedback identifier churn"
     "16235620894640803440",
   );
 
-  const delta = renderPageScoutCriteriaDelta(
-    buildPageContentDiff(before, after),
+  const diff = buildPageContentDiff(before, after);
+  assertEquals(diff.hasChanges, false);
+  assertEquals(renderPageScoutCriteriaDelta(diff).includes("ADDED["), false);
+});
+
+Deno.test("criteria delta anchors repeated text to its added section", () => {
+  const repeated = "Software wallets are allowed with limitations.";
+  const delta = renderPageScoutCriteriaDelta(buildPageContentDiff(
+    ["## European Union", repeated, "Existing condition"].join("\n"),
+    [
+      "## European Union",
+      repeated,
+      "Existing condition",
+      "## Iceland",
+      repeated,
+      "New condition",
+    ].join("\n"),
+  ));
+
+  assertStringIncludes(delta, "SECTION: ## Iceland");
+  assertStringIncludes(
+    delta,
+    "OCCURRENCE: identical text count changed from 1 to 2; this is an additional occurrence, not new wording.",
   );
+  assertStringIncludes(
+    delta,
+    "ADDED[A2]: Software wallets are allowed with limitations.",
+  );
+});
+
+Deno.test("criteria delta treats a unique removal as ordinary removal evidence", () => {
+  const delta = renderPageScoutCriteriaDelta(buildPageContentDiff(
+    ["## Policy", "Unique removed evidence.", "Retained evidence."].join("\n"),
+    ["## Policy", "Retained evidence."].join("\n"),
+  ));
+
+  assertStringIncludes(delta, "REMOVED[R1]: Unique removed evidence.");
+  assertEquals(delta.includes("OCCURRENCE:"), false);
+});
+
+Deno.test("criteria delta keeps duplicate-removal occurrence context", () => {
+  const repeated = "Repeated evidence.";
+  const delta = renderPageScoutCriteriaDelta(buildPageContentDiff(
+    ["## Policy", repeated, repeated, "Retained evidence."].join("\n"),
+    ["## Policy", repeated, "Retained evidence."].join("\n"),
+  ));
 
   assertStringIncludes(
     delta,
-    [
-      "CONTEXT: Enable Dark Mode",
-      "CONTEXT: Send feedback on...",
-      "CONTEXT: This help content & information General Help Center experience",
-      "REMOVED[R1]: 2507032178178457788",
-      "CONTEXT: true",
-      "CONTEXT: Search Help Center",
-      "CONTEXT: false",
-    ].join("\n"),
+    "OCCURRENCE: identical text count changed from 2 to 1; this is a removed occurrence, not new wording.",
   );
-  assertStringIncludes(
-    delta,
+  assertStringIncludes(delta, "REMOVED[R1]: Repeated evidence.");
+});
+
+Deno.test("criteria delta keeps duplicate numbered movement in its own section", () => {
+  const delta = renderPageScoutCriteriaDelta(buildPageContentDiff(
     [
-      "CONTEXT: Enable Dark Mode",
-      "CONTEXT: Send feedback on...",
-      "CONTEXT: This help content & information General Help Center experience",
-      "ADDED[A1]: 16235620894640803440",
-      "CONTEXT: true",
-      "CONTEXT: Search Help Center",
-      "CONTEXT: false",
+      "## First",
+      "1. Repeated item",
+      "2. First-only item",
+      "## Second",
+      "1. Repeated item",
+      "2. Second-only item",
     ].join("\n"),
-  );
+    [
+      "## First",
+      "1. First-only item",
+      "2. Repeated item",
+      "## Second",
+      "1. Repeated item",
+      "2. Second-only item",
+    ].join("\n"),
+  ));
+
+  assertStringIncludes(delta, "SECTION BEFORE: ## First");
+  assertStringIncludes(delta, "MOVED[M");
+  assertStringIncludes(delta, "1 -> 2 | Repeated item");
+});
+
+Deno.test("criteria delta exposes pure reordering as move evidence", () => {
+  const delta = renderPageScoutCriteriaDelta(buildPageContentDiff(
+    "1. Austria\n2. Belgium\n3. Croatia",
+    "1. Belgium\n2. Austria\n3. Croatia",
+  ));
+
+  assertStringIncludes(delta, "MOVED[M1]: 2 -> 1 | Belgium");
+  assertStringIncludes(delta, "MOVED[M2]: 1 -> 2 | Austria");
 });
 
 function dependencies(

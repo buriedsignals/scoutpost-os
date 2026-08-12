@@ -1,12 +1,16 @@
 from types import SimpleNamespace
 
 from app.mapping import crawl_failure_detail, map_crawl_result
+from app import main_content
 from tests.conftest import crawl_result
 
 
 def test_maps_all_fields_per_ktd2():
     mapped = map_crawl_result(crawl_result(), requested_url="https://example.org")
     assert mapped["markdown"] == "# Heading\n\nBody text."
+    assert mapped["comparison_markdown"] is None
+    assert mapped["comparison_strategy"] == "full"
+    assert mapped["comparison_ratio"] == 1.0
     assert mapped["rawHtml"] == "<html><body>raw</body></html>"
     assert mapped["html"] == "<body>clean</body>"
     assert mapped["title"] == "Example Page"
@@ -41,6 +45,29 @@ def test_never_uses_fit_markdown():
     md = SimpleNamespace(raw_markdown="full page", fit_markdown="stripped")
     mapped = map_crawl_result(crawl_result(markdown=md), "u")
     assert mapped["markdown"] == "full page"
+
+
+def test_maps_quality_gated_main_content(monkeypatch):
+    body = " ".join(f"policy{index}" for index in range(100))
+    monkeypatch.setattr(
+        main_content,
+        "_convert_with_crawl4ai",
+        lambda html, _base_url: html,
+    )
+    result = crawl_result(
+        html=f"<nav>Navigation</nav><main>{body}</main><footer>Submit</footer>",
+        markdown=SimpleNamespace(
+            raw_markdown=f"Navigation\n\n{body}\n\nSubmit"
+        ),
+    )
+
+    mapped = map_crawl_result(result, "https://example.org")
+    assert mapped["comparison_strategy"] == "main"
+    assert "policy99" in mapped["comparison_markdown"]
+    assert "Submit" not in mapped["comparison_markdown"]
+    # The fixture has 806 alphanumeric characters in the full markdown and
+    # 798 in the deterministic serialized <main> projection, rounded to 4dp.
+    assert mapped["comparison_ratio"] == 0.9901
 
 
 def test_missing_metadata_and_url_fall_back():

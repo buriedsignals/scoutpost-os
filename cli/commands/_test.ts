@@ -62,6 +62,27 @@ Deno.test("auth --help is successful while a missing subcommand is an error", ()
   assertEquals(authUsageExitCode("login", {}), null);
 });
 
+Deno.test("scouts --help distinguishes Specific Criteria from noisy Any Change", async () => {
+  const output: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => output.push(args.map(String).join(" "));
+  try {
+    await runScouts(["--help"]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  const help = output.join("\n");
+  assertStringIncludes(
+    help,
+    "Web/Page scouts: use --criteria for Specific Criteria alerts; omitting or",
+  );
+  assertStringIncludes(
+    help,
+    "leaving it empty selects noisy Any Change alerts that may include page chrome.",
+  );
+});
+
 Deno.test("config set + get round-trip", async () => {
   await withTempHome(() => {
     const path = configPath();

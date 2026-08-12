@@ -7,17 +7,19 @@ Website monitoring with change detection and criteria matching.
 ## Overview
 
 Page Scouts monitor specific URLs for content changes. Users choose between two modes:
-- **Any Change**: Notifies on any content change (criteria is null, skips LLM analysis)
+- **Any Change**: Notifies on any normalized comparison-content change (criteria is null, skips LLM analysis)
 - **Specific Criteria**: Notifies only when changes match user-defined criteria (LLM-analyzed)
 
 The current UI opens on **Specific Criteria** so journalists state what matters
 before testing the page. **Any Change** remains available as an explicit choice
-and for legacy/API requests with empty criteria.
+and for legacy/API requests with empty criteria; the UI warns that pages without
+a reliable main-content landmark can still produce page-chrome noise.
 
 Uses the configured scrape port (Crawl4AI with the existing Firecrawl anti-bot
 fallback), but Page Scout change detection is owned locally by Scoutpost:
-fresh markdown is canonicalized, version-hashed, and compared against the
-latest successful per-source `raw_captures` baseline. Firecrawl
+the unmodified provider markdown is retained while a quality-gated semantic
+projection is canonicalized, version-hashed, and compared against the latest
+successful per-source `raw_captures` baseline. Firecrawl
 Cloud remains available only through the classified anti-bot fallback or the
 operator-wide `SCRAPE_PROVIDER=firecrawl` compatibility switch.
 
@@ -31,17 +33,42 @@ renderer that actually served a fetch is recorded per run as
 
 ### Canonical Hashing
 
-Provider markdown is not hashed directly for change detection. The Page
-Scout canonicalizer removes known scrape-noise before hashing:
+Provider markdown is not hashed directly for change detection. On Crawl4AI
+renders, when rendered HTML exposes a substantial `main`, `[role=main]`, or
+single/dominant `article`, Page Scout compares that projection. It falls back
+to the complete rendered document when the candidate is absent, too small, or
+cannot be converted safely. The unmodified provider markdown is retained for
+evidence, extraction, and child-link discovery in either case. A Firecrawl
+anti-bot fallback labels its existing `onlyMainContent` output as
+`provider_main`; that provider does not supply a separate complete Markdown
+document on that path.
+
+The Page Scout canonicalizer then removes deterministic scrape noise before
+hashing:
 
 - image markdown and image CDN URL churn
 - placeholder/static asset URL churn
 - relative timestamps such as "34 mins ago"
+- zero-width/non-breaking-space and equivalent Unicode presentation churn
+- unordered-list marker changes (`*`/`+`/`-`)
+- known tracking query parameters while preserving locale parameters such as
+  `hl` and `gl`
+- bare whole-line renderer IDs (long decimal, hex, or UUID values)
 - whitespace-only differences
 
 It preserves ordinary text, headings, publication dates, and article links. The
-canonicalizer is versioned (`web-md-v1`) and stored alongside each baseline in
+canonicalizer is versioned (`web-md-v2`) and stored alongside each baseline in
 `raw_captures.canonicalizer_version`.
+
+Ordering is not globally suppressed because a ranking or agenda move can be
+meaningful. Pure line reorders and rank changes in numbered lists are instead
+represented deterministically as `MOVED` evidence. Repeated wording retains
+its exact occurrence index, count change, surrounding context, and nearest
+Markdown heading so an additional copy is not presented as newly written text.
+For Specific Criteria scouts, the criteria judge treats movement and identical
+copies as non-substantive by default. They match only when the saved criteria
+explicitly concerns order/rank, occurrence count, or a named section, locale,
+entity, or scope to which the wording was added or removed.
 
 ## Execution Pipeline
 
@@ -54,6 +81,7 @@ canonicalizer is versioned (`web-md-v1`) and stored alongside each baseline in
 │                                                                 │
 │  Stage 1: Change Detection                                      │
 │  ├─ Fresh provider-port scrape (cache bypassed)                 │
+│  ├─ Quality-gated main-content projection (or full fallback)    │
 │  ├─ Canonical SHA-256 comparison against raw_captures           │
 │  └─ Returns: "new" | "changed" | "same"                         │
 │           │                                                     │
@@ -67,7 +95,7 @@ canonicalizer is versioned (`web-md-v1`) and stored alongside each baseline in
 │           ▼                                                     │
 │  Stage 3: Alert decision from normalized delta                  │
 │  ├─ Any Change: any non-empty normalized content delta          │
-│  └─ Specific Changes: structured match on ADDED/REMOVED text    │
+│  └─ Specific Changes: structured match on ADDED/REMOVED/MOVED   │
 │      (no generated description is required)                     │
 │           ▼                                                     │
 │  Stage 4: Optional unit enrichment + deduplication              │
@@ -95,6 +123,7 @@ canonicalizer is versioned (`web-md-v1`) and stored alongside each baseline in
 | `_shared/web_scout_baseline.ts` | `supabase/functions/` | Schedule-time baseline establishment |
 | `_shared/page_scout_change.ts` | `supabase/functions/` | Deterministic normalized delta and alert decision |
 | `_shared/page_scout_criteria.ts` | `supabase/functions/` | Structured Specific Changes delta matcher |
+| `app/main_content.py` | `scrape-service/` | Language-independent semantic-main projection and quality gate |
 | `_shared/subpage-filter.ts` | `supabase/functions/` | Strict descendant scope and primary-content discovery |
 | `_shared/atomic_extract.ts` | `supabase/functions/` | Atomic unit extraction |
 | `_shared/notifications.ts` | `supabase/functions/` | Localized email notifications |
@@ -104,8 +133,10 @@ canonicalizer is versioned (`web-md-v1`) and stored alongside each baseline in
 ### Layer 1: Local canonical hash baseline
 - The fresh provider-port scrape bypasses the default provider cache for Page Scout
   change detection.
-- Canonical markdown hash is compared with the latest `raw_captures` baseline
-  for the same canonicalizer version.
+- Canonical comparison-markdown hash is compared with the latest
+  `raw_captures` baseline for the same canonicalizer version and projection
+  strategy. A strategy transition silently establishes a comparable baseline
+  instead of emitting a synthetic whole-document change.
 - Raw markdown hash is still stored for diagnostics and content dedup context.
 
 ### Layer 2: Canonical unit deduplication
@@ -159,12 +190,14 @@ Page Scout uses the shared `_shared/atomic_extract.ts::sourcePublishedDate` help
 
 ### `raw_captures`
 
-Stores the scraped markdown used for baseline comparison and source
-traceability. Page Scout rows include:
+Stores the unmodified provider markdown and the optional focused comparison
+document. Page Scout rows include:
 
-- `content_sha256` — raw markdown hash
-- `canonical_content_sha256` — versioned canonical markdown hash
-- `canonicalizer_version` — e.g. `web-md-v1`
+- `content_md` / `content_sha256` — unmodified provider evidence markdown and raw hash
+- `comparison_md` — focused comparison markdown; null for the complete-document fallback
+- `comparison_strategy` — `main`, `role_main`, `article`, `provider_main`, or `full`
+- `canonical_content_sha256` — versioned hash of the comparison document
+- `canonicalizer_version` — e.g. `web-md-v2`
 - `expires_at` — raw capture retention cutoff
 
 The ordinary 30-day TTL still bounds raw-capture history, but cleanup pins the

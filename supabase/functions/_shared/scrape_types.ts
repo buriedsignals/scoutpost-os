@@ -22,7 +22,17 @@ export interface ScrapeSnapshotPayload {
 }
 
 export interface ScrapeResult {
+  /** Unmodified provider Markdown retained for evidence and extraction. */
   markdown: string;
+  /** Quality-gated semantic projection used only for Page Scout comparison. */
+  comparison_markdown?: string | null;
+  comparison_strategy?:
+    | "main"
+    | "role_main"
+    | "article"
+    | "provider_main"
+    | "full";
+  comparison_ratio?: number;
   html?: string;
   rawHtml?: string | null;
   title?: string;

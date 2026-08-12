@@ -297,7 +297,12 @@ export const TOOLS: ToolDef[] = [
           description:
             "Optional human-readable context shown on scout cards. Do not use for filtering; use criteria for filtering.",
         },
-        criteria: { type: "string", maxLength: 4000 },
+        criteria: {
+          type: "string",
+          maxLength: 4000,
+          description:
+            "For web/Page scouts, use this for Specific Criteria alerts. Omitted or empty criteria selects Any Change alerts, which may include page chrome.",
+        },
         topic: {
           type: "string",
           maxLength: 200,
@@ -472,7 +477,11 @@ export const TOOLS: ToolDef[] = [
         id: { type: "string", format: "uuid" },
         name: { type: "string", minLength: 1, maxLength: 200 },
         description: { type: "string", maxLength: 2000 },
-        criteria: { type: "string" },
+        criteria: {
+          type: "string",
+          description:
+            "For web/Page scouts, use this for Specific Criteria alerts. Omitted or empty criteria selects Any Change alerts, which may include page chrome.",
+        },
         topic: {
           type: "string",
           description:
