@@ -114,9 +114,11 @@ strip_edge_function indicator-claim
 strip_edge_function mcp-auth
 strip_edge_function newsletter-subscribe
 strip_edge_function user-update-email
+strip_edge_function account-deletion-worker
 sed_if_exists -i '/^# auth-muckrock is browser-facing/,+1d' supabase/config.toml
 sed_if_exists -i '/^# mcp-auth is the MCP-only sibling/,+4d' supabase/config.toml
 sed_if_exists -i '/^# newsletter-subscribe is called pre-auth/,+1d' supabase/config.toml
+sed_if_exists -i '/^# Internal cron worker/,+1d' supabase/config.toml
 
 # Shared helpers used only by the hosted MuckRock/Billing auth surface above.
 # Keep them out of the public mirror so self-hosted deployments do not inherit
@@ -126,6 +128,10 @@ remove_hosted_shared_file "${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER}.test.ts"
 remove_hosted_shared_file entitlements.ts
 remove_hosted_shared_file entitlements.test.ts
 remove_hosted_shared_file muckrock.ts
+remove_hosted_shared_file account_deletion.ts
+remove_hosted_shared_file account_deletion_test.ts
+remove_hosted_shared_file storage_prefix_cleanup.ts
+remove_hosted_shared_file storage_prefix_cleanup_test.ts
 
 # Remove hosted-only newsletter entitlement settings from files that remain in
 # the public mirror.
@@ -135,6 +141,13 @@ sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" docs/architect
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" AGENTS.md
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" CLAUDE.md
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" docs/architecture/developer-guide.md
+sed_if_exists -i "/ACCOUNT_DELETION_JWT_WAIT_SECONDS/d" AGENTS.md
+sed_if_exists -i '/^Hosted account deletion is a separate/,+5d' AGENTS.md
+sed_if_exists -i '/^- \*\*Pending deletion guard:/,+2d' backend/AGENTS.md
+sed_if_exists -i '/^Hosted Preferences account deletion/,+4d' frontend/AGENTS.md
+sed_if_exists -i '/^Hosted account deletion is initiated/,+6d' docs/architecture/developer-guide.md
+sed_if_exists -i '/^After that existing admission decision/,+9d' docs/architecture/fastapi-endpoints.md
+sed_if_exists -i 's|Current user / preferences / timezone + hosted account-deletion gate|Current user / preferences / timezone|' docs/architecture/api-surface.md
 sed_if_exists -i "/^Indicator eligibility mode is a reviewed source-code decision, not an$/,+3d" AGENTS.md
 sed_if_exists -i "/^DEFAULT_BEEHIIV_LAB_TIER_ID = /d" backend/app/config.py
 sed_if_exists -i "/^    # Beehiiv \\/ Indicator entitlement lookup/,+8d" backend/app/config.py
@@ -197,6 +210,10 @@ rm -f supabase/migrations/00095_drop_user_update_email_storage.sql
 rm -f supabase/migrations/00097_product_update_email_preference.sql
 rm -f supabase/migrations/20260812095951_user_entitlement_overrides.sql
 rm -f supabase/migrations/00067_monthly_usage_report_cron.sql
+rm -f supabase/migrations/20260814092909_account_deletion.sql
+rm -f supabase/tests/account_deletion.sql
+rm -f docs/features/account-deletion.md
+rm -f frontend/src/tests/components/preferences-account-deletion.test.ts
 
 # Private live benchmark harness. These scripts assume hosted Supabase Auth
 # Admin access, internal service auth, and production operator credentials.
@@ -341,6 +358,11 @@ rewrite(
     "frontend/src/lib/api-client.ts",
     [
         (
+            r"\n// HOSTED_ACCOUNT_DELETION_START\n.*?// HOSTED_ACCOUNT_DELETION_END\n",
+            "\n",
+            re.DOTALL,
+        ),
+        (
             r"\nexport interface IndicatorClaimRequestResponse \{.*?\nexport async function verifyIndicatorClaim\(token: string\): Promise<IndicatorClaimVerifyResponse> \{\n\treturn apiRequest<IndicatorClaimVerifyResponse>\('POST', '/indicator-claim/verify', \{ token \}\);\n\}\n",
             "\n",
             re.DOTALL,
@@ -375,6 +397,41 @@ rewrite(
 rewrite(
     "frontend/src/lib/components/modals/PreferencesModal.svelte",
     [
+        (
+            r"\n\t// HOSTED_ACCOUNT_DELETION_IMPORT_START\n.*?\t// HOSTED_ACCOUNT_DELETION_IMPORT_END\n",
+            "\n",
+            re.DOTALL,
+        ),
+        (
+            r"\n\t// HOSTED_ACCOUNT_DELETION_STATE_START\n.*?\t// HOSTED_ACCOUNT_DELETION_STATE_END\n",
+            "\n",
+            re.DOTALL,
+        ),
+        (
+            r"\n\t\t// HOSTED_ACCOUNT_DELETION_RESET_START\n.*?\t\t// HOSTED_ACCOUNT_DELETION_RESET_END\n",
+            "\n",
+            re.DOTALL,
+        ),
+        (
+            r"\n\t// HOSTED_ACCOUNT_DELETION_REACTIVE_START\n.*?\t// HOSTED_ACCOUNT_DELETION_REACTIVE_END\n",
+            "\n",
+            re.DOTALL,
+        ),
+        (
+            r"\n\t// HOSTED_ACCOUNT_DELETION_FUNCTIONS_START\n.*?\t// HOSTED_ACCOUNT_DELETION_FUNCTIONS_END\n",
+            "\n",
+            re.DOTALL,
+        ),
+        (
+            r"\n\s*<!-- HOSTED_ACCOUNT_DELETION_UI_START -->.*?<!-- HOSTED_ACCOUNT_DELETION_UI_END -->",
+            "",
+            re.DOTALL,
+        ),
+        (
+            r"\n\t/\* HOSTED_ACCOUNT_DELETION_CSS_START \*/.*?\t/\* HOSTED_ACCOUNT_DELETION_CSS_END \*/\n",
+            "\n",
+            re.DOTALL,
+        ),
         (r"import \{ Settings, CheckCircle, ExternalLink, MailCheck \} from 'lucide-svelte';", "import { Settings, CheckCircle, ExternalLink } from 'lucide-svelte';", 0),
         (r"\n\timport \{ requestIndicatorClaim \} from '\$lib/api-client';", "", 0),
         (r"\n\tlet claimEmail = '';\n\tlet claimLoading = false;\n\tlet claimMessage: string \| null = null;\n\tlet claimError: string \| null = null;", "", 0),
@@ -384,7 +441,7 @@ rewrite(
             0,
         ),
         (
-            r"\n\tasync function handleClaimSubscription\(\) \{.*?\n\t\}\n\n\tfunction handleBackdropClick",
+            r"\n\tasync function handleClaimSubscription\(\) \{.*?\n\t\}\n+\tfunction handleBackdropClick",
             "\n\tfunction handleBackdropClick",
             re.DOTALL,
         ),
@@ -426,6 +483,22 @@ rewrite(
 rewrite(
     "supabase/functions/user/index.ts",
     [
+        (r"\n  requireIdentity,", "", 0),
+        (
+            r"\n// HOSTED_ACCOUNT_DELETION_START\n.*?// HOSTED_ACCOUNT_DELETION_END\n",
+            "\n",
+            re.DOTALL,
+        ),
+        (
+            r"\n    // HOSTED_ACCOUNT_DELETION_AUTH_START\n.*?    // HOSTED_ACCOUNT_DELETION_AUTH_END\n",
+            '\n    user = path === "/me" && isRead\n      ? await requireIdentityOrApiKey(req)\n      : await requireUser(req);\n',
+            re.DOTALL,
+        ),
+        (
+            r"\n    // HOSTED_ACCOUNT_DELETION_ROUTES_START\n.*?    // HOSTED_ACCOUNT_DELETION_ROUTES_END\n",
+            "\n",
+            re.DOTALL,
+        ),
         (r"\n  entitlement_source: string \| null;", "", 0),
         (r"\n  indicator_claim_active: boolean;", "", 0),
         (r"balance, monthly_cap, tier, entitlement_source", "balance, monthly_cap, tier", 0),
@@ -442,6 +515,11 @@ rewrite(
 rewrite(
     "frontend/src/routes/terms/+page.svelte",
     [
+        (
+            r"Hosted Scoutpost users can permanently delete.*?configured by the newsroom\.",
+            "Self-hosted deployments use the authentication and account-deletion process configured by the newsroom.",
+            re.DOTALL,
+        ),
         (r"\n\t\t\t\t<li><strong>Subscription claim metadata</strong>.*?</li>", "", 0),
         (r"\n\t\t\t\t<li>Indicator subscription emails.*?</li>", "", 0),
         (r"\n\t\t\t\t\t<tr><td>Beehiiv</td>.*?</tr>", "", 0),
@@ -451,10 +529,15 @@ rewrite(
 for messages_path in Path("frontend/messages").glob("*.json"):
     data = json.loads(messages_path.read_text())
     for key in list(data):
-        if key.startswith("claimVerify_") or key.startswith("preferences_claim"):
+        if (
+            key.startswith("claimVerify_")
+            or key.startswith("preferences_claim")
+            or key.startswith("preferences_deleteAccount")
+        ):
             data.pop(key, None)
     messages_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 PY
+sed_if_exists -i '/account-deletion/d' supabase/functions/user/index.ts
 rm -rf frontend/src/lib/paraglide/
 
 # Strip UpgradeModal and pricing-only UI from the current workspace shell.
@@ -783,6 +866,7 @@ HOSTED_ONLY_EDGE_FUNCTIONS=(
   newsletter-subscribe
   notifications-benchmark
   user-update-email
+  account-deletion-worker
 )
 HOSTED_ONLY_SHARED_FILES=(
   "${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER}.ts"
@@ -790,6 +874,10 @@ HOSTED_ONLY_SHARED_FILES=(
   entitlements.ts
   entitlements.test.ts
   muckrock.ts
+  account_deletion.ts
+  account_deletion_test.ts
+  storage_prefix_cleanup.ts
+  storage_prefix_cleanup_test.ts
 )
 
 for fn in "${HOSTED_ONLY_EDGE_FUNCTIONS[@]}"; do

@@ -288,6 +288,56 @@
 	}
 	.muckrock-link:hover { border-bottom-color: var(--color-primary); }
 
+	.claim-status {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		margin-top: 0.75rem;
+		font-size: 0.8125rem;
+		color: var(--color-success);
+	}
+
+	.claim-box {
+		margin-top: 1rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--color-border);
+	}
+
+	.claim-row {
+		display: flex;
+		gap: 0.5rem;
+		align-items: stretch;
+		margin-top: 0.625rem;
+	}
+
+	.claim-row .form-input {
+		min-width: 0;
+		flex: 1;
+	}
+
+	.claim-button {
+		white-space: nowrap;
+	}
+
+	.claim-message,
+	.claim-error {
+		margin: 0.5rem 0 0;
+		font-size: 0.75rem;
+		line-height: 1.45;
+	}
+
+	.claim-message { color: var(--color-success); }
+	.claim-error { color: var(--color-error); }
+
+
+	@media (max-width: 560px) {
+		.claim-row {
+			flex-direction: column;
+		}
+		.claim-button {
+			width: 100%;
+		}
+	}
 
 	.error-text {
 		margin-top: 1rem;

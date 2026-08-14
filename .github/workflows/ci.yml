@@ -252,6 +252,15 @@ jobs:
       - name: Run Scout dispatch runtime integration
         run: bash scripts/tests/run-scout-dispatch-drain-integration.sh
 
+      - name: Run hosted account deletion integration
+        run: |
+          set -a
+          # shellcheck disable=SC1091
+          source /tmp/scout-supabase.env
+          set +a
+          deno test --allow-env --allow-net --allow-read \
+            supabase/functions/account-deletion-worker/_test.ts
+
       - name: Run local self-host smoke
         run: |
           set -a

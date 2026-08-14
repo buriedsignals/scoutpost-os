@@ -215,6 +215,7 @@ Production SaaS is also still a Supabase deployment:
 - `auth-supabase.ts -> login()` must route through the MuckRock broker when
   `PUBLIC_MUCKROCK_ENABLED=true`
 
+
 Do not "simplify" this by switching hosted production to `auth-muckrock.ts` or
 by making `auth-supabase.ts -> login()` always redirect to `/login`. That breaks
 the production MuckRock OAuth start path.

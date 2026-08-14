@@ -60,7 +60,7 @@ Frontend is served by the same service in dev; static SPA in production.
 | `local_auth.py` | `/api/auth/login`, `/api/auth/callback` | Local-only MuckRock broker for localhost SaaS smoke tests; mounted only with `LOCAL_MUCKROCK_AUTH_BROKER=true`. | Live (dev only) |
 | `public_edge_proxy.py` | `/functions/v1/*`, `/mcp*` | Same-origin proxy to hosted Supabase Edge Functions and MCP. | Live |
 | `onboarding.py` | `/api/onboarding/*` | Onboarding initialize/status/tour-complete | Live |
-| `user.py` | `/api/user/*` | User preferences (mirrors EF; legacy callers) | Live |
+| `user.py` | `/api/user/*` | User preferences (mirrors EF; legacy callers); old `DELETE /delete-account` is `410 Gone` | Live |
 | `units.py` | `/api/units/*` | Units helpers (legacy callers) | Live |
 | `license.py` | `/api/license/*` | License key gating (OSS sustainable-use model) | Live |
 | `v1.py` | `/api/v1/*` | Public REST API (CLI uses this OR the Supabase EF URL) | Live |

@@ -34,8 +34,8 @@ export function getTestingAnonKey(): string {
 export function getTestingServiceRoleKey(): string {
   return envAny(
     "SUPABASE_SERVICE_ROLE_KEY",
-    "SERVICE_ROLE_KEY",
     "SECRET_KEY",
+    "SERVICE_ROLE_KEY",
   );
 }
 
@@ -97,11 +97,12 @@ export async function createTestUser(): Promise<TestUser> {
   const service = serviceClient();
   const anon = anonClient();
 
-  const { data: created, error: createErr } = await service.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  });
+  const { data: created, error: createErr } = await service.auth.admin
+    .createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
   if (createErr) {
     throw new Error(`failed to create test user: ${createErr.message}`);
   }
@@ -121,10 +122,11 @@ export async function createTestUser(): Promise<TestUser> {
     throw new Error(`failed to seed credit account: ${creditsErr.message}`);
   }
 
-  const { data: signInData, error: signInErr } = await anon.auth.signInWithPassword({
-    email,
-    password,
-  });
+  const { data: signInData, error: signInErr } = await anon.auth
+    .signInWithPassword({
+      email,
+      password,
+    });
   if (signInErr) {
     throw new Error(`failed to sign in test user: ${signInErr.message}`);
   }
@@ -141,9 +143,8 @@ export async function createTestUser(): Promise<TestUser> {
       try {
         await service.auth.admin.deleteUser(userId);
       } catch {
-        // Local Supabase now issues opaque sb_secret_* keys that do not work
-        // with the legacy auth-admin helper path. Test users are unique and
-        // isolated, so cleanup remains best-effort for local integration runs.
+        // Test users are unique and isolated, so cleanup remains best-effort
+        // when a local Auth runtime is unavailable during teardown.
       }
     },
   };

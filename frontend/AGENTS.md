@@ -56,6 +56,7 @@ Svelte stores in `lib/stores/`:
 - Error handling
 - Type safety
 
+
 **Key Methods:**
 - `searchPulse()` - Beat Scout search with optional criteria (historical method name; POST /pulse/search)
 

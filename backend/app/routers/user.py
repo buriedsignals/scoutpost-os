@@ -10,7 +10,6 @@ DEPENDS ON: dependencies (session auth), services/user_service (DynamoDB),
     models/responses (UserPreferencesResponse), dependencies/providers (adapters)
 USED BY: frontend (settings panel), main.py (router mount)
 """
-import asyncio
 import ipaddress
 import logging
 from datetime import datetime, timezone
@@ -20,19 +19,15 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from app.config import get_settings
 from app.dependencies import get_current_user
 from app.dependencies.providers import (
     get_scout_storage,
     get_execution_storage,
     get_run_storage,
     get_unit_storage,
-    get_scheduler,
 )
 from app.models.responses import UserPreferencesResponse
-from app.services.snapshot_storage_cleanup import sweep_scout_snapshots
 from app.services.user_service import UserService
-from app.utils.schedule_naming import build_schedule_name
 
 logger = logging.getLogger(__name__)
 
@@ -300,97 +295,9 @@ async def data_export(
 
 
 @router.delete("/delete-account")
-async def delete_account(
-    request: Request,
-    user: dict = Depends(get_current_user),
-):
-    """Delete user account and all associated data (GDPR Art. 17 right to erasure).
-
-    Deletes all scouts (cascading to executions, runs, units, seen records,
-    post snapshots, and promises), cleans up schedules, and removes the user
-    profile. This action is irreversible.
-    """
-    user_id = user.get("user_id")
-
-    scout_storage = get_scout_storage()
-    settings = get_settings()
-
-    # 1. Get all scouts to iterate deletion
-    try:
-        scouts = await scout_storage.list_scouts(user_id)
-    except Exception as exc:
-        logger.error("Failed to list scouts for account deletion (user %s): %s", user_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve scouts for deletion",
-        )
-
-    # 2. Delete each scout's schedule + all associated storage records
-    scheduler = get_scheduler()
-    deleted_scouts = []
-    failed_scouts = []
-
-    for scout in scouts:
-        scout_name = scout.get("name", "")
-        scout_id = scout.get("id")
-        try:
-            # Delete the scheduler entry (EventBridge or Supabase pg_cron)
-            rule_name = build_schedule_name(user_id, scout_name)
-            try:
-                await scheduler.delete_schedule(rule_name)
-            except Exception as sched_exc:
-                logger.warning(
-                    "Failed to delete schedule for scout %s (user %s): %s",
-                    scout_name, user_id, sched_exc,
-                )
-
-            # Sweep Page Archive evidence objects BEFORE the row delete. FK
-            # cascade removes page_snapshots rows but never the storage objects
-            # (GDPR Art. 17 requires the bytes go too); this is the only sweep on
-            # the FastAPI deletion path. Best-effort — never raises.
-            if scout_id:
-                await sweep_scout_snapshots(user_id, scout_id)
-
-            # Delete scout + cascaded records (EXEC#, TIME#, SEEN#, POSTS#, PROMISE#)
-            await scout_storage.delete_scout(user_id, scout_name)
-            deleted_scouts.append(scout_name)
-        except Exception as exc:
-            logger.error(
-                "Failed to delete scout %s for user %s: %s",
-                scout_name, user_id, exc,
-            )
-            failed_scouts.append(scout_name)
-
-    # 3. Delete user profile record
-    # NOTE: UserStoragePort does not currently have a delete_user() method.
-    # The profile record (PROFILE# in DynamoDB, or users row in Supabase)
-    # remains. A delete_user() method should be added to UserStoragePort
-    # and both adapters to complete this. For now, we clear sensitive fields.
-    user_service = _get_user_service()
-    try:
-        await user_service.update_preferences(
-            user_id,
-            cms_api_url=None,
-            cms_api_token=None,
-            excluded_domains=[],
-        )
-    except Exception as exc:
-        logger.warning("Failed to clear user preferences for %s: %s", user_id, exc)
-
-    if failed_scouts:
-        logger.error(
-            "Account deletion incomplete for user %s: failed scouts: %s",
-            user_id, failed_scouts,
-        )
-
-    logger.info(
-        "Account deletion completed for user %s: %d scouts deleted, %d failed",
-        user_id, len(deleted_scouts), len(failed_scouts),
+async def delete_account():
+    """Retired incomplete deletion path; hosted deletion is Supabase-owned."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Use Preferences > Account to request account deletion.",
     )
-
-    return {
-        "status": "deleted" if not failed_scouts else "partial",
-        "user_id": user_id,
-        "scouts_deleted": len(deleted_scouts),
-        "scouts_failed": failed_scouts if failed_scouts else None,
-    }

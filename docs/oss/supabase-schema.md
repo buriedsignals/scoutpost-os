@@ -397,6 +397,11 @@ SQL via asyncpg.
 
 For details on the Edge Functions, see `docs/architecture/edge-functions.md`.
 
+The private hosted source also has an `account_deletion_jobs` worker ledger.
+It depends on the MuckRock plan gate and hosted auth callbacks, so its migration,
+worker, UI, and tests are removed together by `scripts/ops/strip-oss.sh`; it is
+not part of the OSS schema contract.
+
 ---
 
 ## Extensions Required

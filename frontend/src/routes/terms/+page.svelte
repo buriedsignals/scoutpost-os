@@ -74,7 +74,7 @@
 		<section>
 			<h2>Account & Deletion</h2>
 			<p>
-				Hosted Scoutpost accounts authenticate through Supabase. Self-hosted deployments use the authentication setup configured by the newsroom. To delete your account and all associated data, contact the maintainer of your deployment. Deletion is completed within 30 days.
+				Self-hosted deployments use the authentication and account-deletion process configured by the newsroom.
 			</p>
 		</section>
 

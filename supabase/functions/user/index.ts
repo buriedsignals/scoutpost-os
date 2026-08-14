@@ -140,6 +140,7 @@ interface MeResponse {
   health_notifications_enabled: boolean;
 }
 
+
 /**
  * GET /me — returns the shape consumed by `$authStore.user` on the frontend
  * (mirrors the source backend/app/routers/auth.py /auth/me response).
@@ -235,6 +236,7 @@ async function getPreferences(user: AuthedUser): Promise<Response> {
   if (error) throw new Error(error.message);
   return jsonOk(data ?? {});
 }
+
 
 async function patchPreferences(
   req: Request,
