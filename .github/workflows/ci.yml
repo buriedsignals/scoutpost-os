@@ -297,6 +297,38 @@ jobs:
       - name: Exercise the Windows PowerShell Authenticode bridge
         run: node --test cli/scripts/postinstall_windows_check.mjs
 
+  cli-local-attestation:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.22.2
+      - name: Install locked local provenance signer
+        working-directory: cli/release-attestation
+        run: npm ci --ignore-scripts --engine-strict
+      - name: Create a local private-repository provenance bundle
+        run: node cli/release-attestation/attest_ci_check.mjs
+      - name: Verify every locally attested subject
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/scoutpost-ci-provenance.bundle.jsonl"
+          for subject in cli/scripts/checksums.json cli/scripts/platform.js cli/scripts/postinstall.js cli/scripts/release.js; do
+            gh attestation verify "$subject" \
+              --bundle "$bundle" \
+              --repo buriedsignals/scoutpost \
+              --signer-workflow buriedsignals/scoutpost/.github/workflows/ci.yml \
+              --source-digest "$GITHUB_SHA" \
+              --predicate-type https://slsa.dev/provenance/v1 \
+              --deny-self-hosted-runners \
+              --no-public-good
+          done
+
   cli-smoke:
     name: scout live smoke
     runs-on: ubuntu-latest

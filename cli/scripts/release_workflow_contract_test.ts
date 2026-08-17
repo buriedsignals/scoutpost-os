@@ -14,12 +14,15 @@ const ciWorkflow = normalizeLineEndings(
     new URL("../../.github/workflows/ci.yml", import.meta.url),
   ),
 );
+const attestationSource = await Deno.readTextFile(
+  new URL("../release-attestation/attest.mjs", import.meta.url),
+);
 const signWindowsStart = workflow.indexOf("\n  sign-windows:\n");
 const releaseStart = workflow.indexOf("\n  release:\n", signWindowsStart);
 assert(signWindowsStart >= 0 && releaseStart > signWindowsStart);
 const signWindows = workflow.slice(signWindowsStart, releaseStart);
 const attestationStart = signWindows.indexOf(
-  "      - name: Attest signed Windows release provenance\n",
+  "      - name: Install local provenance signer\n",
 );
 const uploadStart = signWindows.indexOf(
   "      - uses: actions/upload-artifact@",
@@ -130,12 +133,24 @@ Deno.test("PR CI parses the embedded Windows lifecycle with PowerShell", () => {
   );
 });
 
-Deno.test("all four Windows constituent files receive release provenance", () => {
-  assertStringIncludes(signWindows, "attestations: write");
+Deno.test("all four Windows constituent files receive local signed release provenance", () => {
+  assert(!signWindows.includes("attestations: write"));
+  assert(!attestationStep.includes("actions/attest-build-provenance"));
+  assertStringIncludes(signWindows, "          node-version: 22.22.2\n");
   assertStringIncludes(
     attestationStep,
-    "actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661",
+    "working-directory: cli/release-attestation\n" +
+      "        run: npm ci --ignore-scripts --engine-strict",
   );
+  assertStringIncludes(
+    attestationStep,
+    "run: node cli/release-attestation/attest.mjs",
+  );
+  assertStringIncludes(
+    attestationStep,
+    "--bundle $bundle",
+  );
+  assertStringIncludes(attestationStep, "--no-public-good");
   for (
     const path of [
       "cli/dist/scout-windows-x86_64.exe",
@@ -146,4 +161,27 @@ Deno.test("all four Windows constituent files receive release provenance", () =>
   ) {
     assertStringIncludes(attestationStep, path);
   }
+  assertStringIncludes(
+    signWindows,
+    "cli/dist/scout-windows-provenance.bundle.jsonl",
+  );
+});
+
+Deno.test("CLI CI signs and verifies a local private-repository bundle", () => {
+  assertStringIncludes(ciWorkflow, "\n  cli-local-attestation:\n");
+  assertStringIncludes(ciWorkflow, "      id-token: write\n");
+  assertStringIncludes(ciWorkflow, "          node-version: 22.22.2\n");
+  assertStringIncludes(
+    ciWorkflow,
+    "run: node cli/release-attestation/attest_ci_check.mjs",
+  );
+  assertStringIncludes(
+    ciWorkflow,
+    "--signer-workflow buriedsignals/scoutpost/.github/workflows/ci.yml",
+  );
+  assertStringIncludes(ciWorkflow, "--no-public-good");
+  assertStringIncludes(
+    attestationSource,
+    'ref === "refs/heads/develop"',
+  );
 });

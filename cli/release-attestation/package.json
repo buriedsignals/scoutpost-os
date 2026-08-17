@@ -1,0 +1,13 @@
+{
+  "name": "scoutpost-release-attestation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "dependencies": {
+    "@sigstore/bundle": "5.0.0",
+    "@sigstore/sign": "5.0.0"
+  }
+}
