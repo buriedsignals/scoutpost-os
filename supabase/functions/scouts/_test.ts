@@ -387,6 +387,28 @@ Deno.test("scouts: social fields persist and seed post snapshot baseline", async
   }
 });
 
+Deno.test("scouts: social handles cannot fan out into multiple actor targets", async () => {
+  const user = await createTestUser();
+  try {
+    const createRes = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Multiline Social Target",
+        type: "social",
+        platform: "facebook",
+        profile_handle: "zuck\nhttps://www.facebook.com/meta",
+        monitor_mode: "summarize",
+        topic: "technology",
+      }),
+    });
+    assertEquals(createRes.status, 400);
+    assertMatch((await createRes.json()).error, /single line/i);
+  } finally {
+    await user.cleanup();
+  }
+});
+
 Deno.test("scouts: social patch validates criteria against merged state", async () => {
   const user = await createTestUser();
   let createdId: string | null = null;

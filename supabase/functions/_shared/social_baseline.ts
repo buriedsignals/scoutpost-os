@@ -1,6 +1,7 @@
 import { ValidationError } from "./errors.ts";
 import {
   buildSocialProfileUrl,
+  isSingleLineSocialHandle,
   normalizeSocialHandle,
   type SocialPlatform,
 } from "./social_profiles.ts";
@@ -100,6 +101,9 @@ export function buildSocialActorInput(
   handle: string,
   now = new Date(),
 ): Record<string, unknown> {
+  if (!isSingleLineSocialHandle(handle)) {
+    throw new ValidationError("social profile handle must be a single line");
+  }
   const h = normalizeSocialHandle(platform, handle);
   switch (platform) {
     case "instagram":
@@ -111,7 +115,11 @@ export function buildSocialActorInput(
     case "facebook":
       return {
         endpoint: "profile_posts_by_url",
-        profile_url: buildSocialProfileUrl("facebook", h),
+        // The actor's current build schema accepts profile URLs through the
+        // textarea-shaped `urls_text` field. Its README still documents the
+        // internal `profile_url` request parameter, which the actor input
+        // silently ignores.
+        urls_text: buildSocialProfileUrl("facebook", h),
         // The current actor paginates every available result and charges per
         // item. Date bounds cap that documented path while still covering the
         // longest supported Scoutpost schedule (monthly) plus delivery drift.

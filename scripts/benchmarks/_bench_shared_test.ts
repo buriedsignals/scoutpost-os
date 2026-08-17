@@ -1,8 +1,26 @@
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  assert,
+  assertEquals,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  DEFAULT_BENCHMARK_FETCH_TIMEOUT_MS,
+  resolveBenchmarkFetchTimeoutMs,
   strictDescendantCaptureUrls,
   waitForScoutRun,
 } from "./_bench_shared.ts";
+
+Deno.test("benchmark fetch window outlives the hosted request idle boundary", () => {
+  assert(DEFAULT_BENCHMARK_FETCH_TIMEOUT_MS > 150_000);
+  assertEquals(
+    resolveBenchmarkFetchTimeoutMs(undefined),
+    DEFAULT_BENCHMARK_FETCH_TIMEOUT_MS,
+  );
+  assertEquals(
+    resolveBenchmarkFetchTimeoutMs("invalid"),
+    DEFAULT_BENCHMARK_FETCH_TIMEOUT_MS,
+  );
+  assertEquals(resolveBenchmarkFetchTimeoutMs("5000"), 5_000);
+});
 
 Deno.test("positive notification waits through pending until delivery is recorded", async () => {
   const originalFetch = globalThis.fetch;

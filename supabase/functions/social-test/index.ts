@@ -38,6 +38,7 @@ import {
   classifyProfileProbeStatus,
   isInvalidLinkedInProfileUrl,
   isLinkedInCompanyUrl,
+  isSingleLineSocialHandle,
   looksLikeMissingProfileError,
   normalizeSocialHandle,
   type ProfileProbeResult,
@@ -52,7 +53,9 @@ import {
 
 const InputSchema = z.object({
   platform: z.enum(["instagram", "x", "facebook", "tiktok", "linkedin"]),
-  handle: z.string().min(1).max(200),
+  handle: z.string().min(1).max(200).refine(isSingleLineSocialHandle, {
+    message: "profile handle must be a single line",
+  }),
 });
 
 const APIFY_TIMEOUT_SECS = 120;
@@ -141,7 +144,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   // Step 1: browser-like probe. Anti-bot responses are inconclusive, not missing.
-  const probeResult = await validateProfileExists(platform, profileUrl);
+  const probeResult = await validateProfileExists(profileUrl);
   if (probeResult === "missing") {
     logEvent({
       level: "info",
@@ -274,7 +277,6 @@ function isFacebookPageUrl(input: string): boolean {
 }
 
 async function validateProfileExists(
-  platform: string,
   url: string,
 ): Promise<ProfileProbeResult> {
   // Social platforms often anti-bot HEAD probes; a browser-like GET is less brittle.

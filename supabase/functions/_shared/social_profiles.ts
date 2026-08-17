@@ -26,6 +26,10 @@ export interface SocialProfileResolution {
   attempts: SocialProfileProbeAttempt[];
 }
 
+export function isSingleLineSocialHandle(input: string): boolean {
+  return !/[\r\n]/.test(input);
+}
+
 const LINKEDIN_PERSONAL_PROFILE_RE =
   /^(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([^/?#]+)\/?(?:[?#].*)?$/i;
 const URL_LIKE_INPUT_RE =

@@ -51,9 +51,12 @@ const cases: ActorCase[] = [
   },
   {
     platform: "facebook",
+    // Facebook Scouts support personal profiles, not Pages. The previous
+    // `nasa` canary is a Page and legitimately returns no profile posts from
+    // the selected actor.
     handle:
       envAny("SCOUT_BENCH_FACEBOOK_HANDLE", "COJO_BENCH_FACEBOOK_HANDLE") ??
-        "nasa",
+        "zuck",
   },
   {
     platform: "tiktok",

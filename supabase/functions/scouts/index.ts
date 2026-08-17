@@ -42,6 +42,7 @@ import { shapeScoutResponse } from "../_shared/db.ts";
 import {
   isInvalidLinkedInProfileUrl,
   isLinkedInCompanyUrl,
+  isSingleLineSocialHandle,
   normalizeSocialHandle,
 } from "../_shared/social_profiles.ts";
 import {
@@ -137,6 +138,14 @@ const SocialPlatform = z.enum([
   "linkedin",
 ]);
 const SocialMonitorMode = z.enum(["summarize", "criteria"]);
+const RequiredSocialProfileHandle = z.string().min(1).max(200).refine(
+  isSingleLineSocialHandle,
+  { message: "profile handle must be a single line" },
+);
+const UpdatedSocialProfileHandle = z.string().max(200).refine(
+  isSingleLineSocialHandle,
+  { message: "profile handle must be a single line" },
+);
 const BaselinePostSchema = z.record(z.unknown());
 const TopicSchema = z.string().max(200).superRefine((value, ctx) => {
   const tags = value.split(",").map((tag) => tag.trim()).filter(Boolean);
@@ -178,7 +187,7 @@ const CreateSchema = z
     project_id: z.string().uuid().optional(),
     priority_sources: z.array(z.string().max(500)).max(100).optional(),
     platform: SocialPlatform.optional(),
-    profile_handle: z.string().min(1).max(200).optional(),
+    profile_handle: RequiredSocialProfileHandle.optional(),
     monitor_mode: SocialMonitorMode.optional(),
     track_removals: z.boolean().optional(),
     // Page-archive gates (PAGE-ARCHIVE-PRD KTD5/KTD6). archive_enabled is
@@ -371,7 +380,7 @@ const UpdateSchema = z
       .optional(),
     is_active: z.boolean().optional(),
     platform: SocialPlatform.nullable().optional(),
-    profile_handle: z.string().max(200).nullable().optional(),
+    profile_handle: UpdatedSocialProfileHandle.nullable().optional(),
     monitor_mode: SocialMonitorMode.nullable().optional(),
     track_removals: z.boolean().optional(),
     archive_enabled: z.boolean().optional(),
