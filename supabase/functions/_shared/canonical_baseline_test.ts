@@ -4,6 +4,7 @@ import {
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import type { SupabaseClient } from "./supabase.ts";
 import {
+  buildCanonicalBaselineRow,
   compareCanonicalContentForUrl,
   hasCurrentCanonicalBaselineForUrl,
   hashChangeStatusForUrl,
@@ -694,6 +695,27 @@ Deno.test("writeCanonicalBaseline inserts a canonical capture", async () => {
   );
   assertEquals(row.comparison_md, null);
   assertEquals(row.comparison_strategy, "full");
+});
+
+Deno.test("buildCanonicalBaselineRow returns the canonical focused row shape", async () => {
+  const row = await buildCanonicalBaselineRow({
+    userId: "u1",
+    scoutId: "s1",
+    sourceUrl: "https://Example.Test/policy",
+    markdown: "Navigation\nPolicy body\nFooter",
+    comparisonMarkdown: "Policy body",
+    comparisonStrategy: "main",
+    now: "2026-08-17T12:00:00.000Z",
+  });
+
+  assertEquals(row.source_domain, "example.test");
+  assertEquals(row.scout_run_id, null);
+  assertEquals(row.comparison_md, "Policy body");
+  assertEquals(row.comparison_strategy, "main");
+  assertEquals(row.canonical_content_sha256, await canonicalOf("Policy body"));
+  assertEquals(row.canonicalizer_version, WEB_CANONICALIZER_VERSION);
+  assertEquals(row.captured_at, "2026-08-17T12:00:00.000Z");
+  assertEquals(row.expires_at, "2026-09-16T12:00:00.000Z");
 });
 
 Deno.test("writeCanonicalBaseline stores full evidence separately from focused comparison content", async () => {

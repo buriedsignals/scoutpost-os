@@ -278,6 +278,15 @@ export function classifyRunError(
   if (lower.includes("not configured")) {
     return { errorClass: "platform", stage: fallbackStage, message };
   }
+  // The hosted rollback renderer owns this admission gate. It can reject a
+  // burst before Crawl4AI reaches the target, so charging the failure to the
+  // monitored page would let Scoutpost infrastructure auto-pause a customer.
+  if (
+    lower.includes("crawl4ai scrape failed") &&
+    lower.includes("scrape capacity exhausted")
+  ) {
+    return { errorClass: "platform", stage: fallbackStage, message };
+  }
   if (error instanceof ApiError && error.status === 504) {
     return { errorClass: "timeout", stage: fallbackStage, message };
   }

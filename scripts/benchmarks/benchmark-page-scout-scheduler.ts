@@ -12,10 +12,19 @@ import {
   assertLiveBenchmarkAllowed,
   dataApiHeaders,
   getCtx,
+  isRunningRunStatus,
   pgSelectOne,
 } from "./_bench_shared.ts";
 
 const FIXTURE_URL = "https://example.com/";
+
+export function scheduledRunIsSettled(run: {
+  status: string;
+  notification_status: string | null;
+}): boolean {
+  if (isRunningRunStatus(run.status)) return false;
+  return run.status !== "success" || run.notification_status !== "pending";
+}
 
 async function apiJson<T>(
   url: string,
@@ -132,7 +141,7 @@ async function waitForScheduledRun(
       error_message: string | null;
     }>;
     const run = rows[0];
-    if (run && !["running", "pending"].includes(run.status)) return run;
+    if (run && scheduledRunIsSettled(run)) return run;
     await new Promise((resolve) => setTimeout(resolve, 3_000));
   }
   throw new Error("timed out waiting for the actual production scheduler");

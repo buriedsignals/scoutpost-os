@@ -190,6 +190,37 @@ Deno.test("classifyRunError distinguishes no-baseline, provider and platform fai
   );
 });
 
+Deno.test("renderer capacity exhaustion is a platform failure that cannot auto-pause a scout", () => {
+  const classified = classifyRunError(
+    new ApiError(
+      'crawl4ai scrape failed: 503 {"detail":"scrape capacity exhausted"}',
+      502,
+    ),
+    "scrape",
+  );
+
+  assertEquals(classified, {
+    errorClass: "platform",
+    stage: "scrape",
+    message:
+      'crawl4ai scrape failed: 503 {"detail":"scrape capacity exhausted"}',
+  });
+  assertEquals(shouldIncrementScoutFailure(classified.errorClass), false);
+
+  const thirdPartyCollision = classifyRunError(
+    new ApiError(
+      'firecrawl scrape failed: 503 {"detail":"scrape capacity exhausted"}',
+      502,
+    ),
+    "scrape",
+  );
+  assertEquals(thirdPartyCollision.errorClass, "provider");
+  assertEquals(
+    shouldIncrementScoutFailure(thirdPartyCollision.errorClass),
+    true,
+  );
+});
+
 Deno.test("only provider-like failures increment scout failure counters", () => {
   assertEquals(shouldIncrementScoutFailure("provider"), true);
   assertEquals(shouldIncrementScoutFailure("timeout"), true);

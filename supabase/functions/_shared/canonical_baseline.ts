@@ -34,11 +34,59 @@ export interface CanonicalContentComparison {
 
 export const RAW_CAPTURE_TTL_DAYS = 30;
 
+interface CanonicalBaselineInput {
+  userId: string;
+  scoutId: string;
+  sourceUrl: string;
+  markdown: string;
+  comparisonMarkdown?: string | null;
+  comparisonStrategy?: string;
+  scoutRunId?: string | null;
+}
+
+interface CanonicalBaselineWriteArgs extends CanonicalBaselineInput {
+  now?: string;
+}
+
+interface CanonicalBaselineRowArgs extends CanonicalBaselineInput {
+  now: string;
+}
+
 export function rawCaptureExpiresAt(nowIso: string): string {
   const start = Date.parse(nowIso);
   const base = Number.isNaN(start) ? Date.now() : start;
   return new Date(base + RAW_CAPTURE_TTL_DAYS * 24 * 60 * 60 * 1000)
     .toISOString();
+}
+
+/**
+ * Build the canonical raw_captures row shared by production writers and
+ * benchmarks. Requiring the capture time keeps benchmark fixtures
+ * deterministic while writeCanonicalBaseline retains its clock default.
+ */
+export async function buildCanonicalBaselineRow(
+  args: CanonicalBaselineRowArgs,
+): Promise<Record<string, unknown>> {
+  const comparisonMarkdown = args.comparisonMarkdown?.trim()
+    ? args.comparisonMarkdown
+    : args.markdown;
+  const comparisonStrategy = args.comparisonStrategy ?? "full";
+  return {
+    user_id: args.userId,
+    scout_id: args.scoutId,
+    scout_run_id: args.scoutRunId ?? null,
+    source_url: args.sourceUrl,
+    source_domain: deriveSourceDomain(args.sourceUrl),
+    content_md: args.markdown,
+    content_sha256: await sha256Hex(args.markdown),
+    comparison_md: comparisonStrategy === "full" ? null : comparisonMarkdown,
+    comparison_strategy: comparisonStrategy,
+    canonical_content_sha256: await webCanonicalHash(comparisonMarkdown),
+    canonicalizer_version: WEB_CANONICALIZER_VERSION,
+    token_count: Math.ceil(args.markdown.length / 4),
+    captured_at: args.now,
+    expires_at: rawCaptureExpiresAt(args.now),
+  };
 }
 
 /**
@@ -285,37 +333,10 @@ export async function compareCanonicalContentForUrl(
  */
 export async function writeCanonicalBaseline(
   svc: SupabaseClient,
-  args: {
-    userId: string;
-    scoutId: string;
-    sourceUrl: string;
-    markdown: string;
-    comparisonMarkdown?: string | null;
-    comparisonStrategy?: string;
-    scoutRunId?: string | null;
-    now?: string;
-  },
+  args: CanonicalBaselineWriteArgs,
 ): Promise<void> {
   const nowIso = args.now ?? new Date().toISOString();
-  const comparisonMarkdown = args.comparisonMarkdown?.trim()
-    ? args.comparisonMarkdown
-    : args.markdown;
-  const comparisonStrategy = args.comparisonStrategy ?? "full";
-  const { error } = await svc.from("raw_captures").insert({
-    user_id: args.userId,
-    scout_id: args.scoutId,
-    scout_run_id: args.scoutRunId ?? null,
-    source_url: args.sourceUrl,
-    source_domain: deriveSourceDomain(args.sourceUrl),
-    content_md: args.markdown,
-    content_sha256: await sha256Hex(args.markdown),
-    comparison_md: comparisonStrategy === "full" ? null : comparisonMarkdown,
-    comparison_strategy: comparisonStrategy,
-    canonical_content_sha256: await webCanonicalHash(comparisonMarkdown),
-    canonicalizer_version: WEB_CANONICALIZER_VERSION,
-    token_count: Math.ceil(args.markdown.length / 4),
-    captured_at: nowIso,
-    expires_at: rawCaptureExpiresAt(nowIso),
-  });
+  const row = await buildCanonicalBaselineRow({ ...args, now: nowIso });
+  const { error } = await svc.from("raw_captures").insert(row);
   if (error) throw new Error(error.message);
 }

@@ -6,6 +6,7 @@ import {
 } from "./social_profiles.ts";
 
 const MAX_ITEMS = 20;
+const FACEBOOK_LOOKBACK_DAYS = 35;
 const APIFY_TIMEOUT_SECS = 120;
 const CAPTION_TRUNCATED_MAX = 200;
 const WRAPPER_KEYS = [
@@ -97,6 +98,7 @@ export async function scanSocialBaseline(
 export function buildSocialActorInput(
   platform: SocialPlatform,
   handle: string,
+  now = new Date(),
 ): Record<string, unknown> {
   const h = normalizeSocialHandle(platform, handle);
   switch (platform) {
@@ -109,7 +111,15 @@ export function buildSocialActorInput(
     case "facebook":
       return {
         endpoint: "profile_posts_by_url",
-        urls_text: buildSocialProfileUrl("facebook", h),
+        profile_url: buildSocialProfileUrl("facebook", h),
+        // The current actor paginates every available result and charges per
+        // item. Date bounds cap that documented path while still covering the
+        // longest supported Scoutpost schedule (monthly) plus delivery drift.
+        start_date: dateOnlyUtc(
+          new Date(now.getTime() - FACEBOOK_LOOKBACK_DAYS * 86_400_000),
+        ),
+        end_date: dateOnlyUtc(now),
+        // Retain the legacy cap for actor builds that still honor it.
         max_posts: MAX_ITEMS,
       };
     case "tiktok":
@@ -209,7 +219,7 @@ function normalizePost(
     imageUrl = media?.[0]?.url ?? null;
     url = str(r.url);
   } else if (platform === "facebook") {
-    id = str(r.postId) || str(r.id) || str(r.url);
+    id = str(r.postId) || str(r.post_id) || str(r.id) || str(r.url);
     text = str(r.text) || str(r.message) || str(r.caption);
     timestamp = normalizeTimestamp(r.timestamp ?? r.publishedTime ?? r.time);
     imageUrl = str(r.image) || str(r.imageUrl) || firstImage(r.images);
@@ -243,6 +253,10 @@ function normalizePost(
     url = str(r.url) || str(r.share_url) || str(r.webVideoUrl);
   }
   return { id, text, timestamp, imageUrl, url };
+}
+
+function dateOnlyUtc(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
 function str(v: unknown): string {

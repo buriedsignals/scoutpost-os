@@ -13,6 +13,38 @@ Deno.test("instagram actor uses username input shape", () => {
   });
 });
 
+Deno.test("facebook actor uses the current bounded profile URL input shape", () => {
+  assertEquals(
+    buildSocialActorInput(
+      "facebook",
+      "nasa",
+      new Date("2026-08-17T12:00:00Z"),
+    ),
+    {
+      endpoint: "profile_posts_by_url",
+      profile_url: "https://www.facebook.com/nasa",
+      start_date: "2026-07-13",
+      end_date: "2026-08-17",
+      max_posts: 20,
+    },
+  );
+});
+
+Deno.test("normalizeSocialDatasetPosts accepts current Facebook post_id rows", () => {
+  const posts = normalizeSocialDatasetPosts("facebook", [{
+    post_id: "facebook-post-1",
+    message: "A Facebook post",
+    timestamp: "2026-08-16T10:30:00Z",
+    image: "https://example.com/facebook.jpg",
+  }]);
+
+  assertEquals(posts.length, 1);
+  assertEquals(posts[0].id, "facebook-post-1");
+  assertEquals(posts[0].text, "A Facebook post");
+  assertEquals(posts[0].timestamp, "2026-08-16T10:30:00Z");
+  assertEquals(posts[0].imageUrl, "https://example.com/facebook.jpg");
+});
+
 Deno.test("normalizeSocialDatasetPosts flattens wrapped actor outputs", () => {
   const posts = normalizeSocialDatasetPosts("instagram", [{
     latestPosts: [
@@ -100,7 +132,10 @@ Deno.test("normalizeSocialDatasetPosts accepts harvestapi LinkedIn rows", () => 
     "Microsoft is just one beneficiary of 250 years of history.",
   );
   assertEquals(posts[0].timestamp, "2026-07-02T22:32:45.912Z");
-  assertEquals(posts[0].imageUrl, "https://media.licdn.com/dms/image/v2/example");
+  assertEquals(
+    posts[0].imageUrl,
+    "https://media.licdn.com/dms/image/v2/example",
+  );
   assertEquals(
     posts[0].url,
     "https://www.linkedin.com/posts/bradsmi_microsofta250-ugcPost-7478420839751725057-xoe0",
