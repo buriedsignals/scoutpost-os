@@ -1,7 +1,13 @@
-import { assert, assertStringIncludes } from "jsr:@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
 
-const workflow = await Deno.readTextFile(
-  new URL("../../.github/workflows/cli-release.yml", import.meta.url),
+function normalizeLineEndings(value: string): string {
+  return value.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+}
+
+const workflow = normalizeLineEndings(
+  await Deno.readTextFile(
+    new URL("../../.github/workflows/cli-release.yml", import.meta.url),
+  ),
 );
 const signWindowsStart = workflow.indexOf("\n  sign-windows:\n");
 const releaseStart = workflow.indexOf("\n  release:\n", signWindowsStart);
@@ -16,6 +22,13 @@ const uploadStart = signWindows.indexOf(
 );
 assert(attestationStart >= 0 && uploadStart > attestationStart);
 const attestationStep = signWindows.slice(attestationStart, uploadStart);
+
+Deno.test("workflow parsing normalizes Windows line endings", () => {
+  assertEquals(
+    normalizeLineEndings("first\r\nsecond\rthird"),
+    "first\nsecond\nthird",
+  );
+});
 
 Deno.test("Windows signing evidence records protected Azure coordinates", () => {
   for (
