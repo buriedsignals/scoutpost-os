@@ -26,6 +26,7 @@ import { get } from "node:https";
 import { arch, platform } from "node:os";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { spawnSync } from "node:child_process";
+import { Buffer } from "node:buffer";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { getTargetAsset, SUPPORTED_PLATFORMS } from "./platform.js";
@@ -92,8 +93,33 @@ async function sha256File(path) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-function verifyWindowsSignature(binaryPath, expectedPublisher) {
-  if (platform() !== "win32") return;
+function safeChildDiagnostic(value) {
+  return String(value ?? "")
+    .replace(/[^\x20-\x7e]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 256);
+}
+
+function windowsPowerShellEnv(binaryPath) {
+  const childEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    const normalizedKey = key.toLowerCase();
+    if (
+      normalizedKey !== "psmodulepath" &&
+      normalizedKey !== "scoutpost_signature_path"
+    ) {
+      childEnv[key] = value;
+    }
+  }
+  childEnv.SCOUTPOST_SIGNATURE_PATH = binaryPath;
+  return childEnv;
+}
+
+export function inspectWindowsSignature(binaryPath) {
+  if (platform() !== "win32") {
+    throw new Error("Windows signature inspection requires Windows");
+  }
   const systemRoot = process.env.SystemRoot;
   if (!systemRoot || !isAbsolute(systemRoot) || /[\0\r\n]/.test(systemRoot)) {
     throw new Error(
@@ -109,25 +135,40 @@ function verifyWindowsSignature(binaryPath, expectedPublisher) {
   );
   const script = [
     "$ErrorActionPreference='Stop'",
-    "$p=[Console]::In.ReadLine()",
-    "$s=Get-AuthenticodeSignature -LiteralPath $p",
-    "[pscustomobject]@{status=[string]$s.Status;subject=if($null-eq $s.SignerCertificate){''}else{[string]$s.SignerCertificate.Subject};timestamp=($null-ne $s.TimeStamperCertificate)}|ConvertTo-Json -Compress",
+    "$ProgressPreference='SilentlyContinue'",
+    "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)",
+    "Import-Module Microsoft.PowerShell.Security -ErrorAction Stop",
+    "$s=Get-AuthenticodeSignature -LiteralPath $env:SCOUTPOST_SIGNATURE_PATH",
+    "$subject=''",
+    "if($null-ne $s.SignerCertificate){$subject=[string]$s.SignerCertificate.Subject}",
+    "$payload=[pscustomobject]@{status=[string]$s.Status;subject=$subject;timestamp=($null-ne $s.TimeStamperCertificate)}",
+    "[Console]::Out.WriteLine(($payload|ConvertTo-Json -Compress))",
   ].join(";");
+  const encodedScript = Buffer.from(script, "utf16le").toString("base64");
   const result = spawnSync(powershell, [
     "-NoLogo",
     "-NoProfile",
     "-NonInteractive",
-    "-Command",
-    script,
+    "-ExecutionPolicy",
+    "Bypass",
+    "-EncodedCommand",
+    encodedScript,
   ], {
-    input: `${binaryPath}\n`,
     encoding: "utf8",
+    // npm can be launched by PowerShell 7, whose PSModulePath is incompatible
+    // with Windows PowerShell 5.1. Omitting it makes powershell.exe reconstruct
+    // its native module path before loading Microsoft.PowerShell.Security.
+    env: windowsPowerShellEnv(binaryPath),
     windowsHide: true,
-    timeout: 15_000,
-    maxBuffer: 32_768,
+    timeout: 30_000,
+    maxBuffer: 64 * 1024,
   });
   if (result.status !== 0 || result.error) {
-    throw new Error("Windows Authenticode verification failed");
+    const code = safeChildDiagnostic(result.error?.code) || "none";
+    const stderr = safeChildDiagnostic(result.stderr) || "none";
+    throw new Error(
+      `Windows Authenticode verification process failed (status=${result.status}, code=${code}, stderr=${stderr})`,
+    );
   }
   let signature;
   try {
@@ -135,6 +176,12 @@ function verifyWindowsSignature(binaryPath, expectedPublisher) {
   } catch {
     throw new Error("Windows Authenticode verification returned invalid data");
   }
+  return signature;
+}
+
+function verifyWindowsSignature(binaryPath, expectedPublisher) {
+  if (platform() !== "win32") return;
+  const signature = inspectWindowsSignature(binaryPath);
   if (
     signature.status !== "Valid" || signature.subject !== expectedPublisher ||
     signature.timestamp !== true
