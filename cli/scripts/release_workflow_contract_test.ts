@@ -35,6 +35,10 @@ const lifecycleStart = signWindows.indexOf(
 );
 assert(lifecycleStart >= 0 && attestationStart > lifecycleStart);
 const lifecycleStep = signWindows.slice(lifecycleStart, attestationStart);
+const npmPublishStart = workflow.indexOf("\n  npm-publish:\n");
+const smokeStart = workflow.indexOf("\n  smoke:\n", npmPublishStart);
+assert(npmPublishStart >= 0 && smokeStart > npmPublishStart);
+const npmPublish = workflow.slice(npmPublishStart, smokeStart);
 
 Deno.test("workflow parsing normalizes Windows line endings", () => {
   assertEquals(
@@ -121,6 +125,27 @@ Deno.test("npm publication dry-run names the CLI package directory explicitly", 
   assertStringIncludes(
     workflow,
     'npm pack ./cli --dry-run --json > "$RUNNER_TEMP/scout-npm-pack.json"',
+  );
+});
+
+Deno.test("npm publication derives the publisher from this run's signed Windows evidence", () => {
+  assert(!npmPublish.includes("vars.AZURE_ARTIFACT_SIGNING_PUBLISHER_SUBJECT"));
+  assertStringIncludes(
+    npmPublish,
+    "node cli/scripts/build_release_checksums.mjs",
+  );
+  assertStringIncludes(
+    npmPublish,
+    '--release-dir "$RUNNER_TEMP/current-release"',
+  );
+  assertStringIncludes(npmPublish, "--out cli/scripts/checksums.json");
+});
+
+Deno.test("PR CI exercises the Node release checksum evidence bridge", () => {
+  assertStringIncludes(ciWorkflow, "          node-version: 22.22.2\n");
+  assertStringIncludes(
+    ciWorkflow,
+    "run: node --test cli/scripts/build_release_checksums_nodecheck.mjs",
   );
 });
 

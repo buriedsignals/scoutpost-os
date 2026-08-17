@@ -281,8 +281,13 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.22.2
       - name: Run CLI unit tests (offline)
         run: cd cli && deno task test
+      - name: Test release checksum evidence bridge
+        run: node --test cli/scripts/build_release_checksums_nodecheck.mjs
       - name: Parse Windows release lifecycle PowerShell
         shell: pwsh
         run: ./cli/scripts/check_release_powershell.ps1
