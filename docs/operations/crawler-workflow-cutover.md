@@ -10,7 +10,8 @@ service to Render Workflows. It does not change Docker self-hosting.
   Render Workflows PRD.
 - Save the current `SCRAPE_SERVICE_URL` as the rollback value. Do not copy
   bearer tokens into logs or documents.
-- Keep `scoutpost-scrape` healthy until the retirement gate passes.
+- Before retirement, keep `scoutpost-scrape` healthy until the retirement gate
+  is closed.
 
 ## Deploy without routing traffic
 
@@ -76,10 +77,16 @@ error semantics; it is not a public API contract.
 
 ## Rollback
 
-Restore the saved `SCRAPE_SERVICE_URL` for `scoutpost-scrape`. Do not delete
-ledger rows, batches, or in-flight artifacts; ordinary reconciliation and the
-orphan sweeper own them. The schema and proxy can remain deployed while the
-fault is diagnosed.
+After retirement, restore the `scoutpost-scrape` service definition from
+[`scoutpost-scrape-recovery.render.yaml`](scoutpost-scrape-recovery.render.yaml)
+to root `render.yaml` in a reviewed change and merge it. Set new Render and
+Supabase `SCRAPE_SERVICE_TOKEN` values, verify authenticated `/scrape` and
+`/parse` round-trips, then restore the saved `SCRAPE_SERVICE_URL` for
+`scoutpost-scrape`. Do not route traffic to an unverified recovery service.
+
+Do not delete ledger rows, batches, or in-flight artifacts; ordinary
+reconciliation and the orphan sweeper own them. The schema and proxy can
+remain deployed while the fault is diagnosed.
 
 ## Retirement gate
 
@@ -87,3 +94,19 @@ Remove the paid hosted web service only after all hosted consumers show zero
 old-service traffic and run successfully at 100% for seven consecutive days,
 including one Monday peak. Retain the HTTP adapter, Dockerfile, self-host
 configuration, and tested recovery manifest.
+
+### Closure record
+
+The operator closed the gate on 2026-08-17 at 12:04 UTC after the Monday peak.
+The [weekly live smoke](https://github.com/buriedsignals/scoutpost/actions/runs/32021113093)
+completed successfully at 11:12 UTC and every hosted consumer was routed
+through the Workflow proxy. The final hosted-consumer request to service
+`srv-d95mb2favr4c73ajd02g` was `/scrape` at 2026-08-10 16:29:06 UTC; no hosted
+`/parse` request arrived after cutover. Two requests on 2026-08-17 at 11:33 and
+11:34 UTC were operator diagnostics, identified by their Deno user agent, and
+were excluded from consumer traffic.
+
+The exact 168-hour mark was 16:29:06 UTC; the operator explicitly accepted the
+remaining 4 hours 25 minutes of observation-window risk and authorized
+retirement. The HTTP adapter, Dockerfile, self-host configuration, and
+validated recovery Blueprint remain in the repository.

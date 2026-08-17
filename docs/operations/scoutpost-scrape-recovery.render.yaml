@@ -1,0 +1,27 @@
+# Recovery-only Render Blueprint for the retired hosted HTTP adapter.
+#
+# This file is intentionally outside the repository root, so production
+# Blueprint sync does not provision the paid service. To restore the rollback
+# target, copy this service entry into root render.yaml in a reviewed change,
+# merge it, set the sync:false secrets, and complete the verification in
+# crawler-workflow-cutover.md before routing traffic to it.
+services:
+  - type: web
+    name: scoutpost-scrape
+    runtime: docker
+    plan: standard
+    region: frankfurt
+    branch: main
+    autoDeployTrigger: off
+    dockerfilePath: ./scrape-service/Dockerfile
+    dockerContext: ./scrape-service
+    healthCheckPath: /health
+    envVars:
+      # Mandatory bearer token. Mirror the same value into Supabase secrets.
+      - key: SCRAPE_SERVICE_TOKEN
+        sync: false
+      # Optional scanned-PDF fallback through Google Vertex via OpenRouter.
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: PORT
+        value: "8080"

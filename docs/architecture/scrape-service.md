@@ -51,21 +51,24 @@ supabase secrets set \
   SCRAPE_SERVICE_URL=https://<project-ref>.supabase.co/functions/v1/crawler-proxy
 ```
 
-Keep `SCRAPE_SERVICE_TOKEN` unchanged. Roll back by restoring
-`https://scoutpost-scrape.onrender.com`. See
+Keep `SCRAPE_SERVICE_TOKEN` unchanged during cutover. After retirement, first
+recreate and verify the hosted recovery service, then route back to it. See
 [Crawler Workflow cutover](../operations/crawler-workflow-cutover.md).
 
-## Temporary hosted HTTP service
+## Retired hosted HTTP recovery service
 
-During the canary window the service remains declared in root `render.yaml` as
-`scoutpost-scrape` (Standard plan, Frankfurt,
-`dockerfilePath: ./scrape-service/Dockerfile`). It is the immediate rollback
-target and is removed only after every hosted path completes the retirement
-gate. To recreate it:
+The temporary `scoutpost-scrape` Standard web service was removed from the
+production `render.yaml` after the Workflow retirement gate closed on
+2026-08-17. Hosted callers use `crawler-proxy`; Docker self-hosting continues
+to use the same HTTP adapter and image. A validated, recovery-only Blueprint is
+retained at
+[`scoutpost-scrape-recovery.render.yaml`](../operations/scoutpost-scrape-recovery.render.yaml).
+To recreate the hosted rollback target:
 
-1. **Deploy** — merge the migration PR; Render creates the `scoutpost-scrape`
-   service from the blueprint. First build installs Playwright/Chromium
-   (several minutes).
+1. **Deploy** — restore the service entry from the recovery Blueprint to root
+   `render.yaml` in a reviewed change, validate both files, and merge it.
+   Render creates `scoutpost-scrape`; the first build installs
+   Playwright/Chromium and takes several minutes.
 2. **Token** — generate a strong token and set it on the Render service:
    `openssl rand -base64 32` → Render dashboard → `scoutpost-scrape` →
    Environment → `SCRAPE_SERVICE_TOKEN`.
@@ -132,8 +135,9 @@ edge-functions service points at
 - **Token rotation:** set a new `SCRAPE_SERVICE_TOKEN` on Render, then re-run
   the `supabase secrets set` for `SCRAPE_SERVICE_TOKEN`. Brief overlap causes no
   downtime (the service reads its token at request time).
-- **Hosted rollback service:** while it exists, keep its health and resource
-  alerts active. The Standard plan is 2 GB and caps the Playwright pool at 2.
+- **Hosted rollback service:** if temporarily recreated, keep its health and
+  resource alerts active. The Standard plan is 2 GB and caps the Playwright
+  pool at 2; retire it again after the incident and a fresh observation gate.
 - **Workflow runtime:** monitor queue age, task duration, retries, terminal
   failures, and transient Storage artifacts through the existing crawler
   ledger and operations health checks.
