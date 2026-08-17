@@ -42,6 +42,18 @@ Deno.test("Windows signing evidence records protected Azure coordinates", () => 
   }
 });
 
+Deno.test("Windows lifecycle script delimits variables before punctuation", () => {
+  assertStringIncludes(
+    signWindows,
+    'throw "updated binary did not report ${version}: $actualVersion"',
+  );
+  assert(
+    !signWindows.includes(
+      'throw "updated binary did not report $version: $actualVersion"',
+    ),
+  );
+});
+
 Deno.test("all four Windows constituent files receive release provenance", () => {
   assertStringIncludes(signWindows, "attestations: write");
   assertStringIncludes(
