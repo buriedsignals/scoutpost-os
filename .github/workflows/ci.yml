@@ -283,6 +283,9 @@ jobs:
           deno-version: v2.x
       - name: Run CLI unit tests (offline)
         run: cd cli && deno task test
+      - name: Parse Windows release lifecycle PowerShell
+        shell: pwsh
+        run: ./cli/scripts/check_release_powershell.ps1
 
   cli-smoke:
     name: scout live smoke
