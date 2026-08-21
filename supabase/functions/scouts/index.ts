@@ -25,7 +25,11 @@ import {
   internalServiceAuthHeaders,
   requireUserOrApiKey,
 } from "../_shared/auth.ts";
-import { getServiceClient, getSupabaseUrl } from "../_shared/supabase.ts";
+import {
+  getServiceClient,
+  getSupabaseUrl,
+  type SupabaseClient,
+} from "../_shared/supabase.ts";
 import {
   jsonError,
   jsonFromError,
@@ -1006,6 +1010,32 @@ async function ensureScheduledBaseline(
   await stampBaseline(svc, scout.id);
 }
 
+async function ensureActivationBaseline(
+  svc: SupabaseClient,
+  scout: BaselineableScout,
+): Promise<void> {
+  if (scout.type !== "social") {
+    await ensureScheduledBaseline(svc, scout);
+    return;
+  }
+
+  const { data: needsBaseline, error } = await svc.rpc(
+    "prepare_social_scout_resume",
+    {
+      p_scout_id: scout.id,
+      p_user_id: scout.user_id,
+    },
+  );
+  if (error) throw new Error(error.message);
+
+  await ensureScheduledBaseline(
+    svc,
+    needsBaseline === true
+      ? { ...scout, baseline_established_at: null }
+      : scout,
+  );
+}
+
 // EdgeRuntime is a Supabase Edge Functions global. Typed locally so callers
 // don't see `any` and so tests can mock it. Falls back to synchronous fetch
 // when the runtime global isn't present (deno test, self-host without the
@@ -1063,26 +1093,12 @@ async function seedSocialBaseline(
   userId: string,
   platform: z.infer<typeof SocialPlatform>,
   handle: string,
-  posts: Array<Record<string, unknown>>,
+  posts: readonly unknown[],
 ): Promise<void> {
-  const normalizedPosts = posts
-    .map((post) => {
-      const id = typeof post.id === "string" && post.id.trim()
-        ? post.id.trim()
-        : typeof post.post_id === "string" && post.post_id.trim()
-        ? post.post_id.trim()
-        : typeof post.url === "string" && post.url.trim()
-        ? post.url.trim()
-        : null;
-      return id ? { ...post, id, post_id: id } : null;
-    })
-    .filter((post): post is Record<string, unknown> & {
-      id: string;
-      post_id: string;
-    } => Boolean(post));
-  if (posts.length > 0 && normalizedPosts.length === 0) {
+  const baseline = formatSocialBaselinePosts(posts, platform);
+  if (posts.length > 0 && baseline.length === 0) {
     throw new ValidationError(
-      "baseline_posts must include id, post_id, or url for each post",
+      "baseline_posts must include a supported stable post identity",
     );
   }
   const { error } = await svc.from("post_snapshots").upsert({
@@ -1090,8 +1106,8 @@ async function seedSocialBaseline(
     user_id: userId,
     platform,
     handle,
-    post_count: normalizedPosts.length,
-    posts: normalizedPosts,
+    post_count: baseline.length,
+    posts: baseline,
     updated_at: new Date().toISOString(),
   }, { onConflict: "scout_id" });
   if (error) throw new Error(error.message);
@@ -1125,7 +1141,7 @@ async function ensureSocialBaseline(
     userId,
     platform,
     handle,
-    formatSocialBaselinePosts(scan.posts),
+    scan.posts,
   );
 }
 
@@ -1708,7 +1724,12 @@ async function updateScout(
     );
   }
   if (willBeActive && willHaveSchedule && !webUrlChanged) {
-    await ensureScheduledBaseline(getServiceClient(), nextScout);
+    const svc = getServiceClient();
+    if (current.is_active === true) {
+      await ensureScheduledBaseline(svc, nextScout);
+    } else {
+      await ensureActivationBaseline(svc, nextScout);
+    }
   }
 
   const { data, error } = await db
@@ -1933,7 +1954,7 @@ async function resumeScout(user: AuthedUser, id: string): Promise<Response> {
   }
 
   const svc = getServiceClient();
-  await ensureScheduledBaseline(svc, current as BaselineableScout);
+  await ensureActivationBaseline(svc, current as BaselineableScout);
 
   const { data, error } = await db
     .from("scouts")

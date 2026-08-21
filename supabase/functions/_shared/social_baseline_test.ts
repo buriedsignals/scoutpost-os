@@ -5,9 +5,38 @@ import {
 import { ValidationError } from "./errors.ts";
 import {
   buildSocialActorInput,
+  diffSocialPosts,
+  formatSocialBaselinePosts,
   normalizeSocialDatasetPosts,
   SOCIAL_APIFY_ACTORS,
+  socialPostIdentity,
 } from "./social_baseline.ts";
+
+function preCutoverCallbackIdentities(posts: unknown): string[] {
+  if (!Array.isArray(posts)) return [];
+  const identities: string[] = [];
+  for (const row of posts) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const post = row as Record<string, unknown>;
+    for (
+      const field of [
+        "id",
+        "post_id",
+        "shortcode",
+        "shortCode",
+        "pk",
+        "postId",
+        "url",
+      ]
+    ) {
+      const value = post[field];
+      if (typeof value !== "string" || !value.trim()) continue;
+      identities.push(value.trim());
+      break;
+    }
+  }
+  return identities;
+}
 
 Deno.test("instagram actor uses username input shape", () => {
   assertEquals(SOCIAL_APIFY_ACTORS.instagram.id, "pmQcv69sB1UwguQUY");
@@ -189,4 +218,240 @@ Deno.test("normalizeSocialDatasetPosts accepts current TikTok actor rows", () =>
     posts[0].url,
     "https://www.tiktok.com/@natgeo/video/7636022633884142862",
   );
+});
+
+Deno.test("socialPostIdentity resolves each platform's stable provider identity", () => {
+  const cases: Array<[string, unknown, string | null]> = [
+    ["instagram", { id: "numeric-id", shortCode: "IG-CODE" }, "IG-CODE"],
+    ["x", { conversationId: "X-CONVERSATION" }, "X-CONVERSATION"],
+    ["facebook", { post_id: "FB-POST" }, "FB-POST"],
+    ["linkedin", { entityId: "LI-ENTITY" }, "LI-ENTITY"],
+    [
+      "tiktok",
+      { aweme_id: 7636022633884142862n.toString() },
+      "7636022633884142862",
+    ],
+    ["instagram", "already-minimal", "already-minimal"],
+    ["x", { id: "  trimmed-id  " }, "trimmed-id"],
+    ["facebook", { noResults: true }, null],
+    ["linkedin", null, null],
+  ];
+
+  for (const [platform, row, expected] of cases) {
+    assertEquals(socialPostIdentity(platform, row), expected);
+  }
+});
+
+Deno.test("socialPostIdentity skips malformed higher-priority aliases", () => {
+  const cases: Array<[unknown, string]> = [
+    [{ shortcode: true, id: "fallback-from-boolean" }, "fallback-from-boolean"],
+    [{ shortcode: [], id: "fallback-from-array" }, "fallback-from-array"],
+    [{ shortcode: {}, id: "fallback-from-object" }, "fallback-from-object"],
+    [{ shortcode: "\ttrimmed\t", id: "lower-priority" }, "trimmed"],
+    [{ shortcode: 42, id: "lower-priority" }, "42"],
+  ];
+
+  for (const [row, expected] of cases) {
+    assertEquals(socialPostIdentity("instagram", row), expected);
+  }
+});
+Deno.test("socialPostIdentity accepts safe integers and rejects unsafe numbers", () => {
+  assertEquals(
+    socialPostIdentity("instagram", { shortcode: Number.MAX_SAFE_INTEGER }),
+    String(Number.MAX_SAFE_INTEGER),
+  );
+  assertEquals(
+    socialPostIdentity("instagram", {
+      shortcode: Number.MAX_SAFE_INTEGER + 1,
+      id: "safe-fallback",
+    }),
+    "safe-fallback",
+  );
+  assertEquals(
+    socialPostIdentity("instagram", { shortcode: 42.5, id: "fraction-fallback" }),
+    "fraction-fallback",
+  );
+});
+
+Deno.test("formatSocialBaselinePosts stores only unique compatibility identities", () => {
+  assertEquals(
+    formatSocialBaselinePosts([
+      {
+        id: "post-1",
+        text: "caption is runtime-only",
+        timestamp: "2026-08-20T00:00:00Z",
+        imageUrl: "https://example.com/image.jpg",
+        url: "https://example.com/post-1",
+      },
+      {
+        id: "post-1",
+        text: "duplicate provider row",
+        timestamp: "",
+        imageUrl: null,
+        url: null,
+      },
+      {
+        id: "post-2",
+        text: "",
+        timestamp: "",
+        imageUrl: null,
+        url: null,
+      },
+    ]),
+    [{ id: "post-1" }, { id: "post-2" }],
+  );
+});
+
+Deno.test("minimal baseline writes remain readable by the pre-cutover callback", () => {
+  const baseline = formatSocialBaselinePosts([
+    { shortcode: "IG-STABLE", caption: "must not persist" },
+    { shortcode: "IG-STABLE", caption: "duplicate" },
+    { shortcode: "IG-SECOND", image_url: "https://example.com/private.jpg" },
+  ], "instagram");
+
+  assertEquals(baseline, [{ id: "IG-STABLE" }, { id: "IG-SECOND" }]);
+  assertEquals(preCutoverCallbackIdentities(baseline), [
+    "IG-STABLE",
+    "IG-SECOND",
+  ]);
+  assertEquals(
+    diffSocialPosts("instagram", baseline, [
+      {
+        id: "IG-STABLE",
+        text: "current",
+        timestamp: "",
+        imageUrl: null,
+        url: null,
+      },
+      {
+        id: "IG-SECOND",
+        text: "current",
+        timestamp: "",
+        imageUrl: null,
+        url: null,
+      },
+    ]).newPosts,
+    [],
+  );
+});
+
+Deno.test("diffSocialPosts keeps a full-object legacy baseline stable across cutover", () => {
+  const current = normalizeSocialDatasetPosts("instagram", [{
+    shortcode: "IG-STABLE",
+    caption: "Current caption",
+    image: "https://example.com/current.jpg",
+  }]);
+
+  const result = diffSocialPosts("instagram", [
+    {
+      shortcode: "IG-STABLE",
+      id: "legacy-conflicting-id",
+      caption: "Legacy caption",
+      image_url: "https://example.com/legacy.jpg",
+    },
+    { shortcode: "IG-STABLE", caption: "duplicate" },
+    { noResults: true },
+    null,
+  ], current);
+
+  assertEquals(result.newPosts, []);
+  assertEquals(result.removedIds, []);
+  assertEquals(result.baseline, ["IG-STABLE"]);
+  assertEquals(result.shouldReplaceBaseline, true);
+});
+
+Deno.test("diffSocialPosts treats an empty baseline as unique new posts", () => {
+  const current = [
+    {
+      id: "new-1",
+      text: "first",
+      timestamp: "",
+      imageUrl: null,
+      url: "https://example.com/new-1",
+    },
+    {
+      id: "new-1",
+      text: "duplicate",
+      timestamp: "",
+      imageUrl: null,
+      url: "https://example.com/new-1",
+    },
+    {
+      id: "new-2",
+      text: "second",
+      timestamp: "",
+      imageUrl: null,
+      url: "https://example.com/new-2",
+    },
+  ];
+
+  const result = diffSocialPosts("x", [], current);
+
+  assertEquals(result.newPosts.map((post) => post.id), ["new-1", "new-2"]);
+  assertEquals(result.removedIds, []);
+  assertEquals(result.baseline, ["new-1", "new-2"]);
+});
+
+Deno.test("diffSocialPosts reports each removed identity once", () => {
+  const result = diffSocialPosts("facebook", [
+    "kept",
+    { post_id: "removed" },
+    { postId: "removed" },
+    { message: "malformed legacy row" },
+  ], [{
+    id: "kept",
+    text: "still present",
+    timestamp: "",
+    imageUrl: null,
+    url: null,
+  }]);
+
+  assertEquals(result.newPosts, []);
+  assertEquals(result.removedIds, ["removed"]);
+  assertEquals(result.shouldReplaceBaseline, true);
+});
+
+Deno.test("diffSocialPosts applies the exact 20 percent actor-result guard", () => {
+  const cases = [
+    { previousCount: 5, currentCount: 1, shouldReplace: true },
+    { previousCount: 6, currentCount: 1, shouldReplace: false },
+    { previousCount: 9, currentCount: 1, shouldReplace: false },
+    { previousCount: 9, currentCount: 2, shouldReplace: true },
+    { previousCount: 10, currentCount: 2, shouldReplace: true },
+  ];
+
+  for (const { previousCount, currentCount, shouldReplace } of cases) {
+    const previous = Array.from(
+      { length: previousCount },
+      (_, index) => `post-${index}`,
+    );
+    const current = Array.from(
+      { length: currentCount },
+      (_, index) => ({
+        id: `post-${index}`,
+        text: "actor row",
+        timestamp: "",
+        imageUrl: null,
+        url: null,
+      }),
+    );
+
+    const result = diffSocialPosts("linkedin", previous, current);
+
+    assertEquals(
+      result.shouldReplaceBaseline,
+      shouldReplace,
+      `${currentCount}/${previousCount}`,
+    );
+    assertEquals(
+      result.removedIds,
+      shouldReplace ? previous.slice(currentCount) : [],
+      `${currentCount}/${previousCount}`,
+    );
+    assertEquals(
+      result.baseline,
+      shouldReplace ? current.map((post) => post.id) : previous,
+      `${currentCount}/${previousCount}`,
+    );
+  }
 });

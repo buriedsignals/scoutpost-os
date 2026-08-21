@@ -130,8 +130,9 @@ unit; existing vectors are re-embedded, never relabeled.
 
 ### `post_snapshots`
 
-Stores the last-seen list of posts for social scouts. On each run, the new post list is
-diffed against this snapshot to detect new or removed posts. Replaces `POSTS#` records.
+Stores the last-seen stable identities for Social Scouts. On each run, the
+ordered unique current identities are diffed against this snapshot to detect
+new or removed posts. Replaces `POSTS#` records.
 
 ```
 id          UUID PRIMARY KEY
@@ -140,11 +141,17 @@ user_id     UUID → auth.users(id)
 platform    TEXT
 handle      TEXT
 post_count  INT
-posts       JSONB NOT NULL DEFAULT '[]'  -- list of post objects
+posts       JSONB NOT NULL DEFAULT '[]'  -- ordered unique {"id": string} objects
 updated_at  TIMESTAMPTZ
 ```
 
-One row per scout (enforced by `UNIQUE(scout_id)`). Each execution overwrites `posts`.
+One row per scout (enforced by `UNIQUE(scout_id)`). Each successful execution
+overwrites `posts`; a database trigger normalizes legacy/full-object and scalar
+writes to the phase-1 compatibility objects and recomputes `post_count`. Scout
+deletion cascades the row. A service-role-only bounded cleanup locks the owning
+scout and snapshot, clears readiness, and removes baselines for Social Scouts
+inactive at least 90 days. Resume uses the same lock and rebuilds a missing
+baseline before activation or scheduling.
 
 ### `seen_records`
 

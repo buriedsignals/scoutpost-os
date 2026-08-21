@@ -66,8 +66,18 @@ export interface SocialPostSummary {
 }
 
 export interface RemovedPostSummary {
-  /** Caption of the now-missing post, already truncated upstream. */
-  captionTruncated: string;
+  /** Stable provider identity for the post that is no longer present. */
+  identity: string;
+}
+
+export function buildRemovedPostItems(
+  removedPosts: readonly RemovedPostSummary[],
+  removedLabel: string,
+): string[] {
+  return removedPosts.flatMap(({ identity }) => {
+    const stableIdentity = identity.trim();
+    return stableIdentity ? [`${removedLabel} ${stableIdentity}`] : [];
+  });
 }
 
 interface BaseAlertParams {
@@ -578,8 +588,9 @@ export async function sendSocialAlert(
     if (params.removedPosts && params.removedPosts.length > 0) {
       cautionSection = {
         title: removedPostsLabel,
-        items: params.removedPosts.slice(0, 5).map((rp) =>
-          `${removedLabel} ${rp.captionTruncated}`
+        items: buildRemovedPostItems(
+          params.removedPosts.slice(0, 5),
+          removedLabel,
         ),
       };
     }

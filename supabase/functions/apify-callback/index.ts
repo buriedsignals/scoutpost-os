@@ -46,7 +46,9 @@ import {
 } from "../_shared/credits.ts";
 import { sha256Hex, upsertCanonicalUnit } from "../_shared/unit_dedup.ts";
 import {
+  diffSocialPosts,
   formatSocialBaselinePosts,
+  type NormalizedSocialPost,
   normalizeSocialDatasetPosts,
 } from "../_shared/social_baseline.ts";
 import {
@@ -114,36 +116,6 @@ interface ExtractedUnit {
   criteria_reason?: string | null;
 }
 
-interface ApifyPost {
-  id?: string;
-  post_id?: string;
-  url?: string;
-  caption?: string;
-  text?: string;
-  fullText?: string;
-  [k: string]: unknown;
-}
-
-function postIdentity(
-  post: ApifyPost | Record<string, unknown>,
-): string | null {
-  const p = post as Record<string, unknown>;
-  for (
-    const key of [
-      "id",
-      "post_id",
-      "shortcode",
-      "shortCode",
-      "pk",
-      "postId",
-      "url",
-    ]
-  ) {
-    const value = p[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
 
 Deno.serve(async (req: Request): Promise<Response> => {
   const cors = handleCors(req);
@@ -446,8 +418,8 @@ async function notifySocial(
   svc: SupabaseClient,
   queueRow: QueueRow,
   scout: ScoutRow,
-  newPosts: ApifyPost[],
-  removedPosts: ApifyPost[],
+  newPosts: NormalizedSocialPost[],
+  removedIds: string[],
 ): Promise<NotificationSendResult> {
   if (!queueRow.scout_run_id) {
     return { ok: false, reason: "missing_run_id" };
@@ -456,11 +428,10 @@ async function notifySocial(
   const handle = queueRow.handle ?? scout.profile_handle;
   const userId = (scout.user_id ?? queueRow.user_id) as string;
 
-  const summaryPosts = newPosts.slice(0, 5).map((p) => {
-    const text = String(p.caption ?? p.text ?? p.fullText ?? "").slice(0, 150);
-    return `- ${text}`;
-  });
-  const removalCount = scout.track_removals ? removedPosts.length : 0;
+  const summaryPosts = newPosts.slice(0, 5).map((post) =>
+    `- ${post.text.slice(0, 150)}`
+  );
+  const removalCount = scout.track_removals ? removedIds.length : 0;
   const summary = newPosts.length > 0
     ? `${newPosts.length} new ${
       newPosts.length === 1 ? "post" : "posts"
@@ -469,19 +440,14 @@ async function notifySocial(
       removalCount === 1 ? "post was" : "posts were"
     } removed from @${handle}.`;
 
-  const mapped: SocialPostSummary[] = newPosts.slice(0, 5).map((p) => ({
+  const mapped: SocialPostSummary[] = newPosts.slice(0, 5).map((post) => ({
     author: handle,
-    text: String(p.caption ?? p.text ?? p.fullText ?? ""),
-    url: typeof p.url === "string" ? p.url : undefined,
+    text: post.text,
+    url: post.url ?? undefined,
   }));
   let removed: RemovedPostSummary[] | undefined;
-  if (scout.track_removals && removedPosts.length > 0) {
-    removed = removedPosts.slice(0, 5).map((p) => ({
-      captionTruncated: String(p.caption ?? p.text ?? p.fullText ?? "").slice(
-        0,
-        140,
-      ),
-    }));
+  if (scout.track_removals && removedIds.length > 0) {
+    removed = removedIds.slice(0, 5).map((identity) => ({ identity }));
   }
 
   return await sendSocialAlert(svc, {
@@ -534,8 +500,8 @@ interface ProcessResult {
   new_posts_count: number;
   units_extracted: number;
   merged_existing_count: number;
-  new_posts?: ApifyPost[];
-  removed_posts?: ApifyPost[];
+  new_posts?: NormalizedSocialPost[];
+  removed_posts?: string[];
   scout_row?: ScoutRow;
 }
 
@@ -576,10 +542,7 @@ async function processSucceededRun(
   }
   const raw = await res.json();
   const normalizedPosts = normalizeSocialDatasetPosts(queueRow.platform, raw);
-  const currentPosts = formatSocialBaselinePosts(
-    normalizedPosts,
-  ) as ApifyPost[];
-  if (currentPosts.length === 0) {
+  if (normalizedPosts.length === 0) {
     const rawItems = Array.isArray(raw) ? raw : raw ? [raw] : [];
     const first = rawItems[0] && typeof rawItems[0] === "object"
       ? Object.keys(rawItems[0] as Record<string, unknown>)
@@ -618,62 +581,22 @@ async function processSucceededRun(
     .maybeSingle();
   if (snapErr) throw new Error(snapErr.message);
 
-  const previousIds = new Set<string>();
-  const previousPosts: ApifyPost[] = [];
-  if (snapshot && Array.isArray(snapshot.posts)) {
-    for (const p of snapshot.posts as ApifyPost[]) {
-      const id = p ? postIdentity(p) : null;
-      if (id) previousIds.add(id);
-      if (p && typeof p === "object") previousPosts.push(p);
-    }
-  }
+  const platform = scout.platform ?? queueRow.platform;
+  const diff = diffSocialPosts(platform, snapshot?.posts, normalizedPosts);
+  const newPosts = diff.newPosts;
+  const removedIds = diff.removedIds;
 
-  // 4. Compute diff. Filter out Apify placeholder items without a real `id`
-  //    (e.g. the X actor returns `{noResults: true}` entries when a profile
-  //    has no matching posts). Without the filter they land in the baseline
-  //    as ghost rows and every real post on the next run flags "new".
-  const realCurrentPosts = currentPosts.filter((p) => postIdentity(p));
-  const newPosts = realCurrentPosts.filter((p) =>
-    !previousIds.has(postIdentity(p) as string)
-  );
-  const currentIds = new Set<string>(
-    realCurrentPosts.map((p) => postIdentity(p) as string),
-  );
-
-  // Actor-failure guard: if the run returned <20% of the previous baseline,
-  // treat it as a transient actor failure and skip removal detection. Source
-  // applied the same heuristic (routers/social.py:205-213) to avoid
-  // flagging 18+ ghost removals on a single flaky Apify run.
-  const actorLikelyOk = previousPosts.length === 0 ||
-    realCurrentPosts.length >=
-      Math.max(1, Math.floor(previousPosts.length * 0.2));
-  const removedPosts = actorLikelyOk
-    ? previousPosts.filter(
-      (p) => {
-        const id = postIdentity(p);
-        return Boolean(id && !currentIds.has(id));
-      },
-    )
-    : [];
-
-  // 5. Upsert snapshot. Persist the cleaned post list so the next run diffs
-  //    against real baselines instead of placeholder ghosts.
-  //
-  //    Skip the write when the run looks like a transient actor failure
-  //    (current well below the previous baseline, including zero posts). The
-  //    old code overwrote the baseline with [] on a flaky run, so the next
-  //    real run re-detected every post as new and re-alerted the user. The
-  //    actorLikelyOk signal already guards removal detection above; reuse it
-  //    here. previousPosts.length === 0 (first run / no baseline) is allowed
-  //    through so the initial baseline still gets written.
-  if (actorLikelyOk) {
+  // 4. Upsert only a successful actor result. When the actor returns fewer
+  // than 20% of the prior unique identities, preserve the old baseline and
+  // suppress removals so a truncated dataset cannot manufacture churn.
+  if (diff.shouldReplaceBaseline) {
     const snapshotPayload = {
       scout_id: scout.id,
       user_id: scout.user_id ?? queueRow.user_id,
-      platform: scout.platform ?? queueRow.platform,
+      platform,
       handle: queueRow.handle ?? scout.profile_handle,
-      post_count: realCurrentPosts.length,
-      posts: realCurrentPosts,
+      post_count: diff.baseline.length,
+      posts: formatSocialBaselinePosts(diff.baseline, platform),
       updated_at: new Date().toISOString(),
     };
     const { error: upsertErr } = await svc
@@ -686,8 +609,8 @@ async function processSucceededRun(
       fn: "apify-callback",
       event: "snapshot_preserved_actor_failure",
       scout_id: scout.id,
-      previous_count: previousPosts.length,
-      current_count: realCurrentPosts.length,
+      previous_count: diff.baseline.length,
+      current_count: diff.currentPostCount,
     });
   }
 
@@ -700,7 +623,7 @@ async function processSucceededRun(
   }
 
   for (const post of capped) {
-    const text = String(post.caption ?? post.text ?? post.fullText ?? "");
+    const text = post.text;
     if (text.length < POST_TEXT_MIN) continue;
     if (!isUsablePostUrl(post.url)) {
       logEvent({
@@ -708,7 +631,7 @@ async function processSucceededRun(
         fn: "apify-callback",
         event: "post_without_url_skipped",
         scout_id: scout.id,
-        post_id: typeof post.id === "string" ? post.id : null,
+        post_id: post.id,
       });
       continue;
     }
@@ -812,7 +735,7 @@ async function processSucceededRun(
     units_extracted: unitsExtracted,
     merged_existing_count: mergedExistingCount,
     new_posts: newPosts,
-    removed_posts: removedPosts,
+    removed_posts: removedIds,
     scout_row: scout as ScoutRow,
   };
 }
@@ -835,7 +758,7 @@ async function insertUnit(
   scout: ScoutRow,
   queueRow: QueueRow,
   unit: ExtractedUnit,
-  post: ApifyPost,
+  post: NormalizedSocialPost,
 ): Promise<{
   createdCanonical: boolean;
   mergedExisting: boolean;
@@ -847,16 +770,14 @@ async function insertUnit(
     throw new ValidationError("social post missing usable URL");
   }
   const sourceUrl = post.url.trim();
-  const content = String(post.caption ?? post.text ?? post.fullText ?? "");
+  const content = post.text;
   const extractedAt = new Date().toISOString();
 
   // Embedding is best-effort; if it fails we still insert the unit without one.
   let embedding: number[] | null = null;
   try {
     embedding = await embedText(unit.statement, "RETRIEVAL_DOCUMENT", {
-      title: typeof post.id === "string"
-        ? `${platform} post ${post.id}`
-        : `${platform} post`,
+      title: `${platform} post ${post.id}`,
     });
   } catch (e) {
     logEvent({
@@ -878,9 +799,7 @@ async function insertUnit(
     embeddingModel: embedding ? EMBEDDING_MODEL_TAG : null,
     sourceUrl,
     sourceDomain: platform,
-    sourceTitle: typeof post.id === "string"
-      ? `${platform} post ${post.id}`
-      : `${platform} post`,
+    sourceTitle: `${platform} post ${post.id}`,
     contextExcerpt: unit.context_excerpt ?? null,
     extractedAt,
     sourceType: "scout",
@@ -891,7 +810,7 @@ async function insertUnit(
     metadata: {
       handle: queueRow.handle ?? scout.profile_handle,
       platform,
-      post_id: typeof post.id === "string" ? post.id : null,
+      post_id: post.id,
       criteria_score: typeof unit.criteria_score === "number"
         ? criteriaScoreFromUnit(unit)
         : null,

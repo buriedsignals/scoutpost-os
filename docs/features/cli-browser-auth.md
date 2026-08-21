@@ -126,8 +126,12 @@ The feature has three test layers:
   logout.
 - pgTAP covers RLS, hashed state, denial, expiry, key limits, one-shot
   redemption, key identity, cleanup registration, and rate limiting.
-- A gated local Supabase HTTP smoke races two redemptions, validates the winning
-  key, self-revokes it, and confirms subsequent API rejection.
+- The real hosted product path is verified through `scout auth login` and the
+  relevant `scout` command, or through the linked hosted benchmark harness.
+
+The gated local Supabase HTTP smoke is CI/OSS-runtime coverage only. It verifies
+the disposable local stack and must not be treated as evidence that hosted SaaS
+user authentication works; hosted verification uses the CLI or remote project.
 
 See also:
 

@@ -272,12 +272,22 @@ The smoke script uses the current Chrome session through `browser-harness`. It m
 
 ### Supabase test discipline
 
-Keep Supabase integration tests small and direct. Do not build fixture-heavy local Supabase environments just to satisfy one env-gated test.
+Keep Supabase tests small and direct. Use local Supabase only for deterministic
+database/pgTAP coverage and Edge Runtime diagnostics; do not create local
+Supabase Auth users or ad-hoc JWTs as a substitute for SaaS user-flow testing.
 
-- For valuable function tests that need real Supabase services, use the local CLI stack and source `supabase status -o env` for `API_URL`, anon/publishable key, and service-role key.
-- Runtime smoke tests must be explicitly gated (for example `COJO_SELFHOST_RUNTIME_SMOKE=1`) and guarded against accidental production targets unless the test deliberately opts into remote.
-- Prefer local-only auth/API/database checks over external scrape, LLM, email, or Apify calls in CI.
-- If a test cannot run, state the exact missing service or env and either wire it from the CLI or remove the test. Avoid vague "needs SUPABASE_URL/API_URL" notes.
+- For the real product path, use the Scout CLI against the hosted deployment
+  (`scout auth login`, then the relevant `scout scouts ...` command), or use a
+  hosted benchmark through
+  `scripts/benchmarks/with-linked-supabase-env.sh`.
+- Use `supabase db reset` and `supabase test db` for schema/RPC/pgTAP tests.
+  Use `supabase status -o env` only when intentionally diagnosing the local
+  Edge Runtime or database.
+- Keep hosted benchmark auth and provider secrets in the linked project's
+  benchmark environment/function secrets; do not copy them into local JWT
+  fixtures.
+- If a live product check cannot run, record the exact hosted/CLI failure and
+  stop there. Do not replace it with a green local Auth result.
 
 ---
 

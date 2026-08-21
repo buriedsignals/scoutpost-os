@@ -9,7 +9,29 @@ import {
 const MAX_ITEMS = 20;
 const FACEBOOK_LOOKBACK_DAYS = 35;
 const APIFY_TIMEOUT_SECS = 120;
-const CAPTION_TRUNCATED_MAX = 200;
+const SOCIAL_IDENTITY_FIELDS: Record<SocialPlatform, readonly string[]> = {
+  instagram: ["shortcode", "shortCode", "id", "pk", "postId", "post_id", "url"],
+  x: ["id", "conversationId", "url"],
+  facebook: ["postId", "post_id", "id", "url"],
+  linkedin: ["id", "entityId", "linkedinUrl"],
+  tiktok: ["aweme_id", "id", "videoId", "url", "share_url", "webVideoUrl"],
+};
+const ALL_SOCIAL_IDENTITY_FIELDS = [
+  "shortcode",
+  "shortCode",
+  "id",
+  "pk",
+  "postId",
+  "post_id",
+  "url",
+  "conversationId",
+  "entityId",
+  "linkedinUrl",
+  "aweme_id",
+  "videoId",
+  "share_url",
+  "webVideoUrl",
+] as const;
 const WRAPPER_KEYS = [
   "posts",
   "items",
@@ -51,6 +73,18 @@ export interface NormalizedSocialPost {
   timestamp: string;
   imageUrl: string | null;
   url: string | null;
+}
+export interface SocialBaselinePost {
+  id: string;
+}
+
+
+export interface SocialPostDiff {
+  newPosts: NormalizedSocialPost[];
+  removedIds: string[];
+  baseline: string[];
+  currentPostCount: number;
+  shouldReplaceBaseline: boolean;
 }
 
 export interface SocialBaselineScan {
@@ -142,19 +176,74 @@ export function buildSocialActorInput(
   }
 }
 
+export function socialPostIdentity(
+  platform: SocialPlatform | string,
+  row: unknown,
+): string | null {
+  const minimalIdentity = identityString(row);
+  if (minimalIdentity) return minimalIdentity;
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+
+  const fields = SOCIAL_IDENTITY_FIELDS[platform as SocialPlatform] ??
+    ALL_SOCIAL_IDENTITY_FIELDS;
+  const post = row as Record<string, unknown>;
+  for (const field of fields) {
+    const identity = identityString(post[field]);
+    if (identity) return identity;
+  }
+  return null;
+}
+
 export function formatSocialBaselinePosts(
-  posts: NormalizedSocialPost[],
-): Array<Record<string, unknown>> {
-  return posts.map((post) => ({
-    id: post.id,
-    post_id: post.id,
-    url: post.url,
-    text: post.text,
-    caption: post.text,
-    caption_truncated: post.text.slice(0, CAPTION_TRUNCATED_MAX),
-    image_url: post.imageUrl,
-    timestamp: post.timestamp,
-  }));
+  posts: unknown,
+  platform: SocialPlatform | string = "",
+): SocialBaselinePost[] {
+  if (!Array.isArray(posts)) return [];
+  const identities: SocialBaselinePost[] = [];
+  const seen = new Set<string>();
+  for (const post of posts) {
+    const identity = socialPostIdentity(platform, post);
+    if (identity && !seen.has(identity)) {
+      seen.add(identity);
+      identities.push({ id: identity });
+    }
+  }
+  return identities;
+}
+
+export function diffSocialPosts(
+  platform: SocialPlatform | string,
+  previousPosts: unknown,
+  currentPosts: readonly NormalizedSocialPost[],
+): SocialPostDiff {
+  const previous = formatSocialBaselinePosts(previousPosts, platform)
+    .map((post) => post.id);
+  const previousSet = new Set(previous);
+  const current: NormalizedSocialPost[] = [];
+  const currentIds: string[] = [];
+  const currentSet = new Set<string>();
+
+  for (const post of currentPosts) {
+    const identity = identityString(post.id);
+    if (!identity || currentSet.has(identity)) continue;
+    currentSet.add(identity);
+    currentIds.push(identity);
+    current.push(identity === post.id ? post : { ...post, id: identity });
+  }
+
+  const newPosts = current.filter((post) => !previousSet.has(post.id));
+  const actorLikelyOk = previous.length === 0 ||
+    currentIds.length * 5 >= previous.length;
+
+  return {
+    newPosts,
+    removedIds: actorLikelyOk
+      ? previous.filter((identity) => !currentSet.has(identity))
+      : [],
+    baseline: actorLikelyOk ? currentIds : previous,
+    currentPostCount: currentIds.length,
+    shouldReplaceBaseline: actorLikelyOk,
+  };
 }
 
 export function normalizeSocialDatasetPosts(
@@ -174,24 +263,8 @@ function flattenSocialRows(raw: unknown): Array<Record<string, unknown>> {
   for (const key of WRAPPER_KEYS) {
     if (Array.isArray(row[key])) wrapped.push(...flattenSocialRows(row[key]));
   }
-  if (wrapped.length > 0 && !hasPostIdentity(row)) return wrapped;
+  if (wrapped.length > 0 && !socialPostIdentity("", row)) return wrapped;
   return [row];
-}
-
-function hasPostIdentity(row: Record<string, unknown>): boolean {
-  return [
-    "shortcode",
-    "shortCode",
-    "id",
-    "pk",
-    "aweme_id",
-    "postId",
-    "post_id",
-    "videoId",
-    "url",
-    "share_url",
-    "webVideoUrl",
-  ].some((key) => Boolean(str(row[key])));
 }
 
 function normalizePost(
@@ -199,16 +272,15 @@ function normalizePost(
   raw: Record<string, unknown>,
 ): NormalizedSocialPost {
   const r = raw as Record<string, unknown>;
-  let id = "";
+  const id = socialPostIdentity(platform, r) ?? "";
   let text = "";
   let timestamp = "";
   let imageUrl: string | null = null;
   let url: string | null = null;
 
   if (platform === "instagram") {
-    const shortcode = str(r.shortcode) || str(r.shortCode);
-    id = shortcode || str(r.id) || str(r.pk) || str(r.postId) ||
-      str(r.post_id) || str(r.url);
+    const shortcode = identityString(r.shortcode) ||
+      identityString(r.shortCode);
     text = str(r.caption) || str(r.text) || str(r.accessibility_caption);
     timestamp = normalizeTimestamp(
       r.taken_at ?? r.takenAt ?? r.timestamp ?? r.postedAt ?? r.createdAt ??
@@ -220,14 +292,12 @@ function normalizePost(
     url = str(r.url) ||
       (shortcode ? `https://www.instagram.com/p/${shortcode}/` : null);
   } else if (platform === "x") {
-    id = str(r.id) || str(r.conversationId) || str(r.url);
     text = str(r.text) || str(r.fullText);
     timestamp = normalizeTimestamp(r.createdAt ?? r.date ?? r.timestamp);
     const media = r.media as Array<{ url?: string }> | undefined;
     imageUrl = media?.[0]?.url ?? null;
     url = str(r.url);
   } else if (platform === "facebook") {
-    id = str(r.postId) || str(r.post_id) || str(r.id) || str(r.url);
     text = str(r.text) || str(r.message) || str(r.caption);
     timestamp = normalizeTimestamp(r.timestamp ?? r.publishedTime ?? r.time);
     imageUrl = str(r.image) || str(r.imageUrl) || firstImage(r.images);
@@ -236,7 +306,6 @@ function normalizePost(
     // harvestapi/linkedin-profile-posts dataset item shape (verified live
     // 2026-07-06): id, content, postedAt: {date}, postImages: [{url}],
     // postVideo: {thumbnailUrl}, linkedinUrl.
-    id = str(r.id) || str(r.entityId) || str(r.linkedinUrl);
     text = str(r.content) || str(r.text);
     const postedAt = r.postedAt as Record<string, unknown> | undefined;
     timestamp = normalizeTimestamp(
@@ -247,8 +316,6 @@ function normalizePost(
       null;
     url = str(r.linkedinUrl) || str(r.shareLinkedinUrl);
   } else if (platform === "tiktok") {
-    id = str(r.aweme_id) || str(r.id) || str(r.videoId) || str(r.url) ||
-      str(r.share_url) || str(r.webVideoUrl);
     text = str(r.desc) || str(r.caption) || str(r.text);
     timestamp = normalizeTimestamp(
       r.create_time ?? r.createTime ?? r.timestamp,
@@ -271,6 +338,14 @@ function str(v: unknown): string {
   if (typeof v === "string") return v;
   if (typeof v === "number") return String(v);
   return "";
+}
+
+function identityString(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number" && Number.isSafeInteger(value)) {
+    return String(value);
+  }
+  return null;
 }
 
 function normalizeTimestamp(v: unknown): string {

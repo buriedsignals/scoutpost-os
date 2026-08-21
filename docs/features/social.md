@@ -67,14 +67,39 @@ apify-reconcile
 
 ## Baselines And Diffing
 
-`post_snapshots` stores one baseline row per social scout. Scheduled creation establishes a baseline server-side for UI, API, CLI, and MCP callers. The UI can pass preview posts as an optimization, but non-UI agents only need `platform` and `profile_handle`; the create endpoint performs the baseline scrape before scheduling.
+`post_snapshots` stores one baseline row per social scout. Its `posts` value is
+an ordered, duplicate-free JSON array of `{"id":"<stable identity>"}`
+compatibility objects; captions, text, timestamps, media, URLs, and other
+provider payload fields remain in memory for the current run and are never
+retained in the comparison baseline. `post_count` is the number of unique
+stored identities.
 
-Each execution compares current platform post IDs against the stored snapshot:
+Identity precedence matches each provider: Instagram uses `shortcode`,
+`shortCode`, `id`, `pk`, `postId`, `post_id`, then `url`; X uses `id`,
+`conversationId`, then `url`; Facebook uses `postId`, `post_id`, `id`, then
+`url`; LinkedIn uses `id`, `entityId`, then `linkedinUrl`; TikTok uses
+`aweme_id`, `id`, `videoId`, `url`, `share_url`, then `webVideoUrl`. Readers
+accept legacy full objects, compatibility objects, and preexisting scalar
+identities. The object wrapper remains readable by pre-cutover callbacks during
+the migration-first rolling deployment, so the cutover does not manufacture
+new or removed posts.
 
-- New IDs become candidate posts.
-- Removed IDs are reported only when `track_removals` is true.
-- Successful runs replace the snapshot with the latest post set.
-- Run Now refuses to execute a social scout without a saved baseline instead of treating all existing posts as new.
+Each execution compares the ordered unique current identities with the stored
+snapshot. New identities retain their current in-memory post data for extraction
+and notification. Removed notifications show only the localized removed label
+and stable identity. The callback permits replacement and removal detection
+exactly when the current count is at least 20% of the prior count
+(`current_count * 5 >= previous_count`); otherwise it suppresses removals and
+preserves the prior baseline.
+
+Scheduled creation establishes a baseline server-side for UI, API, CLI, and MCP
+callers. The UI can pass preview posts as an optimization, but non-UI agents only
+need `platform` and `profile_handle`; the create endpoint performs the baseline
+scrape before scheduling. Deleting a scout cascades its baseline. A nightly
+bounded cleanup removes baselines only after a Social Scout has remained
+inactive for at least 90 days and atomically clears its readiness marker.
+Resume and activation serialize with cleanup and rebuild any missing baseline
+before making the scout active or scheduling it.
 
 ## Criteria Matching
 
@@ -102,7 +127,7 @@ This prevents a social post summary from collapsing into an unrelated page/beat/
 | Table | Purpose |
 | --- | --- |
 | `apify_run_queue` | One async Apify actor run per social scout execution. |
-| `post_snapshots` | Current baseline posts per scout. |
+| `post_snapshots` | Ordered unique stable post identities for the current per-scout comparison baseline. |
 | `scout_runs` | Execution status, timings, counts, and errors. |
 | `information_units` | Canonical units for new/removal findings. |
 | `unit_occurrences` | Source/provenance rows for canonical social units. |

@@ -711,6 +711,14 @@ supabase link --project-ref YOUR_PROJECT_REF
 supabase db push
 ```
 
+For rolling upgrades that include `20260821044500`, keep this order: apply the
+migration, then deploy the Edge Functions. The migration normalizes Social
+baselines to minimal `{"id": string}` objects, which both pre-cutover callbacks
+and new readers can consume. Do not change the migration/backfill to scalar
+identity strings while an object-only callback may still serve traffic or be
+used for rollback; a scalar cutover is a separate later deployment after that
+compatibility window closes.
+
 ### 1.3 Deploy Edge Functions
 
 Set all required Edge Function secrets before deploying AI-enabled functions:

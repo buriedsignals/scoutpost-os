@@ -14,6 +14,7 @@ import {
   buildBaseHtml,
   buildPageScoutMatchedArticles,
   buildProfileUrl,
+  buildRemovedPostItems,
   civicPromisesSavedSummary,
   escapeHtml,
   groupFactsBySource,
@@ -587,6 +588,16 @@ Deno.test("Social Scout renders caution section only when removed posts exist", 
   assertStringIncludes(withRemoved, EMAIL_STRINGS.en.removed_posts);
   assertStringIncludes(withRemoved, EMAIL_STRINGS.en.profile_label);
   assertStringIncludes(withRemoved, "background: #F7F3EC");
+});
+
+Deno.test("removed Social posts render stable identities without retained captions", () => {
+  assertEquals(
+    buildRemovedPostItems(
+      [{ identity: "IG-CODE" }, { identity: "X-CONVERSATION" }],
+      "Removed:",
+    ),
+    ["Removed: IG-CODE", "Removed: X-CONVERSATION"],
+  );
 });
 
 Deno.test("Civic Digest renders in the editorial shell", () => {

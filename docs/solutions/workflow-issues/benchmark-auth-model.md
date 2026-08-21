@@ -78,6 +78,11 @@ matrix:
       command: deno run --allow-env --allow-net --allow-read=. --allow-write=scripts/reports scripts/benchmarks/benchmark-social.ts
 ```
 
+GitHub Actions supplies the hosted benchmark environment to those commands.
+For local operator runs, invoke the same commands through
+`scripts/benchmarks/with-linked-supabase-env.sh`; do not source
+`supabase status -o env` and treat the local Auth stack as a SaaS benchmark.
+
 Correct local dry-run shape before live execution:
 
 ```bash

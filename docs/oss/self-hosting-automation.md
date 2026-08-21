@@ -74,6 +74,12 @@ supabase db push
 supabase functions deploy
 ```
 
+Keep that database-then-functions order for migration `20260821044500`. Its
+phase-1 Social baseline shape is a minimal `{"id": string}` object that remains
+readable by pre-cutover callbacks during the rolling deploy. Do not substitute
+a scalar-string backfill or writer cutover until every object-only callback is
+retired and the rollback window has closed.
+
 Never accept upstream `supabase/config.toml` blindly over a local auth hook, and
 never overwrite `.env`, `frontend/.env.production.local`, `.env.production`, or
 deployment-specific secrets during an upstream merge.

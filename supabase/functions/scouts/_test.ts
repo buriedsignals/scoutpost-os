@@ -381,7 +381,7 @@ Deno.test("scouts: social fields persist and seed post snapshot baseline", async
     assertExists(snapshot);
     assertEquals(snapshot.handle, "buriedsignals");
     assertEquals(snapshot.post_count, 1);
-    assertEquals(Array.isArray(snapshot.posts), true);
+    assertEquals(snapshot.posts, [{ id: "post-1" }]);
   } finally {
     await user.cleanup();
   }
