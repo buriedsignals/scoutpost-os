@@ -407,10 +407,7 @@
 
 					<h3 id="scout-social">Social Scout</h3>
 					<p>
-						Monitors Instagram, X, Facebook, LinkedIn, TikTok profiles via Apify. Captures new
-						posts and — importantly — <strong>deletions</strong> (useful for politicians and PR
-						firms). Image-aware criteria: your filter can match on caption text, alt text, or
-						image content. Facebook is more expensive because Meta makes it hard.
+						Social Scout monitors public social profiles through Apify for legitimate public-interest reporting. A best-effort Instagram privacy check runs before scanning recent posts. If privacy is unknown, Scoutpost lets you continue with a warning; you are responsible for confirming the profile is public and that monitoring complies with applicable terms. The scheduled scout continues to use the platform-specific posts actor for new and removed public posts; the setup check does not replace ongoing monitoring.
 					</p>
 
 					<h3 id="scout-civic">Civic Scout</h3>

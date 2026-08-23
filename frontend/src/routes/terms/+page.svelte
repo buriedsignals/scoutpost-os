@@ -47,7 +47,10 @@
 				When you provide URLs for Page Scout monitoring, council domains for Civic Scout, or social media handles for Social Scout, you are responsible for ensuring your use complies with the target website's terms of service.
 			</p>
 			<p>
-				Scoutpost respects robots.txt directives but cannot verify site-specific restrictions. Page Scouts make one request per scheduled interval (minimum hourly). Civic Scouts process at most 2 documents per run. Social Scouts rely on third-party scrapers subject to platform terms.
+				Page Scouts respect robots.txt directives, make one request per scheduled interval (minimum hourly), and cannot verify site-specific restrictions. Civic Scouts process at most 2 documents per run. Social Scouts rely on third-party scrapers subject to platform terms.
+			</p>
+			<p>
+				Social Scout is for monitoring publicly accessible profiles for legitimate journalism with a public-service purpose. A best-effort Instagram privacy check runs through Apify before collecting recent public posts. If the result is unknown, Scoutpost warns you before continuing; you are responsible for confirming this is a public profile and that monitoring complies with the platform and Apify actor terms.
 			</p>
 			<p>
 				You agree not to attempt prompt injection, abuse rate limits, or use the service to generate or amplify misinformation.

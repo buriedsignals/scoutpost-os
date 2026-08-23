@@ -117,6 +117,8 @@
 				valid: boolean;
 				profile_url: string;
 				profile_handle?: string;
+				profile_visibility?: 'public' | 'private' | 'unknown';
+				warning?: string;
 				error?: string;
 				post_ids: string[];
 				preview_posts: { id: string; text: string; timestamp: string }[];
@@ -147,8 +149,9 @@
 			verifiedHandle = data.profile_handle || requestedHandle;
 			verifiedProfileKey = requestedProfileKey;
 
-			// Check for partial success (HEAD ok but Apify failed)
-			if (data.error && data.post_ids.length === 0) {
+			if (data.warning) {
+				scanWarning = data.warning;
+			} else if (data.error && data.post_ids.length === 0) {
 				scanWarning = m.socialScout_scanWarning();
 			}
 
@@ -300,11 +303,12 @@
 					compact={verifySuccess}
 				/>
 
+				{#if verifySuccess && scanWarning}
+					<p class="scan-warning">{scanWarning}</p>
+				{/if}
+
 				{#if verifySuccess && previewPosts.length > 0}
 					<div class="baseline-preview">
-						{#if scanWarning}
-							<p class="scan-warning">{scanWarning}</p>
-						{/if}
 						<p class="preview-label">Recent posts (baseline)</p>
 						{#each previewPosts.slice(0, 3) as post}
 							<div class="preview-post">

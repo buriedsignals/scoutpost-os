@@ -56,3 +56,73 @@ describe('Social Scout criteria and LinkedIn flow', () => {
 		});
 	});
 });
+
+const PRIVATE_PROFILE_COPY =
+	'Private Instagram profiles cannot be monitored. Choose a public profile.';
+const UNKNOWN_PROFILE_COPY =
+	'Instagram privacy could not be confirmed. Continue only if this is a public profile.';
+
+async function submitInstagramScan() {
+	render(SocialScoutView);
+	await fireEvent.input(screen.getByLabelText('Handle'), {
+		target: { value: 'example-profile' }
+	});
+	await fireEvent.input(screen.getByLabelText('Alert Criteria'), {
+		target: { value: 'housing policy' }
+	});
+	await fireEvent.click(screen.getByRole('button', { name: /scan profile/i }));
+}
+
+describe('Social Scout Instagram privacy setup', () => {
+	it('shows the confirmed-private stop and never enables scheduling', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: async () => ({
+					valid: false,
+					profile_url: 'https://www.instagram.com/example-profile/',
+					profile_handle: 'example-profile',
+					profile_visibility: 'private',
+					error: PRIVATE_PROFILE_COPY,
+					post_ids: [],
+					preview_posts: [],
+					posts_data: []
+				})
+			})
+		);
+
+		await submitInstagramScan();
+
+		await waitFor(() => {
+			expect(screen.getByText(PRIVATE_PROFILE_COPY)).toBeInTheDocument();
+		});
+		expect(screen.queryByRole('button', { name: /schedule scout/i })).not.toBeInTheDocument();
+	});
+
+	it('shows the unknown warning and can schedule without a durable context token', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: async () => ({
+					valid: true,
+					profile_url: 'https://www.instagram.com/example-profile/',
+					profile_handle: 'example-profile',
+					profile_visibility: 'unknown',
+					warning: UNKNOWN_PROFILE_COPY,
+					post_ids: ['POST-1'],
+					preview_posts: [],
+					posts_data: [{ id: 'POST-1' }]
+				})
+			})
+		);
+
+		await submitInstagramScan();
+
+		await waitFor(() => {
+			expect(screen.getByText(UNKNOWN_PROFILE_COPY)).toBeInTheDocument();
+		});
+		expect(screen.getByRole('button', { name: /schedule scout/i })).toBeEnabled();
+	});
+});

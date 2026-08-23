@@ -8,14 +8,21 @@ Do not model new social work around EventBridge, Lambda, DynamoDB `POSTS#` recor
 
 ## Supported Platforms
 
-| Platform | Apify Actor ID | Media support |
+| Platform | Apify Actor ID | Role |
 | --- | --- | --- |
-| Instagram | `pmQcv69sB1UwguQUY` | Text, image URLs, video URLs |
-| X/Twitter | `61RPP7dywgiy0JPD0` | Text and media URLs |
-| Facebook | `cleansyntax~facebook-profile-posts-scraper` | Text, image URLs, video URLs |
-| TikTok | `novi~tiktok-user-api` | Text, cover image, video URL |
-| LinkedIn | `harvestapi~linkedin-profile-posts` | Text, image URLs, video thumbnail |
+| Instagram | [`dSCLg0C3YEZ83HzYX`](https://apify.com/apify/instagram-profile-scraper) | Setup-only profile/privacy metadata attempt |
+| Instagram | [`pmQcv69sB1UwguQUY`](https://apify.com/instagram-scraper/instagram-profile-posts-scraper) | Recent posts baseline and scheduled monitoring |
+| X/Twitter | `61RPP7dywgiy0JPD0` | Posts and media |
+| Facebook | `cleansyntax~facebook-profile-posts-scraper` | Posts, images, and video |
+| TikTok | `novi~tiktok-user-api` | Posts, cover images, and video |
+| LinkedIn | `harvestapi~linkedin-profile-posts` | Posts, images, and video thumbnails |
 
+The Instagram metadata actor is a best-effort setup check, not the monitoring
+actor. An explicit matching `private: true` stops setup; unavailable, malformed,
+empty, or mismatched metadata remains `unknown` and setup continues with a
+warning. Empty post results never prove that an account is private. See the
+linked actor documentation; users remain responsible for monitoring only public
+profiles in accordance with applicable terms.
 LinkedIn supports **personal profiles (`linkedin.com/in/...`) only** — company,
 school, and showcase page inputs are rejected at validation. LinkedIn's
 authwall answers datacenter probes with HTTP 999, so profile probing degrades
