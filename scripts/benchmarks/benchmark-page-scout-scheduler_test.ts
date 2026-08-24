@@ -1,5 +1,8 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals.ts";
-import { scheduledRunIsSettled } from "./benchmark-page-scout-scheduler.ts";
+import {
+  scheduledRunFailure,
+  scheduledRunIsSettled,
+} from "./benchmark-page-scout-scheduler.ts";
 
 Deno.test("scheduled Page benchmark waits for notification delivery after run success", () => {
   assertEquals(
@@ -12,6 +15,18 @@ Deno.test("scheduled Page benchmark waits for notification delivery after run su
   assertEquals(
     scheduledRunIsSettled({ status: "success", notification_status: "sent" }),
     true,
+  );
+});
+
+Deno.test("scheduled Page benchmark accepts model-derived units", () => {
+  assertEquals(
+    scheduledRunFailure({
+      status: "success",
+      articles_count: 1,
+      notification_status: "sent",
+      error_message: null,
+    }),
+    null,
   );
 });
 

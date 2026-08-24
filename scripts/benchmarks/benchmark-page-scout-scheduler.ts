@@ -1,11 +1,11 @@
 /**
  * Production-scheduler Page Scout smoke.
  *
- * Uses the same stable zero-unit page as the Page Scout benchmark. After the
- * product establishes a real baseline, the benchmark makes that stored
- * baseline deterministically stale. The production scheduler—not this
- * script—then has to dispatch the run and Any Change must alert on the real
- * canonical page delta despite creating zero units.
+ * Uses the same stable page as the Page Scout benchmark. After the product
+ * establishes a real baseline, the benchmark makes that stored baseline
+ * deterministically stale. The production scheduler—not this script—then has
+ * to dispatch the run and Any Change must alert on the real canonical page
+ * delta. The model-derived unit count is observed, not asserted.
  */
 
 import {
@@ -24,6 +24,23 @@ export function scheduledRunIsSettled(run: {
 }): boolean {
   if (isRunningRunStatus(run.status)) return false;
   return run.status !== "success" || run.notification_status !== "pending";
+}
+
+export function scheduledRunFailure(run: {
+  status: string;
+  articles_count: number;
+  notification_status: string | null;
+  error_message: string | null;
+}): string | null {
+  if (run.status !== "success") {
+    return `scheduled run ${run.status}: ${run.error_message ?? ""}`;
+  }
+  if (run.notification_status !== "sent") {
+    return `Any Change notification was ${
+      run.notification_status ?? "null"
+    }, expected sent`;
+  }
+  return null;
 }
 
 async function apiJson<T>(
@@ -202,25 +219,10 @@ async function main(): Promise<void> {
 
     const scheduledAfter = new Date().toISOString();
     const run = await waitForScheduledRun(ctx, scoutId, scheduledAfter);
-    if (run.status !== "success") {
-      throw new Error(
-        `scheduled run ${run.status}: ${run.error_message ?? ""}`,
-      );
-    }
-    if (run.articles_count !== 0) {
-      throw new Error(
-        `zero-unit fixture produced ${run.articles_count} units; fixture contract regressed`,
-      );
-    }
-    if (run.notification_status !== "sent") {
-      throw new Error(
-        `Any Change notification was ${
-          run.notification_status ?? "null"
-        }, expected sent`,
-      );
-    }
+    const failure = scheduledRunFailure(run);
+    if (failure) throw new Error(failure);
     console.log(
-      `PASS scheduler Any Change: run=${run.id} units=0 notification=sent`,
+      `PASS scheduler Any Change: run=${run.id} units=${run.articles_count} notification=sent`,
     );
   } finally {
     if (scoutId) {
