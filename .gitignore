@@ -79,6 +79,9 @@ Thumbs.db
 .codex/
 .mcp.json
 
+# Jeff orchestration state (local quality ledger; never publish)
+.jeff/
+
 # Firecrawl cache
 .firecrawl/
 
