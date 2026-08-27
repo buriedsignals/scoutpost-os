@@ -16,25 +16,31 @@ function lineContaining(document: string, value: string): string {
   return line.toLowerCase();
 }
 
-Deno.test("Terms disclose public-profile-only Social setup and preserve Page and Civic responsibilities", async () => {
+Deno.test("Terms preserve service responsibilities without volatile runtime promises", async () => {
   const terms = (await source("frontend/src/routes/terms/+page.svelte"))
     .toLowerCase();
 
   assert.match(terms, /social scout[^.\n]*public[^.\n]*profile/);
-  assert.match(terms, /(best-effort|best effort)[^.\n]*instagram/);
   assert.match(
     terms,
-    /(unknown|cannot confirm|could not confirm)[^.\n]*public profile/,
+    /(unknown|cannot confirm|could not confirm)[^.\n]*public profile[^.\n]*warn[^.\n]*continu/,
   );
   assert.match(terms, /you are responsible[^.\n]*platform[^.\n]*terms/);
+  assert.doesNotMatch(terms, /\binstagram\b/);
+  assert.doesNotMatch(
+    terms,
+    /(best-effort|best effort)[^.\n]*(privacy|profile|check)|privacy check[^.\n]*(before|collect)/,
+  );
 
   assert.match(terms, /page scout[^.\n]*responsib|responsib[^.\n]*page scout/);
   assert.match(
     terms,
     /civic scout[^.\n]*responsib|responsib[^.\n]*civic scout/,
   );
-  assert.match(terms, /page scouts?[^.\n]*robots\.txt/);
-  assert.match(terms, /civic scouts?[^.\n]*2 documents/);
+  assert.doesNotMatch(terms, /robots\.txt/);
+  assert.doesNotMatch(terms, /one request per scheduled interval/);
+  assert.doesNotMatch(terms, /minimum hourly/);
+  assert.doesNotMatch(terms, /civic scouts?[^.\n]*\b2 documents/);
 });
 
 Deno.test("public Social docs explain the best-effort unknown fallback", async () => {

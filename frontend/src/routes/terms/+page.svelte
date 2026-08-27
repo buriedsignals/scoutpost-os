@@ -12,7 +12,7 @@
 		<a href="/" class="back-link">&larr; Back to Scoutpost</a>
 
 		<h1>Terms of Use & Privacy Policy</h1>
-		<p class="updated">Last updated: July 17, 2026</p>
+		<p class="updated">Last updated: August 27, 2026</p>
 
 		<section>
 			<h2>What Scoutpost Is</h2>
@@ -44,16 +44,35 @@
 		<section>
 			<h2>Your Responsibilities</h2>
 			<p>
-				When you provide URLs for Page Scout monitoring, council domains for Civic Scout, or social media handles for Social Scout, you are responsible for ensuring your use complies with the target website's terms of service.
+				When you use Page Scout, Civic Scout, or Social Scout, you are responsible for ensuring that use complies with applicable target website and platform terms. You must comply with the <a href="/source-service-constraints.json">verified source and service constraints</a> that apply.
 			</p>
 			<p>
-				Page Scouts respect robots.txt directives, make one request per scheduled interval (minimum hourly), and cannot verify site-specific restrictions. Civic Scouts process at most 2 documents per run. Social Scouts rely on third-party scrapers subject to platform terms.
+				Social Scout monitors publicly accessible personal profiles only. If Scoutpost cannot confirm that an account is a public profile, it warns you and continues; you remain responsible for confirming the account is public.
+			</p>
+		</section>
+
+		<section>
+			<h2 id="acceptable-use">Acceptable Use</h2>
+			<p>
+				Scoutpost is for investigative work with a public-service purpose. It must not be used for personal surveillance, harassment, coercive employee monitoring, stalking, or retaliation.
+			</p>
+			<p>The following uses are prohibited:</p>
+			<ul>
+				<li><strong>AUP-PRIVATE-ACCESS</strong> &mdash; Unauthorized access to private content or circumvention of access controls is prohibited.</li>
+				<li><strong>AUP-STALKING-HARASSMENT-DOXXING</strong> &mdash; Using Scoutpost for stalking, harassment, or doxxing is prohibited.</li>
+				<li><strong>AUP-COERCIVE-DISCRIMINATORY-SURVEILLANCE</strong> &mdash; Coercive or discriminatory surveillance, including coercive employee monitoring, is prohibited.</li>
+				<li><strong>AUP-PROMPT-INJECTION</strong> &mdash; Prompt injection attempts to override Scoutpost instructions are prohibited.</li>
+				<li><strong>AUP-RATE-LIMIT-ABUSE</strong> &mdash; Rate-limit abuse of Scoutpost or source services is prohibited.</li>
+				<li><strong>AUP-MISINFORMATION</strong> &mdash; Using Scoutpost to generate or amplify misinformation is prohibited.</li>
+			</ul>
+			<p>
+				Monitoring a publicly accessible personal profile for a legitimate public-interest purpose is not by itself a violation. Attempting to access private content is prohibited.
 			</p>
 			<p>
-				Social Scout is for monitoring publicly accessible profiles for legitimate journalism with a public-service purpose. A best-effort Instagram privacy check runs through Apify before collecting recent public posts. If the result is unknown, Scoutpost warns you before continuing; you are responsible for confirming this is a public profile and that monitoring complies with the platform and Apify actor terms.
+				Potential violations receive operator review; model output alone is never proof. High-confidence findings require corroborating evidence and a cited published rule. An operator may terminate an account after review of relevant logs and may share those logs when appropriate and lawful. Scoutpost takes no enforcement action without that review.
 			</p>
 			<p>
-				You agree not to attempt prompt injection, abuse rate limits, or use the service to generate or amplify misinformation.
+				The stable rule identifiers, evidence requirements, and uncertainty treatment are published in the <a href="/acceptable-use-policy.json">machine-readable acceptable-use policy</a>.
 			</p>
 		</section>
 
@@ -92,8 +111,10 @@
 				<li><strong>Scout configurations</strong> &mdash; URLs, locations, topics, criteria, schedules you set up</li>
 				<li><strong>Location data</strong> &mdash; city, country, and coordinates for geo-targeted scouts</li>
 				<li><strong>Extracted facts</strong> &mdash; AI-extracted statements, source URLs, dates, entities</li>
+				<li><strong>Social post content</strong> &mdash; public post text and metadata collected by Social Scouts</li>
 				<li><strong>Execution history</strong> &mdash; when scouts ran and what they found</li>
 				<li><strong>Usage records</strong> &mdash; credit consumption for billing</li>
+				<li><strong>Abuse-review records</strong> &mdash; policy rule, deterministic evidence, confidence, model rationale, notification state, and operator disposition for potentially abusive scout configurations</li>
 			</ul>
 		</section>
 
@@ -102,7 +123,6 @@
 			<ul>
 				<li>Passwords in application storage (authentication is handled by Supabase Auth)</li>
 				<li>Analytics, behavioral tracking, or advertising data</li>
-				<li>Full article content (only extracted facts are kept)</li>
 				<li>Browsing history or usage patterns</li>
 			</ul>
 		</section>
@@ -116,10 +136,10 @@
 				</thead>
 				<tbody>
 					<tr><td>Supabase</td><td>Authentication, database, edge functions</td><td>Account identity and stored application data</td></tr>
-					<tr><td>OpenRouter</td><td>AI gateway and billing intermediary</td><td>Article text, search queries, images used for relevance, and low-yield/scanned PDFs</td></tr>
+					<tr><td>OpenRouter</td><td>AI gateway and billing intermediary</td><td>Article and social post text, search queries, images used for relevance, low-yield/scanned PDFs, and minimal candidate-abuse-review scout fields with the account identity removed</td></tr>
 					<tr><td>Google Vertex</td><td>Upstream Gemini model inference</td><td>The same AI inputs routed by OpenRouter</td></tr>
 					<tr><td>Firecrawl</td><td>Web scraping</td><td>URLs you provide</td></tr>
-					<tr><td>Apify</td><td>Social media scraping</td><td>Social handles you provide</td></tr>
+					<tr><td>Apify and Community Actor creators</td><td>Social media scraping</td><td>Social handles and public actor outputs; Creator access depends on the Actor permissions described in the verified service constraints</td></tr>
 					<tr><td>Resend</td><td>Email delivery</td><td>Your email (per-send), notification content</td></tr>
 					<tr><td>MapTiler</td><td>Geocoding</td><td>Location names</td></tr>
 				</tbody>
@@ -139,11 +159,13 @@
 					<tr><th>Data</th><th>Retention</th></tr>
 				</thead>
 				<tbody>
-					<tr><td>Extracted facts</td><td>90 days (auto-deleted)</td></tr>
-					<tr><td>Execution history</td><td>90 days (auto-deleted)</td></tr>
-					<tr><td>Usage records</td><td>90 days (auto-deleted)</td></tr>
+					<tr><td>Extracted facts and execution history</td><td>90 days (auto-deleted)</td></tr>
+					<tr><td>Usage records</td><td>90 days; AI usage metadata 180 days</td></tr>
+					<tr><td>Social comparison baselines</td><td>Active scout lifetime; 90 days after inactivity</td></tr>
+					<tr><td>Potential abuse-review findings</td><td>180 days after the last matching review</td></tr>
+					<tr><td>Page Archive evidence</td><td>Until you delete the Page Scout or account; no automatic expiry</td></tr>
 					<tr><td>Scout configurations</td><td>Until you delete the scout</td></tr>
-					<tr><td>User profile</td><td>Until account deletion or 2 years of inactivity</td></tr>
+					<tr><td>User profile</td><td>Until account deletion</td></tr>
 				</tbody>
 			</table>
 		</section>

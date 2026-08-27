@@ -19,6 +19,10 @@ Self-hosting is supported. You bring your own Supabase, OpenRouter, Firecrawl, R
 
 Scoutpost, formerly coJournalist, helps journalists monitor beats, sources, pages, social profiles, and civic sites through scheduled scouts. Agents can help search, summarize, and export the resulting information units, but journalists remain responsible for verification.
 
+## Acceptable use
+
+Scoutpost supports investigative work with a public-service purpose. It is not for personal surveillance, stalking, harassment, coercive employee monitoring, or retaliation. See https://www.scoutpost.ai/terms#acceptable-use. Your use must comply with the verified source and service constraints at https://www.scoutpost.ai/source-service-constraints.json
+
 ## Open source
 
 Scoutpost is built on community-maintained open-source projects and open data: Crawl4AI (primary scraper), Playwright (browser automation), Poppler/pdftotext (civic-PDF extraction), Deno (CLI, MCP bridge, Edge Functions), FastAPI (backend API), pgvector (semantic scout search), langdetect (dedup language scoring), the Internet Archive Wayback Machine (optional evidence snapshots), and — for transport scouts — adsb.lol (aircraft), CelesTrak (satellite elements), and satellite.js (orbital math). Hosted vessel positions come from the paid VesselAPI service. Full credits: https://www.scoutpost.ai/acknowledgements

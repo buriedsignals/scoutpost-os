@@ -118,6 +118,13 @@
 				<h2 class="section-title">Product</h2>
 
 				<details class="faq-item">
+					<summary class="faq-question">What is Scoutpost's acceptable-use policy?</summary>
+					<div class="faq-answer">
+						<p>Scoutpost supports investigative work with a public-service purpose. It is not for personal surveillance, stalking, harassment, coercive employee monitoring, or retaliation. See the <a href="/terms#acceptable-use">acceptable-use policy</a>. Your use must comply with the <a href="/source-service-constraints.json">verified source and service constraints</a> that apply.</p>
+					</div>
+				</details>
+
+				<details class="faq-item">
 					<summary class="faq-question">What is Scoutpost?</summary>
 					<div class="faq-answer">
 						<p>Scoutpost is an AI-powered local news monitoring platform, formerly called coJournalist. It helps journalists and newsrooms track beats, monitor sources, and surface story leads through automated scouts that watch the web, social media, and government pages on a schedule.</p>

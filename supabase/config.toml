@@ -474,6 +474,9 @@ verify_jwt = false
 [functions.scout-health-monitor]
 verify_jwt = false
 
+[functions.abuse-risk-audit]
+verify_jwt = false
+
 [functions.operations-monitor]
 verify_jwt = false
 

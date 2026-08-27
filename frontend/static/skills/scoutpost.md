@@ -83,6 +83,7 @@ the local `scout` config.
   Scoutpost; enabling it also submits each snapshot to the public Internet
   Archive unless the newsroom turns Wayback off. Disclose that before enabling
   it for someone.
+- For Social Scouts, monitor only public profiles for a legitimate public-interest purpose; follow `/terms#acceptable-use`.
 
 ## Useful URLs
 

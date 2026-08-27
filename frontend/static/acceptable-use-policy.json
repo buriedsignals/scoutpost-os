@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "policy_url": "/terms#acceptable-use",
+  "source_service_constraints_url": "/source-service-constraints.json",
+  "confidence_levels": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "severity_levels": [
+    "medium",
+    "high"
+  ],
+  "high_confidence": {
+    "requires_corroboration": true,
+    "minimum_evidence_items": 2,
+    "requires_published_rule_citation": true,
+    "model_output_alone_sufficient": false
+  },
+  "enforcement": {
+    "mode": "operator-review-only",
+    "automatic_action": false
+  },
+  "rules": [
+    {
+      "id": "AUP-PRIVATE-ACCESS",
+      "severity": "high",
+      "public_summary": "Unauthorized access to private content or circumvention of access controls is prohibited.",
+      "required_evidence": [
+        "Evidence that the content or access path was private or unauthorized",
+        "Request, configuration, or execution records showing attempted access or circumvention"
+      ],
+      "uncertainty": {
+        "missing_or_ambiguous_evidence": "low",
+        "conflicting_evidence": "medium"
+      }
+    },
+    {
+      "id": "AUP-STALKING-HARASSMENT-DOXXING",
+      "severity": "high",
+      "public_summary": "Using Scoutpost for stalking, harassment, or doxxing is prohibited.",
+      "required_evidence": [
+        "Records identifying the monitored target and the conduct under review",
+        "Corroborated context showing a stalking, harassment, or doxxing purpose or pattern"
+      ],
+      "uncertainty": {
+        "missing_or_ambiguous_evidence": "low",
+        "conflicting_evidence": "medium"
+      }
+    },
+    {
+      "id": "AUP-COERCIVE-DISCRIMINATORY-SURVEILLANCE",
+      "severity": "high",
+      "public_summary": "Coercive or discriminatory surveillance, including coercive employee monitoring, is prohibited.",
+      "required_evidence": [
+        "Records identifying the monitored people, group, or employees",
+        "Corroborated context showing coercive or discriminatory surveillance"
+      ],
+      "uncertainty": {
+        "missing_or_ambiguous_evidence": "low",
+        "conflicting_evidence": "medium"
+      }
+    },
+    {
+      "id": "AUP-PROMPT-INJECTION",
+      "severity": "medium",
+      "public_summary": "Prompt injection attempts to override Scoutpost instructions are prohibited.",
+      "required_evidence": [
+        "Account-authored content or account configuration containing the suspected injection",
+        "Execution or request records tying the attempted injection to the account; monitored-source text is not attribution evidence"
+      ],
+      "uncertainty": {
+        "missing_or_ambiguous_evidence": "low",
+        "conflicting_evidence": "medium"
+      }
+    },
+    {
+      "id": "AUP-RATE-LIMIT-ABUSE",
+      "severity": "medium",
+      "public_summary": "Rate-limit abuse of Scoutpost or source services is prohibited.",
+      "required_evidence": [
+        "Timestamped request or execution records showing the request pattern",
+        "The applicable published rate limit or evidence of deliberate evasion"
+      ],
+      "uncertainty": {
+        "missing_or_ambiguous_evidence": "low",
+        "conflicting_evidence": "medium"
+      }
+    },
+    {
+      "id": "AUP-MISINFORMATION",
+      "severity": "high",
+      "public_summary": "Using Scoutpost to generate or amplify misinformation is prohibited.",
+      "required_evidence": [
+        "Account activity that generated, distributed, or amplified the claim",
+        "Corroborated source evidence establishing that the claim is materially false or misleading"
+      ],
+      "uncertainty": {
+        "missing_or_ambiguous_evidence": "low",
+        "conflicting_evidence": "medium"
+      }
+    }
+  ]
+}

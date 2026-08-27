@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "authority_url": "/source-service-constraints.json",
+  "services": [
+    {
+      "id": "apify",
+      "official_sources": [
+        "https://docs.apify.com/legal/general-terms-and-conditions",
+        "https://docs.apify.com/legal/acceptable-use-policy",
+        "https://docs.apify.com/legal/actor-terms-and-conditions"
+      ],
+      "public_summary": "Use Apify only for legal and legitimate purposes, process only data you are authorized to access, and comply with the Apify Acceptable Use Policy. Use Actors only for legitimate purposes consistent with their intended functionality and applicable Creator terms. For Community Actors, review Creator privacy and data handling practices, grant only necessary permissions, and perform your own trust and due diligence assessment."
+    },
+    {
+      "id": "firecrawl",
+      "official_sources": [
+        "https://www.firecrawl.dev/terms-of-service",
+        "https://docs.firecrawl.dev/api-reference/endpoint/crawl-post"
+      ],
+      "public_summary": "Firecrawl prohibits commercial use unless expressly authorized, unlawful use, and use associated with debt collection, hard background checks, government license eligibility, an intelligence agency, law enforcement or criminal prosecution evidence, or Fair Credit Reporting Act purposes.",
+      "crawl_endpoint_qualification": "The Firecrawl Crawl endpoint documents ignoreRobotsTxt as false by default. This qualification applies only to the Crawl endpoint and does not establish Search or Scrape behavior."
+    }
+  ]
+}

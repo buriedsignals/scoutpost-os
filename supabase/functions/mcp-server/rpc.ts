@@ -401,7 +401,7 @@ export const TOOLS: ToolDef[] = [
         profile_handle: {
           type: "string",
           description:
-            "Required for social scouts. Use a full personal linkedin.com/in/... URL for LinkedIn; other platforms accept the account handle.",
+            "Required for social scouts. Monitor only public personal profiles for a legitimate public-interest purpose; see https://www.scoutpost.ai/terms#acceptable-use. Use a full personal linkedin.com/in/... URL for LinkedIn; other platforms accept the account handle.",
         },
         monitor_mode: {
           type: "string",

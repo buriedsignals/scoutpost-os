@@ -227,6 +227,7 @@
 						placeholder={platform === 'linkedin' ? m.socialScout_linkedinUrlPlaceholder() : m.socialScout_handlePlaceholder()}
 						class="form-input"
 					/>
+					<p class="policy-guidance">Monitor only public profiles for a legitimate public-interest purpose. See the <a href="/terms#acceptable-use">acceptable-use policy</a>.</p>
 				</div>
 
 				<!-- Monitor Mode Picker -->
@@ -363,6 +364,13 @@
 		font-weight: 500;
 		color: var(--color-ink);
 		margin: 0 0 0.5rem 0;
+	}
+
+	.policy-guidance {
+		font-size: 0.75rem;
+		line-height: 1.4;
+		color: var(--color-ink-muted);
+		margin: 0.5rem 0 0;
 	}
 
 	.criteria-detail { margin-top: 0.75rem; }

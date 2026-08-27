@@ -38,6 +38,7 @@ function usage(): void {
       "  comma-separated labels; this is distinct from --project / project_id.",
       "  Social scouts default to --monitor-mode criteria and require --criteria.",
       "  Pass --monitor-mode summarize to collect all substantive new posts instead.",
+      "  Social scouts monitor public profiles for a public-interest purpose; policy: https://www.scoutpost.ai/terms#acceptable-use.",
       "  Web/Page scouts: use --criteria for Specific Criteria alerts; omitting or",
       "  leaving it empty selects noisy Any Change alerts that may include page chrome.",
       "  Beat and civic scouts support weekly or monthly schedules only.",
