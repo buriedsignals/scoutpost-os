@@ -15,7 +15,6 @@ Read the nearest parent `AGENTS.md` / `AGENTS.md` before editing; its session pr
 | `user.py` | `/api/user/*` | User preferences and data export. The incomplete legacy account-delete route is permanently `410 Gone`; hosted deletion belongs to the `user` Edge Function. | No |
 | `units.py` | `/api/units/*` | Legacy unit helpers still called by the SPA while the units-only surface consolidates on EFs. | No |
 | `v1.py` | `/api/v1/*` | Thin OSS REST surface. `cj_` key validation now lives in the Supabase `validate_api_key` RPC (reached via `public_edge_proxy` → `/functions/v1/*`, which the CLI uses); the FastAPI key path returns 401 (no `ApiKeyService`). | No |
-| `threat_modeling/` | `/api/threat-modeling/*` | Internal threat-assessment dashboard. | Yes |
 
 SaaS-only routers are stripped from the OSS mirror by `scripts/ops/strip-oss.sh`.
 When adding a SaaS-only router or service you MUST update `strip-oss.sh`.

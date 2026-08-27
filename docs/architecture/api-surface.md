@@ -65,7 +65,6 @@ Frontend is served by the same service in dev; static SPA in production.
 | `license.py` | `/api/license/*` | License key gating (OSS sustainable-use model) | Live |
 | `v1.py` | `/api/v1/*` | Public REST API (CLI uses this OR the Supabase EF URL) | Live |
 | `feedback.py` | `/api/feedback` | Linear support widget — POST creates issues | Live (SaaS-only — stripped from OSS) |
-| `threat_modeling/` | `/api/threat-modeling/*` | Internal threat assessment doc; currently gated out while `deployment_target == "supabase"`. | Residual |
 
 ### Removed in this PR (cutover finish)
 

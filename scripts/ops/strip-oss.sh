@@ -101,9 +101,6 @@ rm -f backend/tests/unit/scripts/test_grant_pro.py
 # Backend: remove feedback router (Linear integration — SaaS-only)
 rm -f backend/app/routers/feedback.py
 
-# Backend: remove threat modeling dashboard (internal security assessment)
-rm -rf backend/app/routers/threat_modeling/
-
 # Supabase Edge Functions: remove hosted/SaaS-only endpoints before OSS
 # deploy discovery runs. Self-hosted deployments should not deploy MuckRock
 # OAuth/billing, hosted admin invoicing, or Buried Signals newsletter proxies.
@@ -941,11 +938,6 @@ if grep -riE "indicator-claim|indicator_claim|subscription/claim|Claim Indicator
   --exclude-dir="tests" \
   . 2>/dev/null; then
   echo "ERROR: hosted Indicator claim references found in OSS build"
-  FAIL=1
-fi
-
-if [ -d "backend/app/routers/threat_modeling" ]; then
-  echo "ERROR: threat_modeling directory found in OSS build"
   FAIL=1
 fi
 

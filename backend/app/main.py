@@ -429,9 +429,6 @@ app.include_router(public_edge_proxy.router, include_in_schema=False)
 # Threat modeling — SaaS-only (stripped from OSS mirror), gated by require_admin.
 # (The admin revenue dashboard moved to supabase/functions/admin-report/ in the
 # post-cutover sweep; its FastAPI router was deleted.)
-if settings.deployment_target != "supabase":
-    from app.routers import threat_modeling
-    app.include_router(threat_modeling.router, prefix="/api/threat-modeling", tags=["Threat Modeling"], include_in_schema=False)
 
 # Feedback — hidden from public API docs
 
