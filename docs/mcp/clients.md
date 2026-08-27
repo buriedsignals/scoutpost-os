@@ -2,7 +2,7 @@
 
 Per-client recipes. The hosted server URL is always `https://scoutpost.ai/mcp`. Every recipe below results in OAuth-on-first-use — no `client_id`/`client_secret` paste, ever.
 
-The agent-connection modal in the app (`/api` → Connect Agent) generates the same recipes dynamically per client. These docs own the detailed walkthroughs and troubleshooting; deployment-specific commands and concise modal prompts live in `frontend/src/lib/utils/agent-recipes.ts`.
+The agent-connection modal in the app (`/api` → Connect Agent) generates the same recipes dynamically per client. Catalog-backed recipes (Claude Code, Claude custom connector, ChatGPT Desktop, Codex MCP, Cursor, Goose, generic MCP) come from Engine `@buriedsignals/agent-connect`. These docs own the detailed walkthroughs and troubleshooting.
 
 ## Claude Cowork (claude.ai web, Claude Desktop, Cowork)
 
@@ -18,11 +18,16 @@ A separate desktop browser does NOT pop up — Anthropic brokers OAuth from thei
 ## Claude Code (CLI)
 
 ```bash
-claude mcp add scoutpost --transport http https://scoutpost.ai/mcp
-claude mcp login scoutpost   # opens local browser for OAuth
+claude mcp add --transport http scoutpost https://scoutpost.ai/mcp
 ```
 
-After OAuth, `claude mcp list` shows scoutpost with its tool count. Tokens land in Claude Code's keychain entry.
+If Claude Code returns 401, open `/mcp` and complete OAuth. After OAuth, `claude mcp list` shows scoutpost with its tool count.
+
+## ChatGPT Desktop
+
+ChatGPT Desktop is a listed connect path. Open ChatGPT Desktop, add a custom MCP connector / app, and paste `https://scoutpost.ai/mcp`. Complete Scoutpost OAuth.
+
+OpenAI currently documents custom MCP and developer mode for ChatGPT **Business, Enterprise, and Edu**. If Desktop has no Add connector control on your account, keep this listing and record the gap — do not use Codex CLI steps. Help: <https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt>.
 
 ## Codex Desktop (OpenAI)
 
@@ -33,22 +38,14 @@ Codex Desktop speaks Streamable HTTP natively with OAuth.
 3. Name: `scoutpost`. URL: `https://scoutpost.ai/mcp`. Leave Authorization blank — Codex runs the OAuth handshake on first use. Save.
 4. Approve the Scoutpost sign-in in the browser tab Codex opens. The connector flips to connected and tools appear in the Sources/Tools panel.
 
-## codex-cli (terminal)
-
-Add to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.scoutpost]
-url = "https://scoutpost.ai/mcp"
-```
-
-Then:
+## Codex CLI (terminal)
 
 ```bash
+codex mcp add scoutpost --url https://scoutpost.ai/mcp
 codex mcp login scoutpost
 ```
 
-Older codex-cli builds may need `experimental_use_rmcp_client = true` in the same file. Reference: <https://developers.openai.com/codex/mcp>.
+Skip `add` if `codex mcp list` already shows scoutpost. Reference: <https://developers.openai.com/codex/mcp>.
 
 ## Cursor
 
@@ -136,10 +133,6 @@ Native MCP client support is in active beta. Tracked upstream at openclaw/opencl
 ## Generic (any MCP-speaking client)
 
 Paste `https://scoutpost.ai/mcp` and follow the client's OAuth prompt. Spec reference: <https://modelcontextprotocol.io>.
-
-## What about ChatGPT?
-
-Not supported as a self-serve target. OpenAI gates "developer mode" custom MCP to Business/Enterprise/Edu plans, with an admin opt-in step per workspace. That makes it useless for individual journalists; the agent-connection modal does not include it. Reference: <https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt-beta>.
 
 ## Local stdio bridge (`scout-mcp`)
 

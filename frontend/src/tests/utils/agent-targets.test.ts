@@ -46,16 +46,17 @@ describe("agent target resolution", () => {
     const cliCommand = recipes.recipes.cli?.command ?? "";
     const prompt = getSetupPrompt("codex-cli", "cli", target);
     const mcpRecipes = getAgentRecipes("codex-mcp", target);
-    const mcpSnippet = mcpRecipes.recipes.mcp?.configSnippet ?? "";
+    const mcpCommand = mcpRecipes.recipes.mcp?.command ?? "";
 
     expect(cliCommand).toBe(
       "npm install --global scoutpost-cli && scout auth login --site 'https://newsroom.example.com' --label 'Codex CLI'",
     );
     expect(prompt).toBe(cliCommand);
-    expect(mcpSnippet).toContain(
-      "https://newsroom.supabase.co/functions/v1/mcp-server",
+    expect(mcpCommand).toContain(
+      "codex mcp add scoutpost --url https://newsroom.supabase.co/functions/v1/mcp-server",
     );
-    expect(`${cliCommand}\n${prompt}\n${mcpSnippet}`).not.toContain(
+    expect(mcpCommand).toContain("codex mcp login scoutpost");
+    expect(`${cliCommand}\n${prompt}\n${mcpCommand}`).not.toContain(
       "www.scoutpost.ai",
     );
   });
@@ -115,10 +116,9 @@ describe("agent target resolution", () => {
     const hermesMcp = getAgentRecipes("hermes").recipes.mcp;
     const antigravityMcp = getAgentRecipes("gemini-cli").recipes.mcp;
 
-    expect(codexMcp?.configSnippet).toContain("[mcp_servers.scoutpost]");
-    expect(codexMcp?.verifySteps?.join("\n")).toContain(
-      "codex mcp login scoutpost",
-    );
+    expect(codexMcp?.command).toContain("codex mcp add scoutpost --url");
+    expect(codexMcp?.command).toContain("codex mcp login scoutpost");
+    expect(codexMcp?.command).not.toMatch(/ChatGPT Desktop/i);
     expect(hermesMcp?.configSnippet).toContain("auth: oauth");
     expect(antigravityMcp?.configSnippet).toContain('"serverUrl"');
     expect(antigravityMcp?.docsUrl).toContain("antigravity.google/docs/mcp");
@@ -131,9 +131,9 @@ describe("agent target resolution", () => {
     const goose = getAgentRecipes("goose").recipes.mcp;
     const openclaw = getAgentRecipes("openclaw").recipes.mcp;
 
-    expect(claude?.uiSteps?.join("\n")).toContain(
-      "claude mcp login scoutpost",
-    );
+    expect(claude?.uiSteps?.join("\n")).toContain("/mcp");
+    expect(claude?.command).toContain("claude mcp add --transport http scoutpost");
+    expect(claude?.command).not.toContain("codex");
     expect(goose?.uiSteps?.join("\n")).toContain(
       "Remote Extension (Streamable HTTP)",
     );
@@ -155,6 +155,18 @@ describe("agent target resolution", () => {
     expect(recipe?.configSnippet).toBe("https://scoutpost.ai/mcp");
     expect(recipe?.tagline).toContain("Dynamic Client Registration");
     expect(recipe?.uiSteps?.join("\n")).toContain("OAuth authentication");
+  });
+
+  it("lists ChatGPT Desktop as a supported MCP recipe, distinct from Codex", () => {
+    const recipes = getAgentRecipes("chatgpt-desktop");
+    const recipe = recipes.recipes.mcp;
+
+    expect(recipes.paths).toEqual(["mcp"]);
+    expect(recipes.default).toBe("mcp");
+    expect(recipe?.tagline).toMatch(/ChatGPT Desktop/);
+    expect(recipe?.uiSteps?.join("\n")).toMatch(/ChatGPT Desktop/);
+    expect(recipe?.warning?.body).toMatch(/Business, Enterprise, and Edu/);
+    expect(recipe?.command ?? recipe?.configSnippet).not.toMatch(/codex/i);
   });
 
   it("keeps the unknown generic MCP client on the MCP-first path", () => {

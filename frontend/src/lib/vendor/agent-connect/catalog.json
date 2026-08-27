@@ -1,0 +1,338 @@
+{
+  "package": "@buriedsignals/agent-connect",
+  "packageVersion": "0.1.0",
+  "products": {
+    "navigator": {
+      "claude-code": {
+        "cli": {
+          "title": "Claude Code",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask Claude Code to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        },
+        "mcp": {
+          "title": "Claude Code",
+          "tagline": "Add {{DISPLAY_NAME}} in your terminal, then sign in with OAuth.",
+          "command": "claude mcp add --transport http {{SERVER_ID}} {{MCP_URL}}",
+          "steps": [
+            "Run the command above in your terminal.",
+            "If Claude Code returns 401, open /mcp and complete OAuth for {{DISPLAY_NAME}}.",
+            "Confirm {{DISPLAY_NAME}} is connected."
+          ],
+          "verify": "Open /mcp in Claude Code and confirm {{DISPLAY_NAME}} is connected.",
+          "docsUrl": "https://code.claude.com/docs/en/mcp",
+          "caveat": null
+        }
+      },
+      "claude-desktop": {
+        "mcp": {
+          "title": "Claude Desktop",
+          "tagline": "Add a custom connector in Claude — same flow for Claude Desktop, claude.ai, and Cowork.",
+          "command": "{{MCP_URL}}",
+          "steps": [
+            "Open Claude Desktop, claude.ai, or Cowork and go to Customize → Connectors. On Team or Enterprise plans, an Owner must first add the connector in Organization settings → Connectors.",
+            "Click \"+\" → \"Add custom connector\". On Team or Enterprise, choose Custom → Web.",
+            "Paste {{MCP_URL}} as the Remote MCP Server URL, then click Add.",
+            "Click Connect on the new entry — not Configure. (If the card defaults to Configure, click \"...\" → Remove, then re-add. The first probe drives the OAuth flow.)",
+            "Approve the {{DISPLAY_NAME}} OAuth request. Anthropic brokers remote connector traffic from its cloud, even for Desktop and Cowork.",
+            "Enable the connector in a conversation from the \"+\" menu → Connectors before asking Claude to use {{DISPLAY_NAME}}."
+          ],
+          "verify": "Ask Claude to use {{DISPLAY_NAME}}.",
+          "docsUrl": "https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp",
+          "caveat": null
+        }
+      },
+      "chatgpt-desktop": {
+        "mcp": {
+          "title": "ChatGPT Desktop",
+          "tagline": "Connect ChatGPT Desktop to {{DISPLAY_NAME}} with the remote MCP server.",
+          "command": "{{MCP_URL}}",
+          "steps": [
+            "Open ChatGPT Desktop signed into the workspace that should use {{DISPLAY_NAME}}.",
+            "Open Settings and look for Apps, Connectors, or developer mode.",
+            "Add a custom MCP connector or app and paste {{MCP_URL}} as the server URL.",
+            "Complete the {{DISPLAY_NAME}} OAuth prompt, then enable the connector in a chat.",
+            "If Desktop has no Add connector control, keep this listing and record the gap. Do not use Codex CLI steps."
+          ],
+          "verify": "Ask ChatGPT Desktop to use {{DISPLAY_NAME}}.",
+          "docsUrl": "https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt",
+          "caveat": "OpenAI currently documents custom MCP and developer mode for ChatGPT Business, Enterprise, and Edu workspaces, and describes the create-app flow on ChatGPT web. ChatGPT Desktop remains a listed connect path. If Desktop has no Add connector / Apps control on your account, keep this listing and record the gap — do not switch to Codex."
+        }
+      },
+      "codex": {
+        "cli": {
+          "title": "Codex",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask Codex to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        },
+        "mcp": {
+          "title": "Codex",
+          "tagline": "Add {{DISPLAY_NAME}} as a Streamable HTTP MCP server in Codex, then run the OAuth login command.",
+          "command": "codex mcp add {{SERVER_ID}} --url {{MCP_URL}}\ncodex mcp login {{SERVER_ID}}",
+          "steps": [
+            "Run the add command below in a terminal (skip it if the server is already listed).",
+            "Run the login command to start the browser OAuth flow.",
+            "Ask Codex to use the {{SERVER_ID}} MCP server."
+          ],
+          "verify": "Run /mcp in the Codex TUI and confirm {{SERVER_ID}} is connected.",
+          "docsUrl": "https://developers.openai.com/codex/mcp",
+          "caveat": null
+        }
+      },
+      "cursor": {
+        "cli": {
+          "title": "Cursor",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask Cursor to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        },
+        "mcp": {
+          "title": "Cursor",
+          "tagline": "Add an entry to Cursor’s MCP config. OAuth on first use.",
+          "command": "{\n  \"mcpServers\": {\n    \"{{SERVER_ID}}\": {\n      \"url\": \"{{MCP_URL}}\"\n    }\n  }\n}",
+          "steps": [
+            "Save this globally at ~/.cursor/mcp.json or per project at .cursor/mcp.json.",
+            "Run `agent mcp login {{SERVER_ID}}` if Cursor asks for OAuth.",
+            "Confirm {{SERVER_ID}} is connected in Cursor Settings → Features → Model Context Protocol."
+          ],
+          "verify": "Confirm {{DISPLAY_NAME}} tools are available in Cursor.",
+          "docsUrl": "https://cursor.com/docs/mcp",
+          "caveat": null
+        }
+      },
+      "goose": {
+        "cli": {
+          "title": "Goose",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask Goose to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        },
+        "mcp": {
+          "title": "Goose",
+          "tagline": "Configure Goose to use {{DISPLAY_NAME}} as a remote extension.",
+          "command": "goose configure",
+          "steps": [
+            "Run `goose configure` in your terminal.",
+            "Choose \"Add Extension\" → \"Remote Extension (Streamable HTTP)\".",
+            "Name the extension `{{SERVER_ID}}`.",
+            "Paste {{MCP_URL}} when prompted.",
+            "Authorize in the browser window that opens."
+          ],
+          "verify": "Ask Goose to use {{DISPLAY_NAME}}.",
+          "docsUrl": "https://github.com/aaif-goose/goose/blob/main/documentation/docs/getting-started/using-extensions.md",
+          "caveat": null
+        }
+      },
+      "generic-mcp": {
+        "mcp": {
+          "title": "Other MCP client",
+          "tagline": "Any MCP-speaking client. Paste this URL and authorize.",
+          "command": "{{MCP_URL}}",
+          "steps": [
+            "Add {{DISPLAY_NAME}} as a remote MCP server using streamable HTTP.",
+            "Paste {{MCP_URL}}.",
+            "Complete {{DISPLAY_NAME}} OAuth in the client. OAuth is product-owned."
+          ],
+          "verify": "Confirm {{DISPLAY_NAME}} tools are available.",
+          "docsUrl": "https://modelcontextprotocol.io",
+          "caveat": null
+        }
+      }
+    },
+    "scoutpost": {
+      "claude-code": {
+        "cli": {
+          "title": "Claude Code",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Claude Code'",
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask Claude Code to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        },
+        "mcp": {
+          "title": "Claude Code",
+          "tagline": "Add {{DISPLAY_NAME}} in your terminal, then sign in with OAuth.",
+          "command": "claude mcp add --transport http {{SERVER_ID}} {{MCP_URL}}",
+          "steps": [
+            "Run the command above in your terminal.",
+            "If Claude Code returns 401, open /mcp and complete OAuth for {{DISPLAY_NAME}}.",
+            "Confirm {{DISPLAY_NAME}} is connected."
+          ],
+          "verify": "Open /mcp in Claude Code and confirm {{DISPLAY_NAME}} is connected.",
+          "docsUrl": "https://code.claude.com/docs/en/mcp",
+          "caveat": null
+        }
+      },
+      "claude-desktop": {
+        "mcp": {
+          "title": "Claude Desktop",
+          "tagline": "Add a custom connector in Claude — same flow for Claude Desktop, claude.ai, and Cowork.",
+          "command": "{{MCP_URL}}",
+          "steps": [
+            "Open Claude Desktop, claude.ai, or Cowork and go to Customize → Connectors. On Team or Enterprise plans, an Owner must first add the connector in Organization settings → Connectors.",
+            "Click \"+\" → \"Add custom connector\". On Team or Enterprise, choose Custom → Web.",
+            "Paste {{MCP_URL}} as the Remote MCP Server URL, then click Add.",
+            "Click Connect on the new entry — not Configure. (If the card defaults to Configure, click \"...\" → Remove, then re-add. The first probe drives the OAuth flow.)",
+            "Approve the {{DISPLAY_NAME}} OAuth request. Anthropic brokers remote connector traffic from its cloud, even for Desktop and Cowork.",
+            "Enable the connector in a conversation from the \"+\" menu → Connectors before asking Claude to use {{DISPLAY_NAME}}."
+          ],
+          "verify": "Ask Claude to use {{DISPLAY_NAME}}.",
+          "docsUrl": "https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp",
+          "caveat": null
+        }
+      },
+      "chatgpt-desktop": {
+        "mcp": {
+          "title": "ChatGPT Desktop",
+          "tagline": "Connect ChatGPT Desktop to {{DISPLAY_NAME}} with the remote MCP server.",
+          "command": "{{MCP_URL}}",
+          "steps": [
+            "Open ChatGPT Desktop signed into the workspace that should use {{DISPLAY_NAME}}.",
+            "Open Settings and look for Apps, Connectors, or developer mode.",
+            "Add a custom MCP connector or app and paste {{MCP_URL}} as the server URL.",
+            "Complete the {{DISPLAY_NAME}} OAuth prompt, then enable the connector in a chat.",
+            "If Desktop has no Add connector control, keep this listing and record the gap. Do not use Codex CLI steps."
+          ],
+          "verify": "Ask ChatGPT Desktop to use {{DISPLAY_NAME}}.",
+          "docsUrl": "https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt",
+          "caveat": "OpenAI currently documents custom MCP and developer mode for ChatGPT Business, Enterprise, and Edu workspaces, and describes the create-app flow on ChatGPT web. ChatGPT Desktop remains a listed connect path. If Desktop has no Add connector / Apps control on your account, keep this listing and record the gap — do not switch to Codex."
+        }
+      },
+      "codex": {
+        "cli": {
+          "title": "Codex",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Codex'",
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask Codex to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        },
+        "mcp": {
+          "title": "Codex",
+          "tagline": "Add {{DISPLAY_NAME}} as a Streamable HTTP MCP server in Codex, then run the OAuth login command.",
+          "command": "codex mcp add {{SERVER_ID}} --url {{MCP_URL}}\ncodex mcp login {{SERVER_ID}}",
+          "steps": [
+            "Run the add command below in a terminal (skip it if the server is already listed).",
+            "Run the login command to start the browser OAuth flow.",
+            "Ask Codex to use the {{SERVER_ID}} MCP server."
+          ],
+          "verify": "Run /mcp in the Codex TUI and confirm {{SERVER_ID}} is connected.",
+          "docsUrl": "https://developers.openai.com/codex/mcp",
+          "caveat": null
+        }
+      },
+      "cursor": {
+        "cli": {
+          "title": "Cursor",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Cursor'",
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask Cursor to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        },
+        "mcp": {
+          "title": "Cursor",
+          "tagline": "Add an entry to Cursor’s MCP config. OAuth on first use.",
+          "command": "{\n  \"mcpServers\": {\n    \"{{SERVER_ID}}\": {\n      \"url\": \"{{MCP_URL}}\"\n    }\n  }\n}",
+          "steps": [
+            "Save this globally at ~/.cursor/mcp.json or per project at .cursor/mcp.json.",
+            "Run `agent mcp login {{SERVER_ID}}` if Cursor asks for OAuth.",
+            "Confirm {{SERVER_ID}} is connected in Cursor Settings → Features → Model Context Protocol."
+          ],
+          "verify": "Confirm {{DISPLAY_NAME}} tools are available in Cursor.",
+          "docsUrl": "https://cursor.com/docs/mcp",
+          "caveat": null
+        }
+      },
+      "goose": {
+        "cli": {
+          "title": "Goose",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Goose'",
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask Goose to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        },
+        "mcp": {
+          "title": "Goose",
+          "tagline": "Configure Goose to use {{DISPLAY_NAME}} as a remote extension.",
+          "command": "goose configure",
+          "steps": [
+            "Run `goose configure` in your terminal.",
+            "Choose \"Add Extension\" → \"Remote Extension (Streamable HTTP)\".",
+            "Name the extension `{{SERVER_ID}}`.",
+            "Paste {{MCP_URL}} when prompted.",
+            "Authorize in the browser window that opens."
+          ],
+          "verify": "Ask Goose to use {{DISPLAY_NAME}}.",
+          "docsUrl": "https://github.com/aaif-goose/goose/blob/main/documentation/docs/getting-started/using-extensions.md",
+          "caveat": null
+        }
+      },
+      "generic-mcp": {
+        "mcp": {
+          "title": "Other MCP client",
+          "tagline": "Any MCP-speaking client. Paste this URL and authorize.",
+          "command": "{{MCP_URL}}",
+          "steps": [
+            "Add {{DISPLAY_NAME}} as a remote MCP server using streamable HTTP.",
+            "Paste {{MCP_URL}}.",
+            "Complete {{DISPLAY_NAME}} OAuth in the client. OAuth is product-owned."
+          ],
+          "verify": "Confirm {{DISPLAY_NAME}} tools are available.",
+          "docsUrl": "https://modelcontextprotocol.io",
+          "caveat": null
+        }
+      }
+    }
+  }
+}
