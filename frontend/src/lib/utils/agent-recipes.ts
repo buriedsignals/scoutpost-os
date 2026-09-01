@@ -1,33 +1,28 @@
 /**
- * Per-agent setup recipes for the Agents modal. Keep this file the single
- * source of truth for how to connect an AI assistant to Scoutpost —
- * the UI is a dumb renderer over it.
- *
- * Each agent has one or two connection paths:
- *   - 'cli'  — the agent shells out to the `scout` binary. No MCP server to
- *              run; the agent inspects commands as plain shell. Preferred
- *              for shell-capable agents (Claude Code, Codex, Cursor,
- *              Windsurf, Antigravity, Goose, Hermes).
- *   - 'mcp'  — the agent connects to the remote MCP server at MCP_URL.
- *              The only option for chat UIs without shell access. The
- *              "Claude Cowork" entry covers Claude Desktop, claude.ai,
- *              and Cowork — they all use the same Anthropic-cloud-brokered
- *              custom-connector flow, with a single "Add custom connector"
- *              + Connect step kicking off DCR + OAuth automatically.
- *              ChatGPT Desktop is listed. OpenAI currently documents custom MCP
- *              / developer mode for Business, Enterprise, and Edu; that gate is
- *              a recipe caveat, not a reason to hide the listing.
- *
- * `defaultPath` per agent picks the one we lead with; the modal exposes
- * a toggle when both are available. Catalog MCP copy is generated from
- * Engine `@buriedsignals/agent-connect` into `vendor/agent-connect/catalog.json`.
+ * Scoutpost adapts the generated @buriedsignals/agent-connect catalog for its
+ * modal. Agent visibility, supported paths, commands, steps, and caveats all
+ * come from that catalog; this module owns presentation shape only.
  */
 
-import { getAgent, type AgentSlug } from "./agent-icons";
+import { type AgentSlug } from "./agent-icons";
 import { type AgentTargetContext, HOSTED_AGENT_TARGET } from "./agent-targets";
 import catalog from "../vendor/agent-connect/catalog.json";
 
 export type InstallPath = "cli" | "mcp";
+interface CatalogRecipe {
+  title: string;
+  tagline: string;
+  command: string;
+  configPath: string | null;
+  steps: string[];
+  verify: string;
+  docsUrl: string;
+  caveat: string | null;
+}
+
+type CatalogProduct = Partial<Record<InstallPath, CatalogRecipe>>;
+const agentCatalog = catalog.products.scoutpost as Record<AgentSlug, CatalogProduct>;
+
 
 export type RecipeMode =
   | "cli-command"
@@ -44,48 +39,24 @@ export interface RecipeWarning {
 }
 
 export interface Recipe {
-  /** Short headline that renders under the path selector. */
   tagline: string;
-
-  /** Whether the modal should show an agent-facing setup prompt or manual steps. */
   setupKind: RecipeSetupKind;
-
-  /** Optional tier / compatibility callout (stdio bridge, beta status, etc.). */
   warning?: RecipeWarning;
-
   mode: RecipeMode;
-
-  /** Single shell command for `cli-command` mode. Templated with {{MCP_URL}}. */
   command?: string;
-
-  /** Install one-liner for `cli-install` mode (curl + chmod). */
   installCommand?: string;
-  /** Config commands shown as a second copy-able block for `cli-install` mode. */
   configCommands?: string[];
-
-  /** File path for `config-file` mode (e.g. ~/.cursor/mcp.json). */
   configPath?: string;
-  /** JSON / TOML / YAML / URL snippet for `config-file`, `ui-steps`, `generic` modes. Templated with {{MCP_URL}}. */
   configSnippet?: string;
-  /** Language hint for syntax highlighting (json, toml, yaml). */
   configLang?: "json" | "toml" | "yaml";
-
-  /** Numbered steps for `ui-steps` mode (also appended to `cli-command` mode). */
   uiSteps?: string[];
-
-  /** Optional video walkthrough for manual UI setup flows. */
   video?: {
     src: string;
     title: string;
   };
-
-  /** Docs link shown next to the setup block. */
   docsUrl?: string;
   docsLabel?: string;
-
-  /** Optional: verify prompt (overrides the default "List my Scoutpost scouts"). */
   verifyPrompt?: string;
-  /** Optional explicit verification steps for manual setup flows. */
   verifySteps?: string[];
 }
 
@@ -94,8 +65,13 @@ export const CLI_README_URL =
 export const MCP_URL = HOSTED_AGENT_TARGET.mcpUrl;
 export const SKILL_URL = HOSTED_AGENT_TARGET.skillUrl;
 
-function fill(tpl: string, target: AgentTargetContext): string {
-  return tpl
+const CLAUDE_CONNECTOR_VIDEO = {
+  src: "/videos/claude-cowork-connect.mp4",
+  title: "Claude connector walkthrough",
+} as const;
+
+function fill(template: string, target: AgentTargetContext): string {
+  return template
     .replace(/\{\{MCP_URL\}\}/g, target.mcpUrl)
     .replace(/\{\{API_BASE_URL\}\}/g, target.apiBaseUrl)
     .replace(/\{\{APP_URL\}\}/g, target.appUrl)
@@ -105,300 +81,89 @@ function fill(tpl: string, target: AgentTargetContext): string {
     .replace(/\{\{CLI_BINARY\}\}/g, "scout")
     .replace(/\{\{CLI_INSTALL\}\}/g, "npm install --global scoutpost-cli")
     .replace(/\{\{CLI_LOGIN\}\}/g, `scout auth login --site '${target.appUrl}'`)
-    .replace(/\{\{DOCS_URL\}\}/g, "https://www.scoutpost.ai/docs")
-    .replace(
-      /\{\{SUPABASE_ANON_KEY\}\}/g,
-      target.supabaseAnonKey ?? "<SUPABASE_ANON_KEY>",
-    );
+    .replace(/\{\{DOCS_URL\}\}/g, "https://www.scoutpost.ai/docs");
 }
 
-// ----- Shared CLI recipe ----------------------------------------------------
+function catalogRecipe(
+  slug: AgentSlug,
+  path: InstallPath,
+  target: AgentTargetContext,
+): Recipe {
+  const raw = agentCatalog[slug][path];
+  if (!raw) throw new Error(`${slug} catalog ${path} recipe is missing`);
 
-const sharedCliRecipe: Recipe = {
-  tagline:
-    "Install Scout and approve the connection in your browser. The credential is stored locally and never needs to be pasted into chat.",
-  setupKind: "automated-cli",
-  mode: "cli-command",
-  docsUrl: CLI_README_URL,
-  docsLabel: "CLI install + other platforms",
-  verifyPrompt: "Run `scout scouts list` and tell me what I’m monitoring.",
-};
-
-const CATALOG_MCP: Partial<Record<AgentSlug, keyof typeof catalog.products.scoutpost>> = {
-  "claude-code": "claude-code",
-  "claude-cowork": "claude-desktop",
-  "chatgpt-desktop": "chatgpt-desktop",
-  "codex-mcp": "codex",
-  "cursor": "cursor",
-  "goose": "goose",
-  other: "generic-mcp",
-};
-
-const CLAUDE_COWORK_VIDEO = {
-  src: "/videos/claude-cowork-connect.mp4",
-  title: "Claude Cowork connector walkthrough",
-} as const;
-
-function catalogMcpRecipe(slug: AgentSlug, target: AgentTargetContext): Recipe {
-  const agent = CATALOG_MCP[slug];
-  if (!agent) throw new Error(`${slug} has no catalog MCP recipe`);
-  const raw = catalog.products.scoutpost[agent].mcp;
-  if (!raw) throw new Error(`${slug} catalog MCP recipe is missing`);
-  const steps = raw.steps.map((step) => fill(step, target));
   const command = fill(raw.command, target);
-  const uiMode = agent === "chatgpt-desktop" || agent === "claude-desktop" || agent === "generic-mcp";
+  const steps = raw.steps.map((step) => fill(step, target));
+  const configCommand = command.trimStart().startsWith("{");
+  const uiOnly = slug === "claude-desktop"
+    || slug === "chatgpt-desktop"
+    || slug === "generic-mcp";
+  const mode: RecipeMode = path === "cli"
+    ? "cli-command"
+    : configCommand ? "config-file" : uiOnly ? "ui-steps" : "cli-command";
+
   return {
     tagline: fill(raw.tagline, target),
-    setupKind: "manual",
-    mode: uiMode ? "ui-steps" : agent === "cursor" ? "config-file" : "cli-command",
-    command: uiMode || agent === "cursor" ? undefined : command,
+    setupKind: path === "cli" ? "automated-cli" : "manual",
+    mode,
+    command: mode === "cli-command" ? command : undefined,
+    configSnippet: mode === "config-file" || mode === "ui-steps" ? command : undefined,
+    configLang: configCommand ? "json" : undefined,
+    configPath: raw.configPath ? fill(raw.configPath, target) : undefined,
     uiSteps: steps,
-    configSnippet: uiMode || agent === "cursor" ? command : undefined,
-    configLang: agent === "cursor" ? "json" : undefined,
-    configPath: agent === "cursor" ? "~/.cursor/mcp.json" : undefined,
     docsUrl: raw.docsUrl,
     docsLabel: `${fill(raw.title, target)} docs`,
     verifyPrompt: fill(raw.verify, target),
     warning: raw.caveat
-      ? { title: "Workspace availability", body: fill(raw.caveat, target) }
+      ? { title: "Connection availability", body: fill(raw.caveat, target) }
       : undefined,
-    video: slug === "claude-cowork" ? CLAUDE_COWORK_VIDEO : undefined,
+    video: slug === "claude-desktop" ? CLAUDE_CONNECTOR_VIDEO : undefined,
   };
 }
 
-// ----- Per-agent MCP recipes (local-only clients; catalog agents use catalog.json) ---
-
-const mcpRecipes: Partial<Record<AgentSlug, Recipe>> = {
-  windsurf: {
-    tagline: "Add via Windsurf’s MCP panel, or edit the config file.",
-    setupKind: "manual",
-    mode: "config-file",
-    configPath: "~/.codeium/windsurf/mcp_config.json",
-    configLang: "json",
-    configSnippet: `{
-  "mcpServers": {
-    "scoutpost": {
-      "serverUrl": "{{MCP_URL}}"
-    }
-  }
-}`,
-    docsUrl: "https://docs.windsurf.com/windsurf/cascade/mcp",
-    docsLabel: "Windsurf MCP docs",
-    verifySteps: [
-      "Save this in ~/.codeium/windsurf/mcp_config.json or add it through Windsurf Settings → Cascade → MCP Servers.",
-      "Press the refresh button in the MCP Servers panel after adding the server.",
-      "Open the scoutpost MCP settings page and confirm tools are enabled.",
-    ],
-  },
-
-  "gemini-cli": {
-    tagline: "Add Scoutpost through Antigravity’s shared MCP configuration.",
-    setupKind: "manual",
-    mode: "ui-steps",
-    uiSteps: [
-      "In Antigravity’s agent side panel, open `…` → MCP Servers → Manage MCP Servers → View raw config.",
-      "Add the configuration below to the global ~/.gemini/config/mcp_config.json file, or to .agents/mcp_config.json for this workspace.",
-      "Open Agent Settings (`Cmd+,` on macOS or `Ctrl+,` elsewhere) → Customizations → Authenticate.",
-      "Complete Scoutpost sign-in in the browser, copy the authorization code shown there, and paste it back into Antigravity.",
-    ],
-    configSnippet: `{
-  "mcpServers": {
-    "scoutpost": {
-      "serverUrl": "{{MCP_URL}}"
-    }
-  }
-}`,
-    configLang: "json",
-    docsUrl: "https://antigravity.google/docs/mcp",
-    docsLabel: "Antigravity MCP docs",
-    verifySteps: [
-      "Open Antigravity’s MCP manager and confirm Scoutpost is authenticated and connected.",
-      'Ask: "List my Scoutpost scouts."',
-    ],
-  },
-
-  openclaw: {
-    tagline: "Add Scoutpost to OpenClaw, then authenticate and probe it.",
-    setupKind: "manual",
-    mode: "cli-command",
-    command:
-      `openclaw mcp set scoutpost '{"url":"{{MCP_URL}}","transport":"streamable-http","auth":"oauth"}'`,
-    configLang: "json",
-    configSnippet: `{
-  "mcp": {
-    "servers": {
-      "scoutpost": {
-        "url": "{{MCP_URL}}",
-        "transport": "streamable-http",
-        "auth": "oauth"
-      }
-    }
-  }
-}`,
-    docsUrl: "https://docs.openclaw.ai/cli/mcp",
-    docsLabel: "OpenClaw MCP docs",
-    verifySteps: [
-      "Run `openclaw mcp login scoutpost` and approve Scoutpost in the browser.",
-      "Run `openclaw mcp doctor scoutpost --probe` to confirm the saved server is reachable and authenticated.",
-    ],
-  },
-
-  hermes: {
-    tagline: "Add a server block to Hermes’ YAML config.",
-    setupKind: "manual",
-    mode: "config-file",
-    configPath: "~/.hermes/config.yaml",
-    configLang: "yaml",
-    configSnippet: `mcp_servers:
-  scoutpost:
-    url: {{MCP_URL}}
-    auth: oauth`,
-    docsUrl:
-      "https://hermes-agent.nousresearch.com/docs/reference/mcp-config-reference",
-    docsLabel: "Hermes Agent MCP docs",
-    verifySteps: [
-      "Save the YAML block in ~/.hermes/config.yaml.",
-      "Run `/reload-mcp` in Hermes, or restart Hermes.",
-      "Approve the OAuth browser flow on first connect.",
-    ],
-  },
-
-  langdock: {
-    tagline:
-      "Add Scoutpost as a custom MCP integration in Langdock using OAuth with Dynamic Client Registration.",
-    setupKind: "manual",
-    mode: "ui-steps",
-    uiSteps: [
-      "Open Langdock and go to the integrations area for adding an MCP server.",
-      "Create a custom MCP integration or server connection.",
-      "Choose OAuth authentication with Dynamic Client Registration when Langdock asks for the authentication method.",
-      "Paste the URL below as the MCP server URL.",
-      "Save the integration, connect it, and approve the Scoutpost OAuth sign-in when Langdock opens it.",
-      "Enable the connected Scoutpost integration for the assistant or workspace where you want to use it.",
-    ],
-    configSnippet: MCP_URL,
-    docsUrl:
-      "https://docs.langdock.com/en/using-langdock/guides/integrations/mcp/mcp",
-    docsLabel: "Langdock MCP docs",
-    verifySteps: [
-      "Open a Langdock assistant or chat where the Scoutpost integration is enabled.",
-      'Ask: "List my Scoutpost scouts."',
-      "If Langdock asks for manual OAuth URLs instead of DCR, use the generic MCP recipe or re-create the integration with OAuth + DCR selected.",
-    ],
-  },
-};
-
-// ----- Which path is primary per agent --------------------------------------
-// Rule of thumb: if the agent has shell access, default to CLI. Chat UIs
-// without shell (Claude Cowork) are MCP-only. "Other" offers both.
-
-const CLI_CAPABLE: AgentSlug[] = [
-  "claude-code",
-  "codex-cli",
-  "cursor",
-  "windsurf",
-  "gemini-cli",
-  "goose",
-  "hermes",
-  "openclaw",
-];
-
-const CLI_ONLY: AgentSlug[] = ["codex-cli"];
-const MCP_ONLY: AgentSlug[] = ["claude-cowork", "chatgpt-desktop", "codex-mcp", "langdock"];
-
 export interface AgentRecipes {
-  /** Which paths are available for this agent, in display order. */
   paths: InstallPath[];
-  /** The path we recommend (preselected in the UI). */
   default: InstallPath;
-  /** Recipe per available path, values filled in. */
   recipes: Partial<Record<InstallPath, Recipe>>;
 }
 
-/** Resolve recipes + default path for an agent. */
 export function getAgentRecipes(
   slug: AgentSlug,
   target: AgentTargetContext = HOSTED_AGENT_TARGET,
 ): AgentRecipes {
-  const hasCli = CLI_CAPABLE.includes(slug);
-  const catalogAgent = CATALOG_MCP[slug];
-  const hasMcp = !CLI_ONLY.includes(slug) && Boolean(mcpRecipes[slug] || catalogAgent);
-  // "Other" gets both CLI + MCP so generic users can pick.
-  const includeCli = (hasCli || slug === "other") && !MCP_ONLY.includes(slug);
-
-  const paths: InstallPath[] = [];
-  const recipes: Partial<Record<InstallPath, Recipe>> = {};
-
-  if (includeCli) {
-    paths.push("cli");
-    recipes.cli = {
-      ...fillRecipe(sharedCliRecipe, target),
-      command: buildCliLoginCommand(slug, target),
-    };
-  }
-  if (hasMcp) {
-    paths.push("mcp");
-    recipes.mcp = catalogAgent
-      ? catalogMcpRecipe(slug, target)
-      : fillRecipe(mcpRecipes[slug]!, target);
-  }
-
-  const defaultPath: InstallPath =
-    includeCli && !MCP_ONLY.includes(slug) && slug !== "other" ? "cli" : "mcp";
+  const raw = agentCatalog[slug];
+  const paths = (Object.keys(raw) as InstallPath[]).filter((path) => raw[path] !== undefined);
+  const recipes = Object.fromEntries(
+    paths.map((path) => [path, catalogRecipe(slug, path, target)]),
+  ) as Partial<Record<InstallPath, Recipe>>;
+  const defaultPath = paths[0];
+  if (!defaultPath) throw new Error(`${slug} has no AgentConnect recipe`);
   return { paths, default: defaultPath, recipes };
 }
 
-function fillRecipe(r: Recipe, target: AgentTargetContext): Recipe {
-  return {
-    ...r,
-    command: r.command ? fill(r.command, target) : undefined,
-    configCommands: r.configCommands?.map((command) => fill(command, target)),
-    configSnippet: r.configSnippet ? fill(r.configSnippet, target) : undefined,
-  };
-}
-
-function shellSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
-}
-
-/** Secret-free terminal command shown in the agent connection modal. */
 export function buildCliLoginCommand(
   slug: AgentSlug,
   target: AgentTargetContext = HOSTED_AGENT_TARGET,
 ): string {
-  const label = getAgent(slug).name;
-  return [
-    "npm install --global scoutpost-cli",
-    `scout auth login --site ${shellSingleQuote(target.appUrl)} --label ${
-      shellSingleQuote(label)
-    }`,
-  ].join(" && ");
+  const recipe = agentCatalog[slug].cli;
+  if (!recipe) throw new Error(`${slug} has no CLI recipe`);
+  return fill(recipe.command, target);
 }
 
-/**
- * Build a short setup prompt that connects and verifies the selected path.
- * Detailed client walkthroughs and troubleshooting stay in the docs.
- */
 export function getSetupPrompt(
   slug: AgentSlug,
   path: InstallPath = "cli",
   target: AgentTargetContext = HOSTED_AGENT_TARGET,
 ): string {
-  const selfHostedNote = target.deploymentKind === "supabase"
-    ? `\nThis newsroom uses ${target.appUrl}. Do not connect to scoutpost.ai.`
-    : "";
-
+  const recipe = catalogRecipe(slug, path, target);
   if (path === "mcp") {
     return [
-      `Connect Scoutpost as a remote MCP server:${selfHostedNote}`,
-      ``,
-      target.mcpUrl,
-      ``,
-      `Use OAuth. Do not ask me for a JWT or API key.`,
+      recipe.tagline,
+      recipe.configSnippet ?? recipe.command ?? target.mcpUrl,
+      ...(recipe.uiSteps ?? []),
       `Read the Scoutpost product instructions at ${target.skillUrl}.`,
-      `Verify the connection by listing my scouts.`,
-    ].join("\n");
+      `Verify: ${recipe.verifyPrompt ?? "List my Scoutpost scouts."}`,
+    ].join("\n\n");
   }
-
-  return buildCliLoginCommand(slug, target);
+  return recipe.command ?? buildCliLoginCommand(slug, target);
 }

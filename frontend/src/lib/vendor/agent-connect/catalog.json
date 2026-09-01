@@ -1,6 +1,6 @@
 {
   "package": "@buriedsignals/agent-connect",
-  "packageVersion": "0.1.0",
+  "packageVersion": "0.2.0",
   "products": {
     "navigator": {
       "claude-code": {
@@ -8,6 +8,7 @@
           "title": "Claude Code",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
           "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
+          "configPath": null,
           "steps": [
             "Install the {{CLI_BINARY}} CLI.",
             "Run the login command and approve the browser sign-in.",
@@ -21,6 +22,7 @@
           "title": "Claude Code",
           "tagline": "Add {{DISPLAY_NAME}} in your terminal, then sign in with OAuth.",
           "command": "claude mcp add --transport http {{SERVER_ID}} {{MCP_URL}}",
+          "configPath": null,
           "steps": [
             "Run the command above in your terminal.",
             "If Claude Code returns 401, open /mcp and complete OAuth for {{DISPLAY_NAME}}.",
@@ -36,6 +38,7 @@
           "title": "Claude Desktop",
           "tagline": "Add a custom connector in Claude — same flow for Claude Desktop, claude.ai, and Cowork.",
           "command": "{{MCP_URL}}",
+          "configPath": null,
           "steps": [
             "Open Claude Desktop, claude.ai, or Cowork and go to Customize → Connectors. On Team or Enterprise plans, an Owner must first add the connector in Organization settings → Connectors.",
             "Click \"+\" → \"Add custom connector\". On Team or Enterprise, choose Custom → Web.",
@@ -54,6 +57,7 @@
           "title": "ChatGPT Desktop",
           "tagline": "Connect ChatGPT Desktop to {{DISPLAY_NAME}} with the remote MCP server.",
           "command": "{{MCP_URL}}",
+          "configPath": null,
           "steps": [
             "Open ChatGPT Desktop signed into the workspace that should use {{DISPLAY_NAME}}.",
             "Open Settings and look for Apps, Connectors, or developer mode.",
@@ -71,6 +75,7 @@
           "title": "Codex",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
           "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
+          "configPath": null,
           "steps": [
             "Install the {{CLI_BINARY}} CLI.",
             "Run the login command and approve the browser sign-in.",
@@ -84,6 +89,7 @@
           "title": "Codex",
           "tagline": "Add {{DISPLAY_NAME}} as a Streamable HTTP MCP server in Codex, then run the OAuth login command.",
           "command": "codex mcp add {{SERVER_ID}} --url {{MCP_URL}}\ncodex mcp login {{SERVER_ID}}",
+          "configPath": null,
           "steps": [
             "Run the add command below in a terminal (skip it if the server is already listed).",
             "Run the login command to start the browser OAuth flow.",
@@ -94,52 +100,44 @@
           "caveat": null
         }
       },
-      "cursor": {
+      "antigravity": {
+        "mcp": {
+          "title": "Antigravity",
+          "tagline": "Add {{DISPLAY_NAME}} as a remote MCP server in Antigravity.",
+          "command": "{\n  \"mcpServers\": {\n    \"{{SERVER_ID}}\": {\n      \"serverUrl\": \"{{MCP_URL}}\"\n    }\n  }\n}",
+          "configPath": "~/.gemini/config/mcp_config.json",
+          "steps": [
+            "Open the Antigravity agent panel and choose MCP servers → Manage.",
+            "Add the {{SERVER_ID}} entry to the MCP configuration.",
+            "Complete {{DISPLAY_NAME}} OAuth when prompted."
+          ],
+          "verify": "Ask Antigravity to use {{DISPLAY_NAME}}.",
+          "docsUrl": "https://antigravity.google",
+          "caveat": null
+        }
+      },
+      "gemini": {
         "cli": {
-          "title": "Cursor",
+          "title": "Gemini CLI",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
           "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
+          "configPath": null,
           "steps": [
             "Install the {{CLI_BINARY}} CLI.",
             "Run the login command and approve the browser sign-in.",
-            "Ask Cursor to use the {{CLI_BINARY}} command."
+            "Ask Gemini CLI to use the {{CLI_BINARY}} command."
           ],
           "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
           "docsUrl": "{{DOCS_URL}}",
-          "caveat": null
-        },
-        "mcp": {
-          "title": "Cursor",
-          "tagline": "Add an entry to Cursor’s MCP config. OAuth on first use.",
-          "command": "{\n  \"mcpServers\": {\n    \"{{SERVER_ID}}\": {\n      \"url\": \"{{MCP_URL}}\"\n    }\n  }\n}",
-          "steps": [
-            "Save this globally at ~/.cursor/mcp.json or per project at .cursor/mcp.json.",
-            "Run `agent mcp login {{SERVER_ID}}` if Cursor asks for OAuth.",
-            "Confirm {{SERVER_ID}} is connected in Cursor Settings → Features → Model Context Protocol."
-          ],
-          "verify": "Confirm {{DISPLAY_NAME}} tools are available in Cursor.",
-          "docsUrl": "https://cursor.com/docs/mcp",
           "caveat": null
         }
       },
       "goose": {
-        "cli": {
-          "title": "Goose",
-          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
-          "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
-          "steps": [
-            "Install the {{CLI_BINARY}} CLI.",
-            "Run the login command and approve the browser sign-in.",
-            "Ask Goose to use the {{CLI_BINARY}} command."
-          ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
-          "docsUrl": "{{DOCS_URL}}",
-          "caveat": null
-        },
         "mcp": {
           "title": "Goose",
           "tagline": "Configure Goose to use {{DISPLAY_NAME}} as a remote extension.",
           "command": "goose configure",
+          "configPath": null,
           "steps": [
             "Run `goose configure` in your terminal.",
             "Choose \"Add Extension\" → \"Remote Extension (Streamable HTTP)\".",
@@ -152,11 +150,44 @@
           "caveat": null
         }
       },
+      "opencode": {
+        "cli": {
+          "title": "OpenCode",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
+          "configPath": null,
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask OpenCode to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        }
+      },
+      "lm-studio": {
+        "mcp": {
+          "title": "LM Studio",
+          "tagline": "Add {{DISPLAY_NAME}} to LM Studio's mcp.json.",
+          "command": "{\n  \"mcpServers\": {\n    \"{{SERVER_ID}}\": {\n      \"url\": \"{{MCP_URL}}\"\n    }\n  }\n}",
+          "configPath": "mcp.json",
+          "steps": [
+            "In LM Studio, open the Program tab.",
+            "Choose Install, then Edit mcp.json.",
+            "Add the {{SERVER_ID}} entry and test the connection."
+          ],
+          "verify": "Ask LM Studio to use {{DISPLAY_NAME}} and confirm OAuth completes.",
+          "docsUrl": "https://lmstudio.ai/docs/app/mcp",
+          "caveat": "{{DISPLAY_NAME}} requires OAuth. LM Studio documents remote MCP configuration but not OAuth support; use another client if authentication cannot complete."
+        }
+      },
       "generic-mcp": {
         "mcp": {
           "title": "Other MCP client",
           "tagline": "Any MCP-speaking client. Paste this URL and authorize.",
           "command": "{{MCP_URL}}",
+          "configPath": null,
           "steps": [
             "Add {{DISPLAY_NAME}} as a remote MCP server using streamable HTTP.",
             "Paste {{MCP_URL}}.",
@@ -174,6 +205,7 @@
           "title": "Claude Code",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
           "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Claude Code'",
+          "configPath": null,
           "steps": [
             "Install the {{CLI_BINARY}} CLI.",
             "Run the login command and approve the browser sign-in.",
@@ -187,6 +219,7 @@
           "title": "Claude Code",
           "tagline": "Add {{DISPLAY_NAME}} in your terminal, then sign in with OAuth.",
           "command": "claude mcp add --transport http {{SERVER_ID}} {{MCP_URL}}",
+          "configPath": null,
           "steps": [
             "Run the command above in your terminal.",
             "If Claude Code returns 401, open /mcp and complete OAuth for {{DISPLAY_NAME}}.",
@@ -202,6 +235,7 @@
           "title": "Claude Desktop",
           "tagline": "Add a custom connector in Claude — same flow for Claude Desktop, claude.ai, and Cowork.",
           "command": "{{MCP_URL}}",
+          "configPath": null,
           "steps": [
             "Open Claude Desktop, claude.ai, or Cowork and go to Customize → Connectors. On Team or Enterprise plans, an Owner must first add the connector in Organization settings → Connectors.",
             "Click \"+\" → \"Add custom connector\". On Team or Enterprise, choose Custom → Web.",
@@ -220,6 +254,7 @@
           "title": "ChatGPT Desktop",
           "tagline": "Connect ChatGPT Desktop to {{DISPLAY_NAME}} with the remote MCP server.",
           "command": "{{MCP_URL}}",
+          "configPath": null,
           "steps": [
             "Open ChatGPT Desktop signed into the workspace that should use {{DISPLAY_NAME}}.",
             "Open Settings and look for Apps, Connectors, or developer mode.",
@@ -237,6 +272,7 @@
           "title": "Codex",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
           "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Codex'",
+          "configPath": null,
           "steps": [
             "Install the {{CLI_BINARY}} CLI.",
             "Run the login command and approve the browser sign-in.",
@@ -250,6 +286,7 @@
           "title": "Codex",
           "tagline": "Add {{DISPLAY_NAME}} as a Streamable HTTP MCP server in Codex, then run the OAuth login command.",
           "command": "codex mcp add {{SERVER_ID}} --url {{MCP_URL}}\ncodex mcp login {{SERVER_ID}}",
+          "configPath": null,
           "steps": [
             "Run the add command below in a terminal (skip it if the server is already listed).",
             "Run the login command to start the browser OAuth flow.",
@@ -260,52 +297,44 @@
           "caveat": null
         }
       },
-      "cursor": {
+      "antigravity": {
+        "mcp": {
+          "title": "Antigravity",
+          "tagline": "Add {{DISPLAY_NAME}} as a remote MCP server in Antigravity.",
+          "command": "{\n  \"mcpServers\": {\n    \"{{SERVER_ID}}\": {\n      \"serverUrl\": \"{{MCP_URL}}\"\n    }\n  }\n}",
+          "configPath": "~/.gemini/config/mcp_config.json",
+          "steps": [
+            "Open the Antigravity agent panel and choose MCP servers → Manage.",
+            "Add the {{SERVER_ID}} entry to the MCP configuration.",
+            "Complete {{DISPLAY_NAME}} OAuth when prompted."
+          ],
+          "verify": "Ask Antigravity to use {{DISPLAY_NAME}}.",
+          "docsUrl": "https://antigravity.google",
+          "caveat": null
+        }
+      },
+      "gemini": {
         "cli": {
-          "title": "Cursor",
+          "title": "Gemini CLI",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
-          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Cursor'",
+          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Gemini CLI'",
+          "configPath": null,
           "steps": [
             "Install the {{CLI_BINARY}} CLI.",
             "Run the login command and approve the browser sign-in.",
-            "Ask Cursor to use the {{CLI_BINARY}} command."
+            "Ask Gemini CLI to use the {{CLI_BINARY}} command."
           ],
           "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
           "docsUrl": "{{DOCS_URL}}",
-          "caveat": null
-        },
-        "mcp": {
-          "title": "Cursor",
-          "tagline": "Add an entry to Cursor’s MCP config. OAuth on first use.",
-          "command": "{\n  \"mcpServers\": {\n    \"{{SERVER_ID}}\": {\n      \"url\": \"{{MCP_URL}}\"\n    }\n  }\n}",
-          "steps": [
-            "Save this globally at ~/.cursor/mcp.json or per project at .cursor/mcp.json.",
-            "Run `agent mcp login {{SERVER_ID}}` if Cursor asks for OAuth.",
-            "Confirm {{SERVER_ID}} is connected in Cursor Settings → Features → Model Context Protocol."
-          ],
-          "verify": "Confirm {{DISPLAY_NAME}} tools are available in Cursor.",
-          "docsUrl": "https://cursor.com/docs/mcp",
           "caveat": null
         }
       },
       "goose": {
-        "cli": {
-          "title": "Goose",
-          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
-          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Goose'",
-          "steps": [
-            "Install the {{CLI_BINARY}} CLI.",
-            "Run the login command and approve the browser sign-in.",
-            "Ask Goose to use the {{CLI_BINARY}} command."
-          ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
-          "docsUrl": "{{DOCS_URL}}",
-          "caveat": null
-        },
         "mcp": {
           "title": "Goose",
           "tagline": "Configure Goose to use {{DISPLAY_NAME}} as a remote extension.",
           "command": "goose configure",
+          "configPath": null,
           "steps": [
             "Run `goose configure` in your terminal.",
             "Choose \"Add Extension\" → \"Remote Extension (Streamable HTTP)\".",
@@ -318,11 +347,44 @@
           "caveat": null
         }
       },
+      "opencode": {
+        "cli": {
+          "title": "OpenCode",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'OpenCode'",
+          "configPath": null,
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask OpenCode to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        }
+      },
+      "lm-studio": {
+        "mcp": {
+          "title": "LM Studio",
+          "tagline": "Add {{DISPLAY_NAME}} to LM Studio's mcp.json.",
+          "command": "{\n  \"mcpServers\": {\n    \"{{SERVER_ID}}\": {\n      \"url\": \"{{MCP_URL}}\"\n    }\n  }\n}",
+          "configPath": "mcp.json",
+          "steps": [
+            "In LM Studio, open the Program tab.",
+            "Choose Install, then Edit mcp.json.",
+            "Add the {{SERVER_ID}} entry and test the connection."
+          ],
+          "verify": "Ask LM Studio to use {{DISPLAY_NAME}} and confirm OAuth completes.",
+          "docsUrl": "https://lmstudio.ai/docs/app/mcp",
+          "caveat": "{{DISPLAY_NAME}} requires OAuth. LM Studio documents remote MCP configuration but not OAuth support; use another client if authentication cannot complete."
+        }
+      },
       "generic-mcp": {
         "mcp": {
           "title": "Other MCP client",
           "tagline": "Any MCP-speaking client. Paste this URL and authorize.",
           "command": "{{MCP_URL}}",
+          "configPath": null,
           "steps": [
             "Add {{DISPLAY_NAME}} as a remote MCP server using streamable HTTP.",
             "Paste {{MCP_URL}}.",

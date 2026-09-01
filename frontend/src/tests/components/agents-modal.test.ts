@@ -43,13 +43,13 @@ describe('Connect Agent modal', () => {
 	});
 
 	it('labels Antigravity JSON as configuration rather than an MCP URL', () => {
-		const recipe = getAgentRecipes('gemini-cli').recipes.mcp;
+		const recipe = getAgentRecipes('antigravity').recipes.mcp;
 		expect(recipe).toBeDefined();
 
 		render(AgentSetup, { props: { recipe: recipe! } });
 
-		expect(screen.getByText('Configuration')).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: /copy config/i })).toBeInTheDocument();
+		expect(screen.getByText('~/.gemini/config/mcp_config.json')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /^copy$/i })).toBeInTheDocument();
 		expect(screen.queryByText('Remote MCP URL')).not.toBeInTheDocument();
 	});
 
