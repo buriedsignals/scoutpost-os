@@ -7,7 +7,12 @@ import type { AircraftObject } from "../scout-transport-execute/aircraft.ts";
 import type { ResolvedGeofence } from "../scout-transport-execute/geofence.ts";
 import type { GpElement } from "../scout-transport-execute/satellite.ts";
 import type { VesselObject } from "../scout-transport-execute/vessel.ts";
-import { runTransportTest, type TransportTestDependencies } from "./lib.ts";
+import {
+  runTransportTest,
+  type TransportTestDependencies,
+  transportTestDependencies,
+} from "./lib.ts";
+import type { SupabaseClient } from "../_shared/supabase.ts";
 
 const GEOFENCE: ResolvedGeofence = {
   kind: "circle",
@@ -228,4 +233,46 @@ Deno.test("transport-test: aircraft preview rejects an unloaded required watchli
   assertEquals(error.status, 503);
   assertEquals(error.code, "transport_data_unavailable");
   assertEquals(fetched, false);
+});
+
+function gpControlSvc(fetchedAt: string | null): SupabaseClient {
+  return {
+    from(table: string) {
+      if (table !== "transport_gp_refresh_control") {
+        throw new Error(`unexpected table ${table}`);
+      }
+      return {
+        select() {
+          return {
+            eq() {
+              return {
+                maybeSingle() {
+                  return Promise.resolve({
+                    data: {
+                      current_generation_id: fetchedAt ? "generation-1" : null,
+                      current_generation_fetched_at: fetchedAt,
+                    },
+                    error: null,
+                  });
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  } as unknown as SupabaseClient;
+}
+
+Deno.test("transport-test: stale GP cache never invokes provider refresh", async () => {
+  const deps = transportTestDependencies(
+    gpControlSvc("2026-01-01T00:00:00.000Z"),
+  );
+  const error = await assertRejects(
+    () => deps.ensureGpCoverage(),
+    ApiError,
+    "provider refresh requires operator action",
+  );
+  assertEquals(error.status, 503);
+  assertEquals(error.code, "transport_data_unavailable");
 });

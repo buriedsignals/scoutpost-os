@@ -22,7 +22,7 @@ import {
   hasActiveSatelliteScouts,
   upsertPositions,
 } from "./sampler.ts";
-import { refreshGpCache } from "./gp.ts";
+import { GpRefreshFailure, refreshGpCache } from "./gp.ts";
 import {
   sampleVesselApiPositions,
   VesselApiRequestError,
@@ -30,6 +30,7 @@ import {
 
 const InputSchema = z.object({
   task: z.enum(["ais", "gp"]).default("ais"),
+  operator_bootstrap: z.boolean().default(false),
 });
 
 declare const EdgeRuntime:
@@ -249,10 +250,11 @@ async function runVesselApiSampler(
   };
 }
 
-async function runGpRefresh(svc: SupabaseClient): Promise<SamplerOutcome> {
-  // GP refresh is gated on satellite scouts (guard in the EF, not the cron),
-  // so an all-vessel or idle deployment never hits CelesTrak.
-  if (!(await hasActiveSatelliteScouts(svc))) {
+async function runGpRefresh(
+  svc: SupabaseClient,
+  operatorBootstrap = false,
+): Promise<SamplerOutcome> {
+  if (!operatorBootstrap && !(await hasActiveSatelliteScouts(svc))) {
     logEvent({
       level: "info",
       fn: "transport-sampler",
@@ -261,18 +263,33 @@ async function runGpRefresh(svc: SupabaseClient): Promise<SamplerOutcome> {
     });
     return { status: "noop", errorCode: "no_active_satellite_scouts" };
   }
-  const result = await refreshGpCache(svc);
-  logEvent({
-    level: "info",
-    fn: "transport-sampler",
-    event: "gp_done",
-    msg: `${result.status}, ${result.cached} cached`,
-  });
-  return {
-    status: "succeeded",
-    itemsWritten: result.cached,
-    metadata: { provider_status: result.status },
-  };
+  try {
+    const result = await refreshGpCache(svc);
+    logEvent({
+      level: "info",
+      fn: "transport-sampler",
+      event: "gp_done",
+      msg: `${result.status}, ${result.cached} cached`,
+    });
+    return {
+      status: result.status === "updated" ? "succeeded" : "noop",
+      itemsWritten: result.cached,
+      errorCode: result.status === "updated" ? null : `gp_${result.status}`,
+      metadata: { provider_status: result.status },
+    };
+  } catch (error) {
+    if (error instanceof GpRefreshFailure) {
+      throw new SamplerFailure(error.code, error.message, {
+        providerErrored: true,
+        metadata: {
+          provider: "celestrak",
+          provider_status: error.providerStatus,
+          provider_detail: error.providerDetail,
+        },
+      });
+    }
+    throw error;
+  }
 }
 
 Deno.serve((req: Request): Response | Promise<Response> => {
@@ -318,9 +335,13 @@ Deno.serve((req: Request): Response | Promise<Response> => {
     }
 
     if (parsed.data.task === "gp") {
-      // Satellite GP refresh — no-op when no active satellite scouts exist.
       runInBackground(
-        trackSamplerRun(svc, samplerRunId, "gp", () => runGpRefresh(svc)),
+        trackSamplerRun(
+          svc,
+          samplerRunId,
+          "gp",
+          () => runGpRefresh(svc, parsed.data.operator_bootstrap),
+        ),
       );
       return jsonOk(
         { status: "accepted", task: "gp", run_id: samplerRunId },

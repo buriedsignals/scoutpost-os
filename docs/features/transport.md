@@ -65,13 +65,13 @@ The same two-step contract is public on every client surface:
 
 Omitting `transport_baseline_ids` retains the legacy silent-first-run behavior.
 
-**Shared-infrastructure staleness never auto-deactivates a scout.** If the vessel
-sampler or the satellite GP refresh is judged stale, runs record a visible
-`skipped` status and the scout resumes automatically when the source recovers.
-Vessel liveness requires a successful shared sampler heartbeat within 90
-minutes, independent of the consumer scout's cadence, and cached positions older
-than 125 minutes are excluded. A failed sampler can no longer be masked for up
-to two days by a daily scout's old position cache.
+**Shared-infrastructure staleness never auto-deactivates a scout.** If the
+vessel sampler or satellite catalog is stale, runs record a visible `skipped`
+status. Vessel liveness requires a successful shared sampler heartbeat within
+90 minutes, independent of the consumer scout's cadence, and cached positions
+older than 125 minutes are excluded. Satellite runs resume from the last
+complete GP generation only after an operator clears any provider halt and a
+new generation publishes successfully.
 
 ## Categories & watchlists
 
@@ -90,8 +90,15 @@ import** unless the upstream still declares the ODbL/DbCL license.
 |--------|----------|-----------------|
 | [adsb.lol](https://adsb.lol) | aircraft positions | ODbL — attribution required; contact operator before high-volume production use |
 | [VesselAPI](https://vesselapi.com) | primary exact-MMSI vessel positions | paid Basic plan; operator is separately confirming derived-alert rights |
-| [CelesTrak](https://celestrak.org) | satellite orbital elements | public domain; one-download-per-update fair use (daily fetch complies) |
+| [CelesTrak](https://celestrak.org) | satellite orbital elements | public domain; retrieval disabled by default, operator approval + contact User-Agent required |
 | [plane-alert-db](https://github.com/sdr-enthusiasts/plane-alert-db) | aircraft watchlist categories | **ODbL 1.0 / DbCL 1.0** |
+
+CelesTrak access is one deployment-wide integration, never a per-scout fetch.
+`transport-test` is cache-only. The provider gate defaults off, uses a
+database lease when explicitly enabled, and halts on every non-200 or timeout
+until an operator reviews the retained diagnostics and clears it. Self-hosted
+operators must configure `CELESTRAK_CONTACT_EMAIL` and obtain approval for
+their retrieval pattern before enabling the gate.
 
 **ODbL share-alike (plane-alert-db):** the derived `transport_watchlists`
 rows are a derivative database of plane-alert-db and are therefore offered

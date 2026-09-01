@@ -53,14 +53,14 @@ SELECT is(
 SELECT has_function(
   'public',
   'trigger_transport_sampler',
-  ARRAY['text'],
+  ARRAY['text', 'boolean'],
   'service-role transport sampler trigger exists'
 );
 
 SELECT function_privs_are(
   'public',
   'trigger_transport_sampler',
-  ARRAY['text'],
+  ARRAY['text', 'boolean'],
   'service_role',
   ARRAY['EXECUTE'],
   'service role can request an immediate sampler canary'

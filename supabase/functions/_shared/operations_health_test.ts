@@ -1,6 +1,7 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   evaluateCrawlerWorkflowIncident,
+  evaluateGpProviderIncident,
   evaluateQueueIncident,
   evaluateVesselSamplerIncident,
 } from "./operations_health.ts";
@@ -77,6 +78,36 @@ Deno.test("recent successful vessel sampler is healthy", () => {
     latestSuccessAt: "2026-07-20T19:07:00Z",
   }, NOW);
   assertEquals(incident.active, false);
+});
+
+Deno.test("CelesTrak halt creates a critical operator incident", () => {
+  const halted = evaluateGpProviderIncident({
+    enabled: true,
+    haltedAt: "2026-07-20T19:59:00Z",
+    haltReason: "celestrak_http_503",
+    lastHttpStatus: 503,
+    lastErrorBody: "Service unavailable",
+    lastAttemptAt: "2026-07-20T19:59:00Z",
+    lastSuccessAt: "2026-07-20T18:00:00Z",
+  });
+  assertEquals(halted.active, true);
+  assertEquals(halted.severity, "critical");
+  assertEquals(
+    halted.summary,
+    "CelesTrak GP provider access halted HTTP 503 (celestrak_http_503): Service unavailable",
+  );
+
+  const disabled = evaluateGpProviderIncident({
+    enabled: false,
+    haltedAt: null,
+    haltReason: null,
+    lastHttpStatus: null,
+    lastErrorBody: null,
+    lastAttemptAt: null,
+    lastSuccessAt: null,
+  });
+  assertEquals(disabled.active, false);
+  assertEquals(disabled.summary, "CelesTrak GP provider access is disabled");
 });
 
 Deno.test("crawler workflow health opens on delay, expiry, or recent terminal failure", () => {

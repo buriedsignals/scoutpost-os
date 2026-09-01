@@ -270,6 +270,7 @@ setup_supabase_managed() {
         "RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL}" \
         "APIFY_API_TOKEN=${APIFY_API_TOKEN}" \
         "PUBLIC_MAPTILER_API_KEY=${PUBLIC_MAPTILER_API_KEY}" \
+        "CELESTRAK_CONTACT_EMAIL=${ADMIN_EMAILS}" \
         "ADMIN_EMAILS=${ADMIN_EMAILS}"
     log_success "Edge Function secrets provisioned"
 
@@ -382,6 +383,10 @@ FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
 # Email
 RESEND_API_KEY=${RESEND_API_KEY}
 RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL}
+
+# Provider identity only. GP retrieval remains disabled in the database until
+# an operator records CelesTrak approval.
+CELESTRAK_CONTACT_EMAIL=${ADMIN_EMAILS}
 
 # Social media
 APIFY_API_TOKEN=${APIFY_API_TOKEN}

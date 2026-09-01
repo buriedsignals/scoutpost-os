@@ -2,7 +2,8 @@ export type IncidentKind =
   | "dispatch_queue_delay"
   | "civic_queue_delay"
   | "crawler_workflow_health"
-  | "vessel_sampler_health";
+  | "vessel_sampler_health"
+  | "celestrak_gp_provider_health";
 
 export interface OperationalIncident {
   key: string;
@@ -28,6 +29,16 @@ export interface VesselSamplerObservation {
   latestStatus: string | null;
   latestErrorCode: string | null;
   latestSuccessAt: string | null;
+}
+
+export interface GpProviderObservation {
+  enabled: boolean;
+  haltedAt: string | null;
+  haltReason: string | null;
+  lastHttpStatus: number | null;
+  lastErrorBody: string | null;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
 }
 
 export interface CrawlerWorkflowObservation {
@@ -134,6 +145,42 @@ export function evaluateVesselSamplerIncident(
       latest_success_at: observation.latestSuccessAt,
       latest_success_age_minutes: ageMinutes(successAgeMs),
       stale_after_minutes: Math.floor(staleMs / 60_000),
+    },
+  };
+}
+
+export function evaluateGpProviderIncident(
+  observation: GpProviderObservation,
+): OperationalIncident {
+  const active = observation.haltedAt !== null;
+  let summary = observation.enabled
+    ? "CelesTrak GP provider access is enabled and healthy"
+    : "CelesTrak GP provider access is disabled";
+  if (active) {
+    const status = observation.lastHttpStatus === null
+      ? ""
+      : ` HTTP ${observation.lastHttpStatus}`;
+    const detail = observation.lastErrorBody
+      ? `: ${observation.lastErrorBody.slice(0, 300)}`
+      : "";
+    summary = `CelesTrak GP provider access halted${status} (${
+      observation.haltReason ?? "unknown"
+    })${detail}`;
+  }
+  return {
+    key: "celestrak_gp_provider_health",
+    kind: "celestrak_gp_provider_health",
+    active,
+    severity: active ? "critical" : "warning",
+    summary,
+    details: {
+      enabled: observation.enabled,
+      halted_at: observation.haltedAt,
+      halt_reason: observation.haltReason,
+      last_http_status: observation.lastHttpStatus,
+      last_error_body: observation.lastErrorBody,
+      last_attempt_at: observation.lastAttemptAt,
+      last_success_at: observation.lastSuccessAt,
     },
   };
 }

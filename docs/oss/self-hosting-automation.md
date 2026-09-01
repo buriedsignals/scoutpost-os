@@ -17,6 +17,27 @@ These files are public and no longer use any license-gated flow.
 - Static frontend hosting is the default deployment path.
 - FastAPI is optional and only kept for newsrooms that want the legacy/internal Python API add-on.
 
+### CelesTrak satellite data
+
+GP retrieval is disabled by default on every installation. Setup configures
+`CELESTRAK_CONTACT_EMAIL` from the administrator email for provider identity,
+but that does not enable traffic. Before enabling, agree the deployment's
+retrieval and cache pattern with CelesTrak, then record that approval:
+
+```sql
+SELECT public.set_transport_gp_refresh_enabled(
+  true,
+  'operator@example.org - CelesTrak approval recorded',
+  true
+);
+SELECT public.trigger_transport_sampler('gp', true);
+```
+
+The second statement performs one service-role bootstrap through the normal
+lease and halt boundary. Any non-200 or timeout disables later provider calls
+until an operator reviews the stored diagnostics and calls the first RPC again
+with `p_clear_halt = true`.
+
 ## Sync workflow
 
 `selfhost/sync-upstream.yml` is designed for forks of `buriedsignals/scoutpost-os` on branch `master`.

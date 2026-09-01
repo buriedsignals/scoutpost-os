@@ -1,5 +1,5 @@
 /**
- * Fleet Scout (type `transport`) live health benchmark — all production modes.
+ * Fleet Scout (type `transport`) health benchmark — provider-safe modes.
  *
  * Each canary creates a real user-owned Scout and audits the same two-run
  * contract: run 1 silently establishes positional state, then run 2 must not
@@ -8,7 +8,7 @@
  *
  *   aircraft  — probe adsb.lol over Dover, then watch observed ICAO hexes.
  *   vessel    — refresh exact MMSIs, then watch a provider-returned position.
- *   satellite — refresh CelesTrak GP data, then predict ISS passes.
+ *   satellite — require an already-approved fresh GP cache, then predict ISS passes.
  *
  * Usage:
  *   scripts/benchmarks/with-linked-supabase-env.sh \
@@ -408,31 +408,38 @@ async function waitForFreshIssElement(ctx: BenchCtx): Promise<GpCacheRow> {
   const deadline = Date.now() + SAMPLER_TIMEOUT_MS;
   const maxAgeMs = 48 * 60 * 60_000;
   while (Date.now() < deadline) {
-    const rows = await pgList<GpCacheRow>(
+    const states = await pgList<{
+      current_generation_id: string | null;
+      current_generation_fetched_at: string | null;
+    }>(
       ctx,
-      "transport_gp_cache",
-      `select=norad_id,name,fetched_at&norad_id=eq.${ISS_NORAD_ID}`,
+      "transport_gp_refresh_control",
+      "select=current_generation_id,current_generation_fetched_at&singleton=eq.true",
     );
-    const row = rows[0];
+    const state = states[0];
+    const fetchedAt = state?.current_generation_fetched_at;
     if (
-      row && Date.now() - new Date(row.fetched_at).getTime() <= maxAgeMs
-    ) return row;
+      state?.current_generation_id && fetchedAt &&
+      Date.now() - new Date(fetchedAt).getTime() <= maxAgeMs
+    ) {
+      const rows = await pgList<GpCacheRow>(
+        ctx,
+        "transport_gp_catalog",
+        `select=norad_id,name,fetched_at&generation_id=eq.${state.current_generation_id}&norad_id=eq.${ISS_NORAD_ID}`,
+      );
+      if (rows[0]) return rows[0];
+    }
     await delay(POLL_INTERVAL_MS);
   }
   throw new Error(
-    "GP sampler did not produce a fresh ISS element before timeout",
+    "No fresh approved GP catalog is available; provider refresh remains operator-controlled",
   );
 }
 
 async function prepareSatelliteCanary(ctx: BenchCtx): Promise<void> {
-  const sampler = await requireSuccessfulSamplerRun(
-    ctx,
-    await triggerSampler(ctx, { task: "gp" }),
-  );
   const iss = await waitForFreshIssElement(ctx);
   console.log(
-    `satellite sampler: written=${sampler.items_written}; ` +
-      `${iss.name ?? "ISS"} GP fetched ${iss.fetched_at}`,
+    `satellite cache: ${iss.name ?? "ISS"} GP fetched ${iss.fetched_at}`,
   );
 }
 

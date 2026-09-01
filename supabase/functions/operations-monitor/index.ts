@@ -11,8 +11,10 @@ import {
   DEFAULT_QUEUE_DELAY_MS,
   DEFAULT_SAMPLER_STALE_MS,
   evaluateCrawlerWorkflowIncident,
+  evaluateGpProviderIncident,
   evaluateQueueIncident,
   evaluateVesselSamplerIncident,
+  type GpProviderObservation,
   type OperationalIncident,
 } from "../_shared/operations_health.ts";
 
@@ -126,16 +128,23 @@ async function collectIncidents(
     86400,
   ) * 1000;
 
-  const [dispatch, civic, crawler, latestSampler, latestSuccess] = await Promise
-    .all([
-      queueObservation(svc, "scout_dispatch_queue", ["queued"], ["leased"]),
-      queueObservation(svc, "civic_extraction_queue", ["pending"], [
-        "processing",
-      ]),
-      crawlerObservation(svc),
-      latestSamplerRow(svc, false),
-      latestSamplerRow(svc, true),
-    ]);
+  const [
+    dispatch,
+    civic,
+    crawler,
+    latestSampler,
+    latestSuccess,
+    gpProvider,
+  ] = await Promise.all([
+    queueObservation(svc, "scout_dispatch_queue", ["queued"], ["leased"]),
+    queueObservation(svc, "civic_extraction_queue", ["pending"], [
+      "processing",
+    ]),
+    crawlerObservation(svc),
+    latestSamplerRow(svc, false),
+    latestSamplerRow(svc, true),
+    gpProviderObservation(svc),
+  ]);
 
   return [
     evaluateQueueIncident(
@@ -169,6 +178,7 @@ async function collectIncidents(
       now,
       samplerThreshold,
     ),
+    evaluateGpProviderIncident(gpProvider),
   ];
 }
 
@@ -247,6 +257,28 @@ async function rowCount(
   }).in("status", statuses);
   if (error) throw new Error(error.message);
   return count ?? 0;
+}
+
+async function gpProviderObservation(
+  svc: SupabaseClient,
+): Promise<GpProviderObservation> {
+  const { data, error } = await svc
+    .from("transport_gp_refresh_control")
+    .select(
+      "enabled,halted_at,halt_reason,last_http_status,last_error_body,last_attempt_at,last_success_at",
+    )
+    .eq("singleton", true)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return {
+    enabled: data?.enabled === true,
+    haltedAt: (data?.halted_at as string | undefined) ?? null,
+    haltReason: (data?.halt_reason as string | undefined) ?? null,
+    lastHttpStatus: (data?.last_http_status as number | undefined) ?? null,
+    lastErrorBody: (data?.last_error_body as string | undefined) ?? null,
+    lastAttemptAt: (data?.last_attempt_at as string | undefined) ?? null,
+    lastSuccessAt: (data?.last_success_at as string | undefined) ?? null,
+  };
 }
 
 async function latestSamplerRow(

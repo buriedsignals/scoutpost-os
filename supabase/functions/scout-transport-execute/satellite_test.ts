@@ -3,13 +3,16 @@ import {
   assertGreater,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import {
+  fetchWatchedElements,
   type GpElement,
+  isGpCacheFresh,
   passStateKey,
   predictPasses,
   subSatellitePoint,
 } from "./satellite.ts";
 import type { ResolvedGeofence } from "./geofence.ts";
 import { composeSatelliteStatement } from "./events.ts";
+import type { SupabaseClient } from "../_shared/supabase.ts";
 
 const fixture = JSON.parse(
   Deno.readTextFileSync(
@@ -128,4 +131,70 @@ Deno.test("satellite statement labels the prediction and names the pass", () => 
     "Satellite ISS (ZARYA) (NORAD 25544) predicted to pass over Strait of Hormuz on 2024-01-01 from 03:12 UTC to 03:18 UTC (TLE/OMM prediction).",
   );
   assertGreater(s.length, 0);
+});
+
+Deno.test("GP readers use only the published catalog generation", async () => {
+  const svc = {
+    from(table: string) {
+      if (table === "transport_gp_refresh_control") {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  maybeSingle() {
+                    return Promise.resolve({
+                      data: {
+                        current_generation_id: "generation-current",
+                        current_generation_fetched_at:
+                          "2024-01-01T00:00:00.000Z",
+                      },
+                      error: null,
+                    });
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+      if (table === "transport_gp_catalog") {
+        return {
+          select() {
+            return {
+              eq(column: string, value: string) {
+                assertEquals(column, "generation_id");
+                assertEquals(value, "generation-current");
+                return {
+                  in() {
+                    return Promise.resolve({
+                      data: [{
+                        norad_id: 25544,
+                        name: "ISS",
+                        omm: fixture.omm,
+                        fetched_at: "2024-01-01T00:00:00.000Z",
+                      }],
+                      error: null,
+                    });
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  } as unknown as SupabaseClient;
+
+  assertEquals(
+    await isGpCacheFresh(svc, new Date("2024-01-01T12:00:00.000Z")),
+    {
+      fresh: true,
+      freshestFetchedAt: "2024-01-01T00:00:00.000Z",
+    },
+  );
+  const elements = await fetchWatchedElements(svc, [25544]);
+  assertEquals(elements.length, 1);
+  assertEquals(elements[0].noradId, 25544);
 });

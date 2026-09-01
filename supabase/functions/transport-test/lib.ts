@@ -28,7 +28,6 @@ import {
   filterVessels,
   type VesselObject,
 } from "../scout-transport-execute/vessel.ts";
-import { refreshGpCache } from "../transport-sampler/gp.ts";
 import { upsertPositions } from "../transport-sampler/sampler.ts";
 import {
   sampleVesselApiPositions,
@@ -108,20 +107,15 @@ async function ensureLiveVesselCoverage(
 }
 
 async function ensureLiveGpCoverage(svc: SupabaseClient): Promise<void> {
-  let freshness = await isGpCacheFresh(svc);
-  if (!freshness.fresh) {
-    await refreshGpCache(svc);
-    freshness = await isGpCacheFresh(svc);
-  }
-  if (!freshness.fresh) {
-    throw new ApiError(
-      freshness.freshestFetchedAt
-        ? `orbital-element cache stale (freshest ${freshness.freshestFetchedAt}); GP refresh may be behind`
-        : "no orbital elements cached after GP refresh",
-      503,
-      "transport_data_unavailable",
-    );
-  }
+  const freshness = await isGpCacheFresh(svc);
+  if (freshness.fresh) return;
+  throw new ApiError(
+    freshness.freshestFetchedAt
+      ? `orbital-element cache stale (freshest ${freshness.freshestFetchedAt}); provider refresh requires operator action`
+      : "no orbital elements cached; provider refresh requires operator action",
+    503,
+    "transport_data_unavailable",
+  );
 }
 
 export function transportTestDependencies(

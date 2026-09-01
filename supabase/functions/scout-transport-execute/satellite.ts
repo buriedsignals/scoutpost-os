@@ -59,45 +59,59 @@ export interface PassWindow {
   endIso: string;
 }
 
+interface GpControlState {
+  current_generation_id: string | null;
+  current_generation_fetched_at: string | null;
+}
+
+async function currentGpGeneration(
+  svc: SupabaseClient,
+): Promise<GpControlState> {
+  const { data, error } = await svc
+    .from("transport_gp_refresh_control")
+    .select("current_generation_id,current_generation_fetched_at")
+    .eq("singleton", true)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return {
+    current_generation_id:
+      (data?.current_generation_id as string | undefined) ?? null,
+    current_generation_fetched_at:
+      (data?.current_generation_fetched_at as string | undefined) ?? null,
+  };
+}
+
 /** Load cached GP elements for the watched NORAD ids. */
 export async function fetchWatchedElements(
   svc: SupabaseClient,
   noradIds: number[],
 ): Promise<GpElement[]> {
   if (noradIds.length === 0) return [];
+  const state = await currentGpGeneration(svc);
+  if (!state.current_generation_id) return [];
   const { data, error } = await svc
-    .from("transport_gp_cache")
+    .from("transport_gp_catalog")
     .select("norad_id, name, omm, fetched_at")
+    .eq("generation_id", state.current_generation_id)
     .in("norad_id", noradIds);
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => ({
-    noradId: r.norad_id as number,
-    name: (r.name as string | null) ?? null,
-    omm: (r.omm ?? {}) as Record<string, unknown>,
-    fetchedAt: r.fetched_at as string,
+  return (data ?? []).map((row) => ({
+    noradId: row.norad_id as number,
+    name: (row.name as string | null) ?? null,
+    omm: (row.omm ?? {}) as Record<string, unknown>,
+    fetchedAt: row.fetched_at as string,
   }));
 }
 
-/**
- * GP-cache LIVENESS — global, not per-watched-id. Mirrors the vessel sampler
- * check: the daily GP refresh updates the WHOLE cache, so a globally-fresh
- * cache means elements were refreshed this cycle. A watched NORAD id that is
- * simply absent from GROUP=active (decommissioned/debris) is best-effort — it
- * yields no passes but must NOT make the whole cache read as stale (that would
- * wrongly skip the run over one untracked id). Returns freshest-across-cache.
- */
+/** GP-cache liveness is the publication time of one complete generation. */
 export async function isGpCacheFresh(
   svc: SupabaseClient,
   now: Date = new Date(),
 ): Promise<{ fresh: boolean; freshestFetchedAt: string | null }> {
-  const { data, error } = await svc
-    .from("transport_gp_cache")
-    .select("fetched_at")
-    .order("fetched_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  const freshestFetchedAt = (data?.fetched_at as string | undefined) ?? null;
+  const state = await currentGpGeneration(svc);
+  const freshestFetchedAt = state.current_generation_id
+    ? state.current_generation_fetched_at
+    : null;
   if (freshestFetchedAt == null) {
     return { fresh: false, freshestFetchedAt: null };
   }
