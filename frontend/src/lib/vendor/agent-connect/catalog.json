@@ -1,6 +1,6 @@
 {
   "package": "@buriedsignals/agent-connect",
-  "packageVersion": "0.2.0",
+  "packageVersion": "0.2.1",
   "products": {
     "navigator": {
       "claude-code": {
@@ -101,19 +101,35 @@
         }
       },
       "antigravity": {
+        "cli": {
+          "title": "Antigravity",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
+          "configPath": null,
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask Antigravity to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        },
         "mcp": {
           "title": "Antigravity",
           "tagline": "Add {{DISPLAY_NAME}} as a remote MCP server in Antigravity.",
           "command": "{\n  \"mcpServers\": {\n    \"{{SERVER_ID}}\": {\n      \"serverUrl\": \"{{MCP_URL}}\"\n    }\n  }\n}",
           "configPath": "~/.gemini/config/mcp_config.json",
           "steps": [
-            "Open the Antigravity agent panel and choose MCP servers → Manage.",
-            "Add the {{SERVER_ID}} entry to the MCP configuration.",
-            "Complete {{DISPLAY_NAME}} OAuth when prompted."
+            "Add the {{SERVER_ID}} entry shown above to the shared ~/.gemini/config/mcp_config.json file. In Antigravity IDE, open the agent panel, choose MCP Servers → Manage MCP Servers → View raw config; Antigravity CLI reads the same global file.",
+            "After the server appears, open Agent Settings (Cmd+, on macOS or Ctrl+, on Windows/Linux), select Customizations, and click Authenticate. Antigravity uses dynamic client registration (DCR) with PKCE.",
+            "Complete {{DISPLAY_NAME}} authorization in the browser and copy the authorization code.",
+            "Paste the authorization code into Antigravity and click Submit.",
+            "Wait for Antigravity to reconnect automatically, then confirm the server is connected."
           ],
           "verify": "Ask Antigravity to use {{DISPLAY_NAME}}.",
-          "docsUrl": "https://antigravity.google",
-          "caveat": null
+          "docsUrl": "https://antigravity.google/docs/mcp/",
+          "caveat": "Windows Antigravity 2.0/IDE remote OAuth remains unresolved after one QA failure. If the documented flow does not reconnect, use Product CLI and record Antigravity client logs plus server OAuth traces; do not add custom authentication fields."
         }
       },
       "gemini": {
@@ -204,7 +220,7 @@
         "cli": {
           "title": "Claude Code",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
-          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Claude Code'",
+          "command": "npm install --global scoutpost-cli\nscout auth login --site {{APP_URL}} --label \"Claude Code\"",
           "configPath": null,
           "steps": [
             "Install the {{CLI_BINARY}} CLI.",
@@ -271,7 +287,7 @@
         "cli": {
           "title": "Codex",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
-          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Codex'",
+          "command": "npm install --global scoutpost-cli\nscout auth login --site {{APP_URL}} --label \"Codex\"",
           "configPath": null,
           "steps": [
             "Install the {{CLI_BINARY}} CLI.",
@@ -298,26 +314,42 @@
         }
       },
       "antigravity": {
+        "cli": {
+          "title": "Antigravity",
+          "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
+          "command": "npm install --global scoutpost-cli\nscout auth login --site {{APP_URL}} --label \"Antigravity\"",
+          "configPath": null,
+          "steps": [
+            "Install the {{CLI_BINARY}} CLI.",
+            "Run the login command and approve the browser sign-in.",
+            "Ask Antigravity to use the {{CLI_BINARY}} command."
+          ],
+          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "docsUrl": "{{DOCS_URL}}",
+          "caveat": null
+        },
         "mcp": {
           "title": "Antigravity",
           "tagline": "Add {{DISPLAY_NAME}} as a remote MCP server in Antigravity.",
           "command": "{\n  \"mcpServers\": {\n    \"{{SERVER_ID}}\": {\n      \"serverUrl\": \"{{MCP_URL}}\"\n    }\n  }\n}",
           "configPath": "~/.gemini/config/mcp_config.json",
           "steps": [
-            "Open the Antigravity agent panel and choose MCP servers → Manage.",
-            "Add the {{SERVER_ID}} entry to the MCP configuration.",
-            "Complete {{DISPLAY_NAME}} OAuth when prompted."
+            "Add the {{SERVER_ID}} entry shown above to the shared ~/.gemini/config/mcp_config.json file. In Antigravity IDE, open the agent panel, choose MCP Servers → Manage MCP Servers → View raw config; Antigravity CLI reads the same global file.",
+            "After the server appears, open Agent Settings (Cmd+, on macOS or Ctrl+, on Windows/Linux), select Customizations, and click Authenticate. Antigravity uses dynamic client registration (DCR) with PKCE.",
+            "Complete {{DISPLAY_NAME}} authorization in the browser and copy the authorization code.",
+            "Paste the authorization code into Antigravity and click Submit.",
+            "Wait for Antigravity to reconnect automatically, then confirm the server is connected."
           ],
           "verify": "Ask Antigravity to use {{DISPLAY_NAME}}.",
-          "docsUrl": "https://antigravity.google",
-          "caveat": null
+          "docsUrl": "https://antigravity.google/docs/mcp/",
+          "caveat": "Windows Antigravity 2.0/IDE remote OAuth remains unresolved after one QA failure. If the documented flow does not reconnect, use Product CLI and record Antigravity client logs plus server OAuth traces; do not add custom authentication fields."
         }
       },
       "gemini": {
         "cli": {
           "title": "Gemini CLI",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
-          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'Gemini CLI'",
+          "command": "npm install --global scoutpost-cli\nscout auth login --site {{APP_URL}} --label \"Gemini CLI\"",
           "configPath": null,
           "steps": [
             "Install the {{CLI_BINARY}} CLI.",
@@ -351,7 +383,7 @@
         "cli": {
           "title": "OpenCode",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
-          "command": "{{CLI_INSTALL}} && scout auth login --site '{{APP_URL}}' --label 'OpenCode'",
+          "command": "npm install --global scoutpost-cli\nscout auth login --site {{APP_URL}} --label \"OpenCode\"",
           "configPath": null,
           "steps": [
             "Install the {{CLI_BINARY}} CLI.",

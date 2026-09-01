@@ -405,6 +405,54 @@ describe('updateUserPreferences', () => {
 });
 
 // ===========================================================================
+// API key management
+// ===========================================================================
+
+describe('API key management', () => {
+	it('creates a key with the caller-supplied name and no synthesized fallback', async () => {
+		fetchSpy = mockFetchResponse({
+			key: 'cj_raw_once',
+			key_id: 'key_1',
+			key_prefix: 'cj_raw',
+			name: 'Antigravity Windows QA',
+			created_at: '2026-09-01T12:00:00Z'
+		});
+		vi.stubGlobal('fetch', fetchSpy);
+
+		const result = await apiClient.createApiKey('Antigravity Windows QA');
+
+		expect(fetchSpy).toHaveBeenCalledWith(
+			'/api/api-keys',
+			expect.objectContaining({
+				method: 'POST',
+				body: JSON.stringify({ name: 'Antigravity Windows QA' })
+			})
+		);
+		expect(result.name).toBe('Antigravity Windows QA');
+		expect(fetchSpy.mock.calls[0][1].body).not.toContain('My API Key');
+	});
+
+	it('lists existing keys without changing their names', async () => {
+		const response = {
+			keys: [{
+				key_id: 'key_existing',
+				key_prefix: 'cj_existing',
+				name: 'My API Key',
+				created_at: '2026-08-01T12:00:00Z',
+				last_used_at: null
+			}],
+			count: 1
+		};
+		fetchSpy = mockFetchResponse(response);
+		vi.stubGlobal('fetch', fetchSpy);
+
+		await expect(apiClient.listApiKeys()).resolves.toEqual(response);
+		expect(fetchSpy.mock.calls[0][0]).toBe('/api/api-keys');
+		expect(fetchSpy.mock.calls[0][1].method).toBe('GET');
+	});
+});
+
+// ===========================================================================
 // submitFeedback
 // ===========================================================================
 

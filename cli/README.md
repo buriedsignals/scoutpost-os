@@ -138,6 +138,8 @@ scout projects add --name "City Hall Watch" --visibility private
 
 # Scouts
 scout scouts list
+scout scouts list --active          # active scouts only
+scout scouts list --active false    # inactive scouts only
 scout scouts add --name "Council agenda" --type web --url https://example.gov \
   --topic "council, agenda" --archive-enabled true   # capture evidence snapshots (Pro/Team)
 scout scouts add --name "Housing minutes" --type civic \
@@ -202,6 +204,10 @@ For a Fleet Scout, run `test-transport` and pass its `baseline_ids` through
 `--baseline-ids` when creating the schedule. Other scheduled scout types
 establish their initial baseline during creation. `scout scouts run` compares
 against that baseline and will not create the first baseline itself.
+
+`scout scouts list --active true|false` filters by status after following every
+advertised results page. A bare `--active` means `true`; omit the flag to keep
+the complete, unfiltered list.
 
 Run `scout <command> --help` for subcommand-specific usage.
 

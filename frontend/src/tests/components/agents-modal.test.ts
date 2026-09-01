@@ -29,7 +29,7 @@ describe('Connect Agent modal', () => {
 		expect(await screen.findByRole('alert')).toHaveTextContent(/clipboard access is blocked/i);
 		const fallback = screen.getByRole('textbox') as HTMLTextAreaElement;
 		expect(fallback.value).toMatch(
-			/^npm install --global scoutpost-cli && scout auth login --site 'https?:\/\/[^']+' --label 'Claude Code'$/
+			/^npm install --global scoutpost-cli\nscout auth login --site https?:\/\/\S+ --label "Claude Code"$/
 		);
 		expect(fallback.value).not.toMatch(/cj_|api_key|anon_key/i);
 	});
@@ -51,6 +51,9 @@ describe('Connect Agent modal', () => {
 		expect(screen.getByText('~/.gemini/config/mcp_config.json')).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /^copy$/i })).toBeInTheDocument();
 		expect(screen.queryByText('Remote MCP URL')).not.toBeInTheDocument();
+		expect(screen.getByText(/click Authenticate/i)).toBeInTheDocument();
+		expect(screen.getByText(/copy the authorization code/i)).toBeInTheDocument();
+		expect(screen.getByText(/click Submit/i)).toBeInTheDocument();
 	});
 
 	it('restores focus and closes from Escape', async () => {

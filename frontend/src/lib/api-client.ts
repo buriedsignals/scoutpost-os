@@ -678,14 +678,14 @@ export const apiClient = {
 	/**
 	 * Create a new API key.
 	 */
-	async createApiKey(name?: string): Promise<{
+	async createApiKey(name: string): Promise<{
 		key: string;
 		key_id: string;
 		key_prefix: string;
 		name: string;
 		created_at: string;
 	}> {
-		return apiRequest('POST', '/api-keys', { name: name || 'My API Key' });
+		return apiRequest('POST', '/api-keys', { name });
 	},
 
 	/**

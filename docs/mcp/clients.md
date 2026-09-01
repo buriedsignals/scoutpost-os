@@ -1,8 +1,11 @@
 # MCP client setup
 
-Per-client recipes. The hosted server URL is always `https://scoutpost.ai/mcp`. Every recipe below results in OAuth-on-first-use — no `client_id`/`client_secret` paste, ever.
+The hosted server URL is always `https://scoutpost.ai/mcp`. Remote recipes use
+OAuth on first connection; follow the client-specific caveats below. Never
+paste a `client_id`, `client_secret`, API key, or bearer token into configuration
+or chat.
 
-The agent-connection modal in the app (`/api` → Connect Agent) generates the same recipes dynamically per client. Catalog-backed recipes (Claude Code, Claude custom connector, ChatGPT Desktop, Codex MCP, Cursor, Goose, generic MCP) come from Engine `@buriedsignals/agent-connect`. These docs own the detailed walkthroughs and troubleshooting.
+The agent-connection modal in the app (`/api` → Connect Agent) generates the same recipes dynamically per client. Catalog-backed recipes for Claude Code, Claude Desktop, ChatGPT Desktop, Codex, Antigravity, Gemini CLI, Goose, OpenCode, LM Studio, and generic MCP come from Engine `@buriedsignals/agent-connect`. These docs own the detailed walkthroughs and troubleshooting.
 
 ## Claude Cowork (claude.ai web, Claude Desktop, Cowork)
 
@@ -79,10 +82,23 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 Reference: <https://docs.windsurf.com/windsurf/cascade/mcp>.
 
-## Antigravity
+## Antigravity CLI and Antigravity 2.0/IDE
 
-Open **Settings → Customizations → MCP Servers → Add MCP server**, or add this
-to the shared `~/.gemini/config/mcp_config.json` file:
+These are separate client surfaces and their QA results are not interchangeable.
+Use the Scoutpost **Product CLI** as the default path on macOS and Windows:
+
+```text
+npm install --global scoutpost-cli
+scout auth login --site https://scoutpost.ai --label "Antigravity"
+```
+
+Approve the browser request, then use `scout scouts list` or
+`scout scouts list --active` from Antigravity. This path does not put a
+credential in Antigravity configuration.
+
+Remote MCP is an explicit alternative. Open **Settings → Customizations → MCP
+Servers → Add MCP server**, or add Scoutpost to the shared
+`~/.gemini/config/mcp_config.json` file:
 
 ```json
 {
@@ -94,7 +110,25 @@ to the shared `~/.gemini/config/mcp_config.json` file:
 }
 ```
 
-Reference: <https://antigravity.google/docs/mcp>.
+Then complete Antigravity's official DCR flow:
+
+1. Open **Manage MCP Servers** and click **Authenticate** for Scoutpost.
+2. Complete Scoutpost authorization in the browser.
+3. Copy the authorization code displayed by the browser.
+4. Paste that code into Antigravity's authorization-code field and click
+   **Submit**.
+5. Reconnect or refresh the Scoutpost server and confirm its tools appear.
+
+Do not substitute a pasted bearer, API key, or client secret if this flow fails.
+Remote MCP through the shared configuration has passed in Antigravity CLI on
+macOS. A separate Windows Antigravity 2.0/IDE run completed the visible
+authorization flow but sent `initialize` without a bearer, so that combination
+remains an unresolved client/server interoperability issue. Capture Antigravity
+client MCP/OAuth logs and correlate them with Scoutpost `mcp-server` and
+`mcp-auth` traces as described in [`debugging.md`](debugging.md); use Product
+CLI in the meantime.
+
+Reference: <https://antigravity.google/docs/mcp/>.
 
 ## Goose
 
@@ -138,4 +172,4 @@ Paste `https://scoutpost.ai/mcp` and follow the client's OAuth prompt. Spec refe
 
 For clients that don't speak Streamable HTTP (legacy Claude Desktop configs without the cloud broker, some local agent frameworks). The bridge installs from the public OSS mirror's release page; the binary connects via stdio and forwards JSON-RPC verbatim to the hosted server using a `cj_…` API key for auth.
 
-See [`mcp/CLAUDE.md`](../../mcp/CLAUDE.md) for release procedure and binary install. Hosted clients listed above should always prefer the remote URL — the bridge is a transport shim, not a feature.
+See [`mcp/CLAUDE.md`](../../mcp/CLAUDE.md) for release procedure and binary install. Prefer each client's documented hosted path; for Antigravity, use Product CLI by default while the Windows IDE remote-MCP boundary remains unresolved. The bridge is a transport shim, not a feature.

@@ -140,6 +140,14 @@
 			</div>
 			<pre class="lang-{recipe.configLang ?? 'json'}"><code>{recipe.configSnippet}</code></pre>
 		</div>
+
+		{#if recipe.uiSteps}
+			<ol class="steps">
+				{#each recipe.uiSteps as step, i}
+					<li><span class="step-num">{i + 1}</span><span class="step-body">{step}</span></li>
+				{/each}
+			</ol>
+		{/if}
 	{:else if recipe.mode === 'ui-steps' && recipe.uiSteps && recipe.configSnippet}
 		<ol class="steps">
 			{#each recipe.uiSteps as step, i}

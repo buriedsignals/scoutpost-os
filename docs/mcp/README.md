@@ -44,16 +44,20 @@ POST /token                   →  200 access_token (Supabase JWT)       mcp-ser
 POST / (JSON-RPC)             →  200 tool result                       mcp-server → units / scouts / projects EFs
 ```
 
-The whole point: the user pastes the URL, clicks Connect, and OAuth runs. No client_id/secret prompt. No manual config.
+The user starts the connection in the client's documented UI and completes
+OAuth. No client secret, API key, or bearer token is pasted into configuration
+or chat.
 
-## Surfaces verified working
+## Supported surfaces and verification boundaries
 
 - **Claude Cowork** (claude.ai web + desktop "Cowork" surface) — primary target. RFC 9728 path-suffix metadata required.
 - **Claude Desktop** — same as Cowork; shares Anthropic's cloud-brokered OAuth flow.
 - **claude.ai** chat with custom connector — same.
-- **Claude Code** (`claude mcp add --transport http`) — opens local browser for OAuth (different surface, same server).
+- **Claude Code** (`claude mcp add --transport http`) — opens a local browser for OAuth (different surface, same server).
 - **Codex Desktop** — Streamable HTTP tab + native OAuth handshake.
 - **codex-cli** — `codex mcp login scoutpost` after a `[mcp_servers.scoutpost]` block in `~/.codex/config.toml`.
-- **Cursor / Windsurf / Antigravity / Goose / Hermes / Langdock** — config-file and custom-integration paths described in [`clients.md`](clients.md).
+- **Antigravity CLI on macOS** — remote MCP through the shared Antigravity configuration has been verified separately.
+- **Antigravity 2.0/IDE on Windows** — the documented DCR Authenticate/code flow is supported, but QA did not establish a working authenticated MCP connection: `initialize` arrived without a bearer. Treat this as unresolved client/server interoperability until client logs and Scoutpost OAuth traces isolate the boundary. Use the Scoutpost Product CLI as the default path meanwhile.
+- **Cursor / Windsurf / Goose / Hermes / Langdock** — config-file and custom-integration paths are described in [`clients.md`](clients.md); a recipe listing is not evidence that every client/platform combination has passed QA.
 
 ChatGPT is **not** supported as a self-serve target — OpenAI gates custom MCP to Business/Enterprise/Edu plans, useless for individual journalists.

@@ -21,11 +21,13 @@
 	let keys: ApiKey[] = [];
 	let loading = true;
 	let newKeyName = '';
+	let keyNameError: string | null = null;
 	let creatingKey = false;
 	let newlyCreatedKey: string | null = null;
 	let copiedId: string | null = null;
 	let copiedAgent = false;
 	let revokeConfirmId: string | null = null;
+	let keyNameInput: HTMLInputElement;
 
 	const isSupabase = import.meta.env.PUBLIC_DEPLOYMENT_TARGET === 'supabase';
 	const supabaseUrl = (import.meta.env.PUBLIC_SUPABASE_URL ?? '').replace(/\/$/, '');
@@ -79,9 +81,17 @@ Auth: Bearer <your-api-key>`;
 
 	async function createKey() {
 		if (creatingKey) return;
+		const name = newKeyName.trim();
+		if (!name) {
+			keyNameError = m.api_keyNameRequired();
+			keyNameInput?.focus();
+			return;
+		}
+
+		keyNameError = null;
 		creatingKey = true;
 		try {
-			const result = await apiClient.createApiKey(newKeyName || undefined);
+			const result = await apiClient.createApiKey(name);
 			newlyCreatedKey = result.key;
 			newKeyName = '';
 			await loadKeys();
@@ -90,6 +100,11 @@ Auth: Bearer <your-api-key>`;
 		} finally {
 			creatingKey = false;
 		}
+	}
+
+	function handleKeyNameInput(event: Event) {
+		newKeyName = (event.currentTarget as HTMLInputElement).value;
+		if (newKeyName.trim()) keyNameError = null;
 	}
 
 	async function revokeKey(keyId: string) {
@@ -200,18 +215,31 @@ Auth: Bearer <your-api-key>`;
 
 			<!-- Create key form -->
 			{#if keys.length < 5}
-				<form class="create-key-form" on:submit|preventDefault={createKey}>
-					<input
-						type="text"
-						class="key-name-input"
-						placeholder={m.api_keyNamePlaceholder()}
-						bind:value={newKeyName}
-						maxlength="64"
-					/>
-					<button type="submit" class="create-key-btn" disabled={creatingKey}>
-						<Plus size={16} />
-						{m.api_createKey()}
-					</button>
+				<form class="create-key-form" on:submit|preventDefault={createKey} novalidate>
+					<label class="key-name-label" for="api-key-name">{m.api_keyName()}</label>
+					<div class="create-key-controls">
+						<input
+							id="api-key-name"
+							type="text"
+							class="key-name-input"
+							placeholder={m.api_keyNamePlaceholder()}
+							value={newKeyName}
+							on:input={handleKeyNameInput}
+							bind:this={keyNameInput}
+							maxlength="64"
+							required
+							aria-required="true"
+							aria-invalid={keyNameError ? 'true' : undefined}
+							aria-describedby={keyNameError ? 'api-key-name-error' : undefined}
+						/>
+						<button type="submit" class="create-key-btn" disabled={creatingKey}>
+							<Plus size={16} />
+							{m.api_createKey()}
+						</button>
+					</div>
+					{#if keyNameError}
+						<p id="api-key-name-error" class="key-name-error" role="alert">{keyNameError}</p>
+					{/if}
 				</form>
 			{/if}
 
@@ -459,8 +487,20 @@ Auth: Bearer <your-api-key>`;
 	/* Create key form */
 	.create-key-form {
 		display: flex;
-		gap: 0.5rem;
+		flex-direction: column;
+		gap: 0.375rem;
 		margin-bottom: 0.75rem;
+	}
+
+	.key-name-label {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--color-foreground);
+	}
+
+	.create-key-controls {
+		display: flex;
+		gap: 0.5rem;
 	}
 
 	.key-name-input {
@@ -480,8 +520,18 @@ Auth: Bearer <your-api-key>`;
 		box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-ring) 18%, transparent);
 	}
 
+	.key-name-input[aria-invalid='true'] {
+		border-color: var(--color-error);
+	}
+
 	.key-name-input::placeholder {
 		color: var(--color-ink-subtle);
+	}
+
+	.key-name-error {
+		margin: 0;
+		font-size: 0.75rem;
+		color: var(--color-error);
 	}
 
 	.create-key-btn {

@@ -9,6 +9,7 @@ What each failure mode looks like and how to triage.
 | `step=start_error` / "Couldn't reach the MCP server"                                                     | RFC 9728 path-suffix well-knowns return HTML instead of JSON                           | `curl -i https://<host>/.well-known/oauth-protected-resource/mcp` — must be `application/json`, not `text/html`                                                                                                       |
 | Connector card defaults to **Configure** instead of **Connect** (no disconnect/reconnect dance fixes it) | Anthropic-side cached state from a prior failed attempt                                | Disconnect → Remove → quit app → re-add. If still wrong, `curl -I https://<host>/mcp` should return `401`; if it returns `200`, the HEAD auth gate is missing                                                         |
 | Connect runs OAuth but tools list is empty                                                               | Missing scopes, or `tools/list` returns 401 inside HTTP 200                            | `curl -i -X POST https://<host>/mcp -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` — must be HTTP 401 with `WWW-Authenticate: Bearer`, not 200 with a JSON-RPC error inside |
+| Antigravity `initialize` reports a missing bearer after **Authenticate** and the browser code-copy/paste flow | Unresolved client/server OAuth interoperability; a client defect has not been established | Capture Antigravity MCP/OAuth logs for DCR, code submission, token storage, and the outgoing `initialize`; correlate the same time window and `request_id`/`client_id` with `mcp-server` and `mcp-auth` traces. Do not paste a bearer, API key, or client secret. |
 | `initialize` succeeds but next request fails with "session expired"                                      | Server is generating a fresh session_id per request                                    | Sessions are stateless — this server doesn't issue session_ids. If a client demands one, return a stable per-bearer hash                                                                                              |
 | OAuth runs but ends on a non-redirecting page on scoutpost.ai                                         | Old client-side HTML bounce path is still serving / `/authorize-callback` route exists | The 2026-05-04 server-side mint flow eliminates the bounce. If a client lands on a `/authorize-callback` URL, the broker isn't using the new `mcp-auth` function                                                      |
 | `redirect URL not allowed` on the Supabase verify endpoint                                               | `PUBLIC_APP_URL` is not on Supabase Auth's allowlist                                   | Dashboard → Authentication → URL Configuration → Redirect URLs → add the app origin used by `PUBLIC_APP_URL`                                                                                                          |
@@ -16,6 +17,29 @@ What each failure mode looks like and how to triage.
 | Connector worked, then tool calls surface as 502 after a Scoutpost browser logout                       | An old global browser sign-out revoked the connector's Supabase refresh token          | Look for `refresh_token_not_found` on `/mcp/token`. Reconnect once; browser logout uses local scope after PR #368 and no longer revokes MCP or CLI sessions.                                                            |
 | Connector works on Cowork but fails in Codex Desktop                                                     | Codex defaulted to STDIO tab in the connect dialog                                     | Switch to the **Streamable HTTP** tab; STDIO doesn't apply to remote servers                                                                                                                                          |
 | Issuer mismatch warning                                                                                  | `MCP_SERVER_BASE_URL` not set, function self-references via `SUPABASE_URL`             | `supabase secrets set MCP_SERVER_BASE_URL=https://<host>/mcp --project-ref <ref>` then redeploy                                                                                                                       |
+
+## Antigravity missing-bearer boundary
+
+Treat Antigravity CLI and Antigravity 2.0/IDE as different clients, and record
+the operating system with every result. macOS Antigravity CLI remote MCP success
+does not prove Windows Antigravity 2.0/IDE remote MCP success.
+
+If the IDE completes **Authenticate**, accepts the browser authorization code,
+then sends `initialize` without a bearer:
+
+1. Export the Antigravity MCP/OAuth client logs covering registration,
+   authorization-code submission, token exchange/storage, reconnect, and the
+   outgoing `initialize`. Record version, operating system, and timestamps.
+2. In `mcp-server` and `mcp-auth`, trace the matching DCR `/register`,
+   `/authorize`, broker callback, `/token`, and `initialize` requests by
+   `request_id`, `client_id`, and time window. Logs need only the authorization
+   scheme and header length, never the token value.
+3. Identify the last boundary both sides confirm before assigning fault. Until
+   then, classify the result as unresolved client/server interoperability and
+   use the Scoutpost Product CLI.
+
+Do not work around the failure by adding custom authorization headers or asking
+the user to paste a bearer, API key, client secret, or other OAuth credential.
 
 ## Configure vs Connect — root cause checklist
 
@@ -60,8 +84,9 @@ in structured logs. To trace a single user's session:
    time window.
 
 Logs never include token values; they include scheme + length only
-(`auth_scheme="Bearer"`, `auth_len=178`). If you need to inspect a specific
-token, decode it from the user's browser devtools — never from logs.
+(`auth_scheme="Bearer"`, `auth_len=178`). That is sufficient to establish
+whether the authorization header crossed the boundary. Never ask a user to
+copy, paste, or disclose the token itself.
 
 ## Self-hosted deploy returns 502 / Cloudflare error
 

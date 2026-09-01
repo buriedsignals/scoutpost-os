@@ -289,7 +289,60 @@ Deno.test("unwrapItems — accepts Edge items envelopes and legacy data envelope
   assertEquals(unwrapItems<{ id: string }>({ ok: true }), []);
 });
 
-Deno.test("scouts list follows pagination so scout 51 is included", async () => {
+interface ScoutListPage {
+  items: Array<{
+    id: string;
+    name: string;
+    type: string;
+    is_active: boolean;
+    consecutive_failures?: number;
+  }>;
+  pagination: {
+    total: number;
+    offset: number;
+    limit: number;
+    has_more: boolean;
+  };
+}
+
+const MIXED_SCOUT_PAGES: ScoutListPage[] = [
+  {
+    items: [
+      {
+        id: "active-first",
+        name: "Active First",
+        type: "web",
+        is_active: true,
+        consecutive_failures: 0,
+      },
+      {
+        id: "inactive-middle",
+        name: "Inactive Middle",
+        type: "beat",
+        is_active: false,
+        consecutive_failures: 2,
+      },
+    ],
+    pagination: { total: 3, offset: 0, limit: 2, has_more: true },
+  },
+  {
+    items: [{
+      id: "active-last",
+      name: "Active Last",
+      type: "civic",
+      is_active: true,
+      consecutive_failures: 1,
+    }],
+    pagination: { total: 3, offset: 2, limit: 2, has_more: false },
+  },
+];
+
+async function captureScoutList(
+  args: string[],
+  pages: ScoutListPage[] = MIXED_SCOUT_PAGES,
+): Promise<{ lines: string[]; urls: string[] }> {
+  const lines: string[] = [];
+  const urls: string[] = [];
   await withTempHome(async () => {
     writeConfigFile({
       api_url: "https://scoutpost.ai/functions/v1",
@@ -297,60 +350,112 @@ Deno.test("scouts list follows pagination so scout 51 is included", async () => 
       supabase_anon_key: "anon",
     });
     const originalFetch = globalThis.fetch;
-    const lines: string[] = [];
     const originalLog = console.log;
-    let requestCount = 0;
-    console.log = (...args: unknown[]) =>
-      lines.push(args.map(String).join(" "));
+    console.log = (...values: unknown[]) =>
+      lines.push(values.map(String).join(" "));
     globalThis.fetch = ((input: string | URL | Request) => {
-      requestCount += 1;
       const url = input instanceof Request ? input.url : String(input);
-      if (requestCount === 1) {
-        assertStringIncludes(url, "limit=50");
-        assertStringIncludes(url, "offset=0");
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              items: Array.from(
-                { length: 50 },
-                (_, index) => ({
-                  id: `s${index}`,
-                  name: `Scout ${index}`,
-                  type: "web",
-                  is_active: true,
-                }),
-              ),
-              pagination: { total: 51, offset: 0, limit: 50, has_more: true },
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      }
-      assertStringIncludes(url, "offset=50");
+      urls.push(url);
+      const page = pages[urls.length - 1];
+      if (!page) throw new Error(`Unexpected scouts page request: ${url}`);
       return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            items: [{
-              id: "s50",
-              name: "Scout 51",
-              type: "web",
-              is_active: true,
-            }],
-            pagination: { total: 51, offset: 50, limit: 50, has_more: false },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
+        new Response(JSON.stringify(page), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
       );
     }) as typeof fetch;
     try {
-      await runScouts(["list"]);
-      assertEquals(requestCount, 2);
-      assert(lines.some((line) => line.includes("Scout 51")));
+      await runScouts(["list", "--limit", "2", ...args]);
     } finally {
       globalThis.fetch = originalFetch;
       console.log = originalLog;
     }
   });
+  return { lines, urls };
+}
+
+Deno.test("scouts list --active true filters after fetching every page", async () => {
+  const { lines, urls } = await captureScoutList(["--active", "true"]);
+
+  assertEquals(urls.length, 2);
+  assertStringIncludes(urls[0], "offset=0");
+  assertStringIncludes(urls[1], "offset=2");
+  const output = lines.join("\n");
+  assertStringIncludes(output, "Active First");
+  assertStringIncludes(output, "Active Last");
+  assert(!output.includes("Inactive Middle"));
+});
+
+Deno.test("scouts list --active false renders only inactive rows", async () => {
+  const { lines, urls } = await captureScoutList(["--active", "false"]);
+
+  assertEquals(urls.length, 2);
+  const output = lines.join("\n");
+  assertStringIncludes(output, "Inactive Middle");
+  assert(!output.includes("Active First"));
+  assert(!output.includes("Active Last"));
+});
+
+Deno.test("scouts list with bare --active means true", async () => {
+  const { lines, urls } = await captureScoutList(["--active"]);
+
+  assertEquals(urls.length, 2);
+  const output = lines.join("\n");
+  assertStringIncludes(output, "Active First");
+  assertStringIncludes(output, "Active Last");
+  assert(!output.includes("Inactive Middle"));
+});
+
+Deno.test("scouts list rejects an invalid --active value before fetching", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestCount = 0;
+  globalThis.fetch = (() => {
+    requestCount += 1;
+    throw new Error("fetch should not be called");
+  }) as typeof fetch;
+  try {
+    await assertRejects(
+      () => runScouts(["list", "--active", "sometimes"]),
+      Error,
+      "--active must be true or false",
+    );
+    assertEquals(requestCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("scouts list without a filter preserves rows, order, columns, and pagination", async () => {
+  const { lines, urls } = await captureScoutList([]);
+
+  assertEquals(urls.length, 2);
+  assertStringIncludes(lines[0], "id");
+  assertStringIncludes(lines[0], "name");
+  assertStringIncludes(lines[0], "type");
+  assertStringIncludes(lines[0], "is_active");
+  assertStringIncludes(lines[0], "consecutive_failures");
+  const output = lines.join("\n");
+  const activeFirst = output.indexOf("Active First");
+  const inactiveMiddle = output.indexOf("Inactive Middle");
+  const activeLast = output.indexOf("Active Last");
+  assert(activeFirst >= 0);
+  assert(activeFirst < inactiveMiddle);
+  assert(inactiveMiddle < activeLast);
+});
+
+Deno.test("scouts list renders the existing empty shape when an active filter has no matches", async () => {
+  const activeOnlyPages = MIXED_SCOUT_PAGES.map((page) => ({
+    ...page,
+    items: page.items.filter((item) => item.is_active),
+  }));
+  const { lines, urls } = await captureScoutList(
+    ["--active", "false"],
+    activeOnlyPages,
+  );
+
+  assertEquals(urls.length, 2);
+  assertEquals(lines, ["(no rows)"]);
 });
 
 Deno.test("VERSION — exports a non-empty string", () => {

@@ -13,7 +13,7 @@ function usage(): void {
     [
       "Usage: scout scouts <subcommand>",
       "",
-      "  list [--offset N] [--limit N]",
+      "  list [--offset N] [--limit N] [--active true|false]",
       "  test-transport --mode aircraft|vessel|satellite --watch-ids <id,id>",
       "                 --center-lat <n> --center-lon <n> --radius-km <n>",
       "                 [--area-name <name>] [--categories <cat,cat>] [--criteria <text>]",
@@ -155,8 +155,7 @@ function boolFlag(
   if (value === undefined) return undefined;
   if (value === true || value === "true") return true;
   if (value === false || value === "false") return false;
-  console.error(`--${key} must be true or false`);
-  Deno.exit(1);
+  throw new Error(`--${key} must be true or false`);
 }
 
 function listFlag(
@@ -317,6 +316,7 @@ export async function run(argv: string[]): Promise<void> {
         ? Number(flags.limit)
         : 50;
       let offset = typeof flags.offset === "string" ? Number(flags.offset) : 0;
+      const active = boolFlag(flags, "active");
       const rows: Scout[] = [];
       let hasMore = true;
       while (hasMore) {
@@ -342,8 +342,11 @@ export async function run(argv: string[]): Promise<void> {
             (pagination?.limit ?? page.length);
         }
       }
+      const filteredRows = active === undefined
+        ? rows
+        : rows.filter((row) => row.is_active === active);
       printTable(
-        rows as unknown as Record<string, unknown>[],
+        filteredRows as unknown as Record<string, unknown>[],
         ["id", "name", "type", "is_active", "consecutive_failures"],
       );
       return;

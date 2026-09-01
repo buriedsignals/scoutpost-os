@@ -24,6 +24,7 @@
   "api_gettingStarted": "Getting Started",
   "api_keyCreated": "Key created — copy it now, it won't be shown again",
   "api_keyName": "Key Name",
+  "api_keyNameRequired": "Key Name is required",
   "api_keyNamePlaceholder": "e.g., Claude Code",
   "api_keys": "API Keys",
   "api_lastUsed": "Last used {time}",

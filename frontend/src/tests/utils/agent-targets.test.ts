@@ -35,7 +35,7 @@ describe("agent target resolution", () => {
 
     expect(recipes.paths).toEqual(["cli", "mcp"]);
     expect(cliCommand).toBe(
-      "npm install --global scoutpost-cli && scout auth login --site 'https://newsroom.example.com' --label 'Codex'",
+      'npm install --global scoutpost-cli\nscout auth login --site https://newsroom.example.com --label "Codex"',
     );
     expect(mcpCommand).toContain(
       "codex mcp add scoutpost --url https://newsroom.supabase.co/functions/v1/mcp-server",
@@ -61,7 +61,7 @@ describe("agent target resolution", () => {
   it("builds secret-free CLI commands from the generated catalog", () => {
     const command = buildCliLoginCommand("claude-code");
     expect(command).toBe(
-      "npm install --global scoutpost-cli && scout auth login --site 'https://scoutpost.ai' --label 'Claude Code'",
+      'npm install --global scoutpost-cli\nscout auth login --site https://scoutpost.ai --label "Claude Code"',
     );
     expect(command).not.toMatch(/cj_|api_key|anon_key|auth_token/i);
   });
@@ -88,7 +88,8 @@ describe("agent target resolution", () => {
       "generic-mcp",
     ]);
     expect(getAgentRecipes("claude-code").paths).toEqual(["cli", "mcp"]);
-    expect(getAgentRecipes("antigravity").paths).toEqual(["mcp"]);
+    expect(getAgentRecipes("antigravity").paths).toEqual(["cli", "mcp"]);
+    expect(getAgentRecipes("antigravity").default).toBe("cli");
     expect(getAgentRecipes("gemini").paths).toEqual(["cli"]);
     expect(getAgentRecipes("generic-mcp").paths).toEqual(["mcp"]);
   });
