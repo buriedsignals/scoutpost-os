@@ -172,6 +172,36 @@ Deno.test("approved GP refresh identifies its operator and publishes once", asyn
   );
 });
 
+Deno.test("301 halts without following the redirect", async () => {
+  const control = state();
+  let fetches = 0;
+  await assertRejects(
+    () =>
+      refreshGpCache(fakeSvc(control), {
+        contactEmail: "ops@example.com",
+        fetch: (_input, init) => {
+          fetches++;
+          assertEquals(init?.redirect, "manual");
+          return Promise.resolve(
+            new Response("Use the canonical CelesTrak URL", {
+              status: 301,
+              headers: {
+                location:
+                  "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json",
+              },
+            }),
+          );
+        },
+      }),
+    GpRefreshFailure,
+    "CelesTrak responded 301",
+  );
+  assertEquals(fetches, 1);
+  assertEquals(control.haltReason, "celestrak_http_301");
+  assertEquals(control.haltStatus, 301);
+  assertEquals(control.haltBody, "Use the canonical CelesTrak URL");
+});
+
 Deno.test("503 halts later refreshes and preserves bounded diagnostics", async () => {
   const control = state();
   let fetches = 0;

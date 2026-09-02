@@ -1,14 +1,13 @@
 /**
  * Fleet Scout (type `transport`) health benchmark — provider-safe modes.
  *
- * Each canary creates a real user-owned Scout and audits the same two-run
- * contract: run 1 silently establishes positional state, then run 2 must not
- * re-alert any identity already in that baseline. Inputs come from the live
- * provider path rather than fixtures:
+ * Aircraft and vessel canaries create real user-owned Scouts and audit the
+ * same two-run baseline contract. The satellite canary invokes the cache-only
+ * transport-test path and verifies that no provider state changes:
  *
  *   aircraft  — probe adsb.lol over Dover, then watch observed ICAO hexes.
  *   vessel    — refresh exact MMSIs, then watch a provider-returned position.
- *   satellite — require an already-approved fresh GP cache, then predict ISS passes.
+ *   satellite — predict ISS passes from an already-approved fresh GP cache.
  *
  * Usage:
  *   scripts/benchmarks/with-linked-supabase-env.sh \
@@ -88,10 +87,22 @@ export interface VesselPositionRow {
   updated_at: string;
 }
 
-interface GpCacheRow {
-  norad_id: number;
-  name: string | null;
-  fetched_at: string;
+export interface GpProviderState {
+  lastAttemptAt: string | null;
+  latestRunId: string | null;
+}
+
+interface TransportTestResult {
+  valid: true;
+  baseline_ids: string[];
+}
+
+export function gpProviderStateChanged(
+  before: GpProviderState,
+  after: GpProviderState,
+): boolean {
+  return before.lastAttemptAt !== after.lastAttemptAt ||
+    before.latestRunId !== after.latestRunId;
 }
 
 export interface SamplerRunRow {
@@ -404,43 +415,66 @@ async function prepareVesselCanary(
   return config;
 }
 
-async function waitForFreshIssElement(ctx: BenchCtx): Promise<GpCacheRow> {
-  const deadline = Date.now() + SAMPLER_TIMEOUT_MS;
-  const maxAgeMs = 48 * 60 * 60_000;
-  while (Date.now() < deadline) {
-    const states = await pgList<{
-      current_generation_id: string | null;
-      current_generation_fetched_at: string | null;
-    }>(
+async function readGpProviderState(ctx: BenchCtx): Promise<GpProviderState> {
+  const [controls, runs] = await Promise.all([
+    pgList<{ last_attempt_at: string | null }>(
       ctx,
       "transport_gp_refresh_control",
-      "select=current_generation_id,current_generation_fetched_at&singleton=eq.true",
-    );
-    const state = states[0];
-    const fetchedAt = state?.current_generation_fetched_at;
-    if (
-      state?.current_generation_id && fetchedAt &&
-      Date.now() - new Date(fetchedAt).getTime() <= maxAgeMs
-    ) {
-      const rows = await pgList<GpCacheRow>(
-        ctx,
-        "transport_gp_catalog",
-        `select=norad_id,name,fetched_at&generation_id=eq.${state.current_generation_id}&norad_id=eq.${ISS_NORAD_ID}`,
-      );
-      if (rows[0]) return rows[0];
-    }
-    await delay(POLL_INTERVAL_MS);
-  }
-  throw new Error(
-    "No fresh approved GP catalog is available; provider refresh remains operator-controlled",
-  );
+      "select=last_attempt_at&singleton=eq.true",
+    ),
+    pgList<{ id: string }>(
+      ctx,
+      "transport_sampler_runs",
+      "select=id&task=eq.gp&order=started_at.desc",
+    ),
+  ]);
+  return {
+    lastAttemptAt: controls[0]?.last_attempt_at ?? null,
+    latestRunId: runs[0]?.id ?? null,
+  };
 }
 
-async function prepareSatelliteCanary(ctx: BenchCtx): Promise<void> {
-  const iss = await waitForFreshIssElement(ctx);
-  console.log(
-    `satellite cache: ${iss.name ?? "ISS"} GP fetched ${iss.fetched_at}`,
-  );
+async function runSatelliteCacheCanary(ctx: BenchCtx): Promise<string[]> {
+  const before = await readGpProviderState(ctx);
+  const failures: string[] = [];
+  try {
+    const response = await userFetch(ctx, "/transport-test", {
+      body: {
+        config: {
+          mode: "satellite",
+          geofence: ISS_GEOFENCE,
+          watch_ids: [ISS_NORAD_ID],
+        },
+      },
+    });
+    const result = await jsonOrThrow<TransportTestResult>(
+      response,
+      "transport-test satellite",
+    );
+    if (!result.valid || result.baseline_ids.length === 0) {
+      failures.push(
+        "satellite cache canary returned no ISS pass predictions",
+      );
+    } else {
+      console.log(
+        `satellite cache: predicted ${result.baseline_ids.length} ISS pass(es)`,
+      );
+    }
+  } catch (error) {
+    failures.push(
+      `satellite cache canary: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  const after = await readGpProviderState(ctx);
+  if (gpProviderStateChanged(before, after)) {
+    failures.push(
+      "satellite cache canary changed CelesTrak provider-attempt state",
+    );
+  }
+  return failures;
 }
 
 async function listBaselinedObjectIds(
@@ -602,18 +636,7 @@ async function main() {
   }
 
   if (modes.includes("satellite")) {
-    failures.push(
-      ...await runCanary(
-        ctx,
-        "satellite",
-        () => ({
-          mode: "satellite",
-          geofence: ISS_GEOFENCE,
-          watch_ids: [ISS_NORAD_ID],
-        }),
-        prepareSatelliteCanary,
-      ),
-    );
+    failures.push(...await runSatelliteCacheCanary(ctx));
   }
 
   if (failures.length > 0) {

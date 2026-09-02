@@ -1,6 +1,7 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   aircraftCanaryConfig,
+  gpProviderStateChanged,
   modeScheduleCron,
   reAlertedObjectIds,
   samplerRunFailureMessage,
@@ -60,10 +61,32 @@ Deno.test("aircraft canary follows live identities without a transient geofence"
   });
 });
 
-Deno.test("satellite canary uses a daily schedule while other modes stay dormant", () => {
+Deno.test("satellite scouts use a daily schedule while benchmark scouts stay dormant", () => {
   assertEquals(modeScheduleCron("satellite"), "0 0 * * *");
   assertEquals(modeScheduleCron("vessel"), "0 0 1 1 *");
   assertEquals(modeScheduleCron("aircraft"), "0 0 1 1 *");
+});
+
+Deno.test("satellite cache canary detects provider activity", () => {
+  const before = {
+    lastAttemptAt: "2026-09-02T05:17:00.000Z",
+    latestRunId: "00000000-0000-4000-8000-000000000001",
+  };
+  assertEquals(gpProviderStateChanged(before, before), false);
+  assertEquals(
+    gpProviderStateChanged(before, {
+      ...before,
+      lastAttemptAt: "2026-09-02T06:17:00.000Z",
+    }),
+    true,
+  );
+  assertEquals(
+    gpProviderStateChanged(before, {
+      ...before,
+      latestRunId: "00000000-0000-4000-8000-000000000002",
+    }),
+    true,
+  );
 });
 
 Deno.test("vessel canary accepts provider positions refreshed by this sample", () => {

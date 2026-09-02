@@ -173,6 +173,7 @@ async function fetchCatalog(
   let response: Response;
   try {
     response = await fetchImpl(CELESTRAK_ACTIVE, {
+      redirect: "manual",
       headers: {
         "Accept": "application/json",
         "User-Agent": userAgent,
