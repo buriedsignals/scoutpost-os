@@ -8,6 +8,7 @@ import {
   diffSocialPosts,
   formatSocialBaselinePosts,
   normalizeSocialDatasetPosts,
+  scanSocialBaseline,
   SOCIAL_APIFY_ACTORS,
   socialPostIdentity,
 } from "./social_baseline.ts";
@@ -144,6 +145,24 @@ Deno.test("linkedin actor uses targetUrls input shape", () => {
   );
 });
 
+Deno.test("social baseline uses Bearer auth without a token query", async () => {
+  let requestedUrl = "";
+  let authorization = "";
+  await scanSocialBaseline(
+    "x",
+    "scoutpost",
+    "test-apify-token",
+    (input, init) => {
+      const request = new Request(input, init);
+      requestedUrl = request.url;
+      authorization = request.headers.get("authorization") ?? "";
+      return Promise.resolve(Response.json([]));
+    },
+  );
+  assertEquals(authorization, "Bearer test-apify-token");
+  assertEquals(new URL(requestedUrl).searchParams.has("token"), false);
+});
+
 Deno.test("normalizeSocialDatasetPosts accepts harvestapi LinkedIn rows", () => {
   // Fixture mirrors a live harvestapi/linkedin-profile-posts dataset item
   // (fields trimmed), captured 2026-07-06.
@@ -268,7 +287,10 @@ Deno.test("socialPostIdentity accepts safe integers and rejects unsafe numbers",
     "safe-fallback",
   );
   assertEquals(
-    socialPostIdentity("instagram", { shortcode: 42.5, id: "fraction-fallback" }),
+    socialPostIdentity("instagram", {
+      shortcode: 42.5,
+      id: "fraction-fallback",
+    }),
     "fraction-fallback",
   );
 });

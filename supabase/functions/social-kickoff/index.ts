@@ -74,6 +74,7 @@ const APIFY_ACTORS: Record<string, string> = Object.fromEntries(
 );
 
 const ERROR_MAX = 2_000;
+const APIFY_START_TIMEOUT_MS = 30_000;
 
 Deno.serve(async (req: Request): Promise<Response> => {
   const cors = handleCors(req);
@@ -357,6 +358,7 @@ async function startApifyRun(
           "Content-Type": "application/json",
         },
         body: JSON.stringify(input),
+        signal: AbortSignal.timeout(APIFY_START_TIMEOUT_MS),
       },
     );
   } catch (e) {

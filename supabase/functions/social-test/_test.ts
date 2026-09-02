@@ -13,6 +13,7 @@ const UNKNOWN_WARNING =
 interface ProviderRequest {
   url: string;
   body: unknown;
+  authorization: string | null;
 }
 
 interface RunOptions {
@@ -34,7 +35,11 @@ async function runSocialTest(options: RunOptions) {
     const body = init?.body && typeof init.body === "string"
       ? JSON.parse(init.body)
       : undefined;
-    requests.push({ url, body });
+    requests.push({
+      url,
+      body,
+      authorization: new Headers(init?.headers).get("authorization"),
+    });
 
     if (url.includes(`/acts/${PROFILE_ACTOR}/`)) {
       return await options.metadata();
@@ -119,6 +124,10 @@ Deno.test("social-test checks Instagram metadata before the existing probe and p
     instagramUsernames: ["natgeo"],
     maxItems: 20,
   });
+  assertEquals(requests[0].authorization, "Bearer test-apify-token");
+  assertEquals(requests[2].authorization, "Bearer test-apify-token");
+  assertEquals(new URL(requests[0].url).searchParams.has("token"), false);
+  assertEquals(new URL(requests[2].url).searchParams.has("token"), false);
 
   const serialized = JSON.stringify(body);
   assert(!serialized.includes("SECRET-FULL-NAME"));

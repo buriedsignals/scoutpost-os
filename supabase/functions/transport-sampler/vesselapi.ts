@@ -10,6 +10,7 @@ import type { VesselPosition } from "./position.ts";
 const VESSELAPI_BASE_URL = "https://api.vesselapi.com/v1";
 const DEFAULT_TIMEOUT_MS = 10_000;
 export const VESSELAPI_PAGE_LIMIT = 50;
+const VESSELAPI_MAX_PAGES = 5;
 
 type FetchLike = (
   input: string | URL | Request,
@@ -79,7 +80,12 @@ function isoTimestamp(row: VesselApiPositionRow): string | null {
 export function parseVesselApiPositions(
   body: unknown,
   requestedIds: string[],
-): { positions: VesselPosition[]; rowsReceived: number; hasMore: boolean } {
+): {
+  positions: VesselPosition[];
+  rowsReceived: number;
+  hasMore: boolean;
+  nextToken: string | null;
+} {
   const requested = new Set(requestedIds);
   const rows = isRecord(body) && Array.isArray(body.vesselPositions)
     ? body.vesselPositions.filter(isRecord) as VesselApiPositionRow[]
@@ -119,11 +125,15 @@ export function parseVesselApiPositions(
     }
   }
 
+  const nextToken = isRecord(body) && typeof body.nextToken === "string" &&
+      body.nextToken.length > 0
+    ? body.nextToken
+    : null;
   return {
     positions: [...byMmsi.values()],
     rowsReceived: rows.length,
-    hasMore: isRecord(body) && typeof body.nextToken === "string" &&
-      body.nextToken.length > 0,
+    hasMore: nextToken !== null,
+    nextToken,
   };
 }
 
@@ -164,68 +174,95 @@ export async function sampleVesselApiPositions(args: {
     };
   }
 
-  const url = new URL(`${VESSELAPI_BASE_URL}/vessels/positions`);
-  url.searchParams.set("filter.ids", watchIds.join(","));
-  url.searchParams.set("filter.idType", "mmsi");
-  url.searchParams.set("pagination.limit", String(VESSELAPI_PAGE_LIMIT));
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    args.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-  );
+  const fetchFn = args.fetchFn ?? fetch;
   const started = performance.now();
-  let response: Response;
-  let raw: string;
-  try {
-    response = await (args.fetchFn ?? fetch)(url, {
-      headers: { Authorization: `Bearer ${args.apiKey}` },
-      signal: controller.signal,
-    });
-    raw = await response.text();
-  } catch {
-    const timedOut = controller.signal.aborted;
-    throw new VesselApiRequestError(
-      timedOut ? "vesselapi_timeout" : "vesselapi_network_error",
-      timedOut
-        ? "VesselAPI request exceeded its connection deadline"
-        : "VesselAPI network request failed",
-    );
-  } finally {
-    clearTimeout(timeout);
-  }
+  const byMmsi = new Map<string, VesselPosition>();
+  let rowsReceived = 0;
+  let nextToken: string | null = null;
+  let quotaRemaining: number | null = null;
 
-  const latencyMs = Math.round(performance.now() - started);
-  let body: unknown = null;
-  try {
-    body = raw ? JSON.parse(raw) : null;
-  } catch {
-    if (response.ok) {
+  for (let page = 0; page < VESSELAPI_MAX_PAGES; page++) {
+    const url = new URL(`${VESSELAPI_BASE_URL}/vessels/positions`);
+    url.searchParams.set("filter.ids", watchIds.join(","));
+    url.searchParams.set("filter.idType", "mmsi");
+    url.searchParams.set("pagination.limit", String(VESSELAPI_PAGE_LIMIT));
+    if (nextToken) {
+      url.searchParams.set("pagination.nextToken", nextToken);
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      args.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    );
+    let response: Response;
+    let raw: string;
+    try {
+      response = await fetchFn(url, {
+        headers: { Authorization: `Bearer ${args.apiKey}` },
+        signal: controller.signal,
+      });
+      raw = await response.text();
+    } catch {
+      const timedOut = controller.signal.aborted;
       throw new VesselApiRequestError(
-        "vesselapi_malformed_response",
-        "VesselAPI returned non-JSON success output",
+        timedOut ? "vesselapi_timeout" : "vesselapi_network_error",
+        timedOut
+          ? "VesselAPI request exceeded its connection deadline"
+          : "VesselAPI network request failed",
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    let body: unknown = null;
+    try {
+      body = raw ? JSON.parse(raw) : null;
+    } catch {
+      if (response.ok) {
+        throw new VesselApiRequestError(
+          "vesselapi_malformed_response",
+          "VesselAPI returned non-JSON success output",
+          response.status,
+        );
+      }
+    }
+    if (!response.ok) {
+      throw new VesselApiRequestError(
+        errorCodeFor(response.status, body),
+        `VesselAPI returned HTTP ${response.status}`,
         response.status,
       );
     }
-  }
-  if (!response.ok) {
-    throw new VesselApiRequestError(
-      errorCodeFor(response.status, body),
-      `VesselAPI returned HTTP ${response.status}`,
-      response.status,
+
+    const parsed = parseVesselApiPositions(body, watchIds);
+    rowsReceived += parsed.rowsReceived;
+    for (const position of parsed.positions) {
+      const existing = byMmsi.get(position.mmsi);
+      if (!existing || position.seenAt > existing.seenAt) {
+        byMmsi.set(position.mmsi, position);
+      }
+    }
+    const quota = Number.parseInt(
+      response.headers.get("x-ratelimit-remaining") ?? "",
+      10,
     );
+    if (Number.isFinite(quota)) {
+      quotaRemaining = quotaRemaining === null
+        ? quota
+        : Math.min(quotaRemaining, quota);
+    }
+    nextToken = parsed.nextToken;
+    if (byMmsi.size === watchIds.length || nextToken === null) break;
   }
 
-  const parsed = parseVesselApiPositions(body, watchIds);
-  const returned = new Set(parsed.positions.map((position) => position.mmsi));
-  const quota = Number.parseInt(
-    response.headers.get("x-ratelimit-remaining") ?? "",
-    10,
-  );
   return {
-    ...parsed,
+    positions: [...byMmsi.values()],
+    rowsReceived,
     requestedCount: watchIds.length,
-    missingIds: watchIds.filter((id) => !returned.has(id)),
-    quotaRemaining: Number.isFinite(quota) ? quota : null,
-    latencyMs,
+    missingIds: watchIds.filter((id) => !byMmsi.has(id)),
+    hasMore: nextToken !== null,
+    quotaRemaining,
+    latencyMs: Math.round(performance.now() - started),
   };
 }

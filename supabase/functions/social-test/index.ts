@@ -338,7 +338,9 @@ async function fetchInstagramProfileVisibility(
           usernames: [handle],
           includeAboutSection: false,
         }),
-        signal: AbortSignal.timeout((INSTAGRAM_PROFILE_TIMEOUT_SECS + 2) * 1000),
+        signal: AbortSignal.timeout(
+          (INSTAGRAM_PROFILE_TIMEOUT_SECS + 2) * 1000,
+        ),
       },
     );
     if (!response.ok) return "unknown";
@@ -350,7 +352,9 @@ async function fetchInstagramProfileVisibility(
     const username = typeof record.username === "string"
       ? record.username.toLowerCase()
       : "";
-    if (username !== handle.toLowerCase() || typeof record.private !== "boolean") {
+    if (
+      username !== handle.toLowerCase() || typeof record.private !== "boolean"
+    ) {
       return "unknown";
     }
     return record.private ? "private" : "public";
@@ -407,11 +411,14 @@ async function runApifySync(
   // `~` which Apify's router accepts directly on this endpoint.
   const endpoint =
     `https://api.apify.com/v2/acts/${actor.id}/run-sync-get-dataset-items` +
-    `?token=${encodeURIComponent(token)}&timeout=${APIFY_TIMEOUT_SECS}`;
+    `?timeout=${APIFY_TIMEOUT_SECS}`;
 
   const res = await fetchImpl(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(
       buildSocialActorInput(platform as SocialPlatform, handle),
     ),

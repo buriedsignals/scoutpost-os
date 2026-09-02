@@ -169,8 +169,8 @@ async function reconcileRow(
 ): Promise<boolean> {
   const apifyRunId = row.apify_run_id as string;
   const res = await fetchWithTimeout(
-    `https://api.apify.com/v2/actor-runs/${apifyRunId}?token=${apifyToken}`,
-    {},
+    `https://api.apify.com/v2/actor-runs/${apifyRunId}`,
+    { headers: { "Authorization": `Bearer ${apifyToken}` } },
     15_000,
     "apify poll",
   );

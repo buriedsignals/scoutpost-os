@@ -78,7 +78,6 @@ export interface SocialBaselinePost {
   id: string;
 }
 
-
 export interface SocialPostDiff {
   newPosts: NormalizedSocialPost[];
   removedIds: string[];
@@ -96,6 +95,7 @@ export async function scanSocialBaseline(
   platform: SocialPlatform,
   handle: string,
   token = Deno.env.get("APIFY_API_TOKEN") ?? "",
+  fetchImpl: typeof fetch = fetch,
 ): Promise<SocialBaselineScan> {
   if (!token) {
     throw new ValidationError(
@@ -110,10 +110,13 @@ export async function scanSocialBaseline(
 
   const endpoint =
     `https://api.apify.com/v2/acts/${actor.id}/run-sync-get-dataset-items` +
-    `?token=${encodeURIComponent(token)}&timeout=${APIFY_TIMEOUT_SECS}`;
-  const res = await fetch(endpoint, {
+    `?timeout=${APIFY_TIMEOUT_SECS}`;
+  const res = await fetchImpl(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(buildSocialActorInput(platform, normalizedHandle)),
     signal: AbortSignal.timeout((APIFY_TIMEOUT_SECS + 15) * 1000),
   });

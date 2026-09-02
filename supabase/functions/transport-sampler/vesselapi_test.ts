@@ -110,6 +110,124 @@ Deno.test("VesselAPI sample uses one bounded bulk request and reports missing ID
   assertEquals(sample.quotaRemaining, 1499);
 });
 
+Deno.test("VesselAPI sample follows pagination until all watched MMSIs are found", async () => {
+  const requestedTokens: Array<string | null> = [];
+  let calls = 0;
+  const sample = await sampleVesselApiPositions({
+    apiKey: "secret-test-key",
+    watchIds: IDS,
+    fetchFn: (input) => {
+      const requestUrl = new URL(String(input));
+      requestedTokens.push(requestUrl.searchParams.get("pagination.nextToken"));
+      calls++;
+      const mmsi = calls === 1 ? IDS[0] : IDS[1];
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            nextToken: calls === 1 ? "page-2" : undefined,
+            vesselPositions: [{
+              mmsi,
+              latitude: calls,
+              longitude: calls + 1,
+              timestamp: `2026-07-20T10:0${calls}:00Z`,
+            }],
+          }),
+          {
+            status: 200,
+            headers: {
+              "x-ratelimit-remaining": calls === 1 ? "1499" : "1497",
+            },
+          },
+        ),
+      );
+    },
+  });
+  assertEquals(calls, 2);
+  assertEquals(requestedTokens, [null, "page-2"]);
+  assertEquals(sample.positions.map((position) => position.mmsi), IDS);
+  assertEquals(sample.missingIds, []);
+  assertEquals(sample.hasMore, false);
+  assertEquals(sample.quotaRemaining, 1497);
+});
+
+Deno.test("VesselAPI sample stops early when the first page covers every MMSI", async () => {
+  let calls = 0;
+  const sample = await sampleVesselApiPositions({
+    apiKey: "secret-test-key",
+    watchIds: IDS,
+    fetchFn: () => {
+      calls++;
+      return Promise.resolve(
+        Response.json({
+          nextToken: "unused-page-2",
+          vesselPositions: IDS.map((mmsi, index) => ({
+            mmsi,
+            latitude: index + 1,
+            longitude: index + 2,
+            timestamp: `2026-07-20T10:0${index}:00Z`,
+          })),
+        }),
+      );
+    },
+  });
+  assertEquals(calls, 1);
+  assertEquals(sample.missingIds, []);
+  assertEquals(sample.hasMore, true);
+});
+
+Deno.test("VesselAPI sample stops after five pages with pagination remaining", async () => {
+  const requestedTokens: Array<string | null> = [];
+  const sample = await sampleVesselApiPositions({
+    apiKey: "secret-test-key",
+    watchIds: IDS,
+    fetchFn: (input) => {
+      const requestUrl = new URL(String(input));
+      requestedTokens.push(requestUrl.searchParams.get("pagination.nextToken"));
+      return Promise.resolve(
+        Response.json({
+          nextToken: `page-${requestedTokens.length + 1}`,
+          vesselPositions: [],
+        }),
+      );
+    },
+  });
+  assertEquals(requestedTokens, [null, "page-2", "page-3", "page-4", "page-5"]);
+  assertEquals(sample.positions, []);
+  assertEquals(sample.missingIds, IDS);
+  assertEquals(sample.hasMore, true);
+});
+
+Deno.test("VesselAPI sample does not retry a later-page HTTP error", async () => {
+  let calls = 0;
+  await assertRejects(
+    () =>
+      sampleVesselApiPositions({
+        apiKey: "secret-test-key",
+        watchIds: IDS,
+        fetchFn: () => {
+          calls++;
+          if (calls === 1) {
+            return Promise.resolve(
+              Response.json({
+                nextToken: "page-2",
+                vesselPositions: [],
+              }),
+            );
+          }
+          return Promise.resolve(
+            Response.json(
+              { error: { code: "rate_limit_exceeded" } },
+              { status: 429 },
+            ),
+          );
+        },
+      }),
+    VesselApiRequestError,
+    "VesselAPI returned HTTP 429",
+  );
+  assertEquals(calls, 2);
+});
+
 Deno.test("VesselAPI auth failure has a stable sanitized category", async () => {
   await assertRejects(
     () =>

@@ -116,7 +116,6 @@ interface ExtractedUnit {
   criteria_reason?: string | null;
 }
 
-
 Deno.serve(async (req: Request): Promise<Response> => {
   const cors = handleCors(req);
   if (cors) return cors;
@@ -521,12 +520,15 @@ async function processSucceededRun(
 
   // 1. Fetch dataset items.
   const datasetUrl =
-    `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apifyToken}&format=json&limit=${DATASET_LIMIT}`;
+    `https://api.apify.com/v2/datasets/${datasetId}/items?format=json&limit=${DATASET_LIMIT}`;
   const datasetAc = new AbortController();
   const datasetFuse = setTimeout(() => datasetAc.abort(), 30_000);
   let res: Response;
   try {
-    res = await fetch(datasetUrl, { signal: datasetAc.signal });
+    res = await fetch(datasetUrl, {
+      headers: { "Authorization": `Bearer ${apifyToken}` },
+      signal: datasetAc.signal,
+    });
   } catch (e) {
     clearTimeout(datasetFuse);
     if ((e as { name?: string }).name === "AbortError") {
