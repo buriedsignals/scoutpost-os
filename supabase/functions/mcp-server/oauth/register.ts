@@ -24,7 +24,50 @@ interface RegisterBody {
 }
 
 const ALLOWED_AUTH_METHODS = new Set(["none", "client_secret_post", "client_secret_basic"]);
-const ALLOWED_SCHEMES = new Set(["http", "https"]);
+// Native MCP clients (Cursor, VS Code, and other desktop apps) register a
+// private-use scheme as their OAuth callback, per RFC 8252 §7.1; Cursor 3.x
+// sends a cursor:// redirect and fails registration when it is refused. We
+// accept http, https, and well-formed private-use schemes, and refuse the
+// schemes a browser could execute or that leak a code to a file or mailbox.
+// PKCE (S256) is mandatory on every flow, which is what makes a custom-scheme
+// callback safe against interception.
+const DENIED_SCHEMES = new Set([
+  "javascript",
+  "data",
+  "blob",
+  "file",
+  "vbscript",
+  "about",
+  "chrome",
+  "ftp",
+  "mailto",
+]);
+const PRIVATE_USE_SCHEME = /^[a-z][a-z0-9+.-]*$/;
+
+export type RedirectUriCheck = { ok: true; uri: string } | { ok: false; message: string };
+
+export function validateRedirectUri(raw: unknown): RedirectUriCheck {
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > 2000) {
+    return { ok: false, message: "redirect_uris entries must be non-empty strings" };
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return { ok: false, message: `redirect_uri is not a valid URL: ${raw}` };
+  }
+  const scheme = parsed.protocol.replace(/:$/, "").toLowerCase();
+  if (DENIED_SCHEMES.has(scheme) || !PRIVATE_USE_SCHEME.test(scheme)) {
+    return {
+      ok: false,
+      message: `redirect_uri scheme must be http, https, or a native app scheme (got ${scheme})`,
+    };
+  }
+  if ((scheme === "http" || scheme === "https") && !parsed.hostname) {
+    return { ok: false, message: `redirect_uri must have a host: ${raw}` };
+  }
+  return { ok: true, uri: raw };
+}
 
 export async function registerHandler(req: Request): Promise<Response> {
   if (req.method !== "POST") {
@@ -51,24 +94,9 @@ export async function registerHandler(req: Request): Promise<Response> {
   }
   const redirectUris: string[] = [];
   for (const raw of body.redirect_uris) {
-    if (typeof raw !== "string" || raw.length === 0 || raw.length > 2000) {
-      return oauthError("invalid_redirect_uri", "redirect_uris entries must be non-empty strings", 400);
-    }
-    let parsed: URL;
-    try {
-      parsed = new URL(raw);
-    } catch {
-      return oauthError("invalid_redirect_uri", `redirect_uri is not a valid URL: ${raw}`, 400);
-    }
-    const scheme = parsed.protocol.replace(/:$/, "");
-    if (!ALLOWED_SCHEMES.has(scheme)) {
-      return oauthError(
-        "invalid_redirect_uri",
-        `redirect_uri scheme must be http or https (got ${scheme})`,
-        400,
-      );
-    }
-    redirectUris.push(raw);
+    const check = validateRedirectUri(raw);
+    if (!check.ok) return oauthError("invalid_redirect_uri", check.message, 400);
+    redirectUris.push(check.uri);
   }
 
   let authMethod = "none";

@@ -502,8 +502,9 @@ Deno.test({
   },
 });
 
+
 Deno.test({
-  name: "register: non-http(s) redirect_uri scheme returns 400",
+  name: "register: dangerous redirect_uri scheme returns 400",
   ignore: !RUN_HTTP,
   fn: async () => {
     const res = await fetch(functionUrl("mcp-server", "/register"), {
@@ -517,6 +518,27 @@ Deno.test({
     assertEquals(res.status, 400);
     const body = await res.json();
     assertEquals(body.error, "invalid_redirect_uri");
+  },
+});
+
+Deno.test({
+  name: "register: native-app (cursor://) redirect_uri is accepted",
+  ignore: !RUN_HTTP,
+  fn: async () => {
+    const res = await fetch(functionUrl("mcp-server", "/register"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_name: "deno-test-cursor",
+        redirect_uris: [
+          "cursor://anysphere.cursor-deeplink/mcp/oauth/callback",
+          "https://www.cursor.com/agents/mcp/oauth/callback",
+        ],
+      }),
+    });
+    assertEquals(res.status, 201);
+    const body = await res.json();
+    assertEquals(body.redirect_uris.length, 2);
   },
 });
 
