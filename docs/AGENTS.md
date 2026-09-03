@@ -23,7 +23,8 @@ docs/
 │   ├── architecture.md                    # FastAPI proxy + Supabase EF + broker, request flow
 │   ├── oauth.md                           # DCR + PKCE + magiclink + server-side mint chain
 │   ├── endpoints.md                       # Every public endpoint with curl probes
-│   ├── clients.md                         # Per-client setup recipes (Cowork, Codex Desktop, Cursor, etc.)
+│   ├── clients.md                         # Per-client setup recipes for the Connect Agent menu (same list as Navigator)
+│   ├── other-clients.md                   # Clients outside the menu (Windsurf, Hermes, Langdock, OpenClaw, stdio bridge)
 │   ├── self-hosting.md                    # Required env vars, allowlists, OSS adopter checklist
 │   └── debugging.md                       # Configure-vs-Connect, request_id, common failure modes
 ├── supabase/                              # Authoritative Supabase system docs (read these)
@@ -95,7 +96,7 @@ docs/
 - **Architecture**: `mcp/architecture.md` — proxy + EF + broker, why two layers
 - **OAuth flow**: `mcp/oauth.md` — full DCR/PKCE/magiclink/server-side-mint chain
 - **Endpoints**: `mcp/endpoints.md` — every well-known + OAuth + JSON-RPC endpoint with curl
-- **Clients**: `mcp/clients.md` — Cowork, Desktop, Codex Desktop, Cursor, Windsurf, Antigravity, Goose, Hermes
+- **Clients**: `mcp/clients.md` — Claude Desktop, Claude Code, ChatGPT Desktop, Codex CLI, Cursor, Antigravity, Gemini CLI, Goose, OpenCode, generic; `mcp/other-clients.md` — Windsurf, Hermes, Langdock, OpenClaw, stdio bridge
 - **Self-hosting**: `mcp/self-hosting.md` — env vars, redirect-URL allowlists, sanity probes
 - **Debugging**: `mcp/debugging.md` — Configure-vs-Connect, request_id correlation, incident timeline
 
