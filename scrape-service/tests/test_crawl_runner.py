@@ -6,7 +6,13 @@ import pytest
 from app import crawl_runner
 from app.crawl_runner import CrawlItem, classify_failure, run_item_safely
 from app.network_policy import UnsafeDestinationError
-from app.pdfparse import NotAPdfError, PdfTooLargeError, PrivateAddressError
+from app.pdfparse import (
+    NotAPdfError,
+    PdfDownloadError,
+    PdfTooLargeError,
+    PrivateAddressError,
+    UnresolvableHostError,
+)
 
 from tests.conftest import make_settings
 
@@ -205,6 +211,16 @@ async def test_safe_wrapper_contains_guard_failure(monkeypatch):
         (RuntimeError("captcha"), "anti_bot"),
         (RuntimeError("timed out"), "timeout"),
         (RuntimeError("upstream"), "retryable"),
+        # DNS has no address for the host: permanent, terminal on attempt 1.
+        (
+            UnresolvableHostError(
+                "download failed: cannot resolve your_council_domain.gov: "
+                "[Errno -5] No address associated with hostname"
+            ),
+            "terminal",
+        ),
+        # A plain PdfDownloadError is still ordinary and stays retryable.
+        (PdfDownloadError("download failed: status 503"), "retryable"),
     ],
 )
 def test_classify_failure(error, expected):

@@ -33,6 +33,17 @@ class PdfDownloadError(Exception):
         self.status_code = status_code
 
 
+class UnresolvableHostError(PdfDownloadError):
+    """DNS has no address for the host.
+
+    Permanent by contract: a hostname that does not resolve will not start
+    resolving on a retry, so callers classify this as terminal on the first
+    attempt instead of burning the full retry budget. Subclasses
+    PdfDownloadError so existing `except PdfDownloadError` handlers (which map
+    it to a 422) keep working unchanged.
+    """
+
+
 class PdfTimeoutError(Exception):
     """Transient by contract: maps to 504 upstream (typed, not string-matched)."""
 
@@ -87,7 +98,9 @@ def assert_public_host(url: str) -> None:
     try:
         addresses = resolve_addresses(host)
     except OSError as e:
-        raise PdfDownloadError(f"download failed: cannot resolve {host}: {e}") from e
+        raise UnresolvableHostError(
+            f"download failed: cannot resolve {host}: {e}"
+        ) from e
     for address in addresses:
         if not is_public_address(address):
             raise PrivateAddressError()

@@ -17,6 +17,7 @@ from .pdfparse import (
     NotAPdfError,
     PdfTooLargeError,
     PrivateAddressError,
+    UnresolvableHostError,
     assert_public_host,
     parse_pdf_url,
 )
@@ -158,6 +159,9 @@ def classify_failure(item_id: str, error: object) -> dict[str, Any]:
     elif isinstance(error, PrivateAddressError):
         message = "private_address"
     lowered = message.lower()
+    # A host DNS cannot resolve is permanent: retrying spends the whole budget
+    # on three guaranteed failures. Most often a user pasting a docs
+    # placeholder, so it must not look like a crawler fault either.
     if isinstance(
         error,
         (
@@ -166,6 +170,7 @@ def classify_failure(item_id: str, error: object) -> dict[str, Any]:
             NeedsOcrError,
             NotAPdfError,
             PdfTooLargeError,
+            UnresolvableHostError,
         ),
     ):
         error_class = "terminal"
