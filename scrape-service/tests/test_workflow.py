@@ -275,9 +275,15 @@ async def test_batch_maps_snapshot_and_upload_failures(monkeypatch):
     monkeypatch.setattr(workflow, "cgroup_peak_bytes", lambda: None)
     report = await workflow._crawl_batch_guarded("batch", "http://proxy", egress_stats)
     assert report["processed"] == 5
-    assert report["succeeded"] == 1
-    assert FakeClient.completions[0]["ok"] is True
-    assert FakeClient.uploaded_results[0]["snapshot_error"] == "capture_incomplete"
+    assert report["succeeded"] == 0
+    assert FakeClient.completions[0]["ok"] is False
+    assert FakeClient.completions[0]["error_class"] == "terminal"
+    assert (
+        FakeClient.completions[0]["error"]
+        == "snapshot capture failed: capture_incomplete"
+    )
+    # A snapshot without artifacts is never uploaded; the first upload is "large".
+    assert "snapshot_error" not in FakeClient.uploaded_results[0]
     assert [item["error_class"] for item in FakeClient.completions[1:]] == [
         "terminal",
         "retryable",

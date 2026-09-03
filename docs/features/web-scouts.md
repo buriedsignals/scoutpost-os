@@ -258,7 +258,7 @@ change.
 
 | `fidelity` | Source | Artifacts |
 |---|---|---|
-| `full` | crawl4ai local render | MHTML + full-page PNG (verbatim) + `.md` |
+| `full` | crawl4ai local render | MHTML + full-page PNG (palette re-encoded only when over the 25 MB cap; disclosed in the payload) + `.md` |
 | `rendered_thirdparty` | Firecrawl anti-bot fallback, same fetch | rawHtml + full-page PNG (verbatim) + `.md` |
 | `markdown_only` | any capture failure (degrade) | `.md` content record only |
 

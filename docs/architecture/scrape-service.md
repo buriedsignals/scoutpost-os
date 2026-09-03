@@ -150,8 +150,9 @@ fetch). The same `arun` that produces the markdown also captures MHTML
 provenance is the contract (KTD1/KTD2). Artifacts return **inline** as
 base64 with SHA-256 hashes computed over the exact bytes
 (`snapshot.{mhtml_b64,mhtml_sha256,screenshot_b64,screenshot_sha256,sizes}`);
-screenshots ship verbatim as rendered (PNG, no transcode — Decision 9). The
-service keeps **zero snapshot state** — no tmp files, no pickup endpoint —
+screenshots ship as rendered (PNG) whenever they fit the caps; see the
+re-encoding rule below for over-budget captures (Decision 9, as amended
+2026-09-03). The service keeps **zero snapshot state** — no tmp files, no pickup endpoint —
 so horizontal scaling stays safe.
 
 Every browser scrape runs a disclosure pass, capped at 32 total interactions,
@@ -169,6 +170,19 @@ guards. Over-cap, incomplete, or non-genuine captures never fail the scrape:
 the response carries a structured `snapshot_error` instead of a payload and
 the archive pipeline degrades to a `markdown_only` record. `response_headers`
 is mapped on every scrape response for the snapshot record's capture metadata.
+
+**Over-budget screenshots are re-encoded, not dropped** (2026-09-03). A
+full-page capture of a very long article (Grokipedia's Bitcoin page renders
+at 1065 x 52845 px) leaves crawl4ai as a ~42 MB RGB PNG. Before declaring it
+`artifact_too_large`, `snapshots.py` re-encodes it with Pillow as a
+256-colour palette PNG at full resolution (15.7 MB for that page), and only
+if that still exceeds the budget downscales to 0.75x, then 0.5x. The budget
+is the per-artifact cap or whatever the combined cap leaves after the
+MHTML, whichever is smaller. The payload discloses any re-encoding as
+`snapshot.screenshot_encoding = {palette_colors, scale, original_bytes,
+original_size}`; the hash still covers exactly the stored bytes. Base64
+screenshots estimated above 4x the artifact cap are rejected without
+decoding, and Pillow's decompression-bomb guard is kept at 200 MP.
 
 Integrity and fidelity notes (U1 review findings, all confirmed):
 

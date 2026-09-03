@@ -4,6 +4,7 @@ import base64
 import hashlib
 from types import SimpleNamespace
 
+from app import snapshots
 from app.snapshots import (
     MAX_ARTIFACT_BYTES,
     MAX_COMBINED_BYTES,
@@ -75,7 +76,10 @@ def test_per_artifact_cap_enforced_pre_encode():
     assert payload is None
     assert err.startswith("artifact_too_large:mhtml:")
 
-    big_png = base64.b64encode(b"p" * (MAX_ARTIFACT_BYTES + 1)).decode("ascii")
+    # Beyond the decode ceiling the screenshot is rejected without decoding.
+    big_png = base64.b64encode(
+        b"p" * (snapshots.SCREENSHOT_DECODE_CEILING_BYTES + 1)
+    ).decode("ascii")
     payload, err = build_snapshot_payload(result_with(MHTML_TEXT, big_png))
     assert payload is None
     assert err.startswith("artifact_too_large:screenshot:")
@@ -89,7 +93,9 @@ def test_combined_cap_enforced():
     png = base64.b64encode(PNG_MAGIC + b"p" * half).decode("ascii")
     payload, err = build_snapshot_payload(result_with(mhtml, png))
     assert payload is None
-    assert err.startswith("payload_too_large:combined:")
+    # The screenshot budget is the combined cap minus the MHTML; a screenshot
+    # that cannot be re-encoded under it is reported as too large.
+    assert err == f"artifact_too_large:screenshot:{len(PNG_MAGIC) + half}"
 
 
 def test_screenshot_error_card_is_rejected_not_sealed():
@@ -108,6 +114,59 @@ def test_multibyte_mhtml_hits_post_encode_cap():
     payload, err = build_snapshot_payload(result_with("\u00e9" * over, PNG_B64))
     assert payload is None
     assert err == f"artifact_too_large:mhtml:{over * 2}"
+
+
+def _png(width: int, height: int) -> bytes:
+    import io
+
+    from PIL import Image
+
+    image = Image.new("RGB", (width, height))
+    pixels = image.load()
+    for x in range(width):
+        for y in range(height):
+            pixels[x, y] = ((x * 7) % 256, (y * 13) % 256, (x * y) % 256)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_over_budget_screenshot_is_re_encoded_not_dropped(monkeypatch):
+    png = _png(160, 120)
+    monkeypatch.setattr(snapshots, "MAX_ARTIFACT_BYTES", len(png) - 1)
+    monkeypatch.setattr(snapshots, "MAX_COMBINED_BYTES", len(png) * 2)
+    payload, err = build_snapshot_payload(result_with(MHTML_TEXT, png))
+    assert err is None
+    shrunk = base64.b64decode(payload["screenshot_b64"])
+    assert shrunk[: len(PNG_MAGIC)] == PNG_MAGIC
+    assert len(shrunk) < len(png)
+    assert payload["sizes"]["screenshot"] == len(shrunk)
+    assert payload["screenshot_sha256"] == hashlib.sha256(shrunk).hexdigest()
+    encoding = payload["screenshot_encoding"]
+    assert encoding["palette_colors"] == 256
+    assert encoding["original_bytes"] == len(png)
+    assert encoding["original_size"] == [160, 120]
+    assert encoding["scale"] in snapshots.SCREENSHOT_SHRINK_SCALES
+
+
+def test_screenshot_budget_respects_combined_cap(monkeypatch):
+    png = _png(160, 120)
+    monkeypatch.setattr(snapshots, "MAX_ARTIFACT_BYTES", len(png) * 4)
+    monkeypatch.setattr(snapshots, "MAX_COMBINED_BYTES", len(png) + len(MHTML_TEXT) - 1)
+    payload, err = build_snapshot_payload(result_with(MHTML_TEXT, png))
+    assert err is None
+    assert payload["sizes"]["mhtml"] + payload["sizes"]["screenshot"] <= (
+        snapshots.MAX_COMBINED_BYTES
+    )
+
+
+def test_screenshot_that_cannot_shrink_enough_is_reported(monkeypatch):
+    png = _png(160, 120)
+    monkeypatch.setattr(snapshots, "MAX_ARTIFACT_BYTES", 64)
+    monkeypatch.setattr(snapshots, "MAX_COMBINED_BYTES", 64 + len(MHTML_TEXT))
+    payload, err = build_snapshot_payload(result_with(MHTML_TEXT, png))
+    assert payload is None
+    assert err == f"artifact_too_large:screenshot:{len(png)}"
 
 
 def test_oversized_screenshot_bytes_hit_post_check():

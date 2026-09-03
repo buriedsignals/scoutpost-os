@@ -131,7 +131,19 @@ async def _crawl_batch_guarded(
             await _apply_benchmark_delay(
                 job.get("minimum_duration_ms", 0), item_started
             )
-            if outcome["ok"]:
+            if outcome["ok"] and job["operation"] == "snapshot" and (
+                outcome["result"].get("snapshot") is None
+            ):
+                # The Edge Function requires all three snapshot artifacts; a
+                # markdown-only upload would be rejected there. Fail the item
+                # with the capture reason instead.
+                completion = _failed_completion(
+                    job,
+                    "terminal",
+                    "snapshot capture failed: "
+                    + str(outcome["result"].get("snapshot_error") or "unknown"),
+                )
+            elif outcome["ok"]:
                 try:
                     completion = await client.upload(job, outcome["result"])
                 except ArtifactLimitError as exc:

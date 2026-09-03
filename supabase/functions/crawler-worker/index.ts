@@ -496,11 +496,33 @@ export async function completeBatch(
         await svc.storage.from("crawler-results").remove(paths).catch(() => {});
         paths = [];
       }
-    } catch {
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.error(
+        `crawler completion rejected job=${completion.job_id} ok=${completion.ok} reason=${reason}`,
+      );
       if (paths.length > 0) {
         await svc.storage.from("crawler-results").remove(paths).catch(() => {});
       }
-      throw new Error("crawler completion rejected");
+      // A success bundle that fails verification is a defect of this item
+      // alone (missing snapshot artifacts, bad hash, oversized result). Fail
+      // the job with the reason instead of returning 500, which crashes the
+      // whole Render task and drags every sibling job through lease expiry.
+      if (completion.ok) {
+        const failed = await svc.rpc("complete_crawler_job", {
+          p_job_id: completion.job_id,
+          p_lease_token: completion.attempt_id,
+          p_ok: false,
+          p_manifest: null,
+          p_error_class: "terminal",
+          p_error: `completion bundle rejected: ${reason}`.slice(0, 1500),
+        });
+        if (!failed.error) {
+          rejected++;
+          continue;
+        }
+      }
+      throw new Error(`crawler completion rejected: ${reason}`);
     }
     if (!changed && paths.length > 0) {
       await svc.storage.from("crawler-results").remove(paths);
@@ -558,8 +580,10 @@ export async function handleCrawlerWorker(
       accepted: completed.accepted,
       rejected: completed.rejected,
     });
-  } catch {
-    return jsonError("crawler worker failed", 500);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(`crawler worker failed action=${input.action} reason=${reason}`);
+    return jsonError(`crawler worker failed: ${reason}`, 500);
   }
 }
 

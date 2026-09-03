@@ -148,6 +148,18 @@ Deno.test("crawler workflow health opens on delay, expiry, or recent terminal fa
       ...base,
       terminalFailedRecent: 1,
     }).active,
-    true,
+    false,
   );
+  const warning = evaluateCrawlerWorkflowIncident({
+    ...base,
+    terminalFailedRecent: 3,
+  });
+  assertEquals(warning.active, true);
+  assertEquals(warning.severity, "warning");
+  const critical = evaluateCrawlerWorkflowIncident({
+    ...base,
+    terminalFailedRecent: 10,
+  });
+  assertEquals(critical.active, true);
+  assertEquals(critical.severity, "critical");
 });

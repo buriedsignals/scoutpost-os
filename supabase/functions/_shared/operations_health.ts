@@ -59,6 +59,10 @@ export interface CrawlerWorkflowObservation {
 }
 
 export const DEFAULT_QUEUE_DELAY_MS = 10 * 60_000;
+// Isolated terminal failures (one bad URL, a Firecrawl timeout) are routine.
+// Open an incident only when they cluster within the one-hour window.
+export const TERMINAL_FAILURE_WARNING_COUNT = 3;
+export const TERMINAL_FAILURE_CRITICAL_COUNT = 10;
 export const DEFAULT_SAMPLER_STALE_MS = 95 * 60_000;
 
 function ageMs(now: Date, value: string | null): number | null {
@@ -194,10 +198,12 @@ export function evaluateCrawlerWorkflowIncident(
     : observation.oldestWaitSeconds * 1000;
   const delayed = observation.dispatchEligible > 0 && oldestWaitMs !== null &&
     oldestWaitMs >= thresholdMs;
-  const active = delayed || observation.expiredRunning > 0 ||
-    observation.terminalFailedRecent > 0;
-  const severity = observation.expiredRunning > 0 ||
-      observation.terminalFailedRecent > 0 ||
+  const terminalWarning = observation.terminalFailedRecent >=
+    TERMINAL_FAILURE_WARNING_COUNT;
+  const terminalCritical = observation.terminalFailedRecent >=
+    TERMINAL_FAILURE_CRITICAL_COUNT;
+  const active = delayed || observation.expiredRunning > 0 || terminalWarning;
+  const severity = observation.expiredRunning > 0 || terminalCritical ||
       (oldestWaitMs !== null && oldestWaitMs >= thresholdMs * 3)
     ? "critical"
     : "warning";
@@ -223,6 +229,8 @@ export function evaluateCrawlerWorkflowIncident(
       p95_total_seconds: observation.p95TotalSeconds,
       fallback_required: observation.fallbackRequired,
       terminal_failed_recent: observation.terminalFailedRecent,
+      terminal_failure_warning_count: TERMINAL_FAILURE_WARNING_COUNT,
+      terminal_failure_critical_count: TERMINAL_FAILURE_CRITICAL_COUNT,
       task_runs_24h: observation.taskRuns24h,
       task_queue_p95_seconds: observation.taskQueueP95Seconds,
       task_duration_p95_seconds: observation.taskDurationP95Seconds,

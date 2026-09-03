@@ -29,6 +29,17 @@ import hashlib
 
 MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
 MAX_COMBINED_BYTES = 30 * 1024 * 1024
+# A full-page screenshot of a very long article (Grokipedia's Bitcoin page is
+# 1065x52845 px) comes out of crawl4ai as a ~42 MB RGB PNG. Text pages
+# re-encode to a 256-colour palette PNG at a fraction of the size, so the
+# capture is shrunk before it is declared too large. Decoding is attempted up
+# to this ceiling; beyond it the payload is rejected without materializing.
+SCREENSHOT_DECODE_CEILING_BYTES = 4 * MAX_ARTIFACT_BYTES
+SCREENSHOT_SHRINK_SCALES = (1.0, 0.75, 0.5)
+# Pillow's decompression-bomb guard defaults to ~89 MP. A 1065 px wide
+# full-page capture crosses that at ~84,000 px tall; keep a guard but leave
+# room for very long articles (200 MP ~ 1065 x 190,000 px).
+SCREENSHOT_MAX_PIXELS = 200_000_000
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
@@ -61,7 +72,7 @@ def build_snapshot_payload(result) -> tuple[dict | None, str | None]:
         return None, f"artifact_too_large:mhtml:{len(mhtml_text)}"
     if not isinstance(screenshot_raw, (bytes, bytearray)):
         estimated = (len(screenshot_raw) * 3) // 4
-        if estimated > MAX_ARTIFACT_BYTES:
+        if estimated > SCREENSHOT_DECODE_CEILING_BYTES:
             return None, f"artifact_too_large:screenshot:{estimated}"
 
     mhtml_bytes = mhtml_text.encode("utf-8")
@@ -83,23 +94,72 @@ def build_snapshot_payload(result) -> tuple[dict | None, str | None]:
         # dressed as success. Never seal it as evidence.
         return None, "screenshot_not_png:" + screenshot_bytes[:4].hex()
 
-    for label, size in (
-        ("mhtml", len(mhtml_bytes)),
-        ("screenshot", len(screenshot_bytes)),
-    ):
-        if size > MAX_ARTIFACT_BYTES:
-            return None, f"artifact_too_large:{label}:{size}"
+    if len(mhtml_bytes) > MAX_ARTIFACT_BYTES:
+        return None, f"artifact_too_large:mhtml:{len(mhtml_bytes)}"
+    screenshot_budget = min(
+        MAX_ARTIFACT_BYTES, MAX_COMBINED_BYTES - len(mhtml_bytes)
+    )
+    screenshot_encoding = None
+    if len(screenshot_bytes) > screenshot_budget:
+        original = len(screenshot_bytes)
+        shrunk = _shrink_screenshot(screenshot_bytes, screenshot_budget)
+        if shrunk is None:
+            return None, f"artifact_too_large:screenshot:{original}"
+        screenshot_bytes, screenshot_encoding = shrunk
+        screenshot_b64 = base64.b64encode(screenshot_bytes).decode("ascii")
     combined = len(mhtml_bytes) + len(screenshot_bytes)
-    if combined > MAX_COMBINED_BYTES:
+    if combined > MAX_COMBINED_BYTES:  # pragma: no cover - budget guards above
         return None, f"payload_too_large:combined:{combined}"
 
-    return {
+    payload = {
         "mhtml_b64": base64.b64encode(mhtml_bytes).decode("ascii"),
         "mhtml_sha256": _sha256_hex(mhtml_bytes),
         "screenshot_b64": screenshot_b64,
         "screenshot_sha256": _sha256_hex(screenshot_bytes),
         "sizes": {"mhtml": len(mhtml_bytes), "screenshot": len(screenshot_bytes)},
-    }, None
+    }
+    if screenshot_encoding is not None:
+        payload["screenshot_encoding"] = screenshot_encoding
+    return payload, None
+
+
+def _shrink_screenshot(png: bytes, budget: int) -> tuple[bytes, dict] | None:
+    """Re-encode an over-budget full-page PNG so it fits.
+
+    Tries a 256-colour palette at full resolution first (text pages lose
+    nothing visible and shrink 2-3x), then downscales in steps. Returns the
+    new bytes plus a disclosure dict recorded in the payload, or None when
+    no step fits. Never raises: a malformed PNG simply cannot be shrunk.
+    """
+    try:
+        import io
+
+        from PIL import Image
+
+        Image.MAX_IMAGE_PIXELS = SCREENSHOT_MAX_PIXELS
+        with Image.open(io.BytesIO(png)) as image:
+            rgb = image.convert("RGB")
+    except Exception:
+        return None
+    width, height = rgb.size
+    for scale in SCREENSHOT_SHRINK_SCALES:
+        frame = rgb
+        if scale != 1.0:
+            frame = rgb.resize(
+                (max(1, int(width * scale)), max(1, int(height * scale))),
+                Image.LANCZOS,
+            )
+        buffer = io.BytesIO()
+        frame.quantize(colors=256).save(buffer, format="PNG", optimize=True)
+        data = buffer.getvalue()
+        if len(data) <= budget:
+            return data, {
+                "palette_colors": 256,
+                "scale": scale,
+                "original_bytes": len(png),
+                "original_size": [width, height],
+            }
+    return None
 
 
 def scrape_fuse_seconds(timeout_ms: int, snapshot: bool) -> float:
