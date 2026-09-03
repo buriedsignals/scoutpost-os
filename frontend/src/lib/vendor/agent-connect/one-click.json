@@ -1,0 +1,10 @@
+{
+  "navigator": {
+    "goose": "goose://extension?type=streamable_http&url=https%3A%2F%2Fnavigator.indicator.media%2Fmcp&id=osint-navigator&name=OSINT%20Navigator&description=OSINT%20Navigator%20MCP%20server",
+    "cursor": "cursor://anysphere.cursor-deeplink/mcp/install?name=osint-navigator&config=eyJ1cmwiOiJodHRwczovL25hdmlnYXRvci5pbmRpY2F0b3IubWVkaWEvbWNwIn0%3D"
+  },
+  "scoutpost": {
+    "goose": "goose://extension?type=streamable_http&url=https%3A%2F%2Fscoutpost.ai%2Fmcp&id=scoutpost&name=Scoutpost&description=Scoutpost%20MCP%20server",
+    "cursor": "cursor://anysphere.cursor-deeplink/mcp/install?name=scoutpost&config=eyJ1cmwiOiJodHRwczovL3Njb3V0cG9zdC5haS9tY3AifQ%3D%3D"
+  }
+}

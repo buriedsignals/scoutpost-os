@@ -3,6 +3,7 @@
 	import { X, Eye, Copy, Check, Code2 } from 'lucide-svelte';
 	import AgentSelect from '$lib/components/ui/AgentSelect.svelte';
 	import AgentSetup from '$lib/components/ui/AgentSetup.svelte';
+	import AgentOnboard from '$lib/components/ui/AgentOnboard.svelte';
 	import ApiView from '$lib/components/views/ApiView.svelte';
 	import {
 		getAgentRecipes,
@@ -210,7 +211,7 @@
 					{#if showCliCommand}
 						<section class="skill">
 							<div class="skill-head">
-								<span class="skill-eyebrow">Recommended · CLI</span>
+								<span class="skill-eyebrow">Recommended</span>
 								<h3>Connect {selectedAgent.name}</h3>
 								<p>
 									Run this in your terminal—not in the agent chat. It installs <code>scout</code>,
@@ -233,6 +234,9 @@
 									<p>Clipboard access is blocked. Select and copy this command:</p>
 									<textarea readonly value={terminalCommand} on:focus={(event) => event.currentTarget.select()}></textarea>
 								</div>
+							{/if}
+							{#if recipe.onboardPrompt}
+								<AgentOnboard prompt={recipe.onboardPrompt} hint={recipe.onboardHint ?? ''} />
 							{/if}
 							<p class="verification-line">
 								Test it: ask

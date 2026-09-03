@@ -17,7 +17,8 @@ Public, OAuth-protected MCP server at `https://scoutpost.ai/mcp`. MCP clients (C
 | [`architecture.md`](architecture.md) | What's in front of what — FastAPI proxy, Supabase EF, MuckRock broker, request flow |
 | [`oauth.md`](oauth.md) | The full DCR + PKCE + magiclink + server-side-mint chain end-to-end |
 | [`endpoints.md`](endpoints.md) | Every public endpoint with `curl` probes and expected responses |
-| [`clients.md`](clients.md) | Per-client setup recipes (Cowork, Desktop, Codex Desktop, codex-cli, Cursor, Windsurf, Antigravity, Goose, Hermes, Langdock) |
+| [`clients.md`](clients.md) | Per-client setup recipes for the Connect Agent menu (Claude Desktop, Claude Code, ChatGPT Desktop, Codex CLI, Cursor, Antigravity, Gemini CLI, Goose, OpenCode, generic) |
+| [`other-clients.md`](other-clients.md) | Clients outside the menu (Windsurf, Hermes, Langdock, OpenClaw, stdio bridge) |
 | [`self-hosting.md`](self-hosting.md) | Required env vars, redirect-URL allowlists, domain pinning, OSS adopter checklist |
 | [`debugging.md`](debugging.md) | Configure-vs-Connect, request_id correlation, common failure modes and what each one means |
 
@@ -58,6 +59,6 @@ or chat.
 - **codex-cli** — `codex mcp login scoutpost` after a `[mcp_servers.scoutpost]` block in `~/.codex/config.toml`.
 - **Antigravity CLI on macOS** — remote MCP through the shared Antigravity configuration has been verified separately.
 - **Antigravity 2.0/IDE on Windows** — the documented DCR Authenticate/code flow is supported, but QA did not establish a working authenticated MCP connection: `initialize` arrived without a bearer. Treat this as unresolved client/server interoperability until client logs and Scoutpost OAuth traces isolate the boundary. Use the Scoutpost Product CLI as the default path meanwhile.
-- **Cursor / Windsurf / Goose / Hermes / Langdock** — config-file and custom-integration paths are described in [`clients.md`](clients.md); a recipe listing is not evidence that every client/platform combination has passed QA.
+- **Cursor / Goose** — one-click install links plus config-file paths are described in [`clients.md`](clients.md); **Windsurf / Hermes / Langdock** live in [`other-clients.md`](other-clients.md). A recipe listing is not evidence that every client/platform combination has passed QA.
 
 ChatGPT is **not** supported as a self-serve target — OpenAI gates custom MCP to Business/Enterprise/Edu plans, useless for individual journalists.

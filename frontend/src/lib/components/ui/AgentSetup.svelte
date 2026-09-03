@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { AlertCircle, Copy, Check, ExternalLink } from 'lucide-svelte';
+	import AgentOnboard from '$lib/components/ui/AgentOnboard.svelte';
 	import type { Recipe } from '$lib/utils/agent-recipes';
 
 	export let recipe: Recipe;
@@ -46,7 +47,7 @@
 	{#if recipe.mode === 'cli-command' && recipe.command}
 		<div class="block">
 			<div class="block-head">
-				<span class="block-label">Run this in your terminal</span>
+				<span class="block-label">Install</span>
 				<button class="copy-btn" on:click={() => copy('cmd', recipe.command ?? '')}>
 					{#if copied === 'cmd'}
 						<Check size={13} /><span>Copied</span>
@@ -56,6 +57,7 @@
 				</button>
 			</div>
 			<pre><code>{recipe.command}</code></pre>
+			<p class="block-note">Run this in your terminal, not in the agent chat.</p>
 		</div>
 
 		{#if recipe.uiSteps}
@@ -70,7 +72,7 @@
 			<div class="block">
 				<div class="block-head">
 					<span class="block-label">
-						{recipe.configLang ? 'Reference config' : 'Remote MCP URL'}
+						{recipe.configLang ? 'Reference config' : 'MCP server URL'}
 					</span>
 					<button class="copy-btn" on:click={() => copy('snippet', recipe.configSnippet ?? '')}>
 						{#if copied === 'snippet'}
@@ -128,7 +130,7 @@
 		<div class="block">
 			<div class="block-head">
 				<span class="block-label">
-					Add to <code class="path">{recipe.configPath}</code>
+					Install: add to <code class="path">{recipe.configPath}</code>
 				</span>
 				<button class="copy-btn" on:click={() => copy('cfg', recipe.configSnippet ?? '')}>
 					{#if copied === 'cfg'}
@@ -156,7 +158,7 @@
 		</ol>
 		<div class="block">
 			<div class="block-head">
-				<span class="block-label">{recipe.configLang ? 'Configuration' : 'Remote MCP URL'}</span>
+				<span class="block-label">{recipe.configLang ? 'Configuration' : 'MCP server URL'}</span>
 				<button class="copy-btn" on:click={() => copy('setup', recipe.configSnippet ?? '')}>
 					{#if copied === 'setup'}
 						<Check size={13} /><span>Copied</span>
@@ -167,10 +169,40 @@
 			</div>
 			<pre class="lang-{recipe.configLang ?? 'text'}"><code>{recipe.configSnippet}</code></pre>
 		</div>
+	{:else if recipe.mode === 'one-click' && recipe.oneClick}
+		<div class="block">
+			<div class="block-head">
+				<span class="block-label">Install</span>
+			</div>
+			<a class="oneclick-btn" href={recipe.oneClick.url}>{recipe.oneClick.label}</a>
+			<p class="block-note">Opens the app if it is installed. Or follow the steps below.</p>
+		</div>
+		{#if recipe.uiSteps}
+			<ol class="steps">
+				{#each recipe.uiSteps as step, i}
+					<li><span class="step-num">{i + 1}</span><span class="step-body">{step}</span></li>
+				{/each}
+			</ol>
+		{/if}
+		{#if recipe.configSnippet}
+			<div class="block">
+				<div class="block-head">
+					<span class="block-label">{recipe.configLang ? `Or add to ${recipe.configPath ?? 'mcp.json'}` : 'MCP server URL'}</span>
+					<button class="copy-btn" on:click={() => copy('oneclick', recipe.configSnippet ?? '')}>
+						{#if copied === 'oneclick'}
+							<Check size={13} /><span>Copied</span>
+						{:else}
+							<Copy size={13} /><span>{recipe.configLang ? 'Copy config' : 'Copy URL'}</span>
+						{/if}
+					</button>
+				</div>
+				<pre class="lang-{recipe.configLang ?? 'text'}"><code>{recipe.configSnippet}</code></pre>
+			</div>
+		{/if}
 	{:else if recipe.mode === 'generic' && recipe.configSnippet}
 		<div class="block">
 			<div class="block-head">
-				<span class="block-label">Remote MCP URL</span>
+				<span class="block-label">MCP server URL</span>
 				<button class="copy-btn" on:click={() => copy('url', recipe.configSnippet ?? '')}>
 					{#if copied === 'url'}
 						<Check size={13} /><span>Copied</span>
@@ -181,6 +213,10 @@
 			</div>
 			<pre><code>{recipe.configSnippet}</code></pre>
 		</div>
+	{/if}
+
+	{#if recipe.onboardPrompt}
+		<AgentOnboard prompt={recipe.onboardPrompt} hint={recipe.onboardHint ?? ''} />
 	{/if}
 
 	{#if copyFallback}
@@ -480,5 +516,22 @@
 	}
 	.docs-link:hover {
 		text-decoration: underline;
+	}
+
+	.oneclick-btn {
+		display: inline-flex;
+		align-items: center;
+		align-self: flex-start;
+		padding: 0.5rem 0.9rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #fff;
+		background: var(--accent, #2451c9);
+		border-radius: 8px;
+		text-decoration: none;
+	}
+
+	.oneclick-btn:hover {
+		filter: brightness(1.08);
 	}
 </style>

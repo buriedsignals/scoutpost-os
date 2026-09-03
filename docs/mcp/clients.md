@@ -5,39 +5,57 @@ OAuth on first connection; follow the client-specific caveats below. Never
 paste a `client_id`, `client_secret`, API key, or bearer token into configuration
 or chat.
 
-The agent-connection modal in the app (`/api` → Connect Agent) generates the same recipes dynamically per client. Catalog-backed recipes for Claude Code, Claude Desktop, ChatGPT Desktop, Codex, Antigravity, Gemini CLI, Goose, OpenCode, LM Studio, and generic MCP come from Engine `@buriedsignals/agent-connect`. These docs own the detailed walkthroughs and troubleshooting.
+The agent-connection modal in the app (`/api` → Connect Agent) generates the same
+recipes dynamically per client from Engine `@buriedsignals/agent-connect`. The
+menu lists exactly these clients, in this order, and OSINT Navigator lists the
+same ones: Claude Code, Claude Desktop, ChatGPT Desktop, Codex CLI, Cursor,
+Antigravity, Gemini CLI, Goose, OpenCode, and any other MCP client. Clients
+outside that list live in [`other-clients.md`](other-clients.md).
 
-## Claude Cowork (claude.ai web, Claude Desktop, Cowork)
+Two audiences. Desktop-app clients (Claude Desktop, ChatGPT Desktop, Cursor,
+Goose, Antigravity) get click-through steps or a one-click install link and are
+never asked to open a terminal as the recommended step. Terminal clients
+(Claude Code, Codex CLI, Gemini CLI, OpenCode) get the Scout CLI first and the
+client's own `mcp add` command as the alternative. Every card reads Install,
+then Onboard your agent, then a check line.
 
-Cowork is Anthropic's umbrella surface for the cloud-brokered custom-connector flow. The same steps work in Claude Desktop, claude.ai web, and the Cowork desktop app.
+## Claude Desktop (claude.ai web, Claude Desktop, Cowork)
+
+The same custom-connector flow works in Claude Desktop (Chat, Cowork, and Code
+tabs), claude.ai web, and Cowork. A connector added here also loads in Claude
+Code when you sign in with the same account.
 
 1. Open Settings → **Connectors** → **+ Add custom connector**.
 2. Paste `https://scoutpost.ai/mcp` as the Remote MCP Server URL → **Add**. Do not open Advanced Settings.
 3. Click **Connect** on the new card. (If the card defaults to **Configure**: click **⋯** → **Disconnect**, then **⋯** → **Remove**, quit and reopen the app, then re-add. Anthropic-side state cached against a previous failed attempt is the most common cause of Configure-default — see [`debugging.md`](debugging.md).)
 4. The MuckRock sign-in opens. Approve. The card flips to connected and tools list populates.
 
-A separate desktop browser does NOT pop up — Anthropic brokers OAuth from their cloud. Claude Code is the only Anthropic surface that opens a local browser (different recipe below).
+A separate desktop browser does NOT pop up — Anthropic brokers OAuth from their cloud. Free plans get one custom connector; Pro, Max, Team, and Enterprise are unlimited.
 
-## Claude Code (CLI)
+## Claude Code (terminal)
+
+Scout CLI first (the modal's recommended path), or the MCP server:
 
 ```bash
-claude mcp add --transport http scoutpost https://scoutpost.ai/mcp
+claude mcp add --scope user --transport http scoutpost https://scoutpost.ai/mcp
 ```
 
-If Claude Code returns 401, open `/mcp` and complete OAuth. After OAuth, `claude mcp list` shows scoutpost with its tool count.
+`--scope user` makes the server available in every folder. Start `claude`, run
+`/mcp`, select `scoutpost`, and choose **Authenticate** if it says Needs
+authentication. After OAuth, `claude mcp list` shows scoutpost with its tool count.
 
-## ChatGPT Desktop (Codex)
+## ChatGPT Desktop
 
-The ChatGPT desktop app **is** the Codex app: bundle id `com.openai.codex`, it ships the `codex` binary at `Contents/Resources/codex`, and it shares `~/.codex` with the standalone CLI. Use the Codex Desktop MCP settings flow below; the terminal commands in the [Codex CLI](#codex-cli-terminal) section reach the same configuration.
+The ChatGPT desktop app **is** the Codex app: bundle id `com.openai.codex`
+(the standalone Codex app merged into it on 2026-07-09), and it shares
+`~/.codex/config.toml` with Codex CLI. No terminal is needed.
 
-## Codex Desktop (OpenAI)
+1. Open ChatGPT Desktop → Settings → **MCP servers** → **Add server**.
+2. Choose **Streamable HTTP** as the transport. Name: `scoutpost`. URL: `https://scoutpost.ai/mcp`. Leave the authorization fields empty; the app signs you in on first use.
+3. Save, then choose **Restart** when the app asks.
+4. Approve the Scoutpost sign-in when it opens, then ask ChatGPT to use `scoutpost`. Type `/mcp` in the composer to confirm it is connected.
 
-Codex Desktop speaks Streamable HTTP natively with OAuth.
-
-1. Open Codex Desktop → Settings → MCP Servers → **Connect to a custom MCP**.
-2. Switch to the **Streamable HTTP** tab. The dialog defaults to STDIO — that's the wrong tab for remote servers.
-3. Name: `scoutpost`. URL: `https://scoutpost.ai/mcp`. Leave Authorization blank — Codex runs the OAuth handshake on first use. Save.
-4. Approve the Scoutpost sign-in in the browser tab Codex opens. The connector flips to connected and tools appear in the Sources/Tools panel.
+Reference: <https://learn.chatgpt.com/docs/extend/mcp>.
 
 ## Codex CLI (terminal)
 
@@ -46,11 +64,17 @@ codex mcp add scoutpost --url https://scoutpost.ai/mcp
 codex mcp login scoutpost
 ```
 
-Skip `add` if `codex mcp list` already shows scoutpost. Reference: <https://developers.openai.com/codex/mcp>.
+Skip `add` if `codex mcp list` already shows scoutpost. Connecting here also
+connects the ChatGPT desktop app (shared `~/.codex`). Reference:
+<https://learn.chatgpt.com/docs/extend/mcp?surface=cli>.
 
 ## Cursor
 
-Add to `~/.cursor/mcp.json`:
+One click: the modal's **Add to Cursor** link opens
+`cursor://anysphere.cursor-deeplink/mcp/install?name=scoutpost&config=<base64 of {"url":"https://scoutpost.ai/mcp"}>`
+and Cursor asks you to confirm the server.
+
+By hand: Cursor Settings → **Tools & MCP** → **New MCP server**, then add to `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -62,23 +86,9 @@ Add to `~/.cursor/mcp.json`:
 }
 ```
 
-Reload Cursor; OAuth runs on first tool use. Reference: <https://cursor.com/docs/mcp>.
-
-## Windsurf
-
-Add to `~/.codeium/windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "scoutpost": {
-      "serverUrl": "https://scoutpost.ai/mcp"
-    }
-  }
-}
-```
-
-Reference: <https://docs.windsurf.com/windsurf/cascade/mcp>.
+When `scoutpost` shows **Needs login**, click it and approve the sign-in in your
+browser. Cursor Agent in the terminal reads the same `mcp.json`: run
+`agent mcp login scoutpost` there. Reference: <https://cursor.com/docs/mcp>.
 
 ## Antigravity CLI and Antigravity 2.0/IDE
 
@@ -128,46 +138,46 @@ CLI in the meantime.
 
 Reference: <https://antigravity.google/docs/mcp/>.
 
-## Goose
+## Gemini CLI (terminal)
 
-Run `goose configure` and choose **Add Extension** → **Streamable HTTP**. Name: `scoutpost`. URL: `https://scoutpost.ai/mcp`. Authorize in the browser window that opens. Reference: <https://block.github.io/goose/docs/mcp/>.
+Scout CLI first, or the MCP server:
 
-## Hermes (Mac mini ambient agent)
-
-Add to `~/.hermes/config.yaml`:
-
-```yaml
-mcp_servers:
-  scoutpost:
-    url: https://scoutpost.ai/mcp
-    transport: streamable_http
+```bash
+gemini mcp add --transport http --scope user scoutpost https://scoutpost.ai/mcp
 ```
 
-Reload Hermes. Reference: <https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp>.
+Start `gemini` and run `/mcp`; Gemini CLI discovers the OAuth sign-in on its own
+and opens your browser on first use. Reference:
+<https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md>.
 
-## Langdock
+## Goose
 
-Langdock supports custom MCP integrations with OAuth and Dynamic Client Registration. Use that path for Scoutpost; do not use API-key auth or advanced/manual OAuth unless Langdock's DCR path is unavailable.
+One click: the modal's **Add to Goose** link opens
+`goose://extension?type=streamable_http&url=https%3A%2F%2Fscoutpost.ai%2Fmcp&id=scoutpost&name=Scoutpost&description=Scoutpost%20MCP%20server`;
+approve the extension when Goose asks, then approve the sign-in in the browser.
 
-1. Open Langdock's integrations area for adding an MCP server.
-2. Create a custom MCP integration or server connection.
-3. Choose OAuth authentication with Dynamic Client Registration.
-4. Paste `https://scoutpost.ai/mcp` as the MCP server URL.
-5. Save/connect the integration and approve the Scoutpost OAuth sign-in.
-6. Enable the connected Scoutpost integration for the assistant or workspace that should use it.
+By hand in Goose Desktop: open the sidebar → **Extensions** → **Add custom
+extension**. Type: **Streamable HTTP**. Endpoint URL: `https://scoutpost.ai/mcp`.
+ID: `scoutpost`. Name: `Scoutpost`. Leave the timeout at its default and click
+**Add**.
 
-Reference: <https://docs.langdock.com/resources/integrations/mcp>.
+Goose CLI: run `goose configure` → **Add Extension** → **Remote Extension
+(Streamable HTTP)** and answer the prompts with the same name and URL. Desktop
+and CLI share `~/.config/goose/config.yaml`. Reference:
+<https://goose-docs.ai/docs/getting-started/using-extensions>.
 
-## OpenClaw
+## OpenCode (terminal)
 
-Native MCP client support is in active beta. Tracked upstream at openclaw/openclaw#29053. Once it lands, paste `https://scoutpost.ai/mcp` into the MCP extensions panel.
+Scout CLI first, or the MCP server:
+
+```bash
+opencode mcp add scoutpost --url https://scoutpost.ai/mcp
+opencode mcp auth scoutpost
+```
+
+Approve the browser sign-in; `opencode mcp list` shows scoutpost as connected.
+Reference: <https://opencode.ai/docs/mcp-servers/>.
 
 ## Generic (any MCP-speaking client)
 
 Paste `https://scoutpost.ai/mcp` and follow the client's OAuth prompt. Spec reference: <https://modelcontextprotocol.io>.
-
-## Local stdio bridge (`scout-mcp`)
-
-For clients that don't speak Streamable HTTP (legacy Claude Desktop configs without the cloud broker, some local agent frameworks). The bridge installs from the public OSS mirror's release page; the binary connects via stdio and forwards JSON-RPC verbatim to the hosted server using a `cj_…` API key for auth.
-
-See [`mcp/CLAUDE.md`](../../mcp/CLAUDE.md) for release procedure and binary install. Prefer each client's documented hosted path; for Antigravity, use Product CLI by default while the Windows IDE remote-MCP boundary remains unresolved. The bridge is a transport shim, not a feature.
