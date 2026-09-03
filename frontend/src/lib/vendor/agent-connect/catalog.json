@@ -1,6 +1,6 @@
 {
   "package": "@buriedsignals/agent-connect",
-  "packageVersion": "0.2.1",
+  "packageVersion": "0.2.2",
   "products": {
     "navigator": {
       "claude-code": {
@@ -10,7 +10,7 @@
           "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
           "configPath": null,
           "steps": [
-            "Install the {{CLI_BINARY}} CLI.",
+            "Install the {{CLI_BINARY}} CLI with pipx (get pipx at pipx.pypa.io).",
             "Run the login command and approve the browser sign-in.",
             "Ask Claude Code to use the {{CLI_BINARY}} command."
           ],
@@ -24,7 +24,7 @@
           "command": "claude mcp add --transport http {{SERVER_ID}} {{MCP_URL}}",
           "configPath": null,
           "steps": [
-            "Run the command above in your terminal.",
+            "Run the command below in your terminal.",
             "If Claude Code returns 401, open /mcp and complete OAuth for {{DISPLAY_NAME}}.",
             "Confirm {{DISPLAY_NAME}} is connected."
           ],
@@ -55,38 +55,38 @@
       "chatgpt-desktop": {
         "mcp": {
           "title": "ChatGPT Desktop",
-          "tagline": "Connect ChatGPT Desktop to {{DISPLAY_NAME}} with the remote MCP server.",
-          "command": "{{MCP_URL}}",
+          "tagline": "Add {{DISPLAY_NAME}} as a Streamable HTTP MCP server in ChatGPT Desktop, the Codex app.",
+          "command": "codex mcp add {{SERVER_ID}} --url {{MCP_URL}}\ncodex mcp login {{SERVER_ID}}",
           "configPath": null,
           "steps": [
-            "Open ChatGPT Desktop signed into the workspace that should use {{DISPLAY_NAME}}.",
-            "Open Settings and look for Apps, Connectors, or developer mode.",
-            "Add a custom MCP connector or app and paste {{MCP_URL}} as the server URL.",
-            "Complete the {{DISPLAY_NAME}} OAuth prompt, then enable the connector in a chat.",
-            "If Desktop has no Add connector control, keep this listing and record the gap. Do not use Codex CLI steps."
+            "Open ChatGPT Desktop → Settings → MCP Servers → Connect to a custom MCP.",
+            "Switch to the Streamable HTTP tab. The dialog opens on STDIO, which is the wrong tab for a remote server.",
+            "Name: {{SERVER_ID}}. URL: {{MCP_URL}}. Leave Authorization blank — the app runs the OAuth handshake on first use. Save.",
+            "Approve the {{DISPLAY_NAME}} sign-in when it opens, then ask ChatGPT to use {{SERVER_ID}}.",
+            "Or run the commands below: the app ships the same `codex` binary and shares its configuration."
           ],
-          "verify": "Ask ChatGPT Desktop to use {{DISPLAY_NAME}}.",
-          "docsUrl": "https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt",
-          "caveat": "OpenAI currently documents custom MCP and developer mode for ChatGPT Business, Enterprise, and Edu workspaces, and describes the create-app flow on ChatGPT web. ChatGPT Desktop remains a listed connect path. If Desktop has no Add connector / Apps control on your account, keep this listing and record the gap — do not switch to Codex."
+          "verify": "Ask ChatGPT Desktop to use {{SERVER_ID}}, or run /mcp in Codex and confirm it is connected.",
+          "docsUrl": "https://developers.openai.com/codex/mcp",
+          "caveat": null
         }
       },
       "codex": {
         "cli": {
-          "title": "Codex",
+          "title": "Codex CLI",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
           "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
           "configPath": null,
           "steps": [
-            "Install the {{CLI_BINARY}} CLI.",
+            "Install the {{CLI_BINARY}} CLI with pipx (get pipx at pipx.pypa.io).",
             "Run the login command and approve the browser sign-in.",
-            "Ask Codex to use the {{CLI_BINARY}} command."
+            "Ask Codex CLI to use the {{CLI_BINARY}} command."
           ],
           "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
           "docsUrl": "{{DOCS_URL}}",
           "caveat": null
         },
         "mcp": {
-          "title": "Codex",
+          "title": "Codex CLI",
           "tagline": "Add {{DISPLAY_NAME}} as a Streamable HTTP MCP server in Codex, then run the OAuth login command.",
           "command": "codex mcp add {{SERVER_ID}} --url {{MCP_URL}}\ncodex mcp login {{SERVER_ID}}",
           "configPath": null,
@@ -107,7 +107,7 @@
           "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
           "configPath": null,
           "steps": [
-            "Install the {{CLI_BINARY}} CLI.",
+            "Install the {{CLI_BINARY}} CLI with pipx (get pipx at pipx.pypa.io).",
             "Run the login command and approve the browser sign-in.",
             "Ask Antigravity to use the {{CLI_BINARY}} command."
           ],
@@ -139,7 +139,7 @@
           "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
           "configPath": null,
           "steps": [
-            "Install the {{CLI_BINARY}} CLI.",
+            "Install the {{CLI_BINARY}} CLI with pipx (get pipx at pipx.pypa.io).",
             "Run the login command and approve the browser sign-in.",
             "Ask Gemini CLI to use the {{CLI_BINARY}} command."
           ],
@@ -173,7 +173,7 @@
           "command": "{{CLI_INSTALL}}\n{{CLI_LOGIN}}",
           "configPath": null,
           "steps": [
-            "Install the {{CLI_BINARY}} CLI.",
+            "Install the {{CLI_BINARY}} CLI with pipx (get pipx at pipx.pypa.io).",
             "Run the login command and approve the browser sign-in.",
             "Ask OpenCode to use the {{CLI_BINARY}} command."
           ],
@@ -237,7 +237,7 @@
           "command": "claude mcp add --transport http {{SERVER_ID}} {{MCP_URL}}",
           "configPath": null,
           "steps": [
-            "Run the command above in your terminal.",
+            "Run the command below in your terminal.",
             "If Claude Code returns 401, open /mcp and complete OAuth for {{DISPLAY_NAME}}.",
             "Confirm {{DISPLAY_NAME}} is connected."
           ],
@@ -268,38 +268,38 @@
       "chatgpt-desktop": {
         "mcp": {
           "title": "ChatGPT Desktop",
-          "tagline": "Connect ChatGPT Desktop to {{DISPLAY_NAME}} with the remote MCP server.",
-          "command": "{{MCP_URL}}",
+          "tagline": "Add {{DISPLAY_NAME}} as a Streamable HTTP MCP server in ChatGPT Desktop, the Codex app.",
+          "command": "codex mcp add {{SERVER_ID}} --url {{MCP_URL}}\ncodex mcp login {{SERVER_ID}}",
           "configPath": null,
           "steps": [
-            "Open ChatGPT Desktop signed into the workspace that should use {{DISPLAY_NAME}}.",
-            "Open Settings and look for Apps, Connectors, or developer mode.",
-            "Add a custom MCP connector or app and paste {{MCP_URL}} as the server URL.",
-            "Complete the {{DISPLAY_NAME}} OAuth prompt, then enable the connector in a chat.",
-            "If Desktop has no Add connector control, keep this listing and record the gap. Do not use Codex CLI steps."
+            "Open ChatGPT Desktop → Settings → MCP Servers → Connect to a custom MCP.",
+            "Switch to the Streamable HTTP tab. The dialog opens on STDIO, which is the wrong tab for a remote server.",
+            "Name: {{SERVER_ID}}. URL: {{MCP_URL}}. Leave Authorization blank — the app runs the OAuth handshake on first use. Save.",
+            "Approve the {{DISPLAY_NAME}} sign-in when it opens, then ask ChatGPT to use {{SERVER_ID}}.",
+            "Or run the commands below: the app ships the same `codex` binary and shares its configuration."
           ],
-          "verify": "Ask ChatGPT Desktop to use {{DISPLAY_NAME}}.",
-          "docsUrl": "https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt",
-          "caveat": "OpenAI currently documents custom MCP and developer mode for ChatGPT Business, Enterprise, and Edu workspaces, and describes the create-app flow on ChatGPT web. ChatGPT Desktop remains a listed connect path. If Desktop has no Add connector / Apps control on your account, keep this listing and record the gap — do not switch to Codex."
+          "verify": "Ask ChatGPT Desktop to use {{SERVER_ID}}, or run /mcp in Codex and confirm it is connected.",
+          "docsUrl": "https://developers.openai.com/codex/mcp",
+          "caveat": null
         }
       },
       "codex": {
         "cli": {
-          "title": "Codex",
+          "title": "Codex CLI",
           "tagline": "Install the {{DISPLAY_NAME}} CLI and approve the connection in your browser.",
-          "command": "npm install --global scoutpost-cli\nscout auth login --site {{APP_URL}} --label \"Codex\"",
+          "command": "npm install --global scoutpost-cli\nscout auth login --site {{APP_URL}} --label \"Codex CLI\"",
           "configPath": null,
           "steps": [
             "Install the {{CLI_BINARY}} CLI.",
             "Run the login command and approve the browser sign-in.",
-            "Ask Codex to use the {{CLI_BINARY}} command."
+            "Ask Codex CLI to use the {{CLI_BINARY}} command."
           ],
           "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
           "docsUrl": "{{DOCS_URL}}",
           "caveat": null
         },
         "mcp": {
-          "title": "Codex",
+          "title": "Codex CLI",
           "tagline": "Add {{DISPLAY_NAME}} as a Streamable HTTP MCP server in Codex, then run the OAuth login command.",
           "command": "codex mcp add {{SERVER_ID}} --url {{MCP_URL}}\ncodex mcp login {{SERVER_ID}}",
           "configPath": null,

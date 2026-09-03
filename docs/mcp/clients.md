@@ -26,11 +26,9 @@ claude mcp add --transport http scoutpost https://scoutpost.ai/mcp
 
 If Claude Code returns 401, open `/mcp` and complete OAuth. After OAuth, `claude mcp list` shows scoutpost with its tool count.
 
-## ChatGPT Desktop
+## ChatGPT Desktop (Codex)
 
-ChatGPT Desktop is a listed connect path. Open ChatGPT Desktop, add a custom MCP connector / app, and paste `https://scoutpost.ai/mcp`. Complete Scoutpost OAuth.
-
-OpenAI currently documents custom MCP and developer mode for ChatGPT **Business, Enterprise, and Edu**. If Desktop has no Add connector control on your account, keep this listing and record the gap — do not use Codex CLI steps. Help: <https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt>.
+The ChatGPT desktop app **is** the Codex app: bundle id `com.openai.codex`, it ships the `codex` binary at `Contents/Resources/codex`, and it shares `~/.codex` with the standalone CLI. Use the Codex Desktop MCP settings flow below; the terminal commands in the [Codex CLI](#codex-cli-terminal) section reach the same configuration.
 
 ## Codex Desktop (OpenAI)
 
