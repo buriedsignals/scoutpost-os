@@ -75,7 +75,10 @@ import {
   probeFailure,
   probeOk,
 } from "../_shared/scout_probe.ts";
-import { validateCivicTrackedUrls } from "../_shared/civic_systems.ts";
+import {
+  civicResolverFetcher,
+  validateCivicTrackedUrls,
+} from "../_shared/civic_systems.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
 import { writeCanonicalBaseline } from "../_shared/canonical_baseline.ts";
 import { parseDocument } from "../_shared/docparse.ts";
@@ -1362,14 +1365,7 @@ async function probeCreateGate(
   if (rest.type === "civic" && !previewSnapshotToken) {
     const trackedUrls = normalizeTrackedUrls(rest.tracked_urls);
     const validation = await validateCivicTrackedUrls(trackedUrls, {
-      fetchHtml: async (url) =>
-        (await scrape(url, {
-          workloadClass: "utility",
-          tenantKey: user.id,
-          formats: ["rawHtml"],
-          onlyMainContent: false,
-          timeoutMs: 20_000,
-        })).rawHtml ?? "",
+      fetchHtml: civicResolverFetcher(user.id),
     });
     logEvent({
       level: validation.ok ? "info" : "warn",
@@ -1389,6 +1385,7 @@ async function probeCreateGate(
           validated: validation.validated,
           invalid: validation.invalid,
           candidates: validation.candidates,
+          diagnostics: validation.diagnostics,
         }, PROBE_GATE_STATUS),
       };
     }

@@ -25,6 +25,30 @@ import {
   isCivicScrapableUrl,
   keywordCivicMeetingDocumentLinks,
 } from "./civic_links.ts";
+import { scrape } from "./scrape.ts";
+
+/**
+ * Per-page budget for resolver fetches. modern.gov committee listings render
+ * slowly (Leeds' Council and Executive Board listings need 40 s+); pages are
+ * fetched concurrently, so this is per page, not additive. Every caller of
+ * the resolver — discover, validate, and the create gate — must use the same
+ * budget, or a page that resolves in one step fails in the next.
+ */
+export const CIVIC_RESOLVER_SCRAPE_TIMEOUT_MS = 45_000;
+
+/** The resolver's page fetcher through the provider-agnostic scrape port. */
+export function civicResolverFetcher(tenantKey: string): CivicPageFetcher {
+  return async (url: string) => {
+    const scraped = await scrape(url, {
+      workloadClass: "utility",
+      tenantKey,
+      formats: ["rawHtml"],
+      onlyMainContent: false,
+      timeoutMs: CIVIC_RESOLVER_SCRAPE_TIMEOUT_MS,
+    });
+    return scraped.rawHtml ?? "";
+  };
+}
 
 export type CivicSystem = "moderngov" | "legistar" | "generic";
 

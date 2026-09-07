@@ -47,10 +47,11 @@ import {
 import { previewCivicTrackedUrls } from "../_shared/civic_preview.ts";
 import { probeFailure, probeOk } from "../_shared/scout_probe.ts";
 import {
+  civicResolverFetcher,
   resolveCivicListings,
   validateCivicTrackedUrls,
 } from "../_shared/civic_systems.ts";
-import { isAntiBotBlockedError, scrape } from "../_shared/scrape.ts";
+import { isAntiBotBlockedError } from "../_shared/scrape.ts";
 import { openRouterExtract } from "../_shared/openrouter.ts";
 import { getServiceClient } from "../_shared/supabase.ts";
 
@@ -65,24 +66,6 @@ const DiscoverSchema = z.object({
 }).refine((v) => Boolean(v.root_domain) || Boolean(v.tracked_urls?.length), {
   message: "root_domain or tracked_urls is required",
 });
-
-// modern.gov committee listings render server-side but slowly: Leeds'
-// Executive Board took 41 s through Firecrawl (2026-09-07). Listings are
-// fetched concurrently, so the budget is per page, not additive.
-const RESOLVER_SCRAPE_TIMEOUT_MS = 45_000;
-
-function resolverFetcher(tenantKey: string): (url: string) => Promise<string> {
-  return async (url: string) => {
-    const scraped = await scrape(url, {
-      workloadClass: "utility",
-      tenantKey,
-      formats: ["rawHtml"],
-      onlyMainContent: false,
-      timeoutMs: RESOLVER_SCRAPE_TIMEOUT_MS,
-    });
-    return scraped.rawHtml ?? "";
-  };
-}
 
 const DISCOVER_SCHEMA: Record<string, unknown> = {
   type: "object",
@@ -472,7 +455,7 @@ async function discover(req: Request, user: AuthedUser): Promise<Response> {
   // with meetings actually visible, so a chosen candidate is known to work.
   const resolved = await resolveCivicListings(
     [...ranked.map((c) => c.url), target],
-    { fetchHtml: resolverFetcher(user.id), maxSeeds: 3, maxListings: 5 },
+    { fetchHtml: civicResolverFetcher(user.id), maxSeeds: 3, maxListings: 5 },
     urls,
   );
 
@@ -518,7 +501,7 @@ async function validateTracked(
   user: AuthedUser,
 ): Promise<Response> {
   const validation = await validateCivicTrackedUrls(trackedUrls, {
-    fetchHtml: resolverFetcher(user.id),
+    fetchHtml: civicResolverFetcher(user.id),
   });
   logEvent({
     level: "info",
