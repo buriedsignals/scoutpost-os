@@ -12,9 +12,11 @@ import {
   isCivicDirectDocumentUrl,
   isCivicMeetingDocumentLink,
   isCivicRecordDetailUrl,
+  isCivicRecordDocumentUrl,
   isCivicScrapableUrl,
   isEmptyQueryStubUrl,
   isSameCivicSite,
+  keywordCivicMeetingDocumentLinks,
   rankCivicDiscoveryUrls,
 } from "./civic_links.ts";
 
@@ -588,5 +590,35 @@ Deno.test("modern.gov mg*.aspx record pages are never meeting documents", () => 
       anchorText: "9 Sep 2026 1.00 pm",
     }),
     true,
+  );
+});
+
+// Live finding 2026-09-07: bristol.gov.uk/ask/find-consultation-engagement was
+// offered as "Page listing meeting documents" because generic `?id=<n>`
+// records were counted without a meeting keyword.
+Deno.test("generic ?id= records are not meeting documents without a keyword", () => {
+  const consultation = {
+    url:
+      "https://www.bristol.gov.uk/ask/find-consultation-engagement/consultation-engagement?id=287",
+    anchorText: "Clean Air Strategy and Action Plan Engagement Survey",
+  };
+  assertEquals(keywordCivicMeetingDocumentLinks([consultation]), []);
+  assertEquals(isCivicRecordDocumentUrl(consultation.url), false);
+  assertEquals(
+    isCivicRecordDocumentUrl(
+      "https://democracy.leeds.gov.uk/ieListDocuments.aspx?CId=111&MId=1&Ver=4",
+    ),
+    true,
+  );
+});
+
+Deno.test("extractCivicLinksFromHtml decodes entities and collapses whitespace in anchor text", () => {
+  const links = extractCivicLinksFromHtml(
+    '<a href="/a">Scrutiny Board (Adults,Health &amp; Active\n   Lifestyles)</a>',
+    "https://democracy.leeds.gov.uk",
+  );
+  assertEquals(
+    links[0].anchorText,
+    "Scrutiny Board (Adults,Health & Active Lifestyles)",
   );
 });

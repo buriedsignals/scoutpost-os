@@ -69,9 +69,14 @@ export interface CivicResolveOptions {
   maxSecondLevel?: number;
 }
 
-/** Anchor/URL terms that mark a page worth one more hop from a council root. */
+/**
+ * Anchor/URL terms that mark a page worth one more hop from a council root.
+ * Whole words about governance only — a bare "council" matched
+ * "council-tax" and "how-to-pay-your-council-tax" on leeds.gov.uk.
+ */
 const CIVIC_HOP_TERMS =
-  /meeting|committee|democracy|council|minutes|agenda|decision|protokoll|sitzung|gemeinderat|séance|seance|conseil|consiglio|raad/i;
+  /\b(?:meetings?|committees?|democracy|minutes|agendas?|decisions?|your[- ]council|council[- ]and[- ]democracy|the[- ]council|councillors|protokoll|sitzung|gemeinderat|séance|seance|conseil|consiglio|raad)\b/i;
+const CIVIC_HOP_EXCLUDE = /\b(?:tax|bins?|parking|benefits?|housing|jobs?)\b/i;
 
 /**
  * Conventional committee-system hosts. modern.gov customers publish on
@@ -115,11 +120,12 @@ const MODERNGOV_COMMITTEE = /\/mgCommitteeDetails\.aspx$/i;
  */
 const PRIORITY_COMMITTEE_TERMS = [
   "full council",
-  "council",
   "cabinet",
+  "executive board",
   "executive",
   "planning",
   "scrutiny",
+  "council",
 ];
 
 function pathOf(url: string): string | null {
@@ -194,9 +200,17 @@ export function modernGovListingForCommittee(url: string): string | null {
 }
 
 function committeePriority(label: string | undefined): number {
-  const text = (label ?? "").toLowerCase();
+  const text = (label ?? "").toLowerCase().trim();
+  // The council itself is usually labelled just "Council" (Leeds) or
+  // "Full Council" (Bristol); a scrutiny board that merely contains the word
+  // must not outrank it.
+  if (
+    text === "council" || text === "full council" || text === "city council"
+  ) {
+    return 0;
+  }
   const index = PRIORITY_COMMITTEE_TERMS.findIndex((term) =>
-    text.includes(term)
+    new RegExp(`\\b${term}\\b`).test(text)
   );
   return index === -1 ? PRIORITY_COMMITTEE_TERMS.length : index;
 }
@@ -310,9 +324,10 @@ export async function resolveCivicListings(
     const hop = dedupe(
       seedPages.flatMap((page) =>
         page.links
-          .filter((link) =>
-            CIVIC_HOP_TERMS.test(`${link.url} ${link.anchorText}`)
-          )
+          .filter((link) => {
+            const text = `${link.url} ${link.anchorText}`;
+            return CIVIC_HOP_TERMS.test(text) && !CIVIC_HOP_EXCLUDE.test(text);
+          })
           .map((link) => link.url)
       ),
     ).filter((url) => !seeds.includes(url)).slice(0, maxSecondLevel);
@@ -434,9 +449,11 @@ export async function resolveCivicListings(
     }
   }
 
+  // Which body matters more than how many meetings it lists: the council
+  // itself is the default recommendation, a busier scrutiny board is not.
   candidates.sort((a, b) =>
-    b.documents_visible - a.documents_visible ||
     committeePriority(a.description) - committeePriority(b.description) ||
+    b.documents_visible - a.documents_visible ||
     b.confidence - a.confidence || a.url.localeCompare(b.url)
   );
   if (candidates.length > 0) candidates[0].recommended = true;

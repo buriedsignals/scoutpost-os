@@ -59,13 +59,30 @@ const FIXTURES: Record<string, string> = {
   // Leeds-shaped root: no democracy link on the root, one hop below it.
   "https://www.leeds.gov.uk": `
     <a href="/residents/bins">Bins</a>
+    <a href="/council-tax">Council tax</a>
+    <a href="/council-tax/how-to-pay-your-council-tax">How to pay your council tax</a>
     <a href="/council-and-democracy">Council and democracy</a>
   `,
   "https://www.leeds.gov.uk/council-and-democracy": `
     <a href="https://democracy.leeds.gov.uk/mgListCommittees.aspx?bcr=1">Committees and meetings</a>
   `,
   "https://democracy.leeds.gov.uk/mgListCommittees.aspx?bcr=1": `
+    <a href="mgCommitteeDetails.aspx?ID=1090">Scrutiny Board (Adults,Health &amp; Active Lifestyles)</a>
+    <a href="mgCommitteeDetails.aspx?ID=1254">Strategic Planning Panel</a>
+    <a href="mgCommitteeDetails.aspx?ID=1190">Scrutiny Board - Consultative Meeting</a>
+    <a href="mgCommitteeDetails.aspx?ID=1091">Community Council Liaison</a>
+    <a href="mgCommitteeDetails.aspx?ID=1092">Audit Committee</a>
     <a href="mgCommitteeDetails.aspx?ID=111">Council</a>
+    <a href="mgCommitteeDetails.aspx?ID=102">Executive Board</a>
+  `,
+  "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=102": `
+    <a href="ieListDocuments.aspx?CId=102&amp;MId=14400&amp;Ver=4">16 Sep 2026 1.00 pm</a>
+    <a href="ieListDocuments.aspx?CId=102&amp;MId=14401&amp;Ver=4">21 Oct 2026 1.00 pm</a>
+  `,
+  "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=1090": `
+    <a href="ieListDocuments.aspx?CId=1090&amp;MId=1&amp;Ver=4">1 Sep 2026 10.00 am</a>
+    <a href="ieListDocuments.aspx?CId=1090&amp;MId=2&amp;Ver=4">2 Sep 2026 10.00 am</a>
+    <a href="ieListDocuments.aspx?CId=1090&amp;MId=3&amp;Ver=4">3 Sep 2026 10.00 am</a>
   `,
   "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=111": `
     <a href="ieListDocuments.aspx?CId=111&amp;MId=14369&amp;Ver=4">9 Sep 2026 1.00 pm</a>
@@ -324,17 +341,34 @@ Deno.test("resolveCivicListings follows one civic-looking hop below a council ro
     fetchHtml: fetcher(log),
   });
   assertEquals(result.system, "moderngov");
-  assertEquals(result.candidates.map((c) => c.url), [
-    "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=111",
-  ]);
+  // Only the governance link is followed — never council-tax pages.
   assertEquals(result.diagnostics.second_level, [
     "https://www.leeds.gov.uk/council-and-democracy",
   ]);
   assertEquals(result.diagnostics.probed, []);
-  assertEquals(result.diagnostics.listings_checked, [{
-    url: "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=111",
-    documents_visible: 1,
-  }]);
+  // Priority bodies are verified first (Council, Executive Board) and the
+  // council itself is recommended even though a scrutiny board shows more
+  // meetings than it; the listing budget never reaches the liaison group.
+  // (1254 and 1190 have no fixture, so they 404 and are not recorded.)
+  assertEquals(
+    result.diagnostics.listings_checked.map((l) => l.url),
+    [
+      "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=111",
+      "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=102",
+      "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=1090",
+    ],
+  );
+  assertEquals(
+    result.candidates[0].url,
+    "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=111",
+  );
+  assertEquals(result.candidates[0].description, "Council");
+  assertEquals(result.candidates[0].recommended, true);
+  assertEquals(
+    result.candidates.find((c) => c.url.endsWith("CommitteeId=1090"))
+      ?.description,
+    "Scrutiny Board (Adults,Health & Active Lifestyles)",
+  );
 });
 
 Deno.test("resolveCivicListings probes democracy.<council>.gov.uk when the root exposes nothing", async () => {

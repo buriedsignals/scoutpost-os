@@ -249,7 +249,9 @@ export function extractCivicLinksFromHtml(
     // (`?GL=1&amp;bcr=1`); left undecoded the second parameter becomes
     // `amp;bcr` and the fetched page is not the one that was linked.
     const rawHref = decodeHtmlEntities((match[1] ?? "").trim());
-    const rawAnchor = (match[2] ?? "").replace(/<[^>]+>/g, "").trim();
+    const rawAnchor = decodeHtmlEntities(
+      (match[2] ?? "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
+    );
     if (!rawHref) continue;
     if (CIVIC_DENYLIST_PREFIXES.some((prefix) => rawHref.startsWith(prefix))) {
       continue;
@@ -563,9 +565,20 @@ export function isModernGovNonDocumentPage(url: string): boolean {
   }
 }
 
-/** A record-id URL that can stand for one meeting document. */
+/**
+ * A record-id URL that stands for one meeting document WITHOUT any meeting
+ * keyword in its text: only modern.gov `ie*.aspx?…MId=` pages qualify. Any
+ * other `?id=<n>` record (a consultation, a news item — Bristol's
+ * `consultation-engagement?id=287` was counted as a meeting document on
+ * 2026-09-07) still needs a keyword to enter the deterministic stage.
+ */
 export function isCivicRecordDocumentUrl(url: string): boolean {
-  return isCivicRecordDetailUrl(url) && !isModernGovNonDocumentPage(url);
+  if (!isCivicRecordDetailUrl(url)) return false;
+  try {
+    return /\/ie[A-Za-z0-9]+\.aspx$/i.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
 }
 
 export function filterCivicDiscoveryCandidates<T extends { url: string }>(
