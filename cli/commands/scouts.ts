@@ -372,9 +372,15 @@ export async function run(argv: string[]): Promise<void> {
         const body: Record<string, unknown> = { url };
         const criteria = stringFlag(flags, "criteria");
         if (criteria) body.criteria = criteria;
+        // Reach probe = one scrape + one model call; the default 15 s API
+        // timeout is far too short for a JS-rendered page.
         const result = await apiFetch<Record<string, unknown>>(
           "/functions/v1/scouts/test",
-          { method: "POST", body: JSON.stringify(body) },
+          {
+            method: "POST",
+            body: JSON.stringify(body),
+            timeoutMs: CIVIC_API_TIMEOUT_MS,
+          },
         );
         printJSON(result);
         if (isTerminal()) printProbeSummary(result);

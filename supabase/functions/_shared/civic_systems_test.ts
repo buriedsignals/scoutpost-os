@@ -8,6 +8,7 @@ import {
   isModernGovEntryUrl,
   isModernGovListingUrl,
   isModernGovMeetingUrl,
+  modernGovListingForCommittee,
   resolveCivicListings,
   validateCivicTrackedUrls,
 } from "./civic_systems.ts";
@@ -25,12 +26,21 @@ const FIXTURES: Record<string, string> = {
     <p><a href="https://democracy.bristol.gov.uk/mgListCommittees.aspx?bcr=1">View all committees, meeting agendas, public forum dates and deadlines</a></p>
     <a href="https://www.facebook.com/bristolcouncil">Facebook</a>
   `,
-  // modern.gov entry page.
+  // modern.gov entry page: as on Leeds, the committee index links committee
+  // RECORD pages, not listings; only the constitution has a direct listing.
   "https://democracy.bristol.gov.uk/mgListCommittees.aspx?bcr=1": `
+    <a href="mgCommitteeDetails.aspx?ID=900">Audit Committee</a>
     <a href="mgCommitteeDetails.aspx?ID=111">Full Council</a>
-    <a href="ieListMeetings.aspx?CommitteeId=111">Full Council</a>
-    <a href="ieListMeetings.aspx?CommitteeId=142">Cabinet</a>
+    <a href="mgCommitteeDetails.aspx?ID=142">Cabinet</a>
+    <a href="ieListMeetings.aspx?CId=1072&amp;MD=Constitution&amp;info=1&amp;bcr=1">Constitution</a>
     <a href="mgMemberIndex.aspx?bcr=1">Councillors</a>
+  `,
+  "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CommitteeId=900": `
+    <a href="mgCommitteeDetails.aspx?ID=900">Audit Committee</a>
+  `,
+  "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CId=1072&MD=Constitution&info=1&bcr=1":
+    `
+    <a href="ieListDocuments.aspx?CId=1072&amp;MId=1&amp;Ver=4">Constitution part 1</a>
   `,
   // Committee listings — dated meeting pages behind each.
   "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CommitteeId=111": `
@@ -150,14 +160,16 @@ Deno.test("resolveCivicListings surfaces modern.gov committee listings behind a 
   assertEquals(result.candidates.map((c) => c.url), [
     "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CommitteeId=111",
     "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CommitteeId=142",
+    "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CId=1072&MD=Constitution&info=1&bcr=1",
   ]);
   assertEquals(result.candidates[0].recommended, true);
   assertEquals(result.candidates[0].documents_visible, 2);
   assertEquals(result.candidates[0].description, "Full Council");
   assertEquals(result.candidates[1].recommended, false);
-  // Budget: 1 seed + 1 entry + 2 listings; the calendar entry is never fetched
-  // because the committee index already yielded listings.
-  assertEquals(result.scraped, 4);
+  // Budget: 1 seed + 1 entry + up to 5 listings (Council, Cabinet, Audit,
+  // Constitution — derived from committee records, priority bodies first);
+  // the calendar entry is never fetched because the committee index sufficed.
+  assertEquals(result.scraped, 6);
   assert(
     !log.includes(
       "https://democracy.bristol.gov.uk/mgCalendarMonthView.aspx?GL=1&bcr=1",
@@ -235,6 +247,7 @@ Deno.test("validateCivicTrackedUrls accepts a verified listing and rejects a sec
   assertEquals(bad.candidates.map((c) => c.url), [
     "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CommitteeId=111",
     "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CommitteeId=142",
+    "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CId=1072&MD=Constitution&info=1&bcr=1",
   ]);
 
   const mixed = await validateCivicTrackedUrls([listing, section], {
@@ -243,4 +256,42 @@ Deno.test("validateCivicTrackedUrls accepts a verified listing and rejects a sec
   assertEquals(mixed.ok, false);
   assertEquals(mixed.validated, [listing]);
   assertEquals(mixed.invalid, [section]);
+});
+
+Deno.test("modernGovListingForCommittee derives the listing from a committee record", () => {
+  assertEquals(
+    modernGovListingForCommittee(
+      "https://democracy.leeds.gov.uk/mgCommitteeDetails.aspx?ID=111",
+    ),
+    "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=111",
+  );
+  assertEquals(
+    modernGovListingForCommittee(
+      "https://democracy.leeds.gov.uk/mgMemberIndex.aspx?bcr=1",
+    ),
+    null,
+  );
+});
+
+// Live finding 2026-09-07: the Leeds committee index (38 mgCommitteeDetails
+// record links) was "validated" as a tracked page because record ids were
+// counted as documents. A modern.gov page without meeting pages exposes none.
+Deno.test("a modern.gov committee index is not a valid tracked page and its committees are offered instead", async () => {
+  const entry = "https://democracy.bristol.gov.uk/mgListCommittees.aspx?bcr=1";
+  const result = await validateCivicTrackedUrls([entry], {
+    fetchHtml: fetcher(),
+  });
+  assertEquals(result.ok, false);
+  assertEquals(result.invalid, [entry]);
+  assertEquals(result.candidates.map((c) => c.description), [
+    "Full Council",
+    "Cabinet",
+    "Constitution",
+  ]);
+  assertEquals(
+    countVisibleMeetingDocuments(
+      extractCivicLinksFromHtml(FIXTURES[entry], entry),
+    ),
+    0,
+  );
 });

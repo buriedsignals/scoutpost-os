@@ -565,3 +565,28 @@ Deno.test("classifyCivicMeetingUrls resolves modern.gov meeting pages without th
     globalThis.fetch = originalFetch;
   }
 });
+
+Deno.test("modern.gov mg*.aspx record pages are never meeting documents", () => {
+  assertEquals(
+    isCivicMeetingDocumentLink({
+      url: "https://democracy.leeds.gov.uk/mgCommitteeDetails.aspx?ID=111",
+      anchorText: "Full Council",
+    }),
+    false,
+  );
+  assertEquals(
+    isCivicMeetingDocumentLink({
+      url: "https://democracy.leeds.gov.uk/mgUserInfo.aspx?UID=42",
+      anchorText: "Councillor Example",
+    }),
+    false,
+  );
+  assertEquals(
+    isCivicMeetingDocumentLink({
+      url:
+        "https://democracy.leeds.gov.uk/ieListDocuments.aspx?CId=111&MId=14369&Ver=4",
+      anchorText: "9 Sep 2026 1.00 pm",
+    }),
+    true,
+  );
+});

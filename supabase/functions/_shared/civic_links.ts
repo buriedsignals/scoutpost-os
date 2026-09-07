@@ -366,7 +366,7 @@ export function keywordCivicMeetingDocumentLinks(
     .filter((link) => isCivicScrapableUrl(link.url))
     .filter((link) =>
       hasMeetingKeyword(civicMatchText(link)) ||
-      isCivicRecordDetailUrl(link.url)
+      isCivicRecordDocumentUrl(link.url)
     )
     .filter(isCivicMeetingDocumentLink)
     .sort(compareCivicLinks);
@@ -382,7 +382,8 @@ export async function classifyCivicMeetingUrls(
   // meeting whatever its anchor says ("9 Sep 2026 1.00 pm" carries no
   // keyword), so it joins the deterministic stage alongside keyword hits.
   const keywordMatches = scrapableLinks.filter((link) =>
-    hasMeetingKeyword(civicMatchText(link)) || isCivicRecordDetailUrl(link.url)
+    hasMeetingKeyword(civicMatchText(link)) ||
+    isCivicRecordDocumentUrl(link.url)
   );
 
   const keywordDocumentLinks = keywordMatches.filter(
@@ -448,6 +449,7 @@ export async function classifyCivicMeetingUrls(
  * summaries instead of accountability leads.
  */
 export function isCivicMeetingDocumentLink(link: CivicLink): boolean {
+  if (isModernGovNonDocumentPage(link.url)) return false;
   if (isPdfUrl(link.url) || isCivicRecordDetailUrl(link.url)) return true;
   const evidence = `${link.url} ${link.anchorText}`;
   if (
@@ -544,6 +546,26 @@ export function isCivicRecordDetailUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * modern.gov `mg*.aspx?ID=<n>` pages are committee, member and mailing-list
+ * records — record ids, but never meeting documents. Only `ie*.aspx` pages
+ * (`ieListDocuments.aspx?…MId=`) and `/documents/` files are. Verified on
+ * democracy.leeds.gov.uk, 2026-09-07 (38 `mgCommitteeDetails.aspx?ID=` links
+ * on the committee index were being counted as documents).
+ */
+export function isModernGovNonDocumentPage(url: string): boolean {
+  try {
+    return /\/mg[A-Za-z0-9]+\.aspx$/i.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
+}
+
+/** A record-id URL that can stand for one meeting document. */
+export function isCivicRecordDocumentUrl(url: string): boolean {
+  return isCivicRecordDetailUrl(url) && !isModernGovNonDocumentPage(url);
 }
 
 export function filterCivicDiscoveryCandidates<T extends { url: string }>(

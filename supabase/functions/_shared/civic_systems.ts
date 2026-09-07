@@ -60,6 +60,20 @@ const MODERNGOV_LISTING = /\/ieListMeetings\.aspx$/i;
 const MODERNGOV_MEETING = /\/ieListDocuments\.aspx$/i;
 const MODERNGOV_ENTRY =
   /\/(?:mgListCommittees|mgCalendarMonthView|mgCommitteeDetails|mgWhatsNew)\.aspx$/i;
+const MODERNGOV_COMMITTEE = /\/mgCommitteeDetails\.aspx$/i;
+
+/**
+ * Anchor text that marks the bodies whose meetings matter most; their
+ * listings are verified first when a committee index offers dozens.
+ */
+const PRIORITY_COMMITTEE_TERMS = [
+  "full council",
+  "council",
+  "cabinet",
+  "executive",
+  "planning",
+  "scrutiny",
+];
 
 function pathOf(url: string): string | null {
   try {
@@ -114,6 +128,32 @@ export function isModernGovEntryUrl(url: string): boolean {
   return path !== null && MODERNGOV_ENTRY.test(path);
 }
 
+/**
+ * A committee record page `mgCommitteeDetails.aspx?ID=<n>` has a listing at
+ * `ieListMeetings.aspx?CommitteeId=<n>` on the same host — derived without a
+ * fetch (verified on democracy.leeds.gov.uk: committee 111 → CommitteeId=111).
+ */
+export function modernGovListingForCommittee(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (!MODERNGOV_COMMITTEE.test(parsed.pathname)) return null;
+    const id = [...parsed.searchParams].find(([k]) => k.toLowerCase() === "id")
+      ?.[1]?.trim();
+    if (!id || !/^\d+$/.test(id)) return null;
+    return `${parsed.origin}/ieListMeetings.aspx?CommitteeId=${id}`;
+  } catch {
+    return null;
+  }
+}
+
+function committeePriority(label: string | undefined): number {
+  const text = (label ?? "").toLowerCase();
+  const index = PRIORITY_COMMITTEE_TERMS.findIndex((term) =>
+    text.includes(term)
+  );
+  return index === -1 ? PRIORITY_COMMITTEE_TERMS.length : index;
+}
+
 export function detectCivicSystem(urls: string[]): CivicSystem {
   return urls.some(isModernGovUrl) ? "moderngov" : "generic";
 }
@@ -125,8 +165,11 @@ export function detectCivicSystem(urls: string[]): CivicSystem {
  * leaf documents.
  */
 export function countVisibleMeetingDocuments(links: CivicLink[]): number {
-  const moderngov = links.filter((link) => isModernGovMeetingUrl(link.url));
-  if (moderngov.length > 0) return moderngov.length;
+  const meetings = links.filter((link) => isModernGovMeetingUrl(link.url));
+  if (meetings.length > 0) return meetings.length;
+  // A modern.gov page without meeting pages exposes committee/member records
+  // at most — never documents — however many record ids it carries.
+  if (links.some((link) => isModernGovUrl(link.url))) return 0;
   return keywordCivicMeetingDocumentLinks(links).length;
 }
 
@@ -222,8 +265,24 @@ export async function resolveCivicListings(
 
   if (system === "moderngov") {
     const verified = new Set(candidates.map((c) => c.url));
-    let listings = dedupe(seenUrls.filter(isModernGovListingUrl))
-      .filter((url) => !verified.has(url));
+    const collectListings = (urls: string[]): string[] => {
+      const direct = urls.filter(isModernGovListingUrl);
+      const derived: string[] = [];
+      for (const url of urls) {
+        const listing = modernGovListingForCommittee(url);
+        if (!listing) continue;
+        if (!labels.has(listing) && labels.has(url)) {
+          labels.set(listing, labels.get(url)!);
+        }
+        derived.push(listing);
+      }
+      return dedupe([...direct, ...derived])
+        .filter((url) => !verified.has(url))
+        .sort((a, b) =>
+          committeePriority(labels.get(a)) - committeePriority(labels.get(b))
+        );
+    };
+    let listings = collectListings(seenUrls);
 
     if (listings.length === 0 && maxEntries > 0) {
       // Expand entry pages in priority order and stop at the first that
@@ -242,9 +301,7 @@ export async function resolveCivicListings(
             labels.set(link.url, link.anchorText);
           }
         }
-        listings = dedupe(
-          page.links.map((link) => link.url).filter(isModernGovListingUrl),
-        );
+        listings = collectListings(page.links.map((link) => link.url));
         if (listings.length > 0) break;
       }
     }
@@ -272,6 +329,7 @@ export async function resolveCivicListings(
 
   candidates.sort((a, b) =>
     b.documents_visible - a.documents_visible ||
+    committeePriority(a.description) - committeePriority(b.description) ||
     b.confidence - a.confidence || a.url.localeCompare(b.url)
   );
   if (candidates.length > 0) candidates[0].recommended = true;
