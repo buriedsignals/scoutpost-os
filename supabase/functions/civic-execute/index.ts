@@ -69,7 +69,9 @@ import { parseDocument } from "../_shared/docparse.ts";
 import {
   assertCompleteCivicMembership,
   loadCivicDocumentBaselineHashes,
+  replacementCheckUrls,
   shouldQueueCivicDocument,
+  upsertCivicDocumentMembership,
 } from "../_shared/civic_document_membership.ts";
 
 const InputSchema = z.object({
@@ -407,10 +409,13 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         continue;
       }
 
-      // A stable archive/listing page does not prove its linked minutes are
-      // unchanged: councils commonly replace a PDF at the same URL.  Resolve
-      // and hash the current bounded membership on every run, then let the
-      // document baseline decide whether a worker job is required.
+      // Resolve the documents the listing currently exposes. A NEW URL (not
+      // in the membership baseline) is queued without parsing — that is the
+      // whole point of the baseline. Councils also replace a PDF at a stable
+      // URL (draft → final minutes), so the newest few KNOWN documents are
+      // re-hashed each run; everything older is trusted as unchanged. This
+      // keeps a run at ≤ MAX_DOCS_PER_RUN queued documents plus a fixed
+      // number of parses, whatever the archive size.
       const docs = (await classifyCivicMeetingUrls(extractCivicLinksFromPages([{
         pageUrl: url,
         rawHtml: result.rawHtml ?? "",
@@ -419,15 +424,43 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
       );
       for (const documentUrl of docs) currentMembershipUrls.add(documentUrl);
       assertCompleteCivicMembership([...currentMembershipUrls]);
+      const replacementChecks = new Set(
+        replacementCheckUrls(docs, documentBaselines),
+      );
       let queuedForTrackedUrl = 0;
       for (const docUrl of docs) {
         if (queuedCount >= MAX_DOCS_PER_RUN) break;
         if (skipSet.has(docUrl)) continue;
 
-        const documentHash = await civicDocumentContentHash(
-          docUrl,
-          scout.user_id as string,
-        );
+        let documentHash: string | null = null;
+        if (replacementChecks.has(docUrl)) {
+          try {
+            documentHash = await civicDocumentContentHash(
+              docUrl,
+              scout.user_id as string,
+            );
+          } catch (e) {
+            logEvent({
+              level: "warn",
+              fn: "civic-execute",
+              event: "replacement_check_failed",
+              scout_id: scoutId,
+              url: docUrl,
+              msg: e instanceof Error ? e.message : String(e),
+            });
+            continue;
+          }
+          // First parse of a URL-only membership row: record the version so
+          // the next run can tell a replacement from this same file.
+          if (documentBaselines.get(docUrl) === null) {
+            await upsertCivicDocumentMembership(db, {
+              scoutId: scout.id as string,
+              userId: scout.user_id as string,
+              sourceUrl: docUrl,
+              contentHash: documentHash,
+            });
+          }
+        }
         if (
           !shouldQueueCivicDocument(
             docUrl,
@@ -454,9 +487,10 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         }
 
         // Guard against double-enqueue within the same run (two tracked
-        // pages linking the same PDF). scouts.processed_pdf_urls is now
-        // only touched by the worker — on successful extraction.
+        // pages linking the same PDF). Membership advances only when the
+        // worker succeeds, so a failed parse stays eligible next run.
         skipSet.add(docUrl);
+        queueSeen.add(docUrl);
         queuedCount += 1;
         queuedForTrackedUrl += 1;
       }

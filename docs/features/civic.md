@@ -113,9 +113,10 @@ finalizing work another worker has taken over.
 ## Discovery And Extraction Rules
 
 - Discovery should prefer official listing/archive pages over direct PDF URLs.
-- Import-off creation resolves document hashes with bounded parallelism. The
-  public proxy and CLI allow the full hosted Edge Function request window, so
-  a valid multi-document baseline is not abandoned after 15 or 30 seconds.
+- Import-off creation records URL membership of the documents the tracked
+  pages list (no parsing, no archive-size cap below 5,000 URLs). A scheduled
+  run queues only new URLs, at most two per run, and re-hashes the newest
+  three known documents to detect a replaced file at a stable URL.
 - Civic document parsing supports both PDF and HTML.
 - The self-hosted parse path uses Poppler `pdftotext -layout` first. Only
   low-yield/scanned PDFs use Google's native PDF processing through OpenRouter;

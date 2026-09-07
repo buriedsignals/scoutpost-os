@@ -26,7 +26,7 @@ import {
   keywordCivicMeetingDocumentLinks,
 } from "./civic_links.ts";
 
-export type CivicSystem = "moderngov" | "generic";
+export type CivicSystem = "moderngov" | "legistar" | "generic";
 
 export interface CivicListingCandidate {
   url: string;
@@ -45,6 +45,8 @@ export interface CivicResolveDiagnostics {
   probed: string[];
   /** Every listing fetched, with the meetings visible on it (0 = dropped). */
   listings_checked: Array<{ url: string; documents_visible: number }>;
+  /** Listings that could not be fetched (timeout, error) — offered nowhere. */
+  listings_failed: Array<{ url: string; description?: string; error: string }>;
 }
 
 export interface CivicResolveResult {
@@ -87,16 +89,26 @@ const CIVIC_HOP_EXCLUDE = /\b(?:tax|bins?|parking|benefits?|housing|jobs?)\b/i;
 const WELL_KNOWN_COMMITTEE_HOSTS = ["democracy", "committees", "moderngov"];
 
 function wellKnownEntryUrls(hosts: string[]): string[] {
-  const bases = new Set<string>();
+  const urls: string[] = [];
+  const seen = new Set<string>();
   for (const host of hosts) {
     const base = civicSiteBaseHost(host);
-    if (base && base.endsWith(".gov.uk")) bases.add(base);
+    if (!base || seen.has(base)) continue;
+    seen.add(base);
+    if (base.endsWith(".gov.uk")) {
+      for (const sub of WELL_KNOWN_COMMITTEE_HOSTS) {
+        urls.push(`https://${sub}.${base}/mgListCommittees.aspx?bcr=1`);
+      }
+    } else if (/\.(?:gov|us|org)$/i.test(base)) {
+      // Legistar tenants are named after the council: seattle.gov →
+      // seattle.legistar.com (verified). One fetch; wrong guesses 404.
+      const name = base.split(".")[0];
+      if (name && name.length >= 3) {
+        urls.push(`https://${name}.legistar.com/Calendar.aspx`);
+      }
+    }
   }
-  return [...bases].flatMap((base) =>
-    WELL_KNOWN_COMMITTEE_HOSTS.map((sub) =>
-      `https://${sub}.${base}/mgListCommittees.aspx?bcr=1`
-    )
-  );
+  return urls;
 }
 
 function hostOf(url: string): string | null {
@@ -108,6 +120,20 @@ function hostOf(url: string): string | null {
 }
 
 const MODERNGOV_PAGE = /\/(?:ie|mg)[A-Za-z0-9]+\.aspx$/i;
+
+/**
+ * Legistar (Granicus; US councils). Shape verified on seattle.legistar.com,
+ * 2026-09-07:
+ *   Calendar.aspx                          — all meetings (listing)
+ *   DepartmentDetail.aspx?ID=<n>&GUID=<g>  — one committee (listing)
+ *   MeetingDetail.aspx?ID=<n>&GUID=<g>     — one meeting (HTML page)
+ *   View.ashx?M=A|M|…&ID=<n>&GUID=<g>      — agenda / minutes file
+ */
+const LEGISTAR_HOST = /(?:^|\.)legistar\.com$/i;
+const LEGISTAR_PAGE =
+  /\/(?:Calendar|DepartmentDetail|MeetingDetail|LegislationDetail|Legislation|Departments)\.aspx$|\/View\.ashx$/i;
+const LEGISTAR_LISTING = /\/(?:Calendar|DepartmentDetail)\.aspx$/i;
+const LEGISTAR_MEETING = /\/MeetingDetail\.aspx$/i;
 const MODERNGOV_LISTING = /\/ieListMeetings\.aspx$/i;
 const MODERNGOV_MEETING = /\/ieListDocuments\.aspx$/i;
 const MODERNGOV_ENTRY =
@@ -151,6 +177,30 @@ function hasPopulatedParam(url: string, names: string[]): boolean {
 export function isModernGovUrl(url: string): boolean {
   const path = pathOf(url);
   return path !== null && MODERNGOV_PAGE.test(path);
+}
+
+export function isLegistarUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return LEGISTAR_HOST.test(parsed.hostname) ||
+      LEGISTAR_PAGE.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/** A Legistar calendar or committee page — the tracked URL for a scout. */
+export function isLegistarListingUrl(url: string): boolean {
+  const path = pathOf(url);
+  if (path === null || !LEGISTAR_LISTING.test(path)) return false;
+  return /\/Calendar\.aspx$/i.test(path) || hasPopulatedParam(url, ["id"]);
+}
+
+/** One meeting's page (carries `ID`). */
+export function isLegistarMeetingUrl(url: string): boolean {
+  const path = pathOf(url);
+  return path !== null && LEGISTAR_MEETING.test(path) &&
+    hasPopulatedParam(url, ["id"]);
 }
 
 /** A committee's meetings list — the ideal tracked URL for a Council scout. */
@@ -216,7 +266,9 @@ function committeePriority(label: string | undefined): number {
 }
 
 export function detectCivicSystem(urls: string[]): CivicSystem {
-  return urls.some(isModernGovUrl) ? "moderngov" : "generic";
+  if (urls.some(isModernGovUrl)) return "moderngov";
+  if (urls.some(isLegistarUrl)) return "legistar";
+  return "generic";
 }
 
 /**
@@ -226,11 +278,17 @@ export function detectCivicSystem(urls: string[]): CivicSystem {
  * leaf documents.
  */
 export function countVisibleMeetingDocuments(links: CivicLink[]): number {
-  const meetings = links.filter((link) => isModernGovMeetingUrl(link.url));
+  const meetings = links.filter((link) =>
+    isModernGovMeetingUrl(link.url) || isLegistarMeetingUrl(link.url)
+  );
   if (meetings.length > 0) return meetings.length;
-  // A modern.gov page without meeting pages exposes committee/member records
-  // at most — never documents — however many record ids it carries.
-  if (links.some((link) => isModernGovUrl(link.url))) return 0;
+  // A committee-system page without meeting pages exposes committee/member
+  // records at most — never documents — however many record ids it carries.
+  if (
+    links.some((link) => isModernGovUrl(link.url) || isLegistarUrl(link.url))
+  ) {
+    return 0;
+  }
   return keywordCivicMeetingDocumentLinks(links).length;
 }
 
@@ -242,12 +300,14 @@ interface FetchedPage {
 async function fetchPages(
   urls: string[],
   fetchHtml: CivicPageFetcher,
+  onError?: (url: string, error: unknown) => void,
 ): Promise<FetchedPage[]> {
   const results = await Promise.all(urls.map(async (url) => {
     try {
       const html = await fetchHtml(url);
       return { url, links: extractCivicLinksFromHtml(html, url) };
-    } catch {
+    } catch (error) {
+      onError?.(url, error);
       return null;
     }
   }));
@@ -292,6 +352,7 @@ export async function resolveCivicListings(
     second_level: [],
     probed: [],
     listings_checked: [],
+    listings_failed: [],
   };
 
   const labels = new Map<string, string>();
@@ -353,7 +414,9 @@ export async function resolveCivicListings(
       if (!page) continue;
       scraped += 1;
       const urls = page.links.map((link) => link.url);
-      if (!urls.some(isModernGovUrl) && !isModernGovUrl(entry)) continue;
+      const hit = urls.some((u) => isModernGovUrl(u) || isLegistarUrl(u)) ||
+        isModernGovUrl(entry) || isLegistarUrl(entry);
+      if (!hit) continue;
       remember([page]);
       seenUrls.push(entry, ...urls);
       break;
@@ -370,11 +433,60 @@ export async function resolveCivicListings(
     if (visible > 0) {
       candidates.push({
         url: page.url,
-        description: isModernGovListingUrl(page.url)
-          ? labels.get(page.url) ?? "Committee meetings listing"
+        description: isModernGovListingUrl(page.url) ||
+            isLegistarListingUrl(page.url)
+          ? labels.get(page.url) ?? "Meetings listing"
           : "Page listing meeting documents",
         confidence: 0.9,
-        system: isModernGovUrl(page.url) ? "moderngov" : "generic",
+        system: isModernGovUrl(page.url)
+          ? "moderngov"
+          : isLegistarUrl(page.url)
+          ? "legistar"
+          : "generic",
+        documents_visible: visible,
+        recommended: false,
+      });
+    }
+  }
+
+  if (system === "legistar") {
+    const verified = new Set(candidates.map((c) => c.url));
+    const listings = dedupe(seenUrls.filter(isLegistarListingUrl))
+      .filter((url) => !verified.has(url))
+      // The calendar (all bodies) first, then committees.
+      .sort((a, b) =>
+        Number(!/\/Calendar\.aspx$/i.test(a)) -
+        Number(!/\/Calendar\.aspx$/i.test(b))
+      )
+      .slice(0, maxListings);
+    const listingPages = await fetchPages(
+      listings,
+      opts.fetchHtml,
+      (url, error) =>
+        diagnostics.listings_failed.push({
+          url,
+          description: labels.get(url),
+          error: String(error instanceof Error ? error.message : error)
+            .slice(0, 160),
+        }),
+    );
+    scraped += listingPages.length;
+    for (const page of listingPages) {
+      const visible = page.links.filter((link) =>
+        isLegistarMeetingUrl(link.url)
+      ).length;
+      diagnostics.listings_checked.push({
+        url: page.url,
+        documents_visible: visible,
+      });
+      if (visible === 0) continue;
+      candidates.push({
+        url: page.url,
+        description: /\/Calendar\.aspx$/i.test(page.url)
+          ? "All meetings (calendar)"
+          : labels.get(page.url) ?? "Committee meetings listing",
+        confidence: 0.85,
+        system: "legistar",
         documents_visible: visible,
         recommended: false,
       });
@@ -427,6 +539,13 @@ export async function resolveCivicListings(
     const listingPages = await fetchPages(
       listings.slice(0, maxListings),
       opts.fetchHtml,
+      (url, error) =>
+        diagnostics.listings_failed.push({
+          url,
+          description: labels.get(url),
+          error: String(error instanceof Error ? error.message : error)
+            .slice(0, 160),
+        }),
     );
     scraped += listingPages.length;
     for (const page of listingPages) {

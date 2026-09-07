@@ -575,7 +575,11 @@ export function isModernGovNonDocumentPage(url: string): boolean {
 export function isCivicRecordDocumentUrl(url: string): boolean {
   if (!isCivicRecordDetailUrl(url)) return false;
   try {
-    return /\/ie[A-Za-z0-9]+\.aspx$/i.test(new URL(url).pathname);
+    const path = new URL(url).pathname;
+    // modern.gov meeting pages; Legistar meeting pages and agenda/minutes
+    // files (`View.ashx?M=A&ID=…`), verified on seattle.legistar.com.
+    return /\/ie[A-Za-z0-9]+\.aspx$/i.test(path) ||
+      /\/(?:MeetingDetail\.aspx|View\.ashx)$/i.test(path);
   } catch {
     return false;
   }

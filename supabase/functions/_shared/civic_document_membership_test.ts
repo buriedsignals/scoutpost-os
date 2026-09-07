@@ -3,7 +3,9 @@ import {
   assertCompleteCivicMembership,
   CIVIC_BASELINE_PARSE_CONCURRENCY,
   CIVIC_DOCUMENT_MEMBERSHIP_MAX,
+  CIVIC_REPLACEMENT_CHECK_LIMIT,
   mapCivicBaselineDocuments,
+  replacementCheckUrls,
   shouldQueueCivicDocument,
 } from "./civic_document_membership.ts";
 
@@ -22,8 +24,78 @@ Deno.test("Civic document membership rejects an archive beyond the complete-base
           `https://city.example/minutes/${index}`),
       ),
     Error,
-    "complete creation baseline limit",
+    "membership bound",
   );
+});
+
+// The baseline is URL membership: a new URL queues without any parsing; a
+// known URL is unchanged unless a hash was computed for it and differs.
+Deno.test("Civic document membership queues new URLs and trusts unparsed known URLs", () => {
+  const baseline = new Map<string, string | null>([
+    ["https://city.example/minutes/a", "a".repeat(64)],
+    ["https://city.example/minutes/b", null],
+  ]);
+  // Unknown URL → queue, no hash needed.
+  assertEquals(
+    shouldQueueCivicDocument(
+      "https://city.example/minutes/c",
+      null,
+      baseline,
+      new Set(),
+    ),
+    true,
+  );
+  // Known, not re-hashed this run → assumed unchanged.
+  assertEquals(
+    shouldQueueCivicDocument(
+      "https://city.example/minutes/a",
+      null,
+      baseline,
+      new Set(),
+    ),
+    false,
+  );
+  // Known URL-only row, hash computed now → first parse is not a "change".
+  assertEquals(
+    shouldQueueCivicDocument(
+      "https://city.example/minutes/b",
+      "b".repeat(64),
+      baseline,
+      new Set(),
+    ),
+    false,
+  );
+  // A 500-document Legistar calendar is within the membership bound.
+  assertEquals(
+    assertCompleteCivicMembership(
+      Array.from(
+        { length: 500 },
+        (_, i) => `https://seattle.legistar.com/View.ashx?M=A&ID=${i}`,
+      ),
+    ),
+    undefined,
+  );
+});
+
+Deno.test("replacementCheckUrls picks the newest known hashed documents up to the limit", () => {
+  const docs = [
+    "https://city.example/minutes/new",
+    "https://city.example/minutes/2026-06",
+    "https://city.example/minutes/2026-05",
+    "https://city.example/minutes/2026-04",
+    "https://city.example/minutes/2026-03",
+  ];
+  const baseline = new Map<string, string | null>([
+    ["https://city.example/minutes/2026-06", "a".repeat(64)],
+    ["https://city.example/minutes/2026-05", null],
+    ["https://city.example/minutes/2026-04", "c".repeat(64)],
+    ["https://city.example/minutes/2026-03", "d".repeat(64)],
+  ]);
+  assertEquals(CIVIC_REPLACEMENT_CHECK_LIMIT, 3);
+  assertEquals(replacementCheckUrls(docs, baseline, 2), [
+    "https://city.example/minutes/2026-06",
+    "https://city.example/minutes/2026-04",
+  ]);
 });
 
 Deno.test("Civic document membership ignores reordered unchanged archives", () => {

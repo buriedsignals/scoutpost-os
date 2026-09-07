@@ -386,12 +386,84 @@ Deno.test("resolveCivicListings probes democracy.<council>.gov.uk when the root 
   ]]);
 });
 
-Deno.test("resolveCivicListings does not probe well-known hosts outside .gov.uk", async () => {
+Deno.test("resolveCivicListings probes a Legistar tenant for .org/.gov roots and gives up cleanly", async () => {
   const result = await resolveCivicListings([
     "https://www.example-town.org/about",
   ], {
     fetchHtml: fetcher(),
   });
-  assertEquals(result.diagnostics.probed, []);
+  assertEquals(result.diagnostics.probed, [
+    "https://example-town.legistar.com/Calendar.aspx",
+  ]);
   assertEquals(result.candidates, []);
+  const swiss = await resolveCivicListings([
+    "https://gemeinde.zermatt.ch/urversammlung/protokoll",
+  ], {
+    fetchHtml: fetcher(),
+  });
+  assertEquals(swiss.diagnostics.probed, []);
+});
+
+// Legistar shapes verified on seattle.legistar.com (2026-09-07); ids synthetic.
+Deno.test("resolveCivicListings resolves a Legistar calendar from a US city root", async () => {
+  const fx: Record<string, string> = {
+    "https://www.seattle.gov": `<a href="/council">City Council</a>`,
+    "https://www.seattle.gov/council":
+      `<a href="/council/meetings">Council meetings</a>`,
+    "https://seattle.legistar.com/Calendar.aspx": `
+      <a href="DepartmentDetail.aspx?ID=21287&amp;GUID=aaa">Land Use Committee</a>
+      <a href="MeetingDetail.aspx?ID=1417362&amp;GUID=FC&amp;Options=info&amp;Search=">Meeting details</a>
+      <a href="MeetingDetail.aspx?ID=1417360&amp;GUID=CE&amp;Options=info&amp;Search=">Meeting details</a>
+      <a href="View.ashx?M=A&amp;ID=1417362&amp;GUID=FC">Agenda</a>
+      <a href="View.ashx?M=M&amp;ID=1417360&amp;GUID=CE">Minutes</a>
+    `,
+  };
+  const result = await resolveCivicListings(["https://www.seattle.gov"], {
+    fetchHtml: (url) =>
+      fx[url] === undefined
+        ? Promise.reject(new Error(`404 ${url}`))
+        : Promise.resolve(fx[url]),
+  });
+  assertEquals(result.system, "legistar");
+  assertEquals(result.diagnostics.probed, [
+    "https://seattle.legistar.com/Calendar.aspx",
+  ]);
+  assertEquals(
+    result.candidates.map((c) => [c.url, c.description, c.documents_visible]),
+    [
+      [
+        "https://seattle.legistar.com/Calendar.aspx",
+        "All meetings (calendar)",
+        2,
+      ],
+    ],
+  );
+  assertEquals(result.candidates[0].recommended, true);
+});
+
+Deno.test("resolveCivicListings records listings that could not be fetched", async () => {
+  const fx: Record<string, string> = {
+    "https://democracy.york.gov.uk/mgListCommittees.aspx?bcr=1": `
+      <a href="mgCommitteeDetails.aspx?ID=7">Full Council</a>
+      <a href="mgCommitteeDetails.aspx?ID=8">Cabinet</a>
+    `,
+    "https://democracy.york.gov.uk/ieListMeetings.aspx?CommitteeId=8": `
+      <a href="ieListDocuments.aspx?CId=8&amp;MId=1&amp;Ver=4">1 Oct 2026 6.30 pm</a>
+    `,
+  };
+  const result = await resolveCivicListings(
+    ["https://democracy.york.gov.uk/mgListCommittees.aspx?bcr=1"],
+    {
+      fetchHtml: (url) =>
+        fx[url] === undefined
+          ? Promise.reject(new Error("firecrawl scrape aborted after 45000ms"))
+          : Promise.resolve(fx[url]),
+    },
+  );
+  assertEquals(result.candidates.map((c) => c.description), ["Cabinet"]);
+  assertEquals(result.diagnostics.listings_failed, [{
+    url: "https://democracy.york.gov.uk/ieListMeetings.aspx?CommitteeId=7",
+    description: "Full Council",
+    error: "firecrawl scrape aborted after 45000ms",
+  }]);
 });

@@ -66,7 +66,10 @@ const DiscoverSchema = z.object({
   message: "root_domain or tracked_urls is required",
 });
 
-const RESOLVER_SCRAPE_TIMEOUT_MS = 20_000;
+// modern.gov committee listings render server-side but slowly: Leeds'
+// Executive Board took 41 s through Firecrawl (2026-09-07). Listings are
+// fetched concurrently, so the budget is per page, not additive.
+const RESOLVER_SCRAPE_TIMEOUT_MS = 45_000;
 
 function resolverFetcher(tenantKey: string): (url: string) => Promise<string> {
   return async (url: string) => {

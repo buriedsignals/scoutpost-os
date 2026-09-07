@@ -78,9 +78,11 @@ import {
 import { validateCivicTrackedUrls } from "../_shared/civic_systems.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
 import { writeCanonicalBaseline } from "../_shared/canonical_baseline.ts";
+import { parseDocument } from "../_shared/docparse.ts";
+import { sha256Hex } from "../_shared/unit_dedup.ts";
 import {
   assertCompleteCivicMembership,
-  mapCivicBaselineDocuments,
+  recordCivicDocumentUrls,
   upsertCivicDocumentMembership,
 } from "../_shared/civic_document_membership.ts";
 import {
@@ -89,8 +91,6 @@ import {
   extractCivicLinksFromPages,
   isCivicDirectDocumentUrl,
 } from "../_shared/civic_links.ts";
-import { parseDocument } from "../_shared/docparse.ts";
-import { sha256Hex } from "../_shared/unit_dedup.ts";
 import { openRouterExtract } from "../_shared/openrouter.ts";
 import { compressContext } from "../_shared/taco_compress.ts";
 import {
@@ -893,11 +893,10 @@ async function establishCivicBaseline(
     );
   }
 
-  // Import-off is only truthful when we know the complete bounded archive
-  // membership.  Hash every discovered source now; a later schedule compares
-  // both URL and content version, rather than an order-sensitive/capped URL
-  // cache.  If this cannot be completed, creation fails instead of promising
-  // "new documents only" behaviour that we cannot provide.
+  // The creation baseline is URL membership: every document the tracked
+  // pages list right now is recorded (URL only, no parsing) so a scheduled
+  // run can queue what is NEW. Content hashes arrive later, from the worker
+  // on success and from the bounded replacement check on recent documents.
   const discovered = await classifyCivicMeetingUrls(
     extractCivicLinksFromPages(pages),
   );
@@ -907,32 +906,39 @@ async function establishCivicBaseline(
     )),
   ];
   assertCompleteCivicMembership(documentUrls);
-  const documentMembership = await mapCivicBaselineDocuments(
-    documentUrls,
-    async (sourceUrl) => {
-      const document = await parseDocument(sourceUrl, {
-        workloadClass: "utility",
-        tenantKey: scout.user_id,
-      });
-      const markdown = (document.markdown ?? "").slice(0, 80_000);
-      if (!markdown.trim()) {
-        throw new ValidationError(
-          `could not establish a content baseline for ${sourceUrl}`,
-        );
-      }
-      return {
-        sourceUrl,
-        contentHash: await sha256Hex(markdown),
-      };
-    },
-  );
-  for (const membership of documentMembership) {
+  await recordCivicDocumentUrls(svc, {
+    scoutId: scout.id,
+    userId: scout.user_id,
+    sourceUrls: documentUrls,
+  });
+  // A tracked URL that IS a document (a single PDF) has no listing to detect
+  // new entries on; its only signal is content replacement, so hash it now.
+  for (const sourceUrl of new Set(directDocuments.map(canonicalCivicUrl))) {
+    const document = await parseDocument(sourceUrl, {
+      workloadClass: "utility",
+      tenantKey: scout.user_id,
+    });
+    const markdown = (document.markdown ?? "").slice(0, 80_000);
+    if (!markdown.trim()) {
+      throw new ValidationError(
+        `could not establish a content baseline for ${sourceUrl}`,
+      );
+    }
     await upsertCivicDocumentMembership(svc, {
       scoutId: scout.id,
       userId: scout.user_id,
-      ...membership,
+      sourceUrl,
+      contentHash: await sha256Hex(markdown),
     });
   }
+  logEvent({
+    level: "info",
+    fn: "scouts",
+    event: "civic_baseline_membership",
+    scout_id: scout.id,
+    user_id: scout.user_id,
+    documents: documentUrls.length,
+  });
 }
 
 /**

@@ -2990,6 +2990,7 @@
         "type": "string",
         "enum": [
           "moderngov",
+          "legistar",
           "generic"
         ],
         "description": "Committee-system fingerprint detected from the council's URLs."
