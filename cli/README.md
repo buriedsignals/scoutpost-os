@@ -148,8 +148,10 @@ scout scouts add --name "Housing minutes" --type civic \
   --topic "housing, council" \
   --description "Monthly council-minutes monitor for housing policy." \
   --criteria "housing policy votes" --regularity monthly --time 08:00 --day 1
-scout civic discover --root-domain example.gov
+scout civic resolve --root-domain example.gov      # pages with council meetings visible
+scout civic validate --tracked-urls https://example.gov/minutes
 scout civic preview --tracked-urls https://example.gov/minutes --criteria "housing policy votes"
+scout scouts test --type web --url https://example.gov  # same probe the web UI runs
 scout civic items --kind promise --status in_progress
 scout civic runs
 scout scouts add --name "Local climate beat" --type beat \
@@ -199,6 +201,16 @@ filtering, and are distinct from investigation Projects / `project_id`. Use 1-3
 short comma-separated tags, not long instructions. Put human context in
 `--description` and filtering or notification rules in `--criteria`. A scout
 must have either topic tags or a location.
+
+Every surface runs the same pre-creation probe. `scout scouts test --type web`
+checks a Page scout's URL is reachable; `scout civic resolve` finds pages that
+list council meetings and `scout civic validate` checks the pages you chose.
+`scout scouts add` is rejected by the server (HTTP 422) when that probe fails,
+with the same `error_code` the web UI shows — `unreachable`, `blocked`,
+`empty_content`, `outside_configured_page` for Page scouts;
+`no_meetings_detected` for Council scouts. The CLI prints the envelope as
+JSON on stdout (agents read `candidates` and retry with one), a summary on
+stderr, and exits 1. There is no bypass flag.
 
 For a Fleet Scout, run `test-transport` and pass its `baseline_ids` through
 `--baseline-ids` when creating the schedule. Other scheduled scout types

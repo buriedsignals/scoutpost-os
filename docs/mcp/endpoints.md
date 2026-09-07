@@ -197,6 +197,39 @@ dispatches by tool name and forwards `arguments` to the underlying EF.
 `notifications/initialized` returns `202 Accepted` (no body) — JSON-RPC
 notifications have no response.
 
+### Scout creation probes (two-step)
+
+`create_scout` is gated server-side for `web` and `civic` scouts: `POST /scouts`
+re-runs step 1 before insert and answers **HTTP 422** with the probe envelope
+when it fails. `forward()` in `rpc.ts` throws on any non-2xx, so the tool call
+comes back as `isError:true` with text `scouts POST  → 422 {…envelope…}` — the
+agent must parse `error_code` (and `candidates`) out of that text.
+
+| Scout type | Step 1 tool | Step 2 tool | Create |
+|---|---|---|---|
+| `web` | `test_web_scout` → `POST /scouts/test` (`stage:"reach"`) | — | `create_scout` |
+| `civic` | `discover_civic_sources` → `POST /civic/discover` (`stage:"detect"`) | `preview_civic_items` → `POST /civic/test` (`stage:"sample"`) | `create_scout` (pass `preview_snapshot_token` to skip the gate) |
+
+Envelope (additive on every probe response, and the whole 422 body):
+
+```
+{ ok: boolean, stage: "reach"|"detect"|"sample", error_code?: string, error?: string }
+```
+
+`error_code` enum: `unreachable`, `blocked`, `empty_content`,
+`outside_configured_page` (web reach); `no_meetings_detected` (civic detect —
+an *outcome*, not an error: `candidates` lists listing pages with
+`documents_visible ≥ 1`, `recommended:true` on the best); `no_documents`,
+`parse_failed`, `model_failed` (civic sample); `criteria_not_met` (web,
+advisory — `ok` stays `true`).
+
+`discover_civic_sources` also accepts `tracked_urls` (1–2 URLs) instead of
+`root_domain`: validation mode, the same check the create gate runs, returning
+`validated`, `invalid` and replacement `candidates`. On a civic 422 the body
+carries `system`, `validated`, `invalid`, `candidates` — retry `create_scout`
+with one of the candidates. Source: `supabase/functions/_shared/scout_probe.ts`,
+`scouts/index.ts` (`probeCreateGate`), `civic/index.ts`.
+
 ## Cold-start latency check
 
 Run this before changing anything in the proxy or EF — it catches both

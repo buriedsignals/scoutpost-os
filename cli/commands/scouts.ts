@@ -1,12 +1,15 @@
 // scout scouts — manage scouts
 import {
   apiFetch,
+  ApiHttpError,
   CIVIC_API_TIMEOUT_MS,
+  isTerminal,
   parseArgs,
   printJSON,
   printTable,
   unwrapItems,
 } from "../lib/client.ts";
+import { printProbeSummary, probeEnvelopeFromPayload } from "../lib/probe.ts";
 
 function usage(): void {
   console.log(
@@ -14,6 +17,8 @@ function usage(): void {
       "Usage: scout scouts <subcommand>",
       "",
       "  list [--offset N] [--limit N] [--active true|false]",
+      "  test --type web --url <url> [--criteria <text>]",
+      "  test --type civic --tracked-urls <url,url>",
       "  test-transport --mode aircraft|vessel|satellite --watch-ids <id,id>",
       "                 --center-lat <n> --center-lon <n> --radius-km <n>",
       "                 [--area-name <name>] [--categories <cat,cat>] [--criteria <text>]",
@@ -49,6 +54,11 @@ function usage(): void {
       "  watched object enters the circle defined by --center-lat/--center-lon/",
       "  --radius-km. --criteria is an optional filter evaluated after entry. --time",
       "  defaults to 09:00 when omitted.",
+      "  `test` runs the same probe the web UI and the server apply before a",
+      "  scout is created: a Page scout must be reachable; a Council scout's",
+      "  tracked pages must list council meetings. `add` is rejected with the",
+      "  same error_code (HTTP 422) on every surface; for civic, the answer",
+      "  carries `candidates` — pages with meetings visible — to retry with.",
       "  Run test-transport first, then pass its baseline_ids to add with",
       "  --baseline-ids. Use --baseline-ids '' when the tested baseline is empty.",
       "  Omitting the flag uses legacy first-run baseline behavior.",
@@ -351,6 +361,50 @@ export async function run(argv: string[]): Promise<void> {
       );
       return;
     }
+    case "test": {
+      const type = stringFlag(flags, "type");
+      if (type === "web") {
+        const url = stringFlag(flags, "url");
+        if (!url) {
+          console.error("test --type web requires --url");
+          Deno.exit(1);
+        }
+        const body: Record<string, unknown> = { url };
+        const criteria = stringFlag(flags, "criteria");
+        if (criteria) body.criteria = criteria;
+        const result = await apiFetch<Record<string, unknown>>(
+          "/functions/v1/scouts/test",
+          { method: "POST", body: JSON.stringify(body) },
+        );
+        printJSON(result);
+        if (isTerminal()) printProbeSummary(result);
+        if (result.ok === false) Deno.exit(1);
+        return;
+      }
+      if (type === "civic") {
+        const trackedUrls = listFlag(flags, "tracked-urls");
+        if (!trackedUrls?.length) {
+          console.error("test --type civic requires --tracked-urls");
+          Deno.exit(1);
+        }
+        const result = await apiFetch<Record<string, unknown>>(
+          "/functions/v1/civic/discover",
+          {
+            method: "POST",
+            body: JSON.stringify({ tracked_urls: trackedUrls }),
+            timeoutMs: CIVIC_API_TIMEOUT_MS,
+          },
+        );
+        printJSON(result);
+        if (isTerminal()) printProbeSummary(result);
+        if (result.ok === false) Deno.exit(1);
+        return;
+      }
+      console.error(
+        "test requires --type web|civic (use test-transport for Fleet scouts)",
+      );
+      Deno.exit(1);
+    }
     case "test-transport": {
       const mode = stringFlag(flags, "mode");
       if (!mode || !TRANSPORT_MODES.includes(mode)) {
@@ -517,11 +571,27 @@ export async function run(argv: string[]): Promise<void> {
         Deno.exit(1);
       }
 
-      const created = await apiFetch<Scout>("/functions/v1/scouts", {
-        method: "POST",
-        body: JSON.stringify(body),
-        ...(flags.type === "civic" ? { timeoutMs: CIVIC_API_TIMEOUT_MS } : {}),
-      });
+      let created: Scout;
+      try {
+        created = await apiFetch<Scout>("/functions/v1/scouts", {
+          method: "POST",
+          body: JSON.stringify(body),
+          ...(flags.type === "civic"
+            ? { timeoutMs: CIVIC_API_TIMEOUT_MS }
+            : {}),
+        });
+      } catch (err) {
+        // Create gate (probe parity): the server answers 422 with the same
+        // envelope `scout scouts test` prints. Print it as JSON on stdout for
+        // agents, a summary on stderr for people, and exit 1.
+        const envelope = err instanceof ApiHttpError && err.status === 422
+          ? probeEnvelopeFromPayload(err.payload)
+          : null;
+        if (!envelope) throw err;
+        printJSON(envelope);
+        printProbeSummary(envelope);
+        Deno.exit(1);
+      }
       printJSON(created);
       return;
     }

@@ -16,7 +16,10 @@ Deno.serve((req): Response => {
 
   if (req.method !== "GET" && req.method !== "HEAD") {
     return new Response(
-      JSON.stringify({ error: "method not allowed", code: "method_not_allowed" }),
+      JSON.stringify({
+        error: "method not allowed",
+        code: "method_not_allowed",
+      }),
       {
         status: 405,
         headers: {

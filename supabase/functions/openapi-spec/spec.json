@@ -118,6 +118,7 @@
           "scouts"
         ],
         "summary": "Create a scout. Scheduled creation establishes the initial baseline; Run Now never bootstraps a missing baseline.",
+        "description": "Before insert the server re-runs step 1 of the probe: `type:web` scrapes `url` once (reach); `type:civic` validates that every `tracked_urls` entry exposes meetings (detect) unless a `preview_snapshot_token` from POST /civic/test is supplied. A failed gate answers 422 with the ProbeEnvelope and the scout is not created — run POST /scouts/test or POST /civic/discover + /civic/test first so the failure is seen before create. Other scout types are not gated.",
         "requestBody": {
           "required": true,
           "content": {
@@ -144,6 +145,9 @@
           },
           "402": {
             "$ref": "#/components/responses/OutOfCredits"
+          },
+          "422": {
+            "$ref": "#/components/responses/ProbeGateFailure"
           }
         }
       }
@@ -259,10 +263,298 @@
         "tags": [
           "scouts"
         ],
-        "summary": "Dry-run a scout configuration without creating it (establishes no baseline)",
+        "summary": "Probe a Page (web) scout URL without creating it (establishes no baseline)",
+        "description": "Step 1 (reach) for Page scouts. One fresh scrape plus an optional criteria check. `scraper_status:false` maps to `unreachable`, `blocked`, `empty_content` or `outside_configured_page` — the same codes POST /scouts returns as 422 for the same URL. `criteria_status:false` with criteria supplied maps to advisory `criteria_not_met` while `ok` stays true.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 2000
+                  },
+                  "criteria": {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  "scraperName": {
+                    "type": "string",
+                    "maxLength": 200
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "Preview"
+            "description": "Probe completed (inspect `ok`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProbeEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "summary",
+                        "scraper_status",
+                        "criteria_status"
+                      ],
+                      "properties": {
+                        "summary": {
+                          "type": "string"
+                        },
+                        "scraper_status": {
+                          "type": "boolean"
+                        },
+                        "criteria_status": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/civic/discover": {
+      "post": {
+        "tags": [
+          "scouts"
+        ],
+        "summary": "Step 1 (detect) for Civic scouts: discover meeting listings for a council domain, or validate chosen tracked URLs",
+        "description": "Discovery mode (`root_domain`): maps the site, fingerprints the committee system and returns only listing pages behind which at least one meeting document is visible, best first with `recommended:true`. When nothing qualifies the response is the `no_meetings_detected` outcome with empty `candidates` and up to five ranked `unverified` pages for manual inspection. Reach failures (`unreachable`, `blocked`, `empty_content`) are returned with HTTP 200 and `ok:false`. Validation mode (`tracked_urls`): applies the same check POST /scouts uses at create; `validated` lists URLs that expose meetings, `invalid` those that do not, and `candidates` lists replacements found nearby. Exactly one of the two fields is required.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "root_domain": {
+                    "type": "string",
+                    "minLength": 3
+                  },
+                  "tracked_urls": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Probe completed (inspect `ok` and `error_code`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProbeEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "system",
+                        "candidates"
+                      ],
+                      "properties": {
+                        "system": {
+                          "$ref": "#/components/schemas/CivicSystem"
+                        },
+                        "candidates": {
+                          "type": "array",
+                          "maxItems": 5,
+                          "items": {
+                            "$ref": "#/components/schemas/CivicListingCandidate"
+                          }
+                        },
+                        "unverified": {
+                          "type": "array",
+                          "maxItems": 5,
+                          "description": "Discovery mode only, on `no_meetings_detected`: ranked pages with no visible documents; never offered as tracked URLs.",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "url",
+                              "description",
+                              "confidence"
+                            ],
+                            "properties": {
+                              "url": {
+                                "type": "string",
+                                "format": "uri"
+                              },
+                              "description": {
+                                "type": "string"
+                              },
+                              "confidence": {
+                                "type": "number"
+                              }
+                            }
+                          }
+                        },
+                        "validated": {
+                          "type": "array",
+                          "description": "Validation mode only.",
+                          "items": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "invalid": {
+                          "type": "array",
+                          "description": "Validation mode only.",
+                          "items": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/civic/test": {
+      "post": {
+        "tags": [
+          "scouts"
+        ],
+        "summary": "Step 2 (sample) for Civic scouts: resolve a bounded document sample from chosen listings and preview extraction",
+        "description": "Read-only. Resolves meeting documents from each listing (multi-hop for fingerprinted systems), parses at most two, runs one extraction pass and returns `sample_items`. When at least one document was extracted the response includes an opaque `preview_snapshot_token`; pass it to POST /scouts to import the previewed items and skip the create gate. `ok:false` codes: `no_documents` (nothing resolved), `parse_failed`, `model_failed`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "tracked_urls"
+                ],
+                "properties": {
+                  "tracked_urls": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "criteria": {
+                    "type": "string",
+                    "maxLength": 4000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sample completed (inspect `ok`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProbeEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "api_version",
+                        "valid",
+                        "documents_found",
+                        "sample_items"
+                      ],
+                      "properties": {
+                        "api_version": {
+                          "type": "string",
+                          "const": "2"
+                        },
+                        "valid": {
+                          "type": "boolean",
+                          "description": "True when documents_found > 0."
+                        },
+                        "documents_found": {
+                          "type": "integer"
+                        },
+                        "documents_resolved": {
+                          "type": "integer"
+                        },
+                        "documents_evaluated": {
+                          "type": "integer"
+                        },
+                        "source_results": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "policy_version": {
+                          "type": "string"
+                        },
+                        "preview_snapshot_token": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "sample_items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "sample_promises": {
+                          "type": "array",
+                          "description": "Legacy promise-only projection; new consumers use sample_items.",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
           }
         }
       }
@@ -1868,6 +2160,48 @@
             }
           }
         }
+      },
+      "ProbeGateFailure": {
+        "description": "Probe gate failed: the scout was not created. Body is the ProbeEnvelope; for `type:civic` it also carries `system`, `validated`, `invalid` and replacement `candidates`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/ProbeEnvelope"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "system": {
+                      "$ref": "#/components/schemas/CivicSystem"
+                    },
+                    "validated": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uri"
+                      }
+                    },
+                    "invalid": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uri"
+                      }
+                    },
+                    "candidates": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CivicListingCandidate"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
     },
     "schemas": {
@@ -2605,6 +2939,95 @@
           },
           "detail": {
             "type": "string"
+          }
+        }
+      },
+      "ProbeErrorCode": {
+        "type": "string",
+        "description": "Closed enum shared by every pre-creation probe and by the POST /scouts create gate. `no_meetings_detected` is an outcome (the probe worked and found no meetings; `candidates` is supplied); every other code is a failure. `criteria_not_met` is advisory and only appears on POST /scouts/test with `ok:true`.",
+        "enum": [
+          "unreachable",
+          "blocked",
+          "empty_content",
+          "outside_configured_page",
+          "no_meetings_detected",
+          "no_documents",
+          "parse_failed",
+          "model_failed",
+          "criteria_not_met"
+        ]
+      },
+      "ProbeEnvelope": {
+        "type": "object",
+        "description": "Probe envelope carried (additively) by POST /scouts/test, POST /civic/discover, POST /civic/test and by the HTTP 422 body of POST /scouts. When `ok` is false both `error_code` and a human-readable `error` are present.",
+        "required": [
+          "ok",
+          "stage"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "reach",
+              "detect",
+              "sample"
+            ],
+            "description": "reach = fetch the page (web probe and web create gate); detect = find council meeting listings (civic discover/validate and civic create gate); sample = resolve and extract from a bounded document sample (civic test)."
+          },
+          "error_code": {
+            "$ref": "#/components/schemas/ProbeErrorCode"
+          },
+          "error": {
+            "type": "string",
+            "description": "Stable catalogue sentence for the code, optionally followed by operator detail in parentheses."
+          }
+        }
+      },
+      "CivicSystem": {
+        "type": "string",
+        "enum": [
+          "moderngov",
+          "generic"
+        ],
+        "description": "Committee-system fingerprint detected from the council's URLs."
+      },
+      "CivicListingCandidate": {
+        "type": "object",
+        "required": [
+          "url",
+          "description",
+          "confidence",
+          "system",
+          "documents_visible",
+          "recommended"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "description": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "system": {
+            "$ref": "#/components/schemas/CivicSystem"
+          },
+          "documents_visible": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Leaf meeting documents the resolver already saw behind this listing. Only candidates with at least one are returned."
+          },
+          "recommended": {
+            "type": "boolean",
+            "description": "True on the best candidate (most documents visible, then confidence)."
           }
         }
       },

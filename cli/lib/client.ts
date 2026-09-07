@@ -343,6 +343,23 @@ export function resolvePath(path: string, apiUrl: string): string {
   return prefixed.replace(/^\/functions\/v1\//, "/");
 }
 
+/**
+ * Non-2xx response. The message is unchanged from before (`API error <status>:
+ * <server error>`); `status` and `payload` let commands surface structured
+ * server answers such as the create gate's probe envelope (422 with
+ * `error_code`, `error`, `candidates`).
+ */
+export class ApiHttpError extends Error {
+  readonly status: number;
+  readonly payload: unknown;
+  constructor(message: string, status: number, payload: unknown) {
+    super(message);
+    this.name = "ApiHttpError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   init: RequestInit & { timeoutMs?: number } = {},
@@ -411,7 +428,11 @@ export async function apiFetch<T = unknown>(
       : errPayload === undefined || errPayload === null
       ? "(empty body)"
       : JSON.stringify(errPayload);
-    throw new Error(`API error ${res.status}: ${errMsg}`);
+    throw new ApiHttpError(
+      `API error ${res.status}: ${errMsg}`,
+      res.status,
+      parsed,
+    );
   }
 
   return parsed as T;

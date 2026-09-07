@@ -35,6 +35,7 @@ import {
   mergeEntitiesBodyForMcp,
   reflectionBodyForMcp,
   SERVER_NAME,
+  TOOLS,
 } from "./rpc.ts";
 
 // ---------------------------------------------------------------------------
@@ -264,6 +265,183 @@ Deno.test("rpc: merge_entities MCP body accepts deprecated keeper_id alias", () 
     merge_ids: ["22222222-2222-2222-2222-222222222222"],
   });
   assertEquals(body.keep_id, "11111111-1111-1111-1111-111111111111");
+});
+
+// ---------------------------------------------------------------------------
+// Probe-parity tools (scout creation two-step). Handlers are exercised
+// directly with a stubbed global fetch so no network or DB is needed.
+// ---------------------------------------------------------------------------
+
+const FAKE_USER = {
+  id: "44444444-4444-4444-4444-444444444444",
+  email: "probe@example.test",
+  // deno-lint-ignore no-explicit-any
+} as any;
+
+type CapturedCall = { url: string; init: RequestInit };
+
+async function captureForward(
+  toolName: string,
+  args: Record<string, unknown>,
+  reply: unknown = { ok: true },
+): Promise<{ call: CapturedCall; result: unknown }> {
+  const tool = TOOLS.find((t) => t.name === toolName);
+  assertExists(tool, `tool ${toolName} not registered`);
+  const prevUrl = Deno.env.get("SUPABASE_URL");
+  const prevAnon = Deno.env.get("SUPABASE_ANON_KEY");
+  Deno.env.set("SUPABASE_URL", "http://edge.test");
+  Deno.env.delete("SUPABASE_ANON_KEY");
+  const realFetch = globalThis.fetch;
+  const calls: CapturedCall[] = [];
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(input), init: init ?? {} });
+    return Promise.resolve(
+      new Response(JSON.stringify(reply), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  }) as typeof fetch;
+  try {
+    const result = await tool.handler(FAKE_USER, "user-jwt", args);
+    assertEquals(calls.length, 1, "exactly one upstream call expected");
+    return { call: calls[0], result };
+  } finally {
+    globalThis.fetch = realFetch;
+    if (prevUrl === undefined) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", prevUrl);
+    if (prevAnon !== undefined) Deno.env.set("SUPABASE_ANON_KEY", prevAnon);
+  }
+}
+
+Deno.test("rpc: tools/list registers test_web_scout with url required", () => {
+  const tool = TOOLS.find((t) => t.name === "test_web_scout");
+  assertExists(tool);
+  const schema = tool.inputSchema as {
+    required: string[];
+    properties: Record<string, unknown>;
+  };
+  assertEquals(schema.required, ["url"]);
+  assertExists(schema.properties.url);
+  assertExists(schema.properties.criteria);
+  assertStringIncludes(tool.description, "create_scout");
+  assertStringIncludes(tool.description, "error_code");
+});
+
+Deno.test("rpc: civic + create tool descriptions state the two-step order and 422 gate", () => {
+  const byName = new Map(TOOLS.map((t) => [t.name, t]));
+  const discover = byName.get("discover_civic_sources");
+  const preview = byName.get("preview_civic_items");
+  const create = byName.get("create_scout");
+  assertExists(discover);
+  assertExists(preview);
+  assertExists(create);
+  assertStringIncludes(discover.description, "documents_visible");
+  assertStringIncludes(discover.description, "tracked_urls");
+  assertStringIncludes(discover.description, "no_meetings_detected");
+  assertStringIncludes(preview.description, "preview_snapshot_token");
+  assertStringIncludes(create.description, "422");
+  assertStringIncludes(create.description, "no_meetings_detected");
+  assertStringIncludes(create.description, "test_web_scout");
+  const props = (discover.inputSchema as {
+    properties: Record<string, unknown>;
+  }).properties;
+  assertExists(props.root_domain);
+  assertExists(props.tracked_urls);
+});
+
+Deno.test("rpc: test_web_scout forwards POST scouts/test with url + criteria", async () => {
+  const { call, result } = await captureForward("test_web_scout", {
+    url: "https://example.org/news",
+    criteria: "new press releases",
+  }, { ok: true, stage: "reach", scraper_status: true });
+  assertEquals(call.url, "http://edge.test/functions/v1/scouts/test");
+  assertEquals(call.init.method, "POST");
+  const headers = call.init.headers as Record<string, string>;
+  assertEquals(headers.Authorization, "Bearer user-jwt");
+  assertEquals(headers["Content-Type"], "application/json");
+  assertEquals(JSON.parse(String(call.init.body)), {
+    url: "https://example.org/news",
+    criteria: "new press releases",
+  });
+  assertEquals((result as { stage: string }).stage, "reach");
+});
+
+Deno.test("rpc: test_web_scout omits criteria from the body when not supplied", async () => {
+  const { call } = await captureForward("test_web_scout", {
+    url: "https://example.org/",
+  });
+  assertEquals(JSON.parse(String(call.init.body)), {
+    url: "https://example.org/",
+  });
+});
+
+Deno.test("rpc: discover_civic_sources forwards root_domain unchanged", async () => {
+  const { call } = await captureForward("discover_civic_sources", {
+    root_domain: "bristol.gov.uk",
+  });
+  assertEquals(call.url, "http://edge.test/functions/v1/civic/discover");
+  assertEquals(call.init.method, "POST");
+  assertEquals(JSON.parse(String(call.init.body)), {
+    root_domain: "bristol.gov.uk",
+  });
+});
+
+Deno.test("rpc: discover_civic_sources forwards tracked_urls in validation mode", async () => {
+  const { call } = await captureForward("discover_civic_sources", {
+    tracked_urls: [
+      "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CId=1",
+    ],
+  });
+  assertEquals(call.url, "http://edge.test/functions/v1/civic/discover");
+  assertEquals(JSON.parse(String(call.init.body)), {
+    tracked_urls: [
+      "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CId=1",
+    ],
+  });
+});
+
+Deno.test("rpc: forward surfaces a 422 create gate body in the thrown error", async () => {
+  const tool = TOOLS.find((t) => t.name === "create_scout");
+  assertExists(tool);
+  const prevUrl = Deno.env.get("SUPABASE_URL");
+  Deno.env.set("SUPABASE_URL", "http://edge.test");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          stage: "detect",
+          error_code: "no_meetings_detected",
+          error: "No council meetings were detected on this website.",
+          candidates: [],
+        }),
+        { status: 422 },
+      ),
+    )) as typeof fetch;
+  try {
+    let thrown: unknown;
+    try {
+      await tool.handler(FAKE_USER, "user-jwt", {
+        name: "x",
+        type: "civic",
+        topic: "council",
+        root_domain: "example.gov",
+        tracked_urls: ["https://example.gov/"],
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    assertExists(thrown);
+    const msg = (thrown as Error).message;
+    assertStringIncludes(msg, "422");
+    assertStringIncludes(msg, "no_meetings_detected");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (prevUrl === undefined) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", prevUrl);
+  }
 });
 
 Deno.test("rpc: tools/list without bearer returns HTTP 401 with WWW-Authenticate", async () => {
@@ -501,7 +679,6 @@ Deno.test({
     assertEquals(body.client_secret_expires_at, 0);
   },
 });
-
 
 Deno.test({
   name: "register: dangerous redirect_uri scheme returns 400",

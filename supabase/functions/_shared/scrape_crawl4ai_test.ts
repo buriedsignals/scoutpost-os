@@ -495,3 +495,40 @@ Deno.test(
     assertEquals(result.snapshot_error, "screenshot_not_png:ffd8");
   }),
 );
+
+Deno.test("scrapeProviderConfigured reflects the active provider's env", async () => {
+  const { scrapeProviderConfigured } = await import("./scrape.ts");
+  const saved = [
+    "SCRAPE_PROVIDER",
+    "SCRAPE_SERVICE_URL",
+    "SCRAPE_SERVICE_TOKEN",
+    "FIRECRAWL_API_KEY",
+  ]
+    .map((k) => [k, Deno.env.get(k)] as const);
+  try {
+    for (const [k] of saved) Deno.env.delete(k);
+    if (scrapeProviderConfigured() !== false) {
+      throw new Error("expected false with no env");
+    }
+    Deno.env.set("SCRAPE_SERVICE_URL", "http://scrape.local");
+    if (scrapeProviderConfigured() !== false) {
+      throw new Error("token missing → false");
+    }
+    Deno.env.set("SCRAPE_SERVICE_TOKEN", "t");
+    if (scrapeProviderConfigured() !== true) {
+      throw new Error("crawl4ai configured → true");
+    }
+    Deno.env.set("SCRAPE_PROVIDER", "firecrawl");
+    if (scrapeProviderConfigured() !== false) {
+      throw new Error("firecrawl without key → false");
+    }
+    Deno.env.set("FIRECRAWL_API_KEY", "k");
+    if (scrapeProviderConfigured() !== true) {
+      throw new Error("firecrawl with key → true");
+    }
+  } finally {
+    for (const [k, v] of saved) {
+      v === undefined ? Deno.env.delete(k) : Deno.env.set(k, v);
+    }
+  }
+});

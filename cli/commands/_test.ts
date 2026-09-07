@@ -1769,3 +1769,301 @@ Deno.test("scouts add — --archive-enabled/--wayback-enabled reach the create b
     assertEquals(body.wayback_enabled, false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Probe parity (2026-09-07): the CLI runs the same probe the web UI does and
+// surfaces the server's create gate with the same error_code.
+// ---------------------------------------------------------------------------
+
+function stubExit(): { calls: number[]; restore: () => void } {
+  const calls: number[] = [];
+  const originalExit = Deno.exit;
+  Deno.exit = ((code?: number) => {
+    calls.push(code ?? 0);
+    throw new Error(`__exit__${code ?? 0}`);
+  }) as typeof Deno.exit;
+  return { calls, restore: () => (Deno.exit = originalExit) };
+}
+
+Deno.test("scouts test --type civic posts tracked_urls to civic/discover and exits 1 on no_meetings_detected", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+    const requests: Array<{ url: string; body: unknown }> = [];
+    const printed: string[] = [];
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    const origErr = console.error;
+    const exit = stubExit();
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: JSON.parse(String(init?.body)),
+      });
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: false,
+            stage: "detect",
+            error_code: "no_meetings_detected",
+            error: "No council meetings were detected on this website.",
+            system: "moderngov",
+            validated: [],
+            invalid: ["https://www.bristol.gov.uk/council"],
+            candidates: [{
+              url:
+                "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CommitteeId=111",
+              description: "Full Council",
+              documents_visible: 2,
+              recommended: true,
+            }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    console.log = (line: string) => printed.push(String(line));
+    console.error = () => {};
+    try {
+      await assertRejects(
+        () =>
+          runScouts([
+            "test",
+            "--type",
+            "civic",
+            "--tracked-urls",
+            "https://www.bristol.gov.uk/council",
+          ]),
+        Error,
+        "__exit__1",
+      );
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+      console.error = origErr;
+      exit.restore();
+    }
+    assertEquals(
+      requests[0].url,
+      "https://scoutpost.ai/functions/v1/civic/discover",
+    );
+    assertEquals(requests[0].body, {
+      tracked_urls: ["https://www.bristol.gov.uk/council"],
+    });
+    const out = JSON.parse(printed.join("\n"));
+    assertEquals(out.error_code, "no_meetings_detected");
+    assertEquals(out.candidates[0].recommended, true);
+    assertEquals(exit.calls, [1]);
+  });
+});
+
+Deno.test("scouts test --type web posts to scouts/test and passes through the envelope", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+    let observed: { url: string; body: unknown } | null = null;
+    const printed: string[] = [];
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    const exit = stubExit();
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      observed = { url: String(input), body: JSON.parse(String(init?.body)) };
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            stage: "reach",
+            summary: "A council news page.",
+            scraper_status: true,
+            criteria_status: false,
+            error_code: "criteria_not_met",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    console.log = (line: string) => printed.push(String(line));
+    try {
+      await runScouts([
+        "test",
+        "--type",
+        "web",
+        "--url",
+        "https://example.gov/news",
+        "--criteria",
+        "housing",
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+      exit.restore();
+    }
+    assertEquals(observed, {
+      url: "https://scoutpost.ai/functions/v1/scouts/test",
+      body: { url: "https://example.gov/news", criteria: "housing" },
+    });
+    assertEquals(JSON.parse(printed.join("\n")).ok, true);
+    assertEquals(exit.calls, []);
+  });
+});
+
+Deno.test("scouts add surfaces the server create gate (422 envelope) as JSON and exits 1", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+    const printed: string[] = [];
+    const errors: string[] = [];
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    const origErr = console.error;
+    const exit = stubExit();
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: false,
+            stage: "reach",
+            error_code: "blocked",
+            error:
+              "The website blocks automated access, so it cannot be monitored from here.",
+          }),
+          { status: 422, headers: { "Content-Type": "application/json" } },
+        ),
+      )) as typeof fetch;
+    console.log = (line: string) => printed.push(String(line));
+    console.error = (line: string) => errors.push(String(line));
+    try {
+      await assertRejects(
+        () =>
+          runScouts([
+            "add",
+            "--name",
+            "Blocked page",
+            "--type",
+            "web",
+            "--url",
+            "https://blocked.example",
+            "--topic",
+            "news",
+          ]),
+        Error,
+        "__exit__1",
+      );
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+      console.error = origErr;
+      exit.restore();
+    }
+    const out = JSON.parse(printed.join("\n"));
+    assertEquals(out.error_code, "blocked");
+    assert(errors.some((line) => line.includes("Probe failed (blocked)")));
+    assertEquals(exit.calls, [1]);
+  });
+});
+
+Deno.test("scouts add re-throws non-probe HTTP errors unchanged", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: "scout name already exists" }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )) as typeof fetch;
+    console.log = () => {};
+    try {
+      await assertRejects(
+        () =>
+          runScouts([
+            "add",
+            "--name",
+            "Dup",
+            "--type",
+            "web",
+            "--url",
+            "https://example.gov",
+            "--topic",
+            "news",
+          ]),
+        Error,
+        "API error 409: scout name already exists",
+      );
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+  });
+});
+
+Deno.test("civic resolve / validate hit civic/discover; resolve is discover's alias", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+    const requests: Array<{ url: string; body: unknown }> = [];
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: JSON.parse(String(init?.body)),
+      });
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            stage: "detect",
+            system: "generic",
+            candidates: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    console.log = () => {};
+    try {
+      await runCivic(["resolve", "--root-domain", "bristol.gov.uk"]);
+      await runCivic([
+        "validate",
+        "--tracked-urls",
+        "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CommitteeId=111",
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+    }
+    assertEquals(requests, [
+      {
+        url: "https://scoutpost.ai/functions/v1/civic/discover",
+        body: { root_domain: "bristol.gov.uk" },
+      },
+      {
+        url: "https://scoutpost.ai/functions/v1/civic/discover",
+        body: {
+          tracked_urls: [
+            "https://democracy.bristol.gov.uk/ieListMeetings.aspx?CommitteeId=111",
+          ],
+        },
+      },
+    ]);
+  });
+});

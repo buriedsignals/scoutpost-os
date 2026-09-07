@@ -279,9 +279,26 @@ export const TOOLS: ToolDef[] = [
       }),
   },
   {
+    name: "test_web_scout",
+    description:
+      "Step 1 for Page (web) Scout creation. Probe a URL the way create_scout will: one fresh scrape plus an optional criteria check, no scout created, no baseline stored. Returns the shared probe envelope { ok, stage:'reach', error_code?, error? } alongside summary, scraper_status and criteria_status. ok:false carries error_code unreachable|blocked|empty_content|outside_configured_page and a human-readable error — create_scout would reject the same URL with HTTP 422, so fix the URL first. criteria_not_met is advisory: ok stays true and the scout can still be created. Run this before create_scout for type=web.",
+    inputSchema: {
+      type: "object",
+      required: ["url"],
+      properties: {
+        url: { type: "string", format: "uri", maxLength: 2000 },
+        criteria: { type: "string", maxLength: 4000 },
+      },
+    },
+    handler: (_u, token, args) =>
+      forward(token, "POST", "scouts", "/test", {
+        body: { url: args.url, criteria: args.criteria },
+      }),
+  },
+  {
     name: "create_scout",
     description:
-      "Create a new scout. Required: name and type (web|beat|social|civic|transport). web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle; MCP defaults them to monitor_mode=criteria, which requires criteria text. Pass monitor_mode=summarize explicitly to collect all substantive new posts. Transport scouts (Fleet Scout) are Pro/Team on hosted Scoutpost and require config: { mode: aircraft|vessel|satellite, watch_ids, geofence: { center: {lat,lon}, radius_km, display_name?, maptiler_id? }, categories?, criteria? }. Every mode needs the circular area and alerts when a watched object enters it. criteria is optional and only filters those entry alerts; it never replaces the area. watch_ids is required (max 20); categories only narrow it. Run test_transport_config first and pass its baseline_ids as transport_baseline_ids here. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes web/beat/social/civic baselines immediately; Fleet creation seeds the tested baseline when transport_baseline_ids is supplied, while omission preserves the legacy first-run baseline. Web/Page scouts can turn on evidence archiving with archive_enabled (Pro/Team); captured snapshots are then retrievable via list_snapshots.",
+      "Create a new scout. Required: name and type (web|beat|social|civic|transport). Probe first: web scouts run test_web_scout, civic scouts run discover_civic_sources then preview_civic_items, and pass one of the returned candidate URLs as tracked_urls. The server re-runs step 1 before inserting and answers HTTP 422 with the probe envelope { ok:false, stage, error_code, error } when it fails: civic → no_meetings_detected (the body also carries system, validated, invalid and candidates — read candidates and retry with one of them); web → unreachable|blocked|empty_content|outside_configured_page. The 422 body is returned in this tool's error text. web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle; MCP defaults them to monitor_mode=criteria, which requires criteria text. Pass monitor_mode=summarize explicitly to collect all substantive new posts. Transport scouts (Fleet Scout) are Pro/Team on hosted Scoutpost and require config: { mode: aircraft|vessel|satellite, watch_ids, geofence: { center: {lat,lon}, radius_km, display_name?, maptiler_id? }, categories?, criteria? }. Every mode needs the circular area and alerts when a watched object enters it. criteria is optional and only filters those entry alerts; it never replaces the area. watch_ids is required (max 20); categories only narrow it. Run test_transport_config first and pass its baseline_ids as transport_baseline_ids here. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes web/beat/social/civic baselines immediately; Fleet creation seeds the tested baseline when transport_baseline_ids is supplied, while omission preserves the legacy first-run baseline. Web/Page scouts can turn on evidence archiving with archive_enabled (Pro/Team); captured snapshots are then retrievable via list_snapshots.",
     inputSchema: {
       type: "object",
       required: ["name", "type"],
@@ -647,21 +664,37 @@ export const TOOLS: ToolDef[] = [
   {
     name: "discover_civic_sources",
     description:
-      "Discover likely official council document-index sources for a domain. Use this first, then preview_civic_items before creating/importing a Civic Scout.",
+      "Step 1 (detect) for Civic Scout creation: discover_civic_sources → preview_civic_items → create_scout. Given root_domain, maps the council site, fingerprints the committee system (moderngov|generic) and returns only listing pages behind which at least one meeting document is already visible (documents_visible ≥ 1), best first with recommended:true. Response: { ok, stage:'detect', error_code?, error?, system, candidates:[{url, description, confidence, system, documents_visible, recommended}], unverified? }. ok:false with error_code no_meetings_detected is an outcome, not a transport error: candidates is empty and unverified lists ranked pages a human can inspect by hand. Alternatively pass tracked_urls (1-2 URLs you already chose) instead of root_domain to validate them: the response then carries validated, invalid and replacement candidates, and create_scout will reject any URL listed in invalid.",
     inputSchema: {
       type: "object",
-      required: ["root_domain"],
-      properties: { root_domain: { type: "string", minLength: 3 } },
+      properties: {
+        root_domain: {
+          type: "string",
+          minLength: 3,
+          description:
+            "Council domain or URL to discover listings for. Required unless tracked_urls is given.",
+        },
+        tracked_urls: {
+          type: "array",
+          minItems: 1,
+          maxItems: 2,
+          items: { type: "string", format: "uri" },
+          description:
+            "Validation mode: check these chosen listing URLs instead of discovering. Same check create_scout applies.",
+        },
+      },
     },
     handler: (_u, token, args) =>
       forward(token, "POST", "civic", "/discover", {
-        body: { root_domain: args.root_domain },
+        body: args.tracked_urls
+          ? { tracked_urls: args.tracked_urls }
+          : { root_domain: args.root_domain },
       }),
   },
   {
     name: "preview_civic_items",
     description:
-      "Read-only Civic accountability preview. Returns dated promises to follow and adopted material decisions; a valid empty result means no accountable item was found. Every result is an AI-extracted lead that must be checked against the cited official source.",
+      "Step 2 (sample) for Civic Scout creation, after discover_civic_sources and before create_scout. Read-only preview of 1-2 listing URLs: resolves meeting documents, parses at most two, runs one extraction pass and returns sample_items plus preview_snapshot_token (pass it to create_scout with import_current_items). Returns dated promises to follow and adopted material decisions; a valid empty result means no accountable item was found. Response carries the probe envelope { ok, stage:'sample', error_code?, error? } with valid and documents_found; ok:false codes are no_documents, parse_failed or model_failed. Every result is an AI-extracted lead that must be checked against the cited official source.",
     inputSchema: {
       type: "object",
       required: ["tracked_urls"],

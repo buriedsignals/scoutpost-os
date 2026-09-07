@@ -178,16 +178,98 @@ async function apiRequestSafeError<T>(
 
 	if (!response.ok) {
 		let detail = fallbackMessage;
+		let probe: ProbeGateFields | null = null;
 		try {
 			const error = await response.json();
 			detail = normalizeErrorDetail(error.detail, '') || error.error || detail;
+			probe = readProbeGateFields(error);
 		} catch {
 			// Response body is not valid JSON
 		}
+		if (probe) throw new ProbeGateError(detail, response.status, probe);
 		throw new Error(detail);
 	}
 
 	return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Probe envelope (shared by POST /scouts/test, /civic/discover, /civic/test
+// and the POST /scouts create gate). Mirrors
+// supabase/functions/_shared/scout_probe.ts — do not add fields the server
+// does not emit.
+// ---------------------------------------------------------------------------
+
+export type ProbeStage = 'reach' | 'detect' | 'sample';
+
+export type ProbeErrorCode =
+	| 'unreachable'
+	| 'blocked'
+	| 'empty_content'
+	| 'outside_configured_page'
+	| 'no_meetings_detected'
+	| 'no_documents'
+	| 'parse_failed'
+	| 'model_failed'
+	| 'criteria_not_met';
+
+/** `no_meetings_detected` is an outcome (render a picker), everything else is a failure. */
+export function isProbeOutcome(code: string | undefined): boolean {
+	return code === 'no_meetings_detected';
+}
+
+export interface ProbeEnvelope {
+	ok: boolean;
+	stage: ProbeStage;
+	error_code?: ProbeErrorCode | string;
+	error?: string;
+}
+
+export interface CivicCandidate {
+	url: string;
+	description: string;
+	confidence: number;
+	system?: string;
+	documents_visible?: number;
+	recommended?: boolean;
+}
+
+interface ProbeGateFields {
+	stage?: ProbeStage;
+	error_code: string;
+	candidates?: CivicCandidate[];
+}
+
+function readProbeGateFields(body: unknown): ProbeGateFields | null {
+	if (!body || typeof body !== 'object') return null;
+	const b = body as Record<string, unknown>;
+	if (typeof b.error_code !== 'string' || b.error_code.length === 0) return null;
+	return {
+		error_code: b.error_code,
+		...(typeof b.stage === 'string' ? { stage: b.stage as ProbeStage } : {}),
+		...(Array.isArray(b.candidates) ? { candidates: b.candidates as CivicCandidate[] } : {})
+	};
+}
+
+/**
+ * Thrown when `POST /scouts` (or another probe-backed write) rejects with the
+ * probe envelope (HTTP 422). `message` is the server's human sentence, so
+ * callers that only read `error.message` keep working; callers that need the
+ * code or the civic `candidates` read them from the instance.
+ */
+export class ProbeGateError extends Error {
+	readonly status: number;
+	readonly stage?: ProbeStage;
+	readonly error_code: string;
+	readonly candidates: CivicCandidate[];
+	constructor(message: string, status: number, fields: ProbeGateFields) {
+		super(message);
+		this.name = 'ProbeGateError';
+		this.status = status;
+		this.stage = fields.stage;
+		this.error_code = fields.error_code;
+		this.candidates = fields.candidates ?? [];
+	}
 }
 
 /**
@@ -487,9 +569,16 @@ export const apiClient = {
 	 * Discover council/civic pages for a root domain.
 	 * Returns candidate URLs found on the council website.
 	 */
-	async discoverCivic(rootDomain: string): Promise<{
-		candidates: Array<{ url: string; description: string; confidence: number }>;
-	}> {
+	async discoverCivic(rootDomain: string): Promise<
+		ProbeEnvelope & {
+			stage: 'detect';
+			system: 'moderngov' | 'sessionnet' | 'iweb' | 'generic' | string;
+			/** Already verified to expose at least one meeting document. */
+			candidates: CivicCandidate[];
+			/** Only on `no_meetings_detected`: ranked pages with no verified documents. */
+			unverified?: Array<{ url: string; description: string; confidence: number }>;
+		}
+	> {
 		return apiRequest('POST', '/civic/discover', {
 			root_domain: rootDomain,
 		});
@@ -499,7 +588,7 @@ export const apiClient = {
 	 * Test civic scout extraction on selected URLs.
 	 * Returns preview of extracted promises without storing anything.
 	 */
-	async testCivic(trackedUrls: string[], criteria?: string): Promise<{
+	async testCivic(trackedUrls: string[], criteria?: string): Promise<ProbeEnvelope & {
 		api_version: '2';
 		valid: boolean;
 		documents_found: number;

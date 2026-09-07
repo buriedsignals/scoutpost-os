@@ -5,7 +5,7 @@
 	import ProgressIndicator from '$lib/components/ui/ProgressIndicator.svelte';
 	import CriteriaInput from '$lib/components/ui/CriteriaInput.svelte';
 	import ScoutScheduleModal from '$lib/components/modals/ScoutScheduleModal.svelte';
-	import { apiClient } from '$lib/api-client';
+	import { apiClient, isProbeOutcome } from '$lib/api-client';
 	import type { ScoutType } from '$lib/types';
 
 	import * as m from '$lib/paraglide/messages';
@@ -23,8 +23,21 @@
 	let discoverProgressTimer: ReturnType<typeof setInterval> | null = null;
 
 	// URL selection
-	let discoveredUrls: Array<{ url: string; description: string }> = [];
+	let discoveredUrls: Array<{
+		url: string;
+		description: string;
+		documents_visible?: number;
+		recommended?: boolean;
+	}> = [];
 	let selectedUrls: Set<string> = new Set();
+
+	// Step 1 outcome (not an error): the probe worked but saw no meeting
+	// documents. The user picks from unverified pages by hand or pastes the
+	// listing page; that URL becomes the single tracked URL.
+	let noMeetings = false;
+	let noMeetingsMessage = '';
+	let unverifiedPages: Array<{ url: string; description: string }> = [];
+	let manualUrl = '';
 
 	// Step 2 — criteria
 	let criteria = '';
@@ -61,6 +74,18 @@
 		testResult = null;
 		showTestResults = false;
 		testedInputKey = '';
+	}
+
+	// In the no-meetings state the manual URL is the only selectable tracked URL.
+	$: if (noMeetings) {
+		const normalized = normalizeManualUrl(manualUrl);
+		selectedUrls = normalized ? new Set([normalized]) : new Set();
+	}
+
+	function normalizeManualUrl(value: string): string {
+		const trimmed = value.trim();
+		if (!trimmed) return '';
+		return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 	}
 
 	$: discoverProgressState = discoverError ? 'error' as const : 'loading' as const;
@@ -122,14 +147,44 @@
 		testError = '';
 		testProgress = 0;
 		testResult = null;
+		noMeetings = false;
+		noMeetingsMessage = '';
+		unverifiedPages = [];
+		manualUrl = '';
+		discoveredUrls = [];
+		selectedUrls = new Set();
 		isDiscovering = true;
 		startDiscoverProgress();
 
 		try {
 			const result = await apiClient.discoverCivic(domain.trim());
-			discoveredUrls = (result.candidates || []).map((c) => ({ url: c.url, description: c.description || '' }));
-			// Don't pre-select — user picks up to 2 deliberately
-			selectedUrls = new Set();
+			if (result.ok === false) {
+				if (isProbeOutcome(result.error_code)) {
+					// Outcome, not error: the probe ran but found no meeting documents.
+					noMeetingsMessage = result.error || m.civic_noMeetingsBody();
+					unverifiedPages = (result.unverified || []).map((c) => ({
+						url: c.url,
+						description: c.description || ''
+					}));
+					noMeetings = true;
+					hasResults = true;
+					stopDiscoverProgress(true);
+					return;
+				}
+				// Transport / parse / model failure: server sentence in the error panel.
+				discoverError = result.error || m.civic_noResults();
+				stopDiscoverProgress(false);
+				return;
+			}
+			discoveredUrls = (result.candidates || []).map((c) => ({
+				url: c.url,
+				description: c.description || '',
+				documents_visible: c.documents_visible,
+				recommended: c.recommended === true
+			}));
+			// Pre-select the server's recommended listing; the user may change it (max 2).
+			const recommended = discoveredUrls.find((c) => c.recommended);
+			selectedUrls = recommended ? new Set([recommended.url]) : new Set();
 			hasResults = true;
 			stopDiscoverProgress(true);
 		} catch (err) {
@@ -163,7 +218,9 @@
 				stopTestProgress();
 				return;
 			}
-			if (!result.valid) {
+			if (result.ok === false || !result.valid) {
+				// `error` is always a full sentence on the envelope; the message
+				// key is a fallback for a pre-envelope server.
 				testError = result.error || m.civic_testFailed();
 				stopTestProgress();
 				return;
@@ -324,7 +381,49 @@
 						{/each}
 					</div>
 				{/if}
-			{:else if hasResults && discoveredUrls.length > 0}
+			{/if}
+
+			{#if noMeetings && !isDiscovering && !discoverError && !testSuccess}
+				<!-- Step 1 outcome (not an error): probe ran, no meeting documents seen -->
+				<div class="results-summary no-meetings" data-testid="civic-no-meetings">
+					<div class="results-summary-header">
+						<Landmark size={20} class="results-icon" />
+						<div>
+							<p class="results-count">{m.civic_noMeetingsTitle()}</p>
+							<p class="results-domain">{domain}</p>
+						</div>
+					</div>
+					<p class="results-hint">{noMeetingsMessage}</p>
+
+					{#if unverifiedPages.length > 0}
+						<p class="unverified-label">{m.civic_unverifiedPages()}</p>
+						<ul class="unverified-list">
+							{#each unverifiedPages as page}
+								<li>
+									<a href={page.url} target="_blank" rel="noopener noreferrer" class="unverified-link" title={page.url}>{page.url}</a>
+									{#if page.description}
+										<span class="url-description">{page.description}</span>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+
+					<div class="field-group manual-listing">
+						<label for="civic-manual-url" class="field-label">{m.civic_manualListingLabel()}</label>
+						<input
+							id="civic-manual-url"
+							type="url"
+							bind:value={manualUrl}
+							placeholder="https://democracy.example.gov.uk/ieListMeetings.aspx"
+							class="form-input"
+							disabled={isTesting}
+						/>
+					</div>
+				</div>
+			{/if}
+
+			{#if !isDiscovering && !discoverError && !showTestResults && !noMeetings && hasResults && discoveredUrls.length > 0}
 				<!-- URL selection (step 1 results) -->
 				<div class="results-summary">
 					<div class="results-summary-header">
@@ -360,6 +459,14 @@
 								{#if candidate.description}
 									<span class="url-description">{candidate.description}</span>
 								{/if}
+								<span class="url-meta">
+									{#if candidate.recommended}
+										<span class="url-badge">{m.civic_recommended()}</span>
+									{/if}
+									{#if typeof candidate.documents_visible === 'number'}
+										<span class="url-visible">{m.civic_meetingsVisible({ count: candidate.documents_visible })}</span>
+									{/if}
+								</span>
 							</span>
 						</div>
 					{/each}
@@ -549,6 +656,68 @@
 	.url-item--disabled {
 		opacity: 0.4;
 		cursor: not-allowed;
+	}
+
+	.url-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-top: 0.125rem;
+	}
+
+	.url-badge {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		color: #9F6016;
+		background: var(--color-secondary-soft);
+		padding: 0.0625rem 0.5rem;
+		border-radius: 9999px;
+	}
+
+	.url-visible {
+		font-size: 0.6875rem;
+		color: var(--color-ink-muted);
+	}
+
+	/* No-meetings outcome state */
+	.no-meetings .results-hint {
+		margin-bottom: 0.75rem;
+	}
+
+	.unverified-label {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--color-ink-muted);
+		margin: 0.75rem 0 0.375rem;
+	}
+
+	.unverified-list {
+		list-style: none;
+		padding: 0;
+		margin: 0 0 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+
+	.unverified-list li {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.unverified-link {
+		font-size: 0.8125rem;
+		color: var(--color-ink);
+		text-decoration: underline;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.manual-listing {
+		margin-top: 1rem;
+		margin-bottom: 0;
 	}
 
 	/* Promises preview */

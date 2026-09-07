@@ -4,6 +4,7 @@ import {
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 
 import {
+  civicSiteBaseHost,
   classifyCivicMeetingUrls,
   extractCivicLinksFromHtml,
   extractCivicLinksFromPages,
@@ -13,6 +14,7 @@ import {
   isCivicRecordDetailUrl,
   isCivicScrapableUrl,
   isEmptyQueryStubUrl,
+  isSameCivicSite,
   rankCivicDiscoveryUrls,
 } from "./civic_links.ts";
 
@@ -399,4 +401,167 @@ Deno.test("isCivicDirectDocumentUrl identifies tracked PDF documents", () => {
     false,
   );
   assertEquals(isCivicDirectDocumentUrl("not-a-url.pdf"), false);
+});
+
+// ---------------------------------------------------------------------------
+// Regression: Council Scout UI "Extraction test failed" on bristol.gov.uk
+//
+// UK councils publish meeting documents on a modern.gov committee-management
+// subdomain (`democracy.<council>.gov.uk`) linked from the main `www.` site.
+// Exact-hostname link extraction dropped every one of those links, and the
+// keyword stage then short-circuited on navigation-only hits, so civic preview
+// resolved zero documents and the UI blocked Council scout creation. The CLI
+// never calls the preview probe, which is why only the UI route failed.
+// ---------------------------------------------------------------------------
+
+Deno.test("isSameCivicSite accepts sibling council subdomains, not other sites", () => {
+  assertEquals(
+    isSameCivicSite("democracy.bristol.gov.uk", "www.bristol.gov.uk"),
+    true,
+  );
+  assertEquals(
+    isSameCivicSite("www.bristol.gov.uk", "democracy.bristol.gov.uk"),
+    true,
+  );
+  assertEquals(isSameCivicSite("gemeinde.zermatt.ch", "www.zermatt.ch"), true);
+  // A different council under the same public suffix is a different site.
+  assertEquals(
+    isSameCivicSite("democracy.leeds.gov.uk", "www.bristol.gov.uk"),
+    false,
+  );
+  assertEquals(isSameCivicSite("www.gov.uk", "www.bristol.gov.uk"), false);
+  assertEquals(
+    isSameCivicSite("www.facebook.com", "www.bristol.gov.uk"),
+    false,
+  );
+});
+
+Deno.test("civicSiteBaseHost reduces hosts to the registrable council site", () => {
+  assertEquals(civicSiteBaseHost("democracy.bristol.gov.uk"), "bristol.gov.uk");
+  assertEquals(civicSiteBaseHost("www.bristol.gov.uk"), "bristol.gov.uk");
+  assertEquals(civicSiteBaseHost("gemeinde.zermatt.ch"), "zermatt.ch");
+  assertEquals(civicSiteBaseHost("city.example.org"), "example.org");
+});
+
+Deno.test("extractCivicLinksFromHtml keeps the council's democracy subdomain (bristol.gov.uk)", () => {
+  const html = `
+    <p><a href="https://democracy.bristol.gov.uk/mgCalendarMonthView.aspx?GL=1&amp;bcr=1">Find council meeting</a></p>
+    <p><a href="https://democracy.bristol.gov.uk/ieListDocuments.aspx?CId=137&amp;MId=8421">Full Council agenda 12 May 2026</a></p>
+    <a href="/council/how-council-decisions-are-made/full-council">Full Council</a>
+    <a href="https://democracy.leeds.gov.uk/ieListMeetings.aspx">Another council</a>
+    <a href="https://www.facebook.com/bristolcouncil">Facebook</a>
+  `;
+
+  const links = extractCivicLinksFromHtml(
+    html,
+    "https://www.bristol.gov.uk/council/how-council-decisions-are-made/council-meetings",
+  );
+  const urls = links.map((link) => link.url);
+
+  assertEquals(urls, [
+    "https://democracy.bristol.gov.uk/mgCalendarMonthView.aspx?GL=1&bcr=1",
+    "https://democracy.bristol.gov.uk/ieListDocuments.aspx?CId=137&MId=8421",
+    "https://www.bristol.gov.uk/council/how-council-decisions-are-made/full-council",
+  ]);
+});
+
+Deno.test("classifyCivicMeetingUrls falls back to the model when keyword hits are navigation only", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.set("OPENROUTER_API_KEY", "test-key");
+  let modelCalled = false;
+
+  // Bristol's tracked page: every keyword hit is a section landing page, and
+  // the one real document sits behind a record-id link the keyword stage's
+  // leaf test alone would never surface.
+  const links = [
+    {
+      url:
+        "https://www.bristol.gov.uk/council/how-council-decisions-are-made/full-council",
+      anchorText: "Full Council",
+    },
+    {
+      url:
+        "https://www.bristol.gov.uk/council/how-council-decisions-are-made/committee-system",
+      anchorText: "Committee system",
+    },
+    {
+      url: "https://democracy.bristol.gov.uk/documents/s12345/Papers.pdf",
+      anchorText: "Papers pack, 12 May 2026",
+    },
+  ];
+
+  globalThis.fetch = (async () => {
+    modelCalled = true;
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: '{"meeting_urls":[2]}' } }],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const urls = await classifyCivicMeetingUrls(links);
+    assertEquals(modelCalled, true);
+    assertEquals(urls, [
+      "https://democracy.bristol.gov.uk/documents/s12345/Papers.pdf",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) Deno.env.delete("OPENROUTER_API_KEY");
+    else Deno.env.set("OPENROUTER_API_KEY", originalKey);
+  }
+});
+
+Deno.test("classifyCivicMeetingUrls still skips the model when keywords find leaf documents", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    throw new Error("model must not be called when keyword documents exist");
+  }) as unknown as typeof fetch;
+  try {
+    const urls = await classifyCivicMeetingUrls([
+      {
+        url:
+          "https://gemeinde-pontresina.ch/de/aktuelles/gemeindeversammlungen",
+        anchorText: "Protokollarchiv Gemeindeversammlungen",
+      },
+      {
+        url:
+          "https://gemeinde-pontresina.ch/media/protokoll-gemeindeversammlung.pdf",
+        anchorText: "Protokoll der Gemeindeversammlung",
+      },
+    ]);
+    assertEquals(urls, [
+      "https://gemeinde-pontresina.ch/media/protokoll-gemeindeversammlung.pdf",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("classifyCivicMeetingUrls resolves modern.gov meeting pages without the model", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    throw new Error("model must not be called for record-id meeting pages");
+  }) as unknown as typeof fetch;
+  try {
+    const urls = await classifyCivicMeetingUrls([
+      {
+        url:
+          "https://democracy.leeds.gov.uk/ieListDocuments.aspx?CId=111&MId=14369&Ver=4",
+        anchorText: "9 Sep 2026 1.00 pm",
+      },
+      {
+        url:
+          "https://democracy.leeds.gov.uk/ieListMeetings.aspx?Act=Prev&CId=111&D=2025",
+        anchorText: "Previous",
+      },
+    ]);
+    assertEquals(urls, [
+      "https://democracy.leeds.gov.uk/ieListDocuments.aspx?CId=111&MId=14369&Ver=4",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

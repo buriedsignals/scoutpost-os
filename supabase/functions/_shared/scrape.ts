@@ -28,6 +28,21 @@ export function scrapeProvider(): ScrapeProvider {
 }
 
 /**
+ * True when the active provider has the configuration it needs to fetch at
+ * all. A runtime with no provider (a bare self-host smoke, a fresh install)
+ * cannot probe a page, and "cannot probe" must not be reported as "the page
+ * is unreachable" — the create gate skips itself and logs instead.
+ */
+export function scrapeProviderConfigured(): boolean {
+  if (scrapeProvider() === "firecrawl") {
+    return Boolean(Deno.env.get("FIRECRAWL_API_KEY"));
+  }
+  return Boolean(
+    Deno.env.get("SCRAPE_SERVICE_URL") && Deno.env.get("SCRAPE_SERVICE_TOKEN"),
+  );
+}
+
+/**
  * True when a provider error means the TARGET blocked us with anti-bot
  * protection (Cloudflare JS challenge, DataDome captcha, Imperva structural
  * challenge, 503 bot walls…). The scrape-service detects and labels all of

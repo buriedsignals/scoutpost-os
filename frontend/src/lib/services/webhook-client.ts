@@ -22,6 +22,12 @@ interface ScraperTestResponse {
 	scraper_status: boolean;
 	criteria_status: boolean;
 	content_hash?: string;
+	// Probe envelope (supabase/functions/_shared/scout_probe.ts). `error` is
+	// always a full human sentence when `ok` is false.
+	ok?: boolean;
+	stage?: 'reach' | 'detect' | 'sample';
+	error_code?: string;
+	error?: string;
 }
 
 class WebhookClient {
@@ -68,7 +74,11 @@ class WebhookClient {
 				summary: data.summary || '',
 				scraper_status: data.scraper_status ?? true,
 				criteria_status: data.criteria_status ?? false,
-				content_hash: data.content_hash
+				content_hash: data.content_hash,
+				...(typeof data.ok === 'boolean' ? { ok: data.ok } : {}),
+				...(typeof data.stage === 'string' ? { stage: data.stage } : {}),
+				...(typeof data.error_code === 'string' ? { error_code: data.error_code } : {}),
+				...(typeof data.error === 'string' ? { error: data.error } : {})
 			};
 		} catch (error) {
 			clearTimeout(timeoutId);

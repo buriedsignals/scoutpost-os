@@ -62,7 +62,10 @@
 			const response = await webhookClient.testScraper({ url, criteria: effectiveCriteria || undefined });
 
 			if (!response.scraper_status) {
-				testError = response.summary || 'This website appears to block automated access.';
+				// The probe envelope's `error` is the server's human sentence for
+				// `error_code` (unreachable / blocked / empty_content). The
+				// hardcoded text is only a fallback for a pre-envelope server.
+				testError = response.error || response.summary || 'This website appears to block automated access.';
 				testProgress = 100;
 				testProgressMessage = '';
 				return;

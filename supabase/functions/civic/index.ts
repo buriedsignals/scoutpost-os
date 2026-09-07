@@ -45,6 +45,12 @@ import {
   rankCivicDiscoveryUrls,
 } from "../_shared/civic_links.ts";
 import { previewCivicTrackedUrls } from "../_shared/civic_preview.ts";
+import { probeFailure, probeOk } from "../_shared/scout_probe.ts";
+import {
+  resolveCivicListings,
+  validateCivicTrackedUrls,
+} from "../_shared/civic_systems.ts";
+import { isAntiBotBlockedError, scrape } from "../_shared/scrape.ts";
 import { openRouterExtract } from "../_shared/openrouter.ts";
 import { getServiceClient } from "../_shared/supabase.ts";
 
@@ -53,8 +59,27 @@ import { getServiceClient } from "../_shared/supabase.ts";
 // ---------------------------------------------------------------------------
 
 const DiscoverSchema = z.object({
-  root_domain: z.string().min(3).max(300),
+  root_domain: z.string().min(3).max(300).optional(),
+  /** Validation mode: check these pages instead of exploring a domain. */
+  tracked_urls: z.array(z.string().url()).min(1).max(2).optional(),
+}).refine((v) => Boolean(v.root_domain) || Boolean(v.tracked_urls?.length), {
+  message: "root_domain or tracked_urls is required",
 });
+
+const RESOLVER_SCRAPE_TIMEOUT_MS = 20_000;
+
+function resolverFetcher(tenantKey: string): (url: string) => Promise<string> {
+  return async (url: string) => {
+    const scraped = await scrape(url, {
+      workloadClass: "utility",
+      tenantKey,
+      formats: ["rawHtml"],
+      onlyMainContent: false,
+      timeoutMs: RESOLVER_SCRAPE_TIMEOUT_MS,
+    });
+    return scraped.rawHtml ?? "";
+  };
+}
 
 const DISCOVER_SCHEMA: Record<string, unknown> = {
   type: "object",
@@ -91,6 +116,12 @@ const TestSchema = z.object({
 });
 
 const PROMISES_PREVIEW_CAP = 10;
+/**
+ * The sample step reads a bounded number of documents: enough to show the
+ * user what a run extracts, cheap enough to sit on the creation path. The
+ * first scheduled run performs the full extraction.
+ */
+const SAMPLE_DOCS_CAP = 2;
 const PREVIEW_SNAPSHOT_TTL_MS = 30 * 60 * 1000;
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -344,7 +375,11 @@ async function discover(req: Request, user: AuthedUser): Promise<Response> {
     );
   }
 
-  const raw = parsed.data.root_domain.trim();
+  if (parsed.data.tracked_urls?.length) {
+    return await validateTracked(parsed.data.tracked_urls, user);
+  }
+
+  const raw = (parsed.data.root_domain ?? "").trim();
   const target = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
 
   let urls: string[] = [];
@@ -363,11 +398,22 @@ async function discover(req: Request, user: AuthedUser): Promise<Response> {
       target,
       msg: e instanceof Error ? e.message : String(e),
     });
-    return jsonOk({ candidates: [] });
+    return jsonOk({
+      ...probeFailure(
+        "reach",
+        isAntiBotBlockedError(e) ? "blocked" : "unreachable",
+      ),
+      system: "generic",
+      candidates: [],
+    });
   }
 
   if (urls.length === 0) {
-    return jsonOk({ candidates: [] });
+    return jsonOk({
+      ...probeFailure("reach", "empty_content"),
+      system: "generic",
+      candidates: [],
+    });
   }
 
   const list = urls.slice(0, 200).map((u, i) => `${i + 1}. ${u}`).join("\n");
@@ -397,9 +443,16 @@ async function discover(req: Request, user: AuthedUser): Promise<Response> {
       Math.min(urls.length, 200)
     }):\n${list}`;
 
-  let extraction: { candidates: Candidate[] };
+  let ranked: Candidate[] = deterministicCandidates;
   try {
-    extraction = await openRouterExtract(prompt, DISCOVER_SCHEMA);
+    const extraction: { candidates: Candidate[] } = await openRouterExtract(
+      prompt,
+      DISCOVER_SCHEMA,
+    );
+    ranked = mergeCivicCandidates([
+      ...deterministicCandidates,
+      ...(extraction.candidates ?? []),
+    ]);
   } catch (e) {
     logEvent({
       level: "warn",
@@ -409,13 +462,16 @@ async function discover(req: Request, user: AuthedUser): Promise<Response> {
       msg: e instanceof Error ? e.message : String(e),
       fallback_candidates: deterministicCandidates.length,
     });
-    return jsonOk({ candidates: deterministicCandidates });
   }
 
-  const candidates = mergeCivicCandidates([
-    ...deterministicCandidates,
-    ...(extraction.candidates ?? []),
-  ]);
+  // Detect step: ranking says where meetings are LIKELY; the resolver walks
+  // those pages (and the committee system behind them) and keeps only pages
+  // with meetings actually visible, so a chosen candidate is known to work.
+  const resolved = await resolveCivicListings(
+    [...ranked.map((c) => c.url), target],
+    { fetchHtml: resolverFetcher(user.id), maxSeeds: 3, maxListings: 5 },
+    urls,
+  );
 
   logEvent({
     level: "info",
@@ -424,10 +480,67 @@ async function discover(req: Request, user: AuthedUser): Promise<Response> {
     user_id: user.id,
     target,
     urls_mapped: urls.length,
-    candidates: candidates.length,
+    ranked: ranked.length,
+    system: resolved.system,
+    candidates: resolved.candidates.length,
+    resolver_scrapes: resolved.scraped,
   });
 
-  return jsonOk({ candidates });
+  if (resolved.candidates.length === 0) {
+    return jsonOk({
+      ...probeFailure("detect", "no_meetings_detected"),
+      system: resolved.system,
+      candidates: [],
+      // Ranked-but-unverified pages help a user find the right section by
+      // hand; they are explicitly not offered as tracked URLs.
+      unverified: ranked.slice(0, 5),
+    });
+  }
+
+  return jsonOk({
+    ...probeOk("detect"),
+    system: resolved.system,
+    candidates: resolved.candidates,
+  });
+}
+
+/**
+ * Validation mode for `POST /civic/discover`: the CLI and MCP pre-flight, and
+ * the same check `POST /scouts` applies before creating a civic scout.
+ */
+async function validateTracked(
+  trackedUrls: string[],
+  user: AuthedUser,
+): Promise<Response> {
+  const validation = await validateCivicTrackedUrls(trackedUrls, {
+    fetchHtml: resolverFetcher(user.id),
+  });
+  logEvent({
+    level: "info",
+    fn: "civic",
+    event: "validate_tracked",
+    user_id: user.id,
+    urls: trackedUrls.length,
+    ok: validation.ok,
+    system: validation.system,
+    resolver_scrapes: validation.scraped,
+  });
+  if (!validation.ok) {
+    return jsonOk({
+      ...probeFailure("detect", "no_meetings_detected"),
+      system: validation.system,
+      validated: validation.validated,
+      invalid: validation.invalid,
+      candidates: validation.candidates,
+    });
+  }
+  return jsonOk({
+    ...probeOk("detect"),
+    system: validation.system,
+    validated: validation.validated,
+    invalid: [],
+    candidates: validation.candidates,
+  });
 }
 
 function mergeCivicCandidates(candidates: Candidate[]): Candidate[] {
@@ -471,7 +584,7 @@ async function test(req: Request, user: AuthedUser): Promise<Response> {
   const { tracked_urls, criteria } = parsed.data;
 
   const preview = await previewCivicTrackedUrls(tracked_urls, criteria, {
-    maxDocs: 5,
+    maxDocs: SAMPLE_DOCS_CAP,
     maxPromisesPerDocument: PROMISES_PREVIEW_CAP,
     tenantKey: user.id,
   });
@@ -495,14 +608,20 @@ async function test(req: Request, user: AuthedUser): Promise<Response> {
     promises: allPromises.length,
   });
 
+  const failedOutcomes = preview.sourceResults.map((r) => r.outcome);
+  const sampleFailure = documentsFound > 0
+    ? null
+    : preview.documentsResolved === 0
+    ? probeFailure("sample", "no_documents")
+    : failedOutcomes.includes("model_failed") &&
+        !failedOutcomes.includes("parse_failed")
+    ? probeFailure("sample", "model_failed")
+    : probeFailure("sample", "parse_failed");
+
   return jsonOk({
+    ...(sampleFailure ?? probeOk("sample")),
     api_version: "2",
     valid: documentsFound > 0,
-    ...(documentsFound > 0 ? {} : {
-      error_code: preview.documentsResolved === 0
-        ? "no_documents"
-        : "all_documents_failed",
-    }),
     documents_found: documentsFound,
     documents_resolved: preview.documentsResolved,
     documents_evaluated: documentsFound,

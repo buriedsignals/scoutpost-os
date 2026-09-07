@@ -42,7 +42,7 @@ export interface WebBaselineScout {
   wayback_enabled?: boolean | null;
 }
 
-interface WebBaselineDeps {
+export interface WebBaselineDeps {
   /** The provider-agnostic scrape port — the live canonical-hash baseline
    * routes through this (crawl4ai in prod, Firecrawl anti-bot fallback). */
   scrape: typeof portScrape;
@@ -220,9 +220,12 @@ async function ensureWebBaselineDetailed(
 export async function ensureWebBaseline(
   svc: SupabaseClient,
   scout: WebBaselineScout,
-  deps: WebBaselineDeps = DEFAULT_DEPS,
+  deps: Partial<WebBaselineDeps> = {},
 ): Promise<boolean> {
-  return (await ensureWebBaselineDetailed(svc, scout, deps)).established;
+  return (await ensureWebBaselineDetailed(svc, scout, {
+    ...DEFAULT_DEPS,
+    ...deps,
+  })).established;
 }
 
 /**

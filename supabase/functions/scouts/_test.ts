@@ -550,9 +550,94 @@ Deno.test("scouts: LinkedIn accepts personal URLs and rejects other URL paths", 
   }
 });
 
+Deno.test("scouts: create gate rejects civic tracked_urls that expose no meetings (422 envelope)", async () => {
+  const user = await createTestUser();
+  try {
+    // No preview snapshot → the server runs the detect probe itself. A host
+    // that does not exist cannot expose meetings, so the gate must answer
+    // with the shared envelope instead of creating a dead scout.
+    const createRes = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Civic gate",
+        scout_type: "civic",
+        root_domain: "https://city.example.gov/",
+        tracked_urls: ["https://city.example.gov/council/agendas"],
+        criteria: "housing",
+        topic: "housing, council",
+        initial_promises: [{ promise_text: "never stored" }],
+      }),
+    });
+    assertEquals(createRes.status, 422);
+    const body = await createRes.json();
+    assertEquals(body.ok, false);
+    assertEquals(body.stage, "detect");
+    assertEquals(body.error_code, "no_meetings_detected");
+    assertExists(body.error);
+    assertEquals(body.invalid, ["https://city.example.gov/council/agendas"]);
+    assertEquals(Array.isArray(body.candidates), true);
+
+    const { count, error } = await svc().from("scouts").select("id", {
+      count: "exact",
+      head: true,
+    }).eq("user_id", user.id);
+    if (error) throw new Error(error.message);
+    assertEquals(count, 0);
+  } finally {
+    await user.cleanup();
+  }
+});
+
+Deno.test("scouts: create gate rejects an unreachable web url (422 envelope)", async () => {
+  const user = await createTestUser();
+  try {
+    const createRes = await fetch(functionUrl("scouts"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        name: "Unreachable page",
+        type: "web",
+        url: "https://does-not-resolve.invalid/news",
+        topic: "news",
+      }),
+    });
+    assertEquals(createRes.status, 422);
+    const body = await createRes.json();
+    assertEquals(body.ok, false);
+    assertEquals(body.stage, "reach");
+    assertEquals(["unreachable", "blocked"].includes(body.error_code), true);
+    assertExists(body.error);
+  } finally {
+    await user.cleanup();
+  }
+});
+
 Deno.test("scouts: legacy Civic preview text is never persisted", async () => {
   const user = await createTestUser();
   try {
+    // A preview snapshot proves the sample step passed; the gate defers to it.
+    const trackedUrl = "https://city.example.gov/council/agendas";
+    const { data: snapshot, error: snapshotError } = await svc()
+      .from("civic_preview_snapshots")
+      .insert({
+        user_id: user.id,
+        policy_version: "civic-accountability-v2",
+        criteria: "housing",
+        tracked_urls: [trackedUrl],
+        documents: [{
+          source_url: `${trackedUrl}/1`,
+          source_title: "Council agenda",
+          content_hash: "b".repeat(64),
+          items: [],
+        }],
+        expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+      })
+      .select("id")
+      .single();
+    if (snapshotError || !snapshot) {
+      throw new Error(snapshotError?.message ?? "missing preview snapshot");
+    }
     const createRes = await fetch(functionUrl("scouts"), {
       method: "POST",
       headers: headers(user.token),
@@ -560,9 +645,10 @@ Deno.test("scouts: legacy Civic preview text is never persisted", async () => {
         name: "Civic Round Trip",
         scout_type: "civic",
         root_domain: "https://city.example.gov/",
-        tracked_urls: ["https://city.example.gov/council/agendas"],
+        tracked_urls: [trackedUrl],
         criteria: "housing",
         topic: "housing, council",
+        preview_snapshot_token: snapshot.id,
         initial_promises: [
           {
             promise_text: "Build 100 affordable homes",
@@ -580,9 +666,7 @@ Deno.test("scouts: legacy Civic preview text is never persisted", async () => {
     const created = await createRes.json();
     assertEquals(created.type, "civic");
     assertEquals(created.root_domain, "city.example.gov");
-    assertEquals(created.tracked_urls, [
-      "https://city.example.gov/council/agendas",
-    ]);
+    assertEquals(created.tracked_urls, [trackedUrl]);
 
     const { data: promises, error } = await svc()
       .from("promises")

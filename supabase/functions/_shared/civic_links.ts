@@ -171,6 +171,67 @@ const MEETING_URL_SCHEMA: Record<string, unknown> = {
   required: ["meeting_urls"],
 };
 
+/**
+ * Public-suffix tails that carry a second label of their own, so the
+ * registrable site is the LAST THREE labels, not the last two. Councils live
+ * almost exclusively under these (`bristol.gov.uk`, `zermatt.ch`), and getting
+ * this wrong in either direction is what makes or breaks link extraction.
+ */
+const CIVIC_MULTIPART_SUFFIXES: readonly string[] = [
+  "gov.uk",
+  "co.uk",
+  "org.uk",
+  "ac.uk",
+  "gov.au",
+  "com.au",
+  "org.au",
+  "govt.nz",
+  "gov.br",
+  "com.br",
+  "gob.mx",
+  "gov.za",
+  "go.jp",
+  "gov.in",
+  "gov.ie",
+  "gov.pl",
+  "gov.it",
+];
+
+/**
+ * The registrable site a host belongs to: `www.bristol.gov.uk` and
+ * `democracy.bristol.gov.uk` both reduce to `bristol.gov.uk`.
+ */
+export function civicSiteBaseHost(hostname: string): string {
+  const host = hostname.toLowerCase().replace(/\.+$/, "");
+  const labels = host.split(".").filter(Boolean);
+  if (labels.length <= 2) return labels.join(".");
+  const lastTwo = labels.slice(-2).join(".");
+  const keep = CIVIC_MULTIPART_SUFFIXES.includes(lastTwo) ? 3 : 2;
+  return labels.slice(-keep).join(".");
+}
+
+/**
+ * True when two hosts belong to the same council site, including sibling
+ * subdomains. UK councils publish their meeting documents on a committee
+ * management subdomain (`democracy.<council>.gov.uk`, modern.gov) linked from
+ * the main `www.` site; an exact-hostname match dropped every one of those
+ * links, so civic preview resolved zero documents and the UI's Test
+ * Extraction step failed for effectively every UK council.
+ */
+export function isSameCivicSite(hostA: string, hostB: string): boolean {
+  const a = hostA.toLowerCase();
+  const b = hostB.toLowerCase();
+  if (a === b) return true;
+  const baseA = civicSiteBaseHost(a);
+  const baseB = civicSiteBaseHost(b);
+  // A bare public suffix (`gov.uk`) is not a site — refuse to treat every
+  // council in the country as one domain.
+  if (!baseA || !baseB || CIVIC_MULTIPART_SUFFIXES.includes(baseA)) {
+    return false;
+  }
+  return baseA === baseB;
+}
+
 export function extractCivicLinksFromHtml(
   html: string,
   pageUrl: string,
@@ -184,7 +245,10 @@ export function extractCivicLinksFromHtml(
   const rawLinks = html.matchAll(/<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/gims);
 
   for (const match of rawLinks) {
-    const rawHref = (match[1] ?? "").trim();
+    // hrefs arrive HTML-escaped. modern.gov URLs are query-heavy
+    // (`?GL=1&amp;bcr=1`); left undecoded the second parameter becomes
+    // `amp;bcr` and the fetched page is not the one that was linked.
+    const rawHref = decodeHtmlEntities((match[1] ?? "").trim());
     const rawAnchor = (match[2] ?? "").replace(/<[^>]+>/g, "").trim();
     if (!rawHref) continue;
     if (CIVIC_DENYLIST_PREFIXES.some((prefix) => rawHref.startsWith(prefix))) {
@@ -199,7 +263,7 @@ export function extractCivicLinksFromHtml(
       continue;
     }
     if (!["http:", "https:"].includes(absolute.protocol)) continue;
-    if (absolute.hostname.toLowerCase() !== pageDomain) continue;
+    if (!isSameCivicSite(absolute.hostname, pageDomain)) continue;
 
     const hrefNoFragment = absolute.toString().split("#")[0].replace(
       /\/+$/,
@@ -212,6 +276,23 @@ export function extractCivicLinksFromHtml(
   }
 
   return allLinks;
+}
+
+const HTML_ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&apos;": "'",
+  "&nbsp;": " ",
+};
+
+function decodeHtmlEntities(value: string): string {
+  return value.replace(
+    /&(?:amp|lt|gt|quot|apos|nbsp|#39);/g,
+    (entity) => HTML_ENTITIES[entity] ?? entity,
+  );
 }
 
 export function extractCivicLinksFromPages(
@@ -273,19 +354,46 @@ export async function discoverCivicDocumentsFromTrackedPages(
   };
 }
 
+/**
+ * Deterministic stage of document classification: scrapable links that carry
+ * a meeting keyword AND look like a leaf document. No model call. The
+ * resolver uses this to count "documents visible" behind a candidate page.
+ */
+export function keywordCivicMeetingDocumentLinks(
+  links: CivicLink[],
+): CivicLink[] {
+  return links
+    .filter((link) => isCivicScrapableUrl(link.url))
+    .filter((link) =>
+      hasMeetingKeyword(civicMatchText(link)) ||
+      isCivicRecordDetailUrl(link.url)
+    )
+    .filter(isCivicMeetingDocumentLink)
+    .sort(compareCivicLinks);
+}
+
 export async function classifyCivicMeetingUrls(
   links: CivicLink[],
 ): Promise<string[]> {
   const scrapableLinks = links.filter((link) => isCivicScrapableUrl(link.url));
   if (scrapableLinks.length === 0) return [];
 
+  // A populated record-id URL (`ieListDocuments.aspx?…&MId=<n>`) names one
+  // meeting whatever its anchor says ("9 Sep 2026 1.00 pm" carries no
+  // keyword), so it joins the deterministic stage alongside keyword hits.
   const keywordMatches = scrapableLinks.filter((link) =>
-    hasMeetingKeyword(civicMatchText(link))
+    hasMeetingKeyword(civicMatchText(link)) || isCivicRecordDetailUrl(link.url)
   );
 
-  if (keywordMatches.length > 0) {
-    const documentLinks = keywordMatches.filter(isCivicMeetingDocumentLink);
-    return documentLinks.sort(compareCivicLinks).map((link) => link.url);
+  const keywordDocumentLinks = keywordMatches.filter(
+    isCivicMeetingDocumentLink,
+  );
+  // Only a keyword stage that actually produced leaf documents may skip the
+  // model. A page whose keyword hits are all navigation ("Council meetings",
+  // "How decisions are made") used to short-circuit to an empty result and
+  // report "no documents"; fall through to the model instead.
+  if (keywordDocumentLinks.length > 0) {
+    return keywordDocumentLinks.sort(compareCivicLinks).map((link) => link.url);
   }
 
   const numbered = scrapableLinks.slice(0, 2000).map((link, index) => {
@@ -407,6 +515,10 @@ const CIVIC_RECORD_ID_PARAMS = new Set([
   "meetingid",
   "itemid",
   "aid",
+  // modern.gov (UK): `ieListDocuments.aspx?CId=<committee>&MId=<meeting>` is
+  // one meeting's document page. Shape verified on democracy.leeds.gov.uk,
+  // 2026-09-07.
+  "mid",
 ]);
 
 /**

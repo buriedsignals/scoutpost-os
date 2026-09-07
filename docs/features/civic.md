@@ -44,6 +44,41 @@ records, or `PROMISE#` records. Those names are migration history.
    Baselines and processed URL state are held on the scout and related Supabase tables.
 ```
 
+## Creation Probe (two-step, all surfaces)
+
+Council scouts are validated by the same two server-side steps on the web UI,
+CLI, MCP and raw API. Both steps speak the shared probe envelope from
+`_shared/scout_probe.ts`:
+
+```
+{ ok, stage: "reach"|"detect"|"sample", error_code?, error? }   // additive to existing fields
+```
+
+1. **Detect — `POST /civic/discover` `{ root_domain }`.** Maps the site,
+   fingerprints the committee system (`moderngov` | `generic`,
+   `_shared/civic_systems.ts`) and walks one hop from the ranked pages. Only
+   listings behind which the resolver already saw a leaf meeting document are
+   returned: `candidates[]` = `{ url, description, confidence, system,
+   documents_visible ≥ 1, recommended }`, best first. No qualifying page →
+   `ok:false, error_code:"no_meetings_detected"` with empty `candidates` and
+   up to five ranked `unverified` pages for manual inspection. This is an
+   *outcome* (rendered as a picker), not an error. Site-map failures return
+   `unreachable` / `blocked` / `empty_content` with `stage:"reach"`.
+   Validation mode: `{ tracked_urls: [1–2 urls] }` instead of `root_domain`
+   applies the same check to chosen pages and returns `validated`, `invalid`
+   and replacement `candidates`.
+2. **Sample — `POST /civic/test` `{ tracked_urls, criteria? }`.** Resolves
+   documents from the chosen listings, parses at most two, runs one extraction
+   pass and returns `sample_items` plus `preview_snapshot_token` (only when
+   `documents_found > 0`). Failure codes: `no_documents` (nothing resolved),
+   `parse_failed`, `model_failed`.
+3. **Create gate — `POST /scouts` `type:"civic"`.** Unless the request carries
+   a `preview_snapshot_token`, the server re-runs the detect check on the
+   submitted `tracked_urls` (`validateCivicTrackedUrls`) and answers
+   **HTTP 422** with the envelope plus `system`, `validated`, `invalid`,
+   `candidates` when any tracked URL exposes no meetings. There is no bypass
+   flag. Success responses are unchanged.
+
 ## Execution Flow
 
 ```
@@ -143,8 +178,8 @@ operational queries.
 
 | Surface                                   | Purpose                                                           |
 | ----------------------------------------- | ----------------------------------------------------------------- |
-| `POST /api/civic/discover`                | Browser-authenticated domain discovery and ranked URL candidates. |
-| `POST /api/civic/test`                    | Browser-authenticated extraction preview.                         |
+| `POST /api/civic/discover`                | Step 1 (detect): verified listing candidates, or validation of chosen `tracked_urls`. Probe envelope. |
+| `POST /api/civic/test`                    | Step 2 (sample): bounded document sample + `preview_snapshot_token`. Probe envelope. |
 | `GET /api/civic/items`                    | Owner-scoped promise/decision leads and tracker state.            |
 | `GET /api/civic/items/:id`                | One owner-scoped Civic item.                                      |
 | `GET /api/civic/runs`                     | Safe aggregate Civic run diagnostics.                             |

@@ -168,6 +168,29 @@ evaluation.
 | **Scheduled** | Server establishes local canonical baseline at scout creation/scheduling | Sent if criteria match on later changes | Charged on runs |
 | **Run Now** (Manual) | Uses a valid canonical baseline; repairs missing historical state without alerting or charging | Sent if criteria match on later runs | Charged only after baseline readiness |
 
+## Creation Probe and Create Gate
+
+`POST /scouts/test` `{ url, criteria? }` is the Page-scout probe (`testScout`
+in `scouts/index.ts`), reachable from the web UI Test button, the CLI, the MCP
+tool `test_web_scout`, and the raw API. It returns the shared envelope from
+`_shared/scout_probe.ts` alongside the existing `summary`, `scraper_status`,
+`criteria_status`:
+
+| Situation | `ok` | `stage` | `error_code` |
+|---|---|---|---|
+| Scrape threw, provider classed it anti-bot | false | reach | `blocked` |
+| Scrape threw, any other reason | false | reach | `unreachable` |
+| Final URL is not the configured page | false | reach | `outside_configured_page` |
+| Page fetched but no readable markdown | false | reach | `empty_content` |
+| Fetched, criteria given, no match | **true** | reach | `criteria_not_met` (advisory, no `error` text) |
+| Fetched, summary model unavailable | true | reach | — (`summary` says summary unavailable) |
+
+`POST /scouts` with `type:"web"` runs the same reach step server-side before
+insert (`probeCreateGate`) and answers **HTTP 422** with the envelope for
+`blocked`, `unreachable`, `outside_configured_page` or `empty_content`; the
+successful scrape is reused for the baseline so a passing create pays for one
+fetch. There is no bypass flag. `criteria_not_met` never blocks creation.
+
 ## Schedule-Time Baseline
 
 When the user schedules a Page Scout, the server establishes the local

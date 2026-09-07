@@ -65,7 +65,18 @@ import {
   validateTransportBaselineIds,
 } from "../_shared/transport_baseline.ts";
 import { assertTransportEntitled } from "../_shared/transport_entitlement.ts";
-import { scrape } from "../_shared/scrape.ts";
+import {
+  isAntiBotBlockedError,
+  scrape,
+  scrapeProviderConfigured,
+} from "../_shared/scrape.ts";
+import {
+  PROBE_GATE_STATUS,
+  probeFailure,
+  probeOk,
+} from "../_shared/scout_probe.ts";
+import { validateCivicTrackedUrls } from "../_shared/civic_systems.ts";
+import type { ScrapeResult } from "../_shared/scrape_types.ts";
 import { writeCanonicalBaseline } from "../_shared/canonical_baseline.ts";
 import {
   assertCompleteCivicMembership,
@@ -973,10 +984,24 @@ async function assertArchiveEntitled(
 async function ensureScheduledBaseline(
   svc: ReturnType<typeof getServiceClient>,
   scout: BaselineableScout,
+  cachedWebScrape: ScrapeResult | null = null,
 ): Promise<void> {
   if (!needsScheduledBaseline(scout)) return;
   if (scout.type === "web") {
-    await ensureWebBaseline(svc, scout);
+    // The create gate already fetched this page; hand the result to the
+    // baseline so creation costs one scrape, not two.
+    await ensureWebBaseline(
+      svc,
+      scout,
+      cachedWebScrape && scout.url
+        ? {
+          scrape: (url, opts) =>
+            url === scout.url
+              ? Promise.resolve(cachedWebScrape)
+              : scrape(url, opts),
+        }
+        : {},
+    );
     return;
   }
   if (scout.baseline_established_at) return;
@@ -1254,6 +1279,117 @@ function canonicalCivicUrl(value: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
+/**
+ * Create gate (probe parity): a `web` scout must be reachable and a `civic`
+ * scout's tracked pages must expose meetings, on every surface — web UI, CLI,
+ * MCP, raw API. Returns a 422 with the shared probe envelope, or the cached
+ * page scrape a web baseline can reuse. A civic request carrying a preview
+ * snapshot token has already passed the sample step; the token itself is
+ * verified when the import is enqueued.
+ */
+async function probeCreateGate(
+  user: AuthedUser,
+  rest: { type: string; url?: string | null; tracked_urls?: unknown },
+  previewSnapshotToken: string | undefined,
+): Promise<{ response: Response } | { cachedWebScrape: ScrapeResult | null }> {
+  if (
+    (rest.type === "web" || rest.type === "civic") &&
+    !scrapeProviderConfigured()
+  ) {
+    // No provider means no probe is possible; a scheduled scout will surface
+    // the missing provider on its first baseline instead.
+    logEvent({
+      level: "warn",
+      fn: "scouts",
+      event: "create_gate_skipped_no_scrape_provider",
+      user_id: user.id,
+      type: rest.type,
+    });
+    return { cachedWebScrape: null };
+  }
+  if (rest.type === "web" && rest.url) {
+    let scraped: ScrapeResult;
+    try {
+      scraped = await scrape(rest.url, {
+        ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
+        workloadClass: "utility",
+        tenantKey: user.id,
+      });
+    } catch (e) {
+      logEvent({
+        level: "warn",
+        fn: "scouts",
+        event: "create_gate_failed",
+        user_id: user.id,
+        url: rest.url,
+        msg: e instanceof Error ? e.message : String(e),
+      });
+      return {
+        response: jsonOk(
+          probeFailure(
+            "reach",
+            isAntiBotBlockedError(e) ? "blocked" : "unreachable",
+          ),
+          PROBE_GATE_STATUS,
+        ),
+      };
+    }
+    if (!isConfiguredPageUrl(scraped.source_url ?? rest.url, rest.url)) {
+      return {
+        response: jsonOk(
+          probeFailure("reach", "outside_configured_page"),
+          PROBE_GATE_STATUS,
+        ),
+      };
+    }
+    if (!(scraped.markdown ?? "").trim()) {
+      return {
+        response: jsonOk(
+          probeFailure("reach", "empty_content"),
+          PROBE_GATE_STATUS,
+        ),
+      };
+    }
+    return { cachedWebScrape: scraped };
+  }
+
+  if (rest.type === "civic" && !previewSnapshotToken) {
+    const trackedUrls = normalizeTrackedUrls(rest.tracked_urls);
+    const validation = await validateCivicTrackedUrls(trackedUrls, {
+      fetchHtml: async (url) =>
+        (await scrape(url, {
+          workloadClass: "utility",
+          tenantKey: user.id,
+          formats: ["rawHtml"],
+          onlyMainContent: false,
+          timeoutMs: 20_000,
+        })).rawHtml ?? "",
+    });
+    logEvent({
+      level: validation.ok ? "info" : "warn",
+      fn: "scouts",
+      event: "create_gate_civic",
+      user_id: user.id,
+      ok: validation.ok,
+      system: validation.system,
+      invalid: validation.invalid.length,
+      resolver_scrapes: validation.scraped,
+    });
+    if (!validation.ok) {
+      return {
+        response: jsonOk({
+          ...probeFailure("detect", "no_meetings_detected"),
+          system: validation.system,
+          validated: validation.validated,
+          invalid: validation.invalid,
+          candidates: validation.candidates,
+        }, PROBE_GATE_STATUS),
+      };
+    }
+  }
+  return { cachedWebScrape: null };
+}
+
 async function createScout(req: Request, user: AuthedUser): Promise<Response> {
   let body: unknown;
   try {
@@ -1333,6 +1469,10 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
     }
   }
 
+  const gate = await probeCreateGate(user, rest, preview_snapshot_token);
+  if ("response" in gate) return gate.response;
+  const cachedWebScrape = gate.cachedWebScrape;
+
   const { db } = getCallerClient(user);
   const { data, error } = await db
     .from("scouts")
@@ -1400,7 +1540,7 @@ async function createScout(req: Request, user: AuthedUser): Promise<Response> {
     }
     if (needsScheduledBaseline(baselineScout)) {
       try {
-        await ensureScheduledBaseline(svc, baselineScout);
+        await ensureScheduledBaseline(svc, baselineScout, cachedWebScrape);
       } catch (e) {
         await rollbackCreatedScout(svc, data.id, user.id);
         throw e;
@@ -2153,6 +2293,10 @@ async function testScout(
       msg: e instanceof Error ? e.message : String(e),
     });
     return jsonOk({
+      ...probeFailure(
+        "reach",
+        isAntiBotBlockedError(e) ? "blocked" : "unreachable",
+      ),
       summary: "",
       scraper_status: false,
       criteria_status: false,
@@ -2167,6 +2311,7 @@ async function testScout(
       user_id: user.id,
     });
     return jsonOk({
+      ...probeFailure("reach", "outside_configured_page"),
       summary: "",
       scraper_status: false,
       criteria_status: false,
@@ -2178,6 +2323,7 @@ async function testScout(
 
   if (!markdown.trim()) {
     return jsonOk({
+      ...probeFailure("reach", "empty_content"),
       summary: "No readable content at that URL.",
       scraper_status: false,
       criteria_status: false,
@@ -2202,6 +2348,7 @@ async function testScout(
     );
   } catch (_e) {
     return jsonOk({
+      ...probeOk("reach"),
       summary: "Page scraped successfully (summary unavailable).",
       scraper_status: true,
       criteria_status: false,
@@ -2217,7 +2364,14 @@ async function testScout(
     matched: extraction.matches,
   });
 
+  const criteriaStatus = criteria ? !!extraction.matches : false;
   return jsonOk({
+    // Reach succeeded; an unmet criteria is advisory, so the envelope stays
+    // ok:true and carries the code for clients that want to show it.
+    ...probeOk("reach"),
+    ...(criteria && !criteriaStatus
+      ? { error_code: "criteria_not_met" as const }
+      : {}),
     summary: extraction.summary ?? "",
     scraper_status: true,
     // When no criteria, `matches` is meaningless — the LLM returns `true` per
