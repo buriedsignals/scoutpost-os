@@ -77,7 +77,7 @@ Deno.test("Civic document membership queues new URLs and trusts unparsed known U
   );
 });
 
-Deno.test("replacementCheckUrls picks the newest known hashed documents up to the limit", () => {
+Deno.test("replacementCheckUrls picks the newest known documents (hashed or not) up to the limit", () => {
   const docs = [
     "https://city.example/minutes/new",
     "https://city.example/minutes/2026-06",
@@ -92,9 +92,11 @@ Deno.test("replacementCheckUrls picks the newest known hashed documents up to th
     ["https://city.example/minutes/2026-03", "d".repeat(64)],
   ]);
   assertEquals(CIVIC_REPLACEMENT_CHECK_LIMIT, 3);
+  // The new (unknown) URL is queued elsewhere; the newest KNOWN documents are
+  // re-hashed, including the URL-only row so its version gets recorded.
   assertEquals(replacementCheckUrls(docs, baseline, 2), [
     "https://city.example/minutes/2026-06",
-    "https://city.example/minutes/2026-04",
+    "https://city.example/minutes/2026-05",
   ]);
 });
 

@@ -161,13 +161,18 @@ export function shouldQueueCivicDocument(
   return recorded !== null && recorded !== contentHash;
 }
 
-/** Known URLs, in document order, that this run re-hashes for replacement. */
+/**
+ * Known URLs, in document order, that this run re-hashes for replacement.
+ * URL-only rows (recorded at creation, never parsed) are included so their
+ * first parse records a version; without it replacement detection would
+ * never bootstrap for the documents that existed at creation.
+ */
 export function replacementCheckUrls(
   documentUrls: readonly string[],
   baselineHashes: ReadonlyMap<string, string | null>,
   limit = CIVIC_REPLACEMENT_CHECK_LIMIT,
 ): string[] {
   return documentUrls
-    .filter((url) => typeof baselineHashes.get(url) === "string")
+    .filter((url) => baselineHashes.has(url))
     .slice(0, Math.max(0, limit));
 }
