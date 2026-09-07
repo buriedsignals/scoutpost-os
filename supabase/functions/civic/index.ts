@@ -494,6 +494,7 @@ async function discover(req: Request, user: AuthedUser): Promise<Response> {
       // Ranked-but-unverified pages help a user find the right section by
       // hand; they are explicitly not offered as tracked URLs.
       unverified: ranked.slice(0, 5),
+      diagnostics: { urls_mapped: urls.length, ...resolved.diagnostics },
     });
   }
 
@@ -501,6 +502,7 @@ async function discover(req: Request, user: AuthedUser): Promise<Response> {
     ...probeOk("detect"),
     system: resolved.system,
     candidates: resolved.candidates,
+    diagnostics: { urls_mapped: urls.length, ...resolved.diagnostics },
   });
 }
 
@@ -532,6 +534,7 @@ async function validateTracked(
       validated: validation.validated,
       invalid: validation.invalid,
       candidates: validation.candidates,
+      diagnostics: validation.diagnostics,
     });
   }
   return jsonOk({
@@ -540,6 +543,7 @@ async function validateTracked(
     validated: validation.validated,
     invalid: [],
     candidates: validation.candidates,
+    diagnostics: validation.diagnostics,
   });
 }
 

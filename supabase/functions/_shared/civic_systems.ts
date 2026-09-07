@@ -20,6 +20,7 @@
 
 import {
   type CivicLink,
+  civicSiteBaseHost,
   extractCivicLinksFromHtml,
   isCivicScrapableUrl,
   keywordCivicMeetingDocumentLinks,
@@ -36,11 +37,22 @@ export interface CivicListingCandidate {
   recommended: boolean;
 }
 
+export interface CivicResolveDiagnostics {
+  seeds: string[];
+  /** Civic-looking pages one hop below the seeds, fetched as extra seeds. */
+  second_level: string[];
+  /** Well-known committee-system hosts probed (e.g. democracy.<council>). */
+  probed: string[];
+  /** Every listing fetched, with the meetings visible on it (0 = dropped). */
+  listings_checked: Array<{ url: string; documents_visible: number }>;
+}
+
 export interface CivicResolveResult {
   system: CivicSystem;
   candidates: CivicListingCandidate[];
   /** Pages the resolver fetched; surfaced for logging and budget tests. */
   scraped: number;
+  diagnostics: CivicResolveDiagnostics;
 }
 
 export type CivicPageFetcher = (url: string) => Promise<string>;
@@ -53,6 +65,41 @@ export interface CivicResolveOptions {
   maxEntries?: number;
   /** Listing pages to verify per site. */
   maxListings?: number;
+  /** Civic-looking links below the seeds to follow when seeds expose nothing. */
+  maxSecondLevel?: number;
+}
+
+/** Anchor/URL terms that mark a page worth one more hop from a council root. */
+const CIVIC_HOP_TERMS =
+  /meeting|committee|democracy|council|minutes|agenda|decision|protokoll|sitzung|gemeinderat|séance|seance|conseil|consiglio|raad/i;
+
+/**
+ * Conventional committee-system hosts. modern.gov customers publish on
+ * `democracy.<council>` (bristol.gov.uk and leeds.gov.uk verified 2026-09-07);
+ * probing that host directly is one fetch and short-circuits sites whose main
+ * navigation is JS-rendered or whose sitemap omits the subdomain.
+ */
+const WELL_KNOWN_COMMITTEE_HOSTS = ["democracy", "committees", "moderngov"];
+
+function wellKnownEntryUrls(hosts: string[]): string[] {
+  const bases = new Set<string>();
+  for (const host of hosts) {
+    const base = civicSiteBaseHost(host);
+    if (base && base.endsWith(".gov.uk")) bases.add(base);
+  }
+  return [...bases].flatMap((base) =>
+    WELL_KNOWN_COMMITTEE_HOSTS.map((sub) =>
+      `https://${sub}.${base}/mgListCommittees.aspx?bcr=1`
+    )
+  );
+}
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
 }
 
 const MODERNGOV_PAGE = /\/(?:ie|mg)[A-Za-z0-9]+\.aspx$/i;
@@ -223,27 +270,83 @@ export async function resolveCivicListings(
   const maxSeeds = Math.max(1, opts.maxSeeds ?? 3);
   const maxEntries = Math.max(0, opts.maxEntries ?? 2);
   const maxListings = Math.max(1, opts.maxListings ?? 5);
+  const maxSecondLevel = Math.max(0, opts.maxSecondLevel ?? 3);
   const seeds = dedupe(seedUrls).filter(isCivicScrapableUrl).slice(0, maxSeeds);
   let scraped = 0;
+  const diagnostics: CivicResolveDiagnostics = {
+    seeds,
+    second_level: [],
+    probed: [],
+    listings_checked: [],
+  };
+
+  const labels = new Map<string, string>();
+  const remember = (pages: FetchedPage[]) => {
+    for (const page of pages) {
+      for (const link of page.links) {
+        if (link.anchorText && !labels.has(link.url)) {
+          labels.set(link.url, link.anchorText);
+        }
+      }
+    }
+  };
 
   const seedPages = await fetchPages(seeds, opts.fetchHtml);
   scraped += seedPages.length;
+  remember(seedPages);
   const seenUrls = [
     ...seeds,
     ...knownUrls,
     ...seedPages.flatMap((page) => page.links.map((link) => link.url)),
   ];
-  const system = detectCivicSystem(seenUrls);
 
-  const candidates: CivicListingCandidate[] = [];
-  const labels = new Map<string, string>();
-  for (const page of seedPages) {
-    for (const link of page.links) {
-      if (link.anchorText && !labels.has(link.url)) {
-        labels.set(link.url, link.anchorText);
-      }
+  // A council root rarely exposes meetings itself: follow the civic-looking
+  // links one hop ("Council and democracy", "Committees") when nothing
+  // seeded is a committee system or a document listing.
+  if (
+    detectCivicSystem(seenUrls) === "generic" && maxSecondLevel > 0 &&
+    !seedPages.some((page) => countVisibleMeetingDocuments(page.links) > 0)
+  ) {
+    const hop = dedupe(
+      seedPages.flatMap((page) =>
+        page.links
+          .filter((link) =>
+            CIVIC_HOP_TERMS.test(`${link.url} ${link.anchorText}`)
+          )
+          .map((link) => link.url)
+      ),
+    ).filter((url) => !seeds.includes(url)).slice(0, maxSecondLevel);
+    if (hop.length > 0) {
+      const hopPages = await fetchPages(hop, opts.fetchHtml);
+      scraped += hopPages.length;
+      remember(hopPages);
+      diagnostics.second_level = hop;
+      seedPages.push(...hopPages);
+      seenUrls.push(
+        ...hop,
+        ...hopPages.flatMap((page) => page.links.map((link) => link.url)),
+      );
     }
   }
+
+  // Still no committee system in sight: try the conventional host directly.
+  if (detectCivicSystem(seenUrls) === "generic") {
+    const hosts = seeds.map(hostOf).filter((h): h is string => h !== null);
+    for (const entry of wellKnownEntryUrls(hosts)) {
+      const [page] = await fetchPages([entry], opts.fetchHtml);
+      diagnostics.probed.push(entry);
+      if (!page) continue;
+      scraped += 1;
+      const urls = page.links.map((link) => link.url);
+      if (!urls.some(isModernGovUrl) && !isModernGovUrl(entry)) continue;
+      remember([page]);
+      seenUrls.push(entry, ...urls);
+      break;
+    }
+  }
+
+  const system = detectCivicSystem(seenUrls);
+  const candidates: CivicListingCandidate[] = [];
 
   // Generic rule applies to every seed, whichever system: a seed that already
   // exposes documents is itself a valid tracked page.
@@ -315,6 +418,10 @@ export async function resolveCivicListings(
       const visible = page.links.filter((link) =>
         isModernGovMeetingUrl(link.url)
       ).length;
+      diagnostics.listings_checked.push({
+        url: page.url,
+        documents_visible: visible,
+      });
       if (visible === 0) continue;
       candidates.push({
         url: page.url,
@@ -333,7 +440,7 @@ export async function resolveCivicListings(
     b.confidence - a.confidence || a.url.localeCompare(b.url)
   );
   if (candidates.length > 0) candidates[0].recommended = true;
-  return { system, candidates, scraped };
+  return { system, candidates, scraped, diagnostics };
 }
 
 export interface CivicTrackedUrlValidation {
@@ -346,6 +453,7 @@ export interface CivicTrackedUrlValidation {
   /** Listings the resolver found instead — offered as replacements. */
   candidates: CivicListingCandidate[];
   scraped: number;
+  diagnostics: CivicResolveDiagnostics;
 }
 
 /**
@@ -360,7 +468,8 @@ export async function validateCivicTrackedUrls(
   const normalized = dedupe(trackedUrls);
   const result = await resolveCivicListings(normalized, {
     maxEntries: 1,
-    maxListings: 3,
+    maxListings: 5,
+    maxSecondLevel: 0,
     ...opts,
     maxSeeds: Math.max(normalized.length, 1),
   });
@@ -377,5 +486,6 @@ export async function validateCivicTrackedUrls(
       !validated.includes(candidate.url)
     ),
     scraped: result.scraped,
+    diagnostics: result.diagnostics,
   };
 }

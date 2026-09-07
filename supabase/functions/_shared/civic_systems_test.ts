@@ -56,6 +56,28 @@ const FIXTURES: Record<string, string> = {
     <a href="/pdf/protokoll/2025/vollprotokoll_2025-03-19.pdf">Vollprotokoll 19.03.2025</a>
     <a href="/pdf/protokoll/2024/vollprotokoll_2024-12-04.pdf">Vollprotokoll 04.12.2024</a>
   `,
+  // Leeds-shaped root: no democracy link on the root, one hop below it.
+  "https://www.leeds.gov.uk": `
+    <a href="/residents/bins">Bins</a>
+    <a href="/council-and-democracy">Council and democracy</a>
+  `,
+  "https://www.leeds.gov.uk/council-and-democracy": `
+    <a href="https://democracy.leeds.gov.uk/mgListCommittees.aspx?bcr=1">Committees and meetings</a>
+  `,
+  "https://democracy.leeds.gov.uk/mgListCommittees.aspx?bcr=1": `
+    <a href="mgCommitteeDetails.aspx?ID=111">Council</a>
+  `,
+  "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=111": `
+    <a href="ieListDocuments.aspx?CId=111&amp;MId=14369&amp;Ver=4">9 Sep 2026 1.00 pm</a>
+  `,
+  // A root whose navigation is JS-rendered: nothing useful in the HTML.
+  "https://www.york.gov.uk": `<a href="/cookies">Cookies</a>`,
+  "https://democracy.york.gov.uk/mgListCommittees.aspx?bcr=1": `
+    <a href="mgCommitteeDetails.aspx?ID=7">Full Council</a>
+  `,
+  "https://democracy.york.gov.uk/ieListMeetings.aspx?CommitteeId=7": `
+    <a href="ieListDocuments.aspx?CId=7&amp;MId=99&amp;Ver=4">1 Oct 2026 6.30 pm</a>
+  `,
   "https://www.example-town.org/about": `
     <a href="/about/history">History</a>
     <a href="/contact">Contact</a>
@@ -294,4 +316,48 @@ Deno.test("a modern.gov committee index is not a valid tracked page and its comm
     ),
     0,
   );
+});
+
+Deno.test("resolveCivicListings follows one civic-looking hop below a council root (Leeds shape)", async () => {
+  const log: string[] = [];
+  const result = await resolveCivicListings(["https://www.leeds.gov.uk"], {
+    fetchHtml: fetcher(log),
+  });
+  assertEquals(result.system, "moderngov");
+  assertEquals(result.candidates.map((c) => c.url), [
+    "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=111",
+  ]);
+  assertEquals(result.diagnostics.second_level, [
+    "https://www.leeds.gov.uk/council-and-democracy",
+  ]);
+  assertEquals(result.diagnostics.probed, []);
+  assertEquals(result.diagnostics.listings_checked, [{
+    url: "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=111",
+    documents_visible: 1,
+  }]);
+});
+
+Deno.test("resolveCivicListings probes democracy.<council>.gov.uk when the root exposes nothing", async () => {
+  const result = await resolveCivicListings(["https://www.york.gov.uk"], {
+    fetchHtml: fetcher(),
+  });
+  assertEquals(result.system, "moderngov");
+  assertEquals(
+    result.diagnostics.probed[0],
+    "https://democracy.york.gov.uk/mgListCommittees.aspx?bcr=1",
+  );
+  assertEquals(result.candidates.map((c) => [c.url, c.description]), [[
+    "https://democracy.york.gov.uk/ieListMeetings.aspx?CommitteeId=7",
+    "Full Council",
+  ]]);
+});
+
+Deno.test("resolveCivicListings does not probe well-known hosts outside .gov.uk", async () => {
+  const result = await resolveCivicListings([
+    "https://www.example-town.org/about",
+  ], {
+    fetchHtml: fetcher(),
+  });
+  assertEquals(result.diagnostics.probed, []);
+  assertEquals(result.candidates, []);
 });
