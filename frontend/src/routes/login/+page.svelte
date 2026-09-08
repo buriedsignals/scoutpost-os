@@ -254,11 +254,6 @@
 
 		<!-- Story / marketing panel -->
 		<div class="story-panel" class:mounted>
-			<div class="badge">
-				<span class="badge-dot"></span>
-				PUBLIC BETA
-			</div>
-
 			<img src="/logo-scoutpost.svg" alt="Scoutpost" class="headline-logo" />
 
 			<p class="tagline">
@@ -1054,40 +1049,6 @@
 		}
 	}
 
-	/* Public Beta badge — uppercase mono + warm status dot */
-	.badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0.875rem;
-		border: 1px solid var(--color-primary);
-		border-radius: 0;
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		color: var(--color-ink);
-		margin-bottom: 2rem;
-		transition: background 150ms ease;
-	}
-
-	.badge:hover {
-		background: var(--color-primary-soft);
-	}
-
-	.badge-dot {
-		width: 6px;
-		height: 6px;
-		background: var(--color-primary);
-		animation: pulse-dot 2s ease-in-out infinite;
-	}
-
-	@keyframes pulse-dot {
-		0%, 100% { opacity: 1; transform: scale(1); }
-		50%      { opacity: 0.5; transform: scale(0.85); }
-	}
-
 	.headline-logo {
 		display: block;
 		height: clamp(2.5rem, 6vw, 4rem);
@@ -1753,7 +1714,6 @@
 		filter: grayscale(1) invert(1);
 	}
 
-	.badge,
 	.feature-icon,
 	.auth-input,
 	.auth-cta-link,
@@ -1809,17 +1769,9 @@
 		.content-wrapper {
 			padding: 2rem 1rem;
 		}
-
-		.badge {
-			font-size: 0.625rem;
-			padding: 0.375rem 0.75rem;
-		}
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.badge-dot {
-			animation: none;
-		}
 		.feature-item {
 			transition: none;
 			will-change: auto;
