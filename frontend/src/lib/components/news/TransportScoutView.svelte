@@ -21,7 +21,7 @@
 
 	export let onScheduled: (detail: { scoutType: 'transport' }) => void = () => {};
 
-	type Mode = 'aircraft' | 'vessel' | 'satellite';
+	type Mode = 'aircraft' | 'vessel';
 
 	// Must mirror the backend caps in _shared/transport_config.ts.
 	const AIRCRAFT_MAX_RADIUS_KM = 463;
@@ -53,9 +53,7 @@
 	$: watchIdsHint =
 		mode === 'vessel'
 			? m.transport_watchIdsHintVessel()
-			: mode === 'aircraft'
-				? m.transport_watchIdsHintAircraft()
-				: m.transport_watchIdsHintSatellite();
+			: m.transport_watchIdsHintAircraft();
 
 	const parseNum = transportParseNum;
 
@@ -205,7 +203,6 @@
 						options={[
 							{ value: 'aircraft', label: m.transport_modeAircraft(), description: 'ADS-B' },
 							{ value: 'vessel', label: m.transport_modeVessel(), description: 'AIS' },
-							{ value: 'satellite', label: m.transport_modeSatellite(), description: 'Orbital' }
 						]}
 					/>
 				</div>

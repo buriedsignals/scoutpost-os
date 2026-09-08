@@ -30,7 +30,7 @@ describe('pricing page', () => {
 	it('describes the current hosted plans without promising removed features', () => {
 		render(PricingPage);
 
-		expect(screen.getByText('Fleet Scout for vessels, aircraft, and satellites')).toBeInTheDocument();
+		expect(screen.getByText('Fleet Scout for vessels and aircraft')).toBeInTheDocument();
 		expect(screen.getByText('Tamper-evident Page Archive snapshots')).toBeInTheDocument();
 		expect(screen.getByText('Scraped source data stored in your workspace')).toBeInTheDocument();
 		expect(screen.getByText('1,000 additional credits per seat')).toBeInTheDocument();

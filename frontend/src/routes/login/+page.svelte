@@ -493,7 +493,7 @@
 						</div>
 						<div>
 							<p class="feature-title">Fleet movements</p>
-							<p class="feature-desc">Monitor watched vessels and aircraft entering a selected area, plus predicted satellite passes. Optional criteria filter entry alerts.</p>
+							<p class="feature-desc">Monitor watched vessels and aircraft entering a selected area. Optional criteria filter entry alerts.</p>
 						</div>
 					</div>
 				</div>

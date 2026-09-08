@@ -411,11 +411,6 @@ Deno.test("setup provisions Edge secrets before deploying functions", async () =
       manifestCalls.indexOf("\ndeploy_edge_functions\n"),
     "manifest setup must set secrets before function deployment",
   );
-  assertIncludes(
-    manifestScript,
-    '"CELESTRAK_CONTACT_EMAIL=${ADMIN_EMAIL}"',
-    "manifest setup must identify the CelesTrak operator",
-  );
 
   const interactiveScript = await Deno.readTextFile(
     `${repoRoot}/selfhost/setup.sh`,
@@ -440,11 +435,6 @@ Deno.test("setup provisions Edge secrets before deploying functions", async () =
     interactiveScript,
     "LLM_MODEL must use the google/ namespace",
     "interactive setup",
-  );
-  assertIncludes(
-    interactiveScript,
-    '"CELESTRAK_CONTACT_EMAIL=${ADMIN_EMAILS}"',
-    "interactive setup must identify the CelesTrak operator",
   );
 });
 

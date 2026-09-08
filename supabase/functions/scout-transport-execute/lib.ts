@@ -28,10 +28,10 @@ export function overlapCutoffIso(now: Date = new Date()): string {
     .toISOString();
 }
 
-/** Modes with real executors: aircraft (U2), vessel (U3), satellite (U4).
+/** Modes with real executors: aircraft and vessel.
  * Unimplemented modes complete runs as unbilled `skipped`. */
 export const IMPLEMENTED_MODES: ReadonlySet<TransportMode> = new Set(
-  ["aircraft", "vessel", "satellite"] as const,
+  ["aircraft", "vessel"] as const,
 );
 
 export interface RunningRowRef {

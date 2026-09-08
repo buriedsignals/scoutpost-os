@@ -41,7 +41,7 @@ GATED_FILES=(
 
 rm -rf coverage
 # Flags mirror ci.yml's test-functions step: --allow-read=. + --allow-import so
-# scout-transport-execute's satellite.js (npm) imports resolve, while the
+# Edge Function imports resolve, while the
 # absence of --allow-net keeps the run network-isolated.
 deno test --allow-env --allow-read=. --allow-import --coverage=coverage _shared/ scout-transport-execute/ >/dev/null 2>&1
 

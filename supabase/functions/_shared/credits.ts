@@ -44,7 +44,7 @@ export const CREDIT_COSTS = {
   civic: 10,
   civic_discover: 10,
 
-  // Transport scout (vessel/aircraft/satellite) run. Base covers the
+  // Transport scout (vessel/aircraft) run. Base covers the
   // positional fetch + state diff; the addon is charged only when the scout
   // has free-text criteria (one batched LLM pass over entrants).
   transport: 1,

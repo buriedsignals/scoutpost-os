@@ -32,7 +32,7 @@ Scoutpost is built for investigative workflows, local reporting, and continuous 
 - [Beat Scout](https://www.scoutpost.ai/docs#scout-beat): Monitor a beat by topic or geography
 - [Social Scout](https://www.scoutpost.ai/docs#scout-social): Monitor social profiles and post deletions
 - [Civic Scout](https://www.scoutpost.ai/docs#scout-civic): Monitor council materials and PDF-heavy civic sources
-- [Fleet Scout](https://www.scoutpost.ai/docs#scout-fleet): Alert when watched vessels, aircraft, or satellites enter a defined area
+- [Fleet Scout](https://www.scoutpost.ai/docs#scout-fleet): Alert when watched vessels or aircraft enter a defined area
 - [Information units](https://www.scoutpost.ai/docs#units): Atomic facts, search, verification, and audit trail
 - [Verification](https://www.scoutpost.ai/docs#verification): Human editorial approval before publishable use
 - [Page Archive](https://www.scoutpost.ai/docs#page-archive): Evidence snapshots for Page Scouts — list/download via `scout snapshots` CLI, `list_snapshots`/`get_snapshot_url` MCP, `GET /snapshots`; toggle via `archive_enabled` on scout create/update

@@ -77,15 +77,10 @@ SELECT ok(
   'hourly vessel sampler uses the internal service-key boundary'
 );
 
-SELECT ok(
-  (
-    SELECT command LIKE '%X-Service-Key%'
-       AND command LIKE '%internal_service_key%'
-       AND command NOT LIKE '%service_role_key%'
-      FROM cron.job
-     WHERE jobname = 'transport-gp-refresh'
-  ),
-  'daily GP refresh uses the internal service-key boundary'
+SELECT is(
+  (SELECT count(*)::integer FROM cron.job WHERE jobname = 'transport-gp-refresh'),
+  0,
+  'retired GP refresh has no cron job'
 );
 
 SELECT * FROM finish();

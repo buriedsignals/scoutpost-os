@@ -1,7 +1,6 @@
-import { assertEquals } from "jsr:@std/assert@1";
+import { assertEquals, assertThrows } from "jsr:@std/assert@1";
 import {
   aircraftCanaryConfig,
-  gpProviderStateChanged,
   modeScheduleCron,
   reAlertedObjectIds,
   samplerRunFailureMessage,
@@ -12,11 +11,11 @@ import {
 } from "./benchmark-transport.ts";
 
 Deno.test("weekly transport benchmark can report each mode independently", () => {
-  assertEquals(selectedTransportModes([]), ["aircraft", "vessel", "satellite"]);
+  assertEquals(selectedTransportModes([]), ["aircraft", "vessel"]);
   assertEquals(selectedTransportModes(["--mode", "vessel"]), ["vessel"]);
   assertEquals(
-    selectedTransportModes(["--mode=aircraft", "--mode=satellite"]),
-    ["aircraft", "satellite"],
+    selectedTransportModes(["--mode=aircraft", "--mode=vessel"]),
+    ["aircraft", "vessel"],
   );
 });
 
@@ -59,34 +58,6 @@ Deno.test("aircraft canary follows live identities without a transient geofence"
     mode: "aircraft",
     watch_ids: ["abc123"],
   });
-});
-
-Deno.test("satellite scouts use a daily schedule while benchmark scouts stay dormant", () => {
-  assertEquals(modeScheduleCron("satellite"), "0 0 * * *");
-  assertEquals(modeScheduleCron("vessel"), "0 0 1 1 *");
-  assertEquals(modeScheduleCron("aircraft"), "0 0 1 1 *");
-});
-
-Deno.test("satellite cache canary detects provider activity", () => {
-  const before = {
-    lastAttemptAt: "2026-09-02T05:17:00.000Z",
-    latestRunId: "00000000-0000-4000-8000-000000000001",
-  };
-  assertEquals(gpProviderStateChanged(before, before), false);
-  assertEquals(
-    gpProviderStateChanged(before, {
-      ...before,
-      lastAttemptAt: "2026-09-02T06:17:00.000Z",
-    }),
-    true,
-  );
-  assertEquals(
-    gpProviderStateChanged(before, {
-      ...before,
-      latestRunId: "00000000-0000-4000-8000-000000000002",
-    }),
-    true,
-  );
 });
 
 Deno.test("vessel canary accepts provider positions refreshed by this sample", () => {
@@ -157,5 +128,18 @@ Deno.test("steady-state audit reports only identities already baselined", () => 
   assertEquals(
     reAlertedObjectIds(["a", "b"], ["b", "c", "b"]),
     ["b"],
+  );
+});
+
+Deno.test("transport benchmark schedules remain dormant", () => {
+  assertEquals(modeScheduleCron("aircraft"), "0 0 1 1 *");
+  assertEquals(modeScheduleCron("vessel"), "0 0 1 1 *");
+});
+
+Deno.test("weekly transport benchmark rejects retired satellite mode", () => {
+  assertThrows(
+    () => selectedTransportModes(["--mode", "satellite"]),
+    Error,
+    "invalid transport mode",
   );
 });

@@ -42,7 +42,7 @@
 	export let previewSnapshotToken: string | null = null;
 	// Transport Scout context (transport) — the view owns mode/geofence/watch_ids;
 	// this modal only adds the schedule and creates via the config path.
-	export let transportMode: 'aircraft' | 'vessel' | 'satellite' = 'aircraft';
+	export let transportMode: 'aircraft' | 'vessel' = 'aircraft';
 	export let transportConfig: Record<string, unknown> = {};
 	export let transportAreaLabel: string = '';
 	export let transportBaselineIds: string[] = [];
@@ -75,7 +75,7 @@
 	// Form state
 	let regularity: ScheduleRegularity =
 		scoutType === 'civic' ? 'monthly'
-		: scoutType === 'transport' ? (transportMode === 'satellite' ? 'daily' : '3h')
+		: scoutType === 'transport' ? '3h'
 		: 'weekly';
 	let dayNumber = 1;
 	let hour = 8;
@@ -180,12 +180,9 @@
 	$: info = scoutTypeInfo[scoutType];
 	$: transportModeLabel =
 		transportMode === 'aircraft' ? m.transport_modeAircraft()
-		: transportMode === 'vessel' ? m.transport_modeVessel()
-		: m.transport_modeSatellite();
+		: m.transport_modeVessel();
 	$: if ((scoutType === 'pulse' || scoutType === 'social') && regularity === 'daily') regularity = 'weekly';
 	$: if (scoutType === 'civic' && regularity !== 'monthly') regularity = 'monthly';
-	// Satellite passes are predicted once per day; sub-daily makes no sense.
-	$: if (scoutType === 'transport' && transportMode === 'satellite' && regularity !== 'daily') regularity = 'daily';
 	$: monthlyCost = perRunCost * getRegularityMultiplier(regularity);
 
 	$: preFormDisclaimers = scoutType === 'web'
@@ -612,21 +609,19 @@
 							id="regularity"
 							bind:value={regularity}
 							class="form-select"
-							disabled={scoutType === 'civic' || (scoutType === 'transport' && transportMode === 'satellite')}
+							disabled={scoutType === 'civic'}
 						>
 							{#if scoutType === 'transport'}
-								{#if transportMode !== 'satellite'}
-									<option value="3h">{m.transport_every3h()}</option>
-									<option value="6h">{m.transport_every6h()}</option>
-									<option value="12h">{m.transport_every12h()}</option>
-								{/if}
+								<option value="3h">{m.transport_every3h()}</option>
+								<option value="6h">{m.transport_every6h()}</option>
+								<option value="12h">{m.transport_every12h()}</option>
 								<option value="daily">{m.schedule_daily()}</option>
 							{:else}
 								{#if scoutType === 'web'}
-									<option value="daily">{m.schedule_daily()}</option>
+								<option value="daily">{m.schedule_daily()}</option>
 								{/if}
 								{#if scoutType !== 'civic'}
-									<option value="weekly">{m.schedule_weekly()}</option>
+								<option value="weekly">{m.schedule_weekly()}</option>
 								{/if}
 								<option value="monthly">{m.schedule_monthly()}</option>
 							{/if}
@@ -680,7 +675,7 @@
 							<label for="day-of-week" class="form-label">{m.schedule_dayOfWeek()}</label>
 							<select id="day-of-week" bind:value={dayNumber} class="form-select">
 								{#each daysOfWeek as day}
-									<option value={day.value}>{day.label}</option>
+								<option value={day.value}>{day.label}</option>
 								{/each}
 							</select>
 						</div>

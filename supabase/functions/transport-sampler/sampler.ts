@@ -1,4 +1,4 @@
-/** Database helpers shared by the VesselAPI and GP sampler tasks. */
+/** Database helpers shared by the VesselAPI sampler. */
 
 import type { SupabaseClient } from "../_shared/supabase.ts";
 import type { VesselPosition } from "./position.ts";
@@ -24,22 +24,6 @@ export async function activeVesselWatchIds(
     );
   });
   return [...new Set(ids)];
-}
-
-/** True when at least one active satellite transport scout exists — gates the
- * daily GP refresh so vessel-only / idle deployments never hit CelesTrak. */
-export async function hasActiveSatelliteScouts(
-  svc: SupabaseClient,
-): Promise<boolean> {
-  const { data, error } = await svc
-    .from("scouts")
-    .select("config")
-    .eq("type", "transport")
-    .eq("is_active", true);
-  if (error) throw new Error(error.message);
-  return (data ?? []).some((row) =>
-    (row.config as Record<string, unknown> | null)?.mode === "satellite"
-  );
 }
 
 /** Batch-upsert coalesced positions by MMSI. Returns the count written. */

@@ -1,6 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import {
-  cronIsExactlyDaily,
   cronIsNoMoreFrequentThanDaily,
   cronIsNoMoreFrequentThanEvery3Hours,
   cronIsNoMoreFrequentThanWeekly,
@@ -88,27 +87,6 @@ Deno.test("hour comma lists cannot cluster under the 3h floor", () => {
   assertEquals(cronIsNoMoreFrequentThanEvery3Hours("0 2,5,8,11 * * *"), true);
 });
 
-Deno.test("satellite transport scouts reject weekly/monthly crons too", () => {
-  // Regularity 'weekly' and an equivalent raw cron must both be rejected.
-  assertEquals(
-    schedulePolicyError("transport", undefined, "0 8 * * 1", "satellite"),
-    "satellite transport scouts support daily schedules only (passes are predicted a day ahead)",
-  );
-  assertEquals(
-    schedulePolicyError("transport", undefined, "0 8 1 * *", "satellite"),
-    "satellite transport scouts support daily schedules only (passes are predicted a day ahead)",
-  );
-});
-
-Deno.test("cronIsExactlyDaily accepts only fixed once-a-day shapes", () => {
-  assertEquals(cronIsExactlyDaily("0 6 * * *"), true);
-  assertEquals(cronIsExactlyDaily("@daily"), true);
-  assertEquals(cronIsExactlyDaily("0 8 * * 1"), false); // weekly
-  assertEquals(cronIsExactlyDaily("0 8 1 * *"), false); // monthly
-  assertEquals(cronIsExactlyDaily("0 6,18 * * *"), false);
-  assertEquals(cronIsExactlyDaily("0 */6 * * *"), false);
-});
-
 Deno.test("deriveScheduleAnchor recovers time and day from existing crons", () => {
   assertEquals(deriveScheduleAnchor("20 9 * * *"), { time: "09:20" });
   assertEquals(deriveScheduleAnchor("0 8 * * 1"), { time: "08:00", day: 1 });
@@ -121,21 +99,6 @@ Deno.test("deriveScheduleAnchor recovers time and day from existing crons", () =
   assertEquals(deriveScheduleAnchor("*/15 * * * *"), null);
   assertEquals(deriveScheduleAnchor("0 */3 * * *"), null);
   assertEquals(deriveScheduleAnchor(null), null);
-});
-
-Deno.test("schedule policy pins satellite transport scouts to daily", () => {
-  assertEquals(
-    schedulePolicyError("transport", "daily", "0 6 * * *", "satellite"),
-    null,
-  );
-  assertEquals(
-    schedulePolicyError("transport", "3h", undefined, "satellite"),
-    "satellite transport scouts support daily schedules only (passes are predicted a day ahead)",
-  );
-  assertEquals(
-    schedulePolicyError("transport", undefined, "0 */6 * * *", "satellite"),
-    "satellite transport scouts support daily schedules only (passes are predicted a day ahead)",
-  );
 });
 
 Deno.test("cronIsNoMoreFrequentThanEvery3Hours classifies cron shapes", () => {

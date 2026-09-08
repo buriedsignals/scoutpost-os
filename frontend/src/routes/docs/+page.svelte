@@ -370,7 +370,7 @@
 								</tr>
 								<tr>
 									<td><a href="#scout-fleet"><code>transport</code> — Fleet Scout</a></td>
-									<td>Alerts when watched vessels, aircraft, or satellites enter an area</td>
+									<td>Alerts when watched vessels or aircraft enter an area</td>
 									<td>Named watch list + optional or required geofence</td>
 									<td>1–2 credits</td>
 								</tr>
@@ -421,11 +421,11 @@
 
 					<h3 id="scout-fleet">Fleet Scout</h3>
 					<p>
-						Fleet Scout monitors named vessels, aircraft, or satellites and alerts when a watched object enters
+						Fleet Scout monitors named vessels or aircraft and alerts when a watched object enters
 						a defined area. It is designed for focused monitoring, not broad traffic surveillance: every scout
-						requires a watch list of up to 20 MMSIs, ICAO hexes, or NORAD IDs. Vessels and satellites require a
+						requires a watch list of up to 20 MMSIs or ICAO hexes. Vessels require a
 						geofence; aircraft may also be watched globally. Fleet Scouts run every 3, 6, or 12 hours, or daily
-						(satellites are daily only), and are Pro-gated on hosted Scoutpost.
+						and are Pro-gated on hosted Scoutpost.
 					</p>
 				</section>
 

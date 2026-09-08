@@ -5,14 +5,8 @@ import {
 import { ApiError, ValidationError } from "../_shared/errors.ts";
 import type { AircraftObject } from "../scout-transport-execute/aircraft.ts";
 import type { ResolvedGeofence } from "../scout-transport-execute/geofence.ts";
-import type { GpElement } from "../scout-transport-execute/satellite.ts";
 import type { VesselObject } from "../scout-transport-execute/vessel.ts";
-import {
-  runTransportTest,
-  type TransportTestDependencies,
-  transportTestDependencies,
-} from "./lib.ts";
-import type { SupabaseClient } from "../_shared/supabase.ts";
+import { runTransportTest, type TransportTestDependencies } from "./lib.ts";
 
 const GEOFENCE: ResolvedGeofence = {
   kind: "circle",
@@ -26,16 +20,12 @@ function dependencies(
   overrides: Partial<TransportTestDependencies> = {},
 ): TransportTestDependencies {
   return {
-    now: () => new Date("2026-07-15T08:00:00.000Z"),
     resolveGeofence: () => Promise.resolve(GEOFENCE),
     fetchAircraft: () => Promise.resolve([]),
     fetchAircraftWatchlist: () => Promise.resolve(new Set()),
     aircraftWatchlistPopulated: () => Promise.resolve(true),
     ensureVesselCoverage: () => Promise.resolve(),
-    ensureGpCoverage: () => Promise.resolve(),
     fetchVessels: () => Promise.resolve([]),
-    fetchElements: () => Promise.resolve([]),
-    predictPasses: () => [],
     ...overrides,
   };
 }
@@ -121,40 +111,6 @@ Deno.test("transport-test: vessel result uses the runtime category filter", asyn
   assertEquals(result.preview, [{ id: "269123457", label: "Night Cargo" }]);
 });
 
-Deno.test("transport-test: satellite result returns stable pass state ids", async () => {
-  const element: GpElement = {
-    noradId: 25544,
-    name: "ISS",
-    omm: {},
-    fetchedAt: "2026-07-15T07:00:00.000Z",
-  };
-  const result = await runTransportTest(
-    {
-      mode: "satellite",
-      watch_ids: ["25544"],
-      geofence: { center: { lat: 47, lon: 8 }, radius_km: 50 },
-    },
-    dependencies({
-      fetchElements: () => Promise.resolve([element]),
-      predictPasses: () => [{
-        noradId: 25544,
-        name: "ISS",
-        startIso: "2026-07-15T08:07:12.000Z",
-        endIso: "2026-07-15T08:11:00.000Z",
-      }],
-    }),
-  );
-
-  assertEquals(result, {
-    valid: true,
-    baseline_ids: ["pass:25544:2026-07-15T08:00:00.000Z"],
-    preview: [{
-      id: "pass:25544:2026-07-15T08:00:00.000Z",
-      label: "ISS · 2026-07-15T08:07:12.000Z",
-    }],
-  });
-});
-
 Deno.test("transport-test: vessel preview requires live area coverage", async () => {
   const error = await assertRejects(
     () =>
@@ -177,33 +133,6 @@ Deno.test("transport-test: vessel preview requires live area coverage", async ()
       ),
     ApiError,
     "AIS live test",
-  );
-  assertEquals(error.status, 503);
-  assertEquals(error.code, "transport_data_unavailable");
-});
-
-Deno.test("transport-test: satellite preview requires refreshed GP coverage", async () => {
-  const error = await assertRejects(
-    () =>
-      runTransportTest(
-        {
-          mode: "satellite",
-          watch_ids: ["25544"],
-          geofence: { center: { lat: 47, lon: 8 }, radius_km: 50 },
-        },
-        dependencies({
-          ensureGpCoverage: () =>
-            Promise.reject(
-              new ApiError(
-                "no orbital elements cached after GP refresh",
-                503,
-                "transport_data_unavailable",
-              ),
-            ),
-        }),
-      ),
-    ApiError,
-    "after GP refresh",
   );
   assertEquals(error.status, 503);
   assertEquals(error.code, "transport_data_unavailable");
@@ -235,44 +164,22 @@ Deno.test("transport-test: aircraft preview rejects an unloaded required watchli
   assertEquals(fetched, false);
 });
 
-function gpControlSvc(fetchedAt: string | null): SupabaseClient {
-  return {
-    from(table: string) {
-      if (table !== "transport_gp_refresh_control") {
-        throw new Error(`unexpected table ${table}`);
-      }
-      return {
-        select() {
-          return {
-            eq() {
-              return {
-                maybeSingle() {
-                  return Promise.resolve({
-                    data: {
-                      current_generation_id: fetchedAt ? "generation-1" : null,
-                      current_generation_fetched_at: fetchedAt,
-                    },
-                    error: null,
-                  });
-                },
-              };
-            },
-          };
+Deno.test("transport-test rejects retired satellite configs before data access", async () => {
+  await assertRejects(
+    () =>
+      runTransportTest(
+        {
+          mode: "satellite",
+          watch_ids: ["25544"],
+          geofence: { center: { lat: 0, lon: 0 }, radius_km: 50 },
         },
-      };
-    },
-  } as unknown as SupabaseClient;
-}
-
-Deno.test("transport-test: stale GP cache never invokes provider refresh", async () => {
-  const deps = transportTestDependencies(
-    gpControlSvc("2026-01-01T00:00:00.000Z"),
+        dependencies({
+          resolveGeofence: () => {
+            throw new Error("data access must not occur");
+          },
+        }),
+      ),
+    ValidationError,
+    "config.mode",
   );
-  const error = await assertRejects(
-    () => deps.ensureGpCoverage(),
-    ApiError,
-    "provider refresh requires operator action",
-  );
-  assertEquals(error.status, 503);
-  assertEquals(error.code, "transport_data_unavailable");
 });

@@ -16,14 +16,6 @@ import {
   resolveGeofence,
 } from "../scout-transport-execute/geofence.ts";
 import {
-  fetchWatchedElements,
-  type GpElement,
-  isGpCacheFresh,
-  passStateKey,
-  type PassWindow,
-  predictPasses,
-} from "../scout-transport-execute/satellite.ts";
-import {
   fetchVesselsInGeofence,
   filterVessels,
   type VesselObject,
@@ -43,7 +35,6 @@ export interface TransportTestResult {
 }
 
 export interface TransportTestDependencies {
-  now(): Date;
   resolveGeofence(config: TransportConfig): Promise<ResolvedGeofence | null>;
   fetchAircraft(
     config: TransportConfig,
@@ -58,14 +49,7 @@ export interface TransportTestDependencies {
     geofence: ResolvedGeofence,
     watchIds: string[],
   ): Promise<void>;
-  ensureGpCoverage(): Promise<void>;
   fetchVessels(geofence: ResolvedGeofence): Promise<VesselObject[]>;
-  fetchElements(noradIds: number[]): Promise<GpElement[]>;
-  predictPasses(
-    element: GpElement,
-    geofence: ResolvedGeofence,
-    now: Date,
-  ): PassWindow[];
 }
 
 async function ensureLiveVesselCoverage(
@@ -106,23 +90,10 @@ async function ensureLiveVesselCoverage(
   await upsertPositions(svc, sample.positions);
 }
 
-async function ensureLiveGpCoverage(svc: SupabaseClient): Promise<void> {
-  const freshness = await isGpCacheFresh(svc);
-  if (freshness.fresh) return;
-  throw new ApiError(
-    freshness.freshestFetchedAt
-      ? `orbital-element cache stale (freshest ${freshness.freshestFetchedAt}); provider refresh requires operator action`
-      : "no orbital elements cached; provider refresh requires operator action",
-    503,
-    "transport_data_unavailable",
-  );
-}
-
 export function transportTestDependencies(
   svc: SupabaseClient,
 ): TransportTestDependencies {
   return {
-    now: () => new Date(),
     resolveGeofence: (config) => resolveGeofence(svc, config),
     fetchAircraft: (config, geofence) =>
       fetchAircraftCandidates(config, geofence),
@@ -132,11 +103,7 @@ export function transportTestDependencies(
       watchlistPopulated(svc, categories),
     ensureVesselCoverage: (geofence, watchIds) =>
       ensureLiveVesselCoverage(svc, geofence, watchIds),
-    ensureGpCoverage: () => ensureLiveGpCoverage(svc),
     fetchVessels: (geofence) => fetchVesselsInGeofence(svc, geofence),
-    fetchElements: (ids) => fetchWatchedElements(svc, ids),
-    predictPasses: (element, geofence, now) =>
-      predictPasses(element, geofence, now),
   };
 }
 
@@ -177,19 +144,6 @@ export async function runTransportTest(
     const vessels = filterVessels(config, await deps.fetchVessels(geofence));
     for (const vessel of vessels) {
       labels.set(vessel.id, vessel.name || `MMSI ${vessel.id}`);
-    }
-  } else {
-    if (!geofence) throw new ValidationError("satellite scout has no geofence");
-    await deps.ensureGpCoverage();
-    const noradIds = (config.watch_ids ?? []).map(Number);
-    const elements = await deps.fetchElements(noradIds);
-    const now = deps.now();
-    for (const element of elements) {
-      for (const pass of deps.predictPasses(element, geofence, now)) {
-        const id = passStateKey(pass);
-        const name = pass.name || `NORAD ${pass.noradId}`;
-        labels.set(id, `${name} · ${pass.startIso}`);
-      }
     }
   }
 

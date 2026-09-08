@@ -41,11 +41,11 @@ https://www.scoutpost.ai, and the source-available product can be self-hosted.
 | Beat Scout (`beat`) | A topic, geography, or both across relevant coverage | housing, procurement, climate, education, towns, districts |
 | Social Scout (`social`) | Public social profiles, including deletions | politicians, agencies, campaign accounts |
 | Civic Scout (`civic`) | Council materials, agendas, minutes, and PDFs | promises, decisions, deadlines, public spending |
-| Fleet Scout (`transport`) | Watched vessels, aircraft, or satellites entering a defined area | transport, conflict, environment, accountability reporting |
+| Fleet Scout (`transport`) | Watched vessels or aircraft entering a defined area | transport, conflict, environment, accountability reporting |
 
-Fleet Scouts use a named watch list (up to 20 IDs). Vessels and satellites
+Fleet Scouts use a named watch list (up to 20 IDs). Vessels
 require a geofence; aircraft may be globally watched or geofenced. They support
-3-hour, 6-hour, 12-hour, or daily schedules; satellite scouts are daily only.
+3-hour, 6-hour, 12-hour, or daily schedules.
 
 ## Core concepts and editorial boundary
 
@@ -117,7 +117,7 @@ material; and working with Page Archive snapshots.
 | Social Scout (LinkedIn) | 7 | daily, weekly, monthly |
 | Social Scout (Facebook) | 15 | daily, weekly, monthly |
 | Civic Scout | 10 | weekly or monthly |
-| Fleet Scout | 1, plus 1 if natural-language criteria run | 3h, 6h, 12h, daily; satellite daily only |
+| Fleet Scout | 1, plus 1 if natural-language criteria run | 3h, 6h, 12h, daily |
 
 Hosted tiers are Free (100 credits/month), Pro (1,000), and Team (5,000 shared
 credits/month plus 1,000 per seat). Civic runs that do no billable work are

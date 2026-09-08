@@ -96,21 +96,6 @@ export function cronIsNoMoreFrequentThanEvery3Hours(cron: string): boolean {
   return false;
 }
 
-/** True only for crons that fire exactly once a day at a fixed time
- * ("MM HH * * *" or @daily). Weekly/monthly shapes are NOT accepted —
- * satellite scouts predict passes one day ahead, so anything less frequent
- * than daily silently loses coverage. */
-export function cronIsExactlyDaily(cron: string): boolean {
-  const trimmed = cron.trim();
-  if (!trimmed) return false;
-  if (trimmed.toLowerCase() === "@daily") return true;
-  const parts = trimmed.split(/\s+/);
-  if (parts.length !== 5) return false;
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
-  return isSingleCronField(minute) && isSingleCronField(hour) &&
-    dayOfMonth === "*" && month === "*" && dayOfWeek === "*";
-}
-
 /** Recover the (time, day) anchor from an existing cron so a regularity-only
  * PATCH can resynthesize a consistent schedule instead of silently keeping
  * the old cadence. Returns null for shapes we can't anchor (steps, '*'
@@ -225,15 +210,6 @@ export function schedulePolicyError(
   }
 
   if (type === "transport") {
-    if (transportMode === "satellite") {
-      if (regularity && regularity !== "daily") {
-        return "satellite transport scouts support daily schedules only (passes are predicted a day ahead)";
-      }
-      if (scheduleCron && !cronIsExactlyDaily(scheduleCron)) {
-        return "satellite transport scouts support daily schedules only (passes are predicted a day ahead)";
-      }
-      return null;
-    }
     if (regularity && !TRANSPORT_REGULARITIES.has(regularity)) {
       return "transport scouts support 3h, 6h, 12h, or daily schedules";
     }

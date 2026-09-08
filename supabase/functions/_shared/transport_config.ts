@@ -6,7 +6,7 @@
  *   { mode, geofence?, watch_ids?, categories?, criteria? }
  *
  * Every transport scout must list the SPECIFIC objects it tracks —
- * watch_ids (MMSIs / ICAO hexes / NORAD ids, up to 20 per scout). An
+ * watch_ids (MMSIs / ICAO hexes, up to 20 per scout). An
  * area-only or category-only scout would alert on all matching traffic
  * entering the area — a firehose, not monitoring (product decision
  * 2026-07-04). Categories only narrow a watch list further. Geofences are
@@ -15,7 +15,7 @@
 
 import { z } from "https://esm.sh/zod@3";
 
-export const TRANSPORT_MODES = ["vessel", "aircraft", "satellite"] as const;
+export const TRANSPORT_MODES = ["vessel", "aircraft"] as const;
 export type TransportMode = (typeof TRANSPORT_MODES)[number];
 
 /** Categories a scout may scope on, per mode. Must stay in sync with the
@@ -35,7 +35,6 @@ export const TRANSPORT_CATEGORIES: Record<TransportMode, readonly string[]> = {
     "pleasure",
   ],
   aircraft: ["military", "government", "police", "civil"],
-  satellite: [], // satellites are scoped by NORAD watch_ids only
 };
 
 /** Max watch_ids per scout (product decision 2026-07-06). Keeps alert emails
@@ -46,7 +45,7 @@ export const MAX_WATCH_IDS = 20;
 /** adsb.lol /v2/point caps radius at 250 nm (~463 km). Aircraft geofences are
  * creation-capped so one run needs at most a few tile queries. */
 export const AIRCRAFT_MAX_RADIUS_KM = 463;
-/** Generous but bounded cap for vessel/satellite circles. */
+/** Generous but bounded cap for vessel circles. */
 export const MAX_RADIUS_KM = 1500;
 
 // Ship-station MMSIs start with an MID whose first digit is 2-7. This also
@@ -55,7 +54,6 @@ const VESSEL_MMSI_RE = /^[2-7]\d{8}$/;
 // 24-bit ICAO hex. TIS-B pseudo-addresses arrive with a "~" prefix and are
 // not stable airframe identity — rejected here.
 const ICAO_HEX_RE = /^[0-9a-f]{6}$/;
-const NORAD_ID_RE = /^[1-9]\d{0,8}$/;
 const DISPLAY_METADATA_RE = /^[^\u0000-\u001f\u007f]*$/;
 const MAX_DISPLAY_METADATA_LENGTH = 256;
 
@@ -107,10 +105,6 @@ export function watchIdError(
       return ICAO_HEX_RE.test(normalized)
         ? null
         : `invalid aircraft ICAO hex: ${id} (expect 6 hex chars; TIS-B "~" addresses not supported)`;
-    case "satellite":
-      return NORAD_ID_RE.test(normalized)
-        ? null
-        : `invalid satellite NORAD id: ${id}`;
   }
 }
 
@@ -194,11 +188,7 @@ export function validateTransportConfig(
   // categories-only scouts would alert on all matching traffic entering the
   // area — rejected (product decision 2026-07-04).
   if (watchIds.length === 0) {
-    const idKind = config.mode === "vessel"
-      ? "MMSIs"
-      : config.mode === "aircraft"
-      ? "ICAO hex codes"
-      : "NORAD ids";
+    const idKind = config.mode === "vessel" ? "MMSIs" : "ICAO hex codes";
     return {
       config: null,
       error:
@@ -212,15 +202,6 @@ export function validateTransportConfig(
       config: null,
       error:
         "config: vessel scouts require a geofence (the shared AIS feed is sampled per area; watch the tracked MMSIs within a fixed area)",
-    };
-  }
-  // Satellite mode predicts overflights: besides the NORAD watch_ids
-  // (required above for every mode) it needs the area to predict passes over.
-  if (config.mode === "satellite" && !geofence) {
-    return {
-      config: null,
-      error:
-        "config: satellite scouts require a geofence (the area to predict overflights of)",
     };
   }
   for (const id of watchIds) {

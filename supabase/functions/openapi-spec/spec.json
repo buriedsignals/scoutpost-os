@@ -2526,7 +2526,7 @@
         "type": "object",
         "required": ["mode", "watch_ids", "geofence"],
         "properties": {
-          "mode": { "type": "string", "enum": ["aircraft", "vessel", "satellite"] },
+          "mode": { "type": "string", "enum": ["aircraft", "vessel"] },
           "watch_ids": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "type": "string" } },
           "geofence": { "$ref": "#/components/schemas/TransportArea" },
           "categories": { "type": "array", "items": { "type": "string" } },
@@ -2542,7 +2542,7 @@
             "type": "number",
             "exclusiveMinimum": 0,
             "maximum": 1500,
-            "description": "Maximum 463 km for aircraft and 1,500 km for vessel/satellite; enforced according to mode."
+            "description": "Maximum 463 km for aircraft and 1,500 km for vessel; enforced according to mode."
           },
           "display_name": { "type": "string", "maxLength": 256 },
           "maptiler_id": { "type": "string", "maxLength": 256 }

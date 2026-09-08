@@ -10,11 +10,6 @@
  *   5. Charge credits, then execute the mode pipeline.
  *   6. On any throw after charging: refund + markRunError + failure counter.
  *
- * U1 scaffolding: no mode executor is implemented yet (aircraft lands in U2,
- * vessel in U3, satellite in U4), so step 5 completes the run as an unbilled
- * `skipped` with an explanatory message. The lifecycle around it — dispatch,
- * overlap guard, validation, charge/refund seams — is real and tested.
- *
  * Auth: shared service auth (X-Service-Key / service-role bearer).
  */
 
@@ -67,7 +62,6 @@ import { syncStateAndClaimEntrants, unclaimEntrants } from "./state.ts";
 import {
   type AlertScope,
   composeAircraftStatement,
-  composeSatelliteStatement,
   composeVesselStatement,
   type EntrantEvent,
   MODE_SOURCE,
@@ -80,13 +74,6 @@ import {
   isSamplerFresh,
   type VesselObject,
 } from "./vessel.ts";
-import {
-  fetchWatchedElements,
-  type GpElement,
-  isGpCacheFresh,
-  passStateKey,
-  predictPasses,
-} from "./satellite.ts";
 
 const InputSchema = z.object({
   scout_id: z.string().uuid(),
@@ -216,8 +203,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     );
   }
 
-  // 5. Mode gate — still a non-billable pre-check. Vessel lands in U3,
-  // satellite in U4; until then those modes skip unbilled.
+  // 5. Unsupported modes skip before billing.
   if (!IMPLEMENTED_MODES.has(precheck.mode!)) {
     const message =
       `transport ${precheck.mode} execution is not yet enabled on this deployment`;
@@ -305,78 +291,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
   }
 
-  // 5c. Satellite GP-cache liveness pre-check — NON-BILLABLE. If the GP cache
-  // is globally stale (daily refresh down / not run yet), predictions would be
-  // unreliable, so the run SKIPS unbilled. Like the vessel sampler check this
-  // is shared-infra staleness, so it does NOT feed the failure counter (no
-  // fleet-wide auto-deactivation cascade); the scout resumes when the GP
-  // refresh recovers. A globally-fresh cache over a geofence a satellite never
-  // crosses is a normal success with zero passes.
-  let prefetchedElements: GpElement[] | null = null;
-  if (precheck.mode === "satellite") {
-    try {
-      await markRunStage(svc, runId, "scrape");
-      prefetchedGeofence = await resolveGeofence(svc, precheck.config!);
-      if (!prefetchedGeofence) {
-        await markRunError(svc, runId, {
-          stage: "dispatch",
-          errorClass: "validation",
-          message: "satellite scout has no geofence",
-          status: "skipped",
-        });
-        return jsonOk({ status: "skipped", reason: "no_geofence" });
-      }
-      const gp = await isGpCacheFresh(svc);
-      if (!gp.fresh) {
-        await markRunError(svc, runId, {
-          stage: "scrape",
-          errorClass: "provider",
-          message: gp.freshestFetchedAt
-            ? `orbital-element cache stale (freshest ${gp.freshestFetchedAt}); GP refresh may be behind`
-            : "no orbital elements cached yet; GP refresh may be starting up",
-          status: "skipped",
-        });
-        logEvent({
-          level: "warn",
-          fn: "scout-transport-execute",
-          event: "satellite_gp_stale_skip",
-          scout_id: scout.id,
-          run_id: runId,
-          msg: gp.freshestFetchedAt ?? "no elements",
-        });
-        return jsonOk({ status: "skipped", reason: "gp_stale" });
-      }
-      const noradIds = (precheck.config!.watch_ids ?? [])
-        .map((id) => Number(id))
-        .filter((n) => Number.isInteger(n) && n > 0);
-      // Best-effort: watched ids absent from GROUP=active just yield no
-      // passes (logged), rather than failing the whole run.
-      prefetchedElements = await fetchWatchedElements(svc, noradIds);
-      const missing = noradIds.filter((id) =>
-        !prefetchedElements!.some((e) => e.noradId === id)
-      );
-      if (missing.length > 0) {
-        logEvent({
-          level: "info",
-          fn: "scout-transport-execute",
-          event: "satellite_ids_uncached",
-          scout_id: scout.id,
-          run_id: runId,
-          msg: `not in active catalog: ${missing.join(",")}`,
-        });
-      }
-    } catch (e) {
-      const classified = classifyRunError(e, "scrape");
-      await markRunError(svc, runId, {
-        stage: classified.stage,
-        errorClass: classified.errorClass,
-        message: classified.message,
-      });
-      return jsonFromError(e);
-    }
-  }
-
-  // 5d. Aircraft watchlist-loaded pre-check — NON-BILLABLE. A gov/police/civil
+  // 5c. Aircraft watchlist-loaded pre-check — NON-BILLABLE. A gov/police/civil
   // scout whose watchlist table is empty (never imported / import aborted)
   // would otherwise filter to zero and silently report "no traffic" forever.
   // Treat an unloaded watchlist as setup-not-ready: skip without charging or
@@ -467,7 +382,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   try {
     const config = precheck.config!;
     const now = new Date();
-    // Reuse the geofence resolved in the vessel/satellite pre-check; aircraft
+    // Reuse the geofence resolved in the vessel pre-check; aircraft
     // resolves here (no pre-check ran for it).
     const geofence = precheck.mode === "aircraft"
       ? await resolveGeofence(svc, config)
@@ -486,16 +401,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       for (const v of matched) {
         statements.set(v.id, composeVesselStatement(v, scope, now));
       }
-    } else if (precheck.mode === "satellite") {
-      // Predict passes for each watched element over the next 24h. Each
-      // pass window is an "entrant" keyed stably so it alerts once.
-      for (const element of prefetchedElements ?? []) {
-        for (const pass of predictPasses(element, geofence!, now)) {
-          const key = passStateKey(pass);
-          matchedIds.push(key);
-          statements.set(key, composeSatelliteStatement(pass, scope.name));
-        }
-      }
     } else {
       await markRunStage(svc, runId, "scrape");
       const candidates = await fetchAircraftCandidates(config, geofence);
@@ -511,10 +416,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
         statements.set(a.id, composeAircraftStatement(a, scope, now));
       }
     }
-    // Dedup object ids before the state upsert: two satellite pass windows
-    // whose starts round to the same 10-min key would otherwise appear twice
-    // and crash the ON CONFLICT upsert. The statements Map already holds one
-    // entry per unique id, so its keys ARE the deduped set.
     matchedIds = [...statements.keys()];
     matchedCount = matchedIds.length;
 

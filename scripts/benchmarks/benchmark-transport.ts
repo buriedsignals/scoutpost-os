@@ -2,12 +2,10 @@
  * Fleet Scout (type `transport`) health benchmark — provider-safe modes.
  *
  * Aircraft and vessel canaries create real user-owned Scouts and audit the
- * same two-run baseline contract. The satellite canary invokes the cache-only
- * transport-test path and verifies that no provider state changes:
+ * same two-run baseline contract.
  *
  *   aircraft  — probe adsb.lol over Dover, then watch observed ICAO hexes.
  *   vessel    — refresh exact MMSIs, then watch a provider-returned position.
- *   satellite — predict ISS passes from an already-approved fresh GP cache.
  *
  * Usage:
  *   scripts/benchmarks/with-linked-supabase-env.sh \
@@ -34,12 +32,11 @@ import {
   POSITION_MAX_AGE_MINUTES,
 } from "../../supabase/functions/scout-transport-execute/vessel.ts";
 
-export type TransportMode = "aircraft" | "vessel" | "satellite";
+export type TransportMode = "aircraft" | "vessel";
 
 const ALL_TRANSPORT_MODES: TransportMode[] = [
   "aircraft",
   "vessel",
-  "satellite",
 ];
 
 export function selectedTransportModes(args: string[]): TransportMode[] {
@@ -87,27 +84,9 @@ export interface VesselPositionRow {
   updated_at: string;
 }
 
-export interface GpProviderState {
-  lastAttemptAt: string | null;
-  latestRunId: string | null;
-}
-
-interface TransportTestResult {
-  valid: true;
-  baseline_ids: string[];
-}
-
-export function gpProviderStateChanged(
-  before: GpProviderState,
-  after: GpProviderState,
-): boolean {
-  return before.lastAttemptAt !== after.lastAttemptAt ||
-    before.latestRunId !== after.latestRunId;
-}
-
 export interface SamplerRunRow {
   id: string;
-  task: "ais" | "gp";
+  task: "ais";
   status: "accepted" | "running" | "succeeded" | "failed" | "noop";
   connected: boolean | null;
   provider_errored: boolean | null;
@@ -120,7 +99,7 @@ export interface SamplerRunRow {
 }
 
 export function samplerRunFailureMessage(run: SamplerRunRow): string | null {
-  const taskLabel = run.task === "ais" ? "vessel" : "GP";
+  const taskLabel = "vessel";
   if (run.status === "succeeded") return null;
   if (run.status === "accepted" || run.status === "running") {
     return `[sampler_timeout] ${taskLabel} sampler remained ${run.status}`;
@@ -133,7 +112,6 @@ export function samplerRunFailureMessage(run: SamplerRunRow): string | null {
 }
 
 const DORMANT_CRON = "0 0 1 1 *";
-const DAILY_CRON = "0 0 * * *";
 const RUN_TIMEOUT_MS = 4 * 60_000;
 const POLL_INTERVAL_MS = 3_000;
 const SAMPLER_TIMEOUT_MS = 90_000;
@@ -144,14 +122,8 @@ const DOVER_PROBE = { lat: 51.0, lon: 1.5, distNm: 60 };
 const MALACCA_PRESET = "strait-of-malacca";
 const BOOTSTRAP_MMSI = "563024500";
 const VESSEL_CANARY_RADIUS_KM = 25;
-const ISS_NORAD_ID = "25544";
-const ISS_GEOFENCE = {
-  center: { lat: 0, lon: 0 },
-  radius_km: 1500,
-};
-
 export function modeScheduleCron(mode: TransportMode): string {
-  return mode === "satellite" ? DAILY_CRON : DORMANT_CRON;
+  return DORMANT_CRON;
 }
 
 export function selectRuntimeFreshVessels(
@@ -267,7 +239,7 @@ async function pgList<T>(
 
 async function triggerSampler(
   ctx: BenchCtx,
-  body: { task: "ais" | "gp" },
+  body: { task: "ais" },
 ): Promise<string> {
   const result = await serviceFunctionFetch(
     ctx,
@@ -413,68 +385,6 @@ async function prepareVesselCanary(
       }`,
   );
   return config;
-}
-
-async function readGpProviderState(ctx: BenchCtx): Promise<GpProviderState> {
-  const [controls, runs] = await Promise.all([
-    pgList<{ last_attempt_at: string | null }>(
-      ctx,
-      "transport_gp_refresh_control",
-      "select=last_attempt_at&singleton=eq.true",
-    ),
-    pgList<{ id: string }>(
-      ctx,
-      "transport_sampler_runs",
-      "select=id&task=eq.gp&order=started_at.desc",
-    ),
-  ]);
-  return {
-    lastAttemptAt: controls[0]?.last_attempt_at ?? null,
-    latestRunId: runs[0]?.id ?? null,
-  };
-}
-
-async function runSatelliteCacheCanary(ctx: BenchCtx): Promise<string[]> {
-  const before = await readGpProviderState(ctx);
-  const failures: string[] = [];
-  try {
-    const response = await userFetch(ctx, "/transport-test", {
-      body: {
-        config: {
-          mode: "satellite",
-          geofence: ISS_GEOFENCE,
-          watch_ids: [ISS_NORAD_ID],
-        },
-      },
-    });
-    const result = await jsonOrThrow<TransportTestResult>(
-      response,
-      "transport-test satellite",
-    );
-    if (!result.valid || result.baseline_ids.length === 0) {
-      failures.push(
-        "satellite cache canary returned no ISS pass predictions",
-      );
-    } else {
-      console.log(
-        `satellite cache: predicted ${result.baseline_ids.length} ISS pass(es)`,
-      );
-    }
-  } catch (error) {
-    failures.push(
-      `satellite cache canary: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
-
-  const after = await readGpProviderState(ctx);
-  if (gpProviderStateChanged(before, after)) {
-    failures.push(
-      "satellite cache canary changed CelesTrak provider-attempt state",
-    );
-  }
-  return failures;
 }
 
 async function listBaselinedObjectIds(
@@ -633,10 +543,6 @@ async function main() {
         prepareVesselCanary,
       ),
     );
-  }
-
-  if (modes.includes("satellite")) {
-    failures.push(...await runSatelliteCacheCanary(ctx));
   }
 
   if (failures.length > 0) {

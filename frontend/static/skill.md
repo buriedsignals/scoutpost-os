@@ -21,7 +21,7 @@ Scoutpost runs scheduled scouts that watch:
 - local news and beats
 - social profiles
 - councils, agendas, minutes, and PDFs
-- transport: vessels (AIS), aircraft (ADS-B), and satellites
+- transport: vessels (AIS) and aircraft (ADS-B)
 
 Each run extracts **information units**: atomic, source-linked facts. Units are deduplicated across repeated coverage and land in an editorial inbox.
 
@@ -35,7 +35,7 @@ The journalist stays responsible for verification. Your job is to help monitor, 
 | **Beat Scout** | Monitor a beat by topic or geography |
 | **Social Scout** | Track social posts and deletions |
 | **Civic Scout** | Track council materials, including PDFs and promises |
-| **Fleet Scout** | Alert when specific tracked vessels, aircraft, or satellites (an ID watch list, up to 20) enter a watched area |
+| **Fleet Scout** | Alert when specific tracked vessels or aircraft (an ID watch list, up to 20) enter a watched area |
 | **Information unit** | One atomic fact with source and timestamps |
 | **Verification** | Human editorial approval before a fact is treated as publishable |
 | **Page Archive** | Opt-in tamper-evident evidence snapshots of a Page Scout's captures (MHTML, screenshot, markdown, RFC 3161 timestamp, optional Wayback) |

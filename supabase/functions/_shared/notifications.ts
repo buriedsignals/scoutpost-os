@@ -368,8 +368,6 @@ export async function sendTransportScoutAlert(
       ? "vessels"
       : params.mode === "aircraft"
       ? "aircraft"
-      : params.mode === "satellite"
-      ? "satellites"
       : "objects";
     const summary = count === 1
       ? params.entrantStatements[0]

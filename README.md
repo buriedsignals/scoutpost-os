@@ -30,7 +30,7 @@ through MCP, REST, or the `scout` CLI.
 - **Beat Scouts** follow a topic or geography across relevant coverage.
 - **Social Scouts** track new and deleted posts from public profiles.
 - **Civic Scouts** follow council pages, agendas, minutes, and PDFs.
-- **Fleet Scouts** alert when watched vessels, aircraft, or satellites enter a
+- **Fleet Scouts** alert when watched vessels or aircraft enter a
   defined area.
 
 Scouts run on schedules and notify the journalist when their criteria are met.
@@ -140,7 +140,7 @@ operational lifting. A sincere thank-you to every project and provider below.
 | **Application runtime** | [Deno](https://deno.com/) (MIT — the `scout` CLI, MCP bridge, and every Edge Function) · [FastAPI](https://fastapi.tiangolo.com/) (Sebastián Ramírez, MIT — the backend API) |
 | **Search & analysis** | [pgvector](https://github.com/pgvector/pgvector) (Andrew Kane — vector search behind semantic scout matching) · [langdetect](https://github.com/Mimino666/langdetect) (language detection in dedup scoring) |
 | **Evidence archiving** | [Internet Archive / Wayback Machine](https://web.archive.org/) (optional evidence-snapshot submission) |
-| **Fleet & transport data** | [adsb.lol](https://adsb.lol/) (community ADS-B network — live aircraft positions) · [VesselAPI](https://vesselapi.com/) (paid exact-MMSI vessel positions) · [CelesTrak](https://celestrak.org/) (T.S. Kelso — satellite orbital elements) · [satellite.js](https://github.com/shashwatak/satellite-js) (shashwatak, MIT — orbital math) |
+| **Fleet & transport data** | [adsb.lol](https://adsb.lol/) (community ADS-B network — live aircraft positions) · [VesselAPI](https://vesselapi.com/) (paid exact-MMSI vessel positions) |
 
 These and the app's full credits also live at
 [scoutpost.ai/acknowledgements](https://www.scoutpost.ai/acknowledgements).

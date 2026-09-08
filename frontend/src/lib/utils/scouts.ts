@@ -294,7 +294,7 @@ const STATUS_CASCADE: Array<{
 		variant: 'waiting',
 		match: (s) => s.last_run?.status === 'running' || s.last_run?.status === 'queued',
 	},
-	// Priority 2a2: Run skipped (e.g. transport sampler/GP stale, or a
+	// Priority 2a2: Run skipped (e.g. transport sampler stale, or a
 	// duplicate concurrent run). Not a failure — the scout is healthy and
 	// resumes automatically. Matched BEFORE runFailed because a skipped run
 	// carries scraper_status=false, which the failure rule would otherwise

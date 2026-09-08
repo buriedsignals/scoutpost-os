@@ -30,25 +30,11 @@ Deno.test("transport baseline: rows suppress preview objects until re-entry", ()
   );
 });
 
-Deno.test("transport baseline: validates object and satellite pass ids against watch list", () => {
+Deno.test("transport baseline: validates object ids against watch list", () => {
   assertEquals(
     validateTransportBaselineIds(
       { mode: "aircraft", watch_ids: ["abc123"] },
       ["ABC123"],
-    ),
-    null,
-  );
-  assertEquals(
-    validateTransportBaselineIds(
-      {
-        mode: "satellite",
-        watch_ids: ["25544"],
-        geofence: {
-          center: { lat: 47, lon: 8 },
-          radius_km: 50,
-        },
-      },
-      ["pass:25544:2026-07-15T08:00:00.000Z"],
     ),
     null,
   );

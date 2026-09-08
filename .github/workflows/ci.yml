@@ -75,7 +75,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      # --allow-import lets remote/npm imports (satellite.js) resolve, while
+      # --allow-import lets remote imports resolve, while
       # the absence of --allow-net denies runtime fetch() — so a test that
       # forgets to stub fetch fails loudly instead of making a live call.
       - name: Deno unit tests (stack-free set, network-isolated)

@@ -53,10 +53,10 @@ Deno.test("precheck surfaces mode and criteria flag for cost computation", () =>
   assertEquals(without.hasCriteria, false);
 });
 
-Deno.test("mode gate: all three modes live (U2 aircraft, U3 vessel, U4 satellite)", () => {
+Deno.test("mode gate: only aircraft and vessel are implemented", () => {
   assertEquals(IMPLEMENTED_MODES.has("aircraft"), true);
   assertEquals(IMPLEMENTED_MODES.has("vessel"), true);
-  assertEquals(IMPLEMENTED_MODES.has("satellite"), true);
+  assertEquals([...IMPLEMENTED_MODES].sort(), ["aircraft", "vessel"]);
 });
 
 Deno.test("overlap election: exactly one of two concurrent runs proceeds", () => {

@@ -21,7 +21,6 @@ export const MODE_SOURCE: Record<
 > = {
   aircraft: { domain: "adsb.lol", label: "adsb.lol (ODbL)" },
   vessel: { domain: "vesselapi.com", label: "VesselAPI (AIS)" },
-  satellite: { domain: "celestrak.org", label: "CelesTrak (public domain)" },
 };
 
 function formatUtc(ts: Date): string {
@@ -111,26 +110,6 @@ export function composeVesselStatement(
   return `${vesselLabel(v)} entered ${scope.name} at ${
     formatUtc(ts)
   }${course}${speed}.`;
-}
-
-/** Composes a predicted-pass statement for a satellite overflight window. */
-export function composeSatelliteStatement(
-  pass: {
-    noradId: number;
-    name: string | null;
-    startIso: string;
-    endIso: string;
-  },
-  areaName: string,
-): string {
-  const label = pass.name
-    ? `${pass.name} (NORAD ${pass.noradId})`
-    : `NORAD ${pass.noradId}`;
-  const start = new Date(pass.startIso);
-  const day = start.toISOString().slice(0, 10);
-  return `Satellite ${label} predicted to pass over ${areaName} on ${day} from ${
-    formatUtc(start)
-  } to ${formatUtc(new Date(pass.endIso))} (TLE/OMM prediction).`;
 }
 
 export interface EntrantEvent {

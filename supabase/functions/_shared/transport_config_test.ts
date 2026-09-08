@@ -69,7 +69,13 @@ Deno.test("multiple watch_ids in one scout are supported", () => {
   const result = validateTransportConfig({
     mode: "vessel",
     geofence: { preset_id: "strait-of-hormuz" },
-    watch_ids: ["636019825", "244660123", "563012345", "477123456", "273456789"],
+    watch_ids: [
+      "636019825",
+      "244660123",
+      "563012345",
+      "477123456",
+      "273456789",
+    ],
   });
   assertEquals(result.error, null);
   assertEquals(result.config?.watch_ids?.length, 5);
@@ -130,39 +136,6 @@ Deno.test("categories narrow a watch list; unknown categories are rejected per m
     categories: ["pleasure"],
   });
   assertEquals(pleasure.error, null);
-  // Satellites have no categories at all.
-  const sat = validateTransportConfig({
-    mode: "satellite",
-    geofence: { preset_id: "strait-of-hormuz" },
-    watch_ids: ["25544"],
-    categories: ["military"],
-  });
-  assertExists(sat.error);
-  assertStringIncludes(sat.error!, "do not support categories");
-});
-
-Deno.test("satellite config requires BOTH watch_ids and a geofence", () => {
-  // Both present → ok.
-  const ok = validateTransportConfig({
-    mode: "satellite",
-    watch_ids: ["39084"],
-    geofence: { preset_id: "strait-of-hormuz" },
-  });
-  assertEquals(ok.error, null);
-  // watch_ids only → rejected (needs an area).
-  const noGeo = validateTransportConfig({
-    mode: "satellite",
-    watch_ids: ["39084"],
-  });
-  assertExists(noGeo.error);
-  assertStringIncludes(noGeo.error!, "geofence");
-  // geofence only → rejected (needs which satellites).
-  const noIds = validateTransportConfig({
-    mode: "satellite",
-    geofence: { preset_id: "strait-of-hormuz" },
-  });
-  assertExists(noIds.error);
-  assertStringIncludes(noIds.error!, "watch_ids");
 });
 
 Deno.test("transport config rejects a missing mode", () => {
@@ -241,13 +214,6 @@ Deno.test("aircraft watch ids must be 24-bit ICAO hex; TIS-B rejected", () => {
   assertExists(watchIdError("aircraft", "ae01c"));
 });
 
-Deno.test("satellite watch ids must be NORAD catalog numbers", () => {
-  assertEquals(watchIdError("satellite", "25544"), null);
-  assertEquals(watchIdError("satellite", "270112"), null); // 6-digit post-rollover
-  assertExists(watchIdError("satellite", "0"));
-  assertExists(watchIdError("satellite", "iss"));
-});
-
 Deno.test("watch ids are normalized to lowercase in the validated config", () => {
   assertEquals(normalizeTransportWatchId("  4CA123 "), "4ca123");
   const result = validateTransportConfig({
@@ -308,4 +274,14 @@ Deno.test("circle display metadata rejects control characters and overlong value
   });
   assertExists(overlong.error);
   assertStringIncludes(overlong.error!, "maptiler_id");
+});
+
+Deno.test("transport config rejects retired satellite tracking", () => {
+  const result = validateTransportConfig({
+    mode: "satellite",
+    watch_ids: ["25544"],
+    geofence: { center: { lat: 0, lon: 0 }, radius_km: 50 },
+  });
+  assertExists(result.error);
+  assertStringIncludes(result.error, "config.mode");
 });

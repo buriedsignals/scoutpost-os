@@ -4,7 +4,7 @@
  * radius; legacy presets remain runtime-only in the backend.
  */
 
-export type TransportMode = 'aircraft' | 'vessel' | 'satellite';
+export type TransportMode = 'aircraft' | 'vessel';
 
 /** Max watch IDs per scout — mirrors MAX_WATCH_IDS in
  * supabase/functions/_shared/transport_config.ts (product decision
@@ -15,7 +15,6 @@ export const TRANSPORT_MAX_WATCH_IDS = 20;
 // get inline errors instead of confusing server 400s.
 const VESSEL_MMSI_RE = /^[2-7]\d{8}$/;
 const ICAO_HEX_RE = /^[0-9a-f]{6}$/;
-const NORAD_RE = /^[1-9]\d{0,8}$/;
 
 /** Locale-tolerant number parse — accepts both '12.5' and '12,5'. */
 export function transportParseNum(s: string): number {
@@ -26,11 +25,11 @@ export function transportParseNum(s: string): number {
 export function transportWatchIdValid(mode: TransportMode, id: string): boolean {
 	if (mode === 'vessel') return VESSEL_MMSI_RE.test(id);
 	if (mode === 'aircraft') return ICAO_HEX_RE.test(id);
-	return NORAD_RE.test(id);
+	return false;
 }
 
 /** Category filter options per mode — these only NARROW the watch list, they
- * cannot replace it. Satellites have no category filters in v1. Values must
+ * cannot replace it. Values must
  * be real classifier outputs (_shared/vessel_classify.ts / plane_alert.ts) —
  * 'yacht' was never emitted; the AIS pleasure-craft class is 'pleasure'. */
 export function transportModeCategories(mode: TransportMode): string[] {
@@ -47,7 +46,6 @@ export const TRANSPORT_ID_SOURCES: Record<
 > = {
 	vessel: { label: 'MarineTraffic', url: 'https://www.marinetraffic.com/' },
 	aircraft: { label: 'ADS-B Exchange', url: 'https://globe.adsbexchange.com/' },
-	satellite: { label: 'CelesTrak SATCAT', url: 'https://celestrak.org/satcat/search.php' }
 };
 
 export interface RegularityOption {
@@ -55,11 +53,9 @@ export interface RegularityOption {
 	label: string;
 }
 
-/** Schedule window per mode — satellites are daily-only (passes are
- * predicted a day ahead); aircraft/vessel run 3h/6h/12h/daily. */
+/** Aircraft and vessel schedule options. */
 export function transportRegularities(mode: TransportMode): RegularityOption[] {
 	const daily: RegularityOption = { value: 'daily', label: 'Daily' };
-	if (mode === 'satellite') return [daily];
 	return [
 		{ value: '3h', label: 'Every 3 hours' },
 		{ value: '6h', label: 'Every 6 hours' },

@@ -26,19 +26,12 @@ describe('transportModeCategories', () => {
 		expect(transportModeCategories('vessel')).toContain('pleasure');
 		expect(transportModeCategories('vessel')).not.toContain('yacht');
 	});
-	it('gives satellites no category filters in v1', () => {
-		expect(transportModeCategories('satellite')).toEqual([]);
-	});
 });
 
 describe('transportRegularities', () => {
 	it('offers 3h/6h/12h/daily for aircraft and vessels', () => {
 		const a = transportRegularities('aircraft').map((r) => r.value);
 		expect(a).toEqual(['3h', '6h', '12h', 'daily']);
-	});
-	it('pins satellites to daily only', () => {
-		const s = transportRegularities('satellite').map((r) => r.value);
-		expect(s).toEqual(['daily']);
 	});
 });
 
@@ -83,9 +76,5 @@ describe('transportWatchIdValid (per mode)', () => {
 	it('validates aircraft ICAO hex', () => {
 		expect(transportWatchIdValid('aircraft', '4ca123')).toBe(true);
 		expect(transportWatchIdValid('aircraft', 'zzzz')).toBe(false);
-	});
-	it('validates satellite NORAD', () => {
-		expect(transportWatchIdValid('satellite', '25544')).toBe(true);
-		expect(transportWatchIdValid('satellite', '0')).toBe(false);
 	});
 });

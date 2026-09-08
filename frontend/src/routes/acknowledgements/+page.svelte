@@ -65,9 +65,7 @@
 				<h2 class="section-title">Fleet &amp; transport data</h2>
 				<ul class="credits">
 					<li><a href="https://adsb.lol/" target="_blank" rel="noopener">adsb.lol</a> — community-run ADS-B network · live aircraft positions</li>
-					<li><a href="https://celestrak.org/" target="_blank" rel="noopener">CelesTrak</a> — T.S. Kelso · satellite orbital elements, freely published since 1985</li>
 					<li><a href="https://vesselapi.com/" target="_blank" rel="noopener">VesselAPI</a> — paid exact-MMSI vessel positions</li>
-					<li><a href="https://github.com/shashwatak/satellite-js" target="_blank" rel="noopener">satellite.js</a> — shashwatak · orbital math · MIT</li>
 				</ul>
 			</section>
 		</div>

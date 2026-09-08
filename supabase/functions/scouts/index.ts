@@ -540,7 +540,8 @@ async function listScouts(req: Request, user: AuthedUser): Promise<Response> {
   let query = db
     .from("scouts")
     .select("*", { count: "exact" })
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .or("type.neq.transport,config->>mode.is.null,config->>mode.neq.satellite");
   if (typeFilter) {
     query = query.eq("type", typeFilter);
   }

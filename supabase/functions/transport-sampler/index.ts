@@ -1,14 +1,4 @@
-/**
- * transport-sampler Edge Function — shared VesselAPI positions + GP refresh.
- *
- * Invoked by two pg_cron jobs with a task discriminator:
- *   { task: "ais" }  hourly — exact-MMSI VesselAPI position refresh
- *   { task: "gp" }   daily  — satellite GP refresh
- *
- * Both tasks return 202 immediately and run under EdgeRuntime.waitUntil so
- * provider work outlives pg_net's short request window. Auth uses the shared
- * internal service-key boundary.
- */
+/** Shared VesselAPI position sampler. Accepts the hourly `ais` task only. */
 
 import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
@@ -17,20 +7,14 @@ import { getServiceClient, type SupabaseClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { AuthError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
-import {
-  activeVesselWatchIds,
-  hasActiveSatelliteScouts,
-  upsertPositions,
-} from "./sampler.ts";
-import { GpRefreshFailure, refreshGpCache } from "./gp.ts";
+import { activeVesselWatchIds, upsertPositions } from "./sampler.ts";
 import {
   sampleVesselApiPositions,
   VesselApiRequestError,
 } from "./vesselapi.ts";
 
 const InputSchema = z.object({
-  task: z.enum(["ais", "gp"]).default("ais"),
-  operator_bootstrap: z.boolean().default(false),
+  task: z.enum(["ais"]).default("ais"),
 });
 
 declare const EdgeRuntime:
@@ -74,7 +58,7 @@ async function updateSamplerRun(
 async function trackSamplerRun(
   svc: SupabaseClient,
   runId: string,
-  task: "ais" | "gp",
+  task: "ais",
   work: () => Promise<SamplerOutcome>,
 ): Promise<void> {
   await updateSamplerRun(svc, runId, { status: "running" });
@@ -250,48 +234,6 @@ async function runVesselApiSampler(
   };
 }
 
-async function runGpRefresh(
-  svc: SupabaseClient,
-  operatorBootstrap = false,
-): Promise<SamplerOutcome> {
-  if (!operatorBootstrap && !(await hasActiveSatelliteScouts(svc))) {
-    logEvent({
-      level: "info",
-      fn: "transport-sampler",
-      event: "gp_noop",
-      msg: "no active satellite scouts",
-    });
-    return { status: "noop", errorCode: "no_active_satellite_scouts" };
-  }
-  try {
-    const result = await refreshGpCache(svc);
-    logEvent({
-      level: "info",
-      fn: "transport-sampler",
-      event: "gp_done",
-      msg: `${result.status}, ${result.cached} cached`,
-    });
-    return {
-      status: result.status === "updated" ? "succeeded" : "noop",
-      itemsWritten: result.cached,
-      errorCode: result.status === "updated" ? null : `gp_${result.status}`,
-      metadata: { provider_status: result.status },
-    };
-  } catch (error) {
-    if (error instanceof GpRefreshFailure) {
-      throw new SamplerFailure(error.code, error.message, {
-        providerErrored: true,
-        metadata: {
-          provider: "celestrak",
-          provider_status: error.providerStatus,
-          provider_detail: error.providerDetail,
-        },
-      });
-    }
-    throw error;
-  }
-}
-
 Deno.serve((req: Request): Response | Promise<Response> => {
   const cors = handleCors(req);
   if (cors) return cors;
@@ -331,21 +273,6 @@ Deno.serve((req: Request): Response | Promise<Response> => {
     if (insertError) {
       return jsonFromError(
         new Error(`failed to create sampler run: ${insertError.message}`),
-      );
-    }
-
-    if (parsed.data.task === "gp") {
-      runInBackground(
-        trackSamplerRun(
-          svc,
-          samplerRunId,
-          "gp",
-          () => runGpRefresh(svc, parsed.data.operator_bootstrap),
-        ),
-      );
-      return jsonOk(
-        { status: "accepted", task: "gp", run_id: samplerRunId },
-        202,
       );
     }
 

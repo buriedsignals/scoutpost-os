@@ -1438,68 +1438,6 @@ Deno.test("scouts add — transport vessel: decimal center/radius survive (no pa
   });
 });
 
-Deno.test("scouts add — Fleet Scout satellite: watch IDs + entry area, daily schedule", async () => {
-  await withTempHome(async () => {
-    writeConfigFile({
-      api_url: "https://scoutpost.ai/functions/v1",
-      api_key: "cj_test",
-      supabase_anon_key: "anon",
-    });
-
-    let observedBody: Record<string, unknown> | null = null;
-    const origFetch = globalThis.fetch;
-    const origLog = console.log;
-    globalThis.fetch =
-      ((_input: string | URL | Request, init?: RequestInit) => {
-        observedBody = JSON.parse(String(init?.body ?? "{}"));
-        return Promise.resolve(
-          new Response(JSON.stringify({ id: "scout_3" }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        );
-      }) as typeof fetch;
-    console.log = () => {};
-
-    try {
-      await runScouts([
-        "add",
-        "--name",
-        "ISS overpass",
-        "--type",
-        "transport",
-        "--mode",
-        "satellite",
-        "--center-lat",
-        "26.55",
-        "--center-lon",
-        "56.25",
-        "--radius-km",
-        "40",
-        "--watch-ids",
-        "25544,48274",
-        "--regularity",
-        "daily",
-      ]);
-    } finally {
-      globalThis.fetch = origFetch;
-      console.log = origLog;
-    }
-
-    assert(observedBody !== null, "fetch was not called");
-    const body = observedBody as Record<string, unknown>;
-    assertEquals(body.regularity, "daily");
-    assertEquals(body.time, "09:00");
-    const config = body.config as Record<string, unknown>;
-    assertEquals(config.mode, "satellite");
-    assertEquals(config.watch_ids, ["25544", "48274"]);
-    assertEquals(config.geofence, {
-      center: { lat: 26.55, lon: 56.25 },
-      radius_km: 40,
-    });
-  });
-});
-
 Deno.test("ingest text — sends API-compatible text field", async () => {
   await withTempHome(async () => {
     writeConfigFile({
@@ -2066,4 +2004,42 @@ Deno.test("civic resolve / validate hit civic/discover; resolve is discover's al
       },
     ]);
   });
+});
+
+Deno.test("Fleet CLI rejects retired satellite creation and preview before HTTP", async () => {
+  const exit = stubExit();
+  const originalError = console.error;
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  console.error = () => {};
+  globalThis.fetch = () => {
+    requests++;
+    throw new Error("unexpected HTTP");
+  };
+  try {
+    for (
+      const command of [["add", "--name", "retired", "--type", "transport"], [
+        "test-transport",
+      ]]
+    ) {
+      await assertRejects(
+        () =>
+          runScouts([
+            ...command,
+            "--mode",
+            "satellite",
+            "--watch-ids",
+            "25544",
+          ]),
+        Error,
+        "__exit__1",
+      );
+    }
+    assertEquals(requests, 0);
+    assertEquals(exit.calls, [1, 1]);
+  } finally {
+    exit.restore();
+    console.error = originalError;
+    globalThis.fetch = originalFetch;
+  }
 });

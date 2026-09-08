@@ -19,7 +19,7 @@ function usage(): void {
       "  list [--offset N] [--limit N] [--active true|false]",
       "  test --type web --url <url> [--criteria <text>]",
       "  test --type civic --tracked-urls <url,url>",
-      "  test-transport --mode aircraft|vessel|satellite --watch-ids <id,id>",
+      "  test-transport --mode aircraft|vessel --watch-ids <id,id>",
       "                 --center-lat <n> --center-lon <n> --radius-km <n>",
       "                 [--area-name <name>] [--categories <cat,cat>] [--criteria <text>]",
       "  add --name <name> --type <web|beat|social|civic|transport> [--url <url>]",
@@ -34,7 +34,7 @@ function usage(): void {
       "                   [--platform instagram|x|facebook|tiktok|linkedin] [--handle <handle-or-linkedin-url>]",
       "                   [--monitor-mode criteria|summarize] [--track-removals true|false]",
       "                   [--archive-enabled true|false] [--wayback-enabled true|false]",
-      "                   [--mode aircraft|vessel|satellite]",
+      "                   [--mode aircraft|vessel]",
       "                   --center-lat <n> --center-lon <n> --radius-km <n> [--area-name <name>]",
       "                   [--watch-ids <id,id>] [--categories <cat,cat>]",
       "                   [--baseline-ids <id,id>]",
@@ -47,9 +47,9 @@ function usage(): void {
       "  Web/Page scouts: use --criteria for Specific Criteria alerts; omitting or",
       "  leaving it empty selects noisy Any Change alerts that may include page chrome.",
       "  Beat and civic scouts support weekly or monthly schedules only.",
-      "  Fleet scouts (--type transport; aircraft/vessel/satellite) support 3h/6h/12h/daily",
-      "  (satellite daily only). --watch-ids is REQUIRED for every mode — the",
-      "  specific MMSIs / ICAO hexes / NORAD ids to track, max 20 (--categories",
+      "  Fleet scouts (--type transport; aircraft/vessel) support 3h/6h/12h/daily",
+      "  --watch-ids is REQUIRED for every mode — the",
+      "  specific MMSIs / ICAO hexes to track, max 20 (--categories",
       "  only narrows the list). Every Fleet Scout needs an area: it alerts when a",
       "  watched object enters the circle defined by --center-lat/--center-lon/",
       "  --radius-km. --criteria is an optional filter evaluated after entry. --time",
@@ -94,7 +94,7 @@ interface Scout {
 
 const VALID_TYPES = ["web", "beat", "social", "civic", "transport"];
 const SOCIAL_MONITOR_MODES = ["criteria", "summarize"] as const;
-const TRANSPORT_MODES = ["aircraft", "vessel", "satellite"];
+const TRANSPORT_MODES = ["aircraft", "vessel"];
 const TRANSPORT_REGULARITIES = ["3h", "6h", "12h", "daily"];
 
 function stringFlag(
@@ -235,14 +235,7 @@ function validateSchedulePolicy(
     Deno.exit(1);
   }
   if (type === "transport") {
-    if (transportMode === "satellite") {
-      if (regularity && regularity !== "daily") {
-        console.error(
-          "satellite transport scouts support daily schedules only",
-        );
-        Deno.exit(1);
-      }
-    } else if (regularity && !TRANSPORT_REGULARITIES.includes(regularity)) {
+    if (regularity && !TRANSPORT_REGULARITIES.includes(regularity)) {
       console.error("transport scouts support 3h, 6h, 12h, or daily schedules");
       Deno.exit(1);
     }
@@ -526,7 +519,7 @@ export async function run(argv: string[]): Promise<void> {
         // would alert on all matching traffic (product decision 2026-07-04).
         if (!config.watch_ids) {
           console.error(
-            "transport scouts require --watch-ids — the specific MMSIs / ICAO hexes / NORAD ids to track (--categories only narrows the list)",
+            "transport scouts require --watch-ids — the specific MMSIs / ICAO hexes to track (--categories only narrows the list)",
           );
           Deno.exit(1);
         }

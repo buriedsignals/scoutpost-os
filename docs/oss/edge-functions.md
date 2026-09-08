@@ -21,8 +21,8 @@ Source files: `supabase/functions/`
 | `scout-beat-execute` | Beat / Location Scout execution. |
 | `social-test` | Social profile validation and baseline preview. |
 | `transport-test` | Authenticated, Pro/Team Fleet live-data check that returns stable baseline IDs without creating a scout or spending credits. |
-| `scout-transport-execute` | Fleet execution for aircraft, VesselAPI-backed vessels, and satellite passes. |
-| `transport-sampler` | Hourly VesselAPI exact-MMSI refresh plus daily CelesTrak GP refresh. |
+| `scout-transport-execute` | Fleet execution for aircraft and VesselAPI-backed vessels. |
+| `transport-sampler` | Hourly VesselAPI exact-MMSI refresh. |
 | `social-kickoff` | Social scheduled run kickoff and Apify actor start. |
 | `apify-callback` | Apify webhook receiver for completed actor runs. |
 | `apify-reconcile` | Cron fallback for missed Apify callbacks. |

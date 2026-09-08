@@ -237,7 +237,7 @@ export const TOOLS: ToolDef[] = [
           additionalProperties: false,
           required: ["mode", "watch_ids", "geofence"],
           properties: {
-            mode: { type: "string", enum: ["aircraft", "vessel", "satellite"] },
+            mode: { type: "string", enum: ["aircraft", "vessel"] },
             watch_ids: {
               type: "array",
               minItems: 1,
@@ -261,7 +261,7 @@ export const TOOLS: ToolDef[] = [
                   exclusiveMinimum: 0,
                   maximum: 1500,
                   description:
-                    "Maximum 463 km for aircraft and 1,500 km for vessel/satellite; enforced by the server according to mode.",
+                    "Maximum 463 km for aircraft and 1,500 km for vessel; enforced by the server according to mode.",
                 },
                 display_name: { type: "string", maxLength: 256 },
                 maptiler_id: { type: "string", maxLength: 256 },
@@ -298,7 +298,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "create_scout",
     description:
-      "Create a new scout. Required: name and type (web|beat|social|civic|transport). Probe first: web scouts run test_web_scout, civic scouts run discover_civic_sources then preview_civic_items, and pass one of the returned candidate URLs as tracked_urls. The server re-runs step 1 before inserting and answers HTTP 422 with the probe envelope { ok:false, stage, error_code, error } when it fails: civic → no_meetings_detected (the body also carries system, validated, invalid and candidates — read candidates and retry with one of them); web → unreachable|blocked|empty_content|outside_configured_page. The 422 body is returned in this tool's error text. web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle; MCP defaults them to monitor_mode=criteria, which requires criteria text. Pass monitor_mode=summarize explicitly to collect all substantive new posts. Transport scouts (Fleet Scout) are Pro/Team on hosted Scoutpost and require config: { mode: aircraft|vessel|satellite, watch_ids, geofence: { center: {lat,lon}, radius_km, display_name?, maptiler_id? }, categories?, criteria? }. Every mode needs the circular area and alerts when a watched object enters it. criteria is optional and only filters those entry alerts; it never replaces the area. watch_ids is required (max 20); categories only narrow it. Run test_transport_config first and pass its baseline_ids as transport_baseline_ids here. Transport supports 3h/6h/12h/daily regularity (satellite daily only). Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes web/beat/social/civic baselines immediately; Fleet creation seeds the tested baseline when transport_baseline_ids is supplied, while omission preserves the legacy first-run baseline. Web/Page scouts can turn on evidence archiving with archive_enabled (Pro/Team); captured snapshots are then retrievable via list_snapshots.",
+      "Create a new scout. Required: name and type (web|beat|social|civic|transport). Probe first: web scouts run test_web_scout, civic scouts run discover_civic_sources then preview_civic_items, and pass one of the returned candidate URLs as tracked_urls. The server re-runs step 1 before inserting and answers HTTP 422 with the probe envelope { ok:false, stage, error_code, error } when it fails: civic → no_meetings_detected (the body also carries system, validated, invalid and candidates — read candidates and retry with one of them); web → unreachable|blocked|empty_content|outside_configured_page. The 422 body is returned in this tool's error text. web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle; MCP defaults them to monitor_mode=criteria, which requires criteria text. Pass monitor_mode=summarize explicitly to collect all substantive new posts. Transport scouts (Fleet Scout) are Pro/Team on hosted Scoutpost and require config: { mode: aircraft|vessel, watch_ids, geofence: { center: {lat,lon}, radius_km, display_name?, maptiler_id? }, categories?, criteria? }. Every mode needs the circular area and alerts when a watched object enters it. criteria is optional and only filters those entry alerts; it never replaces the area. watch_ids is required (max 20); categories only narrow it. Run test_transport_config first and pass its baseline_ids as transport_baseline_ids here. Transport supports 3h/6h/12h/daily regularity. Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes web/beat/social/civic baselines immediately; Fleet creation seeds the tested baseline when transport_baseline_ids is supplied, while omission preserves the legacy first-run baseline. Web/Page scouts can turn on evidence archiving with archive_enabled (Pro/Team); captured snapshots are then retrievable via list_snapshots.",
     inputSchema: {
       type: "object",
       required: ["name", "type"],
@@ -342,7 +342,7 @@ export const TOOLS: ToolDef[] = [
           additionalProperties: false,
           required: ["mode", "watch_ids", "geofence"],
           properties: {
-            mode: { type: "string", enum: ["aircraft", "vessel", "satellite"] },
+            mode: { type: "string", enum: ["aircraft", "vessel"] },
             watch_ids: {
               type: "array",
               minItems: 1,
@@ -366,7 +366,7 @@ export const TOOLS: ToolDef[] = [
                   exclusiveMinimum: 0,
                   maximum: 1500,
                   description:
-                    "Maximum 463 km for aircraft and 1,500 km for vessel/satellite; enforced by the server according to mode.",
+                    "Maximum 463 km for aircraft and 1,500 km for vessel; enforced by the server according to mode.",
                 },
                 display_name: { type: "string", maxLength: 256 },
                 maptiler_id: { type: "string", maxLength: 256 },
@@ -510,7 +510,7 @@ export const TOOLS: ToolDef[] = [
           additionalProperties: false,
           required: ["mode", "watch_ids", "geofence"],
           properties: {
-            mode: { type: "string", enum: ["aircraft", "vessel", "satellite"] },
+            mode: { type: "string", enum: ["aircraft", "vessel"] },
             watch_ids: {
               type: "array",
               minItems: 1,
@@ -534,7 +534,7 @@ export const TOOLS: ToolDef[] = [
                   exclusiveMinimum: 0,
                   maximum: 1500,
                   description:
-                    "Maximum 463 km for aircraft and 1,500 km for vessel/satellite; enforced by the server according to mode.",
+                    "Maximum 463 km for aircraft and 1,500 km for vessel; enforced by the server according to mode.",
                 },
                 display_name: { type: "string", maxLength: 256 },
                 maptiler_id: { type: "string", maxLength: 256 },
