@@ -110,3 +110,7 @@ Cloudflare, or another parser when that route is unavailable.
 - `docs/supabase/social-apify.md`
 - `docs/supabase/civic-pipeline.md`
 - `docs/supabase/benchmarks.md`
+
+Beat digest excerpts use the same Markdown-to-text normalization for rendering
+and grounding checks. Article citations remain explicit; source evidence is
+unchanged. This prevents copied section links from blocking notifications.

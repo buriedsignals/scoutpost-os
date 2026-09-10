@@ -15,6 +15,43 @@
  * generative step.
  */
 
+import { Lexer, type Token, type Tokens } from "npm:marked@17.0.5";
+
+/** Render source excerpts as text before digest truncation and grounding. */
+export function digestExcerptText(markdown: string): string {
+  const text = (tokens: Token[]): string =>
+    tokens.map((token): string => {
+      switch (token.type) {
+        case "space":
+        case "br":
+        case "hr":
+        case "html":
+          return " ";
+        case "def":
+          return "";
+        case "list":
+          return token.items.map((item: Token) => text([item])).join(" ");
+        case "table":
+          return [token.header, ...token.rows].map((row: Tokens.TableCell[]) =>
+            row.map((cell) => text(cell.tokens)).join(" ")
+          ).join(" ");
+        default: {
+          const content = "tokens" in token && token.tokens
+            ? text(token.tokens)
+            : "text" in token
+            ? token.text
+            : "";
+          return content +
+            (["paragraph", "heading", "blockquote", "list_item", "code"]
+                .includes(token.type)
+              ? " "
+              : "");
+        }
+      }
+    }).join("");
+  return text(Lexer.lex(markdown)).replace(/\s+/g, " ").trim();
+}
+
 export interface DigestArticle {
   /** Article title — never an LLM summary. */
   title: string;

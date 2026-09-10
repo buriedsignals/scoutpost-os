@@ -51,6 +51,7 @@ import {
 } from "../_shared/beat_pipeline.ts";
 import {
   type DigestArticle,
+  digestExcerptText,
   formatBeatDigest,
   verifyPlaceNamesGrounded,
 } from "../_shared/extractive_summary.ts";
@@ -1352,7 +1353,7 @@ function toDigestArticle(
   return {
     title: article.title || url || "Untitled",
     url,
-    excerpt: article.summary || article.title || "",
+    excerpt: digestExcerptText(article.summary || article.title || ""),
     domain: article.source || safeDomain(url) || "source",
     category: article.category,
   };

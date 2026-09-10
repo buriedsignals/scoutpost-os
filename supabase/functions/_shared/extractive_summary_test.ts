@@ -11,6 +11,7 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   type DigestArticle,
+  digestExcerptText,
   digestLine,
   formatBeatDigest,
   verifyPlaceNamesGrounded,
@@ -163,5 +164,94 @@ Deno.test("formatBeatDigest — sanity round-trip with verifyPlaceNamesGrounded"
     v.ok,
     true,
     `round-trip should always pass; got: ${JSON.stringify(v)}`,
+  );
+});
+
+Deno.test("digest excerpts normalize Markdown before truncation and grounding", () => {
+  const cases = [
+    ["See [Chicago](https://example.org/report#chicago).", "See Chicago."],
+    ["See [report](https://example.org/report_(2021)).", "See report."],
+    [
+      "See [the **Chicago** report](https://example.org/report).",
+      "See the Chicago report.",
+    ],
+    ["See [report [2021]](https://example.org/report).", "See report [2021]."],
+    [
+      "See [Chicago][city].\n\n[city]: https://example.org/report#chicago",
+      "See Chicago.",
+    ],
+    ["![Chart](https://example.org/chart.png) results", "Chart results"],
+    ["See <https://example.org/report>.", "See https://example.org/report."],
+    ["Chicago approved the proposal.", "Chicago approved the proposal."],
+    ["- First\n- Second", "First Second"],
+    [
+      "| City | Result |\n| --- | --- |\n| Chicago | Approved |",
+      "City Result Chicago Approved",
+    ],
+    ["Before <b>Chicago</b> after", "Before Chicago after"],
+    ["> Chicago approved housing.", "Chicago approved housing."],
+    ["```text\nChicago approved housing.\n```", "Chicago approved housing."],
+  ];
+  for (const [input, expected] of cases) {
+    assertEquals(digestExcerptText(input), expected);
+  }
+});
+
+Deno.test("Vera source navigation cannot block the digest notification", () => {
+  const url =
+    "https://www.vera.org/beyond-jails-community-based-strategies-for-public-safety";
+  const sourceExcerpt = `November 2021
+#### Watch these ideas in action:
+[Chicago, IL](${url}#chicago) | [Tucson, AZ](${url}#tucson) | [Denver, CO](${url}#denver) | [Baltimore, MD](${url}#baltimore)
+For decades, the United States has responded to social issues like mental health and substance use crises, chronic homelessness, and ongoing cycles of interpersonal violence with jail.`;
+  const raw = {
+    ...goffstownNH,
+    title: "Beyond Jails",
+    url,
+    excerpt: sourceExcerpt,
+    publishedDate: null,
+  };
+  assertEquals(
+    verifyPlaceNamesGrounded(formatBeatDigest([raw]), [raw]).offendingUrls,
+    [`${url}#chicago`],
+  );
+  // The same normalized article must feed rendering and the grounding corpus.
+  const article = { ...raw, excerpt: digestExcerptText(raw.excerpt) };
+  const digest = formatBeatDigest([article]);
+  assertStringIncludes(digest, `](${url})`);
+  assertStringIncludes(digest, "Chicago, IL");
+  assertEquals(digest.includes("#chicago"), false);
+  assertEquals(verifyPlaceNamesGrounded(digest, [article], "Chicago").ok, true);
+  assertEquals(
+    verifyPlaceNamesGrounded(
+      digest + " [unlisted](https://example.org/unlisted)",
+      [article],
+      "Chicago",
+    ).ok,
+    false,
+  );
+  assertEquals(
+    verifyPlaceNamesGrounded(digest + " in Atlantis", [article], "Chicago").ok,
+    false,
+  );
+  assertStringIncludes(raw.excerpt, "#chicago");
+});
+
+Deno.test("normalized place names remain grounded and long link destinations do not consume excerpt space", () => {
+  const article = {
+    ...goffstownNH,
+    excerpt: digestExcerptText(
+      "Officials in New **York** City approved [housing](https://example.org/" +
+        "x".repeat(400) + ") today.",
+    ),
+  };
+  const digest = formatBeatDigest([article]);
+  assertStringIncludes(
+    digest,
+    "Officials in New York City approved housing today.",
+  );
+  assertEquals(
+    verifyPlaceNamesGrounded(digest, [article], "Hartford").ok,
+    true,
   );
 });
