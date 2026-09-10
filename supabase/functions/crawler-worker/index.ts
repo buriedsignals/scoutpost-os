@@ -65,6 +65,8 @@ interface ClaimedJob {
 }
 
 interface JobState {
+  attempts: number;
+  max_attempts: number;
   id: string;
   batch_id: string;
   lease_token: string;
@@ -411,7 +413,7 @@ async function loadJob(
 ): Promise<JobState | null> {
   const { data, error } = await svc.from("crawler_jobs")
     .select(
-      "id,batch_id,lease_token,operation,status,request_kind,continuation_key,scout_id,result_manifest",
+      "id,batch_id,lease_token,operation,status,request_kind,continuation_key,scout_id,result_manifest,attempts,max_attempts",
     )
     .eq("id", completion.job_id)
     .eq("batch_id", batchId)
@@ -483,12 +485,20 @@ export async function completeBatch(
         if (response.error) throw new Error("completion failed");
         changed = response.data === true;
       } else {
+        // Reuse the existing fallback signal only after browser retries are spent.
+        // HTTP2 failure is not proof of bot blocking; snapshots must stay local.
+        const exhaustedHttp2 = job.request_kind === "proxy" &&
+          job.operation === "scrape" &&
+          completion.error_class === "retryable" &&
+          job.attempts >= job.max_attempts &&
+          /(?:^|\n)(?:Error:\s*)?Page\.goto:\s*net::ERR_HTTP2_PROTOCOL_ERROR(?=\s|$)/
+            .test(completion.error ?? "");
         const response = await svc.rpc("complete_crawler_job", {
           p_job_id: completion.job_id,
           p_lease_token: completion.attempt_id,
           p_ok: false,
           p_manifest: null,
-          p_error_class: completion.error_class,
+          p_error_class: exhaustedHttp2 ? "anti_bot" : completion.error_class,
           p_error: completion.error,
         });
         if (response.error) throw new Error("completion failed");
@@ -582,7 +592,9 @@ export async function handleCrawlerWorker(
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    console.error(`crawler worker failed action=${input.action} reason=${reason}`);
+    console.error(
+      `crawler worker failed action=${input.action} reason=${reason}`,
+    );
     return jsonError(`crawler worker failed: ${reason}`, 500);
   }
 }

@@ -4,7 +4,9 @@ Scoutpost's current SaaS and OSS scout runtime is Supabase Edge Functions. The o
 
 Beat discovery uses Firecrawl Cloud's `/v2/search` endpoint. Crawl4AI remains
 the primary article renderer; Firecrawl `/scrape` is used only as the
-classified anti-bot fallback.
+classified fallback, including proxy scrapes that exhaust their retry budget
+with Chromium HTTP/2 protocol errors. See the [crawler-worker completion
+contract](../supabase/edge-functions.md#crawler-worker--render-task-claim-and-completion).
 
 Source files: `supabase/functions/`
 
