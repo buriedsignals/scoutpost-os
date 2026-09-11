@@ -5,6 +5,7 @@ from typing import ClassVar
 
 import pytest
 from app import workflow
+from tests.conftest import make_settings
 
 
 class FakeCloseable:
@@ -186,12 +187,13 @@ async def test_batch_commits_each_job_and_returns_only_counters(monkeypatch):
     monkeypatch.setattr(workflow, "WorkflowClient", FakeClient)
     monkeypatch.setattr(workflow, "Scraper", FakeCloseable)
     monkeypatch.setattr(workflow.httpx, "AsyncClient", FakeCloseable)
-    monkeypatch.setattr(workflow, "load_settings", lambda: SimpleNamespace())
+    monkeypatch.setattr(workflow, "load_settings", make_settings)
     monkeypatch.setattr(workflow, "run_item_safely", run)
     monkeypatch.setattr(workflow, "cgroup_peak_bytes", lambda: 100)
     monkeypatch.setattr(workflow.os, "_exit", lambda code: exits.append(code))
 
     report = await workflow._crawl_batch_guarded("batch", "http://proxy")
+    assert report["pdf_ocr"] == "disabled_missing_api_key"
     assert report["processed"] == 1
     assert report["succeeded"] == 1
     assert "private content" not in str(report)
@@ -270,7 +272,7 @@ async def test_batch_maps_snapshot_and_upload_failures(monkeypatch):
     monkeypatch.setattr(workflow, "WorkflowClient", FakeClient)
     monkeypatch.setattr(workflow, "Scraper", FakeCloseable)
     monkeypatch.setattr(workflow.httpx, "AsyncClient", FakeCloseable)
-    monkeypatch.setattr(workflow, "load_settings", lambda: SimpleNamespace())
+    monkeypatch.setattr(workflow, "load_settings", make_settings)
     monkeypatch.setattr(workflow, "run_item_safely", run)
     monkeypatch.setattr(workflow, "cgroup_peak_bytes", lambda: None)
     report = await workflow._crawl_batch_guarded("batch", "http://proxy", egress_stats)

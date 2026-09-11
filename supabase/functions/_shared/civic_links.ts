@@ -62,6 +62,8 @@ export const CIVIC_MEETING_KEYWORDS: readonly string[] = [
   "minutes",
   "agenda",
   "proceedings",
+  "debatten",
+  "débats",
   "transcript",
   "transcription",
   "meeting",
@@ -105,6 +107,8 @@ const CIVIC_DOCUMENT_CLASS_TERMS = {
     "transcript",
     "transcription",
     "proceedings",
+    "debatten",
+    "débats",
     "compte rendu",
     "compte-rendu",
     "proces verbal",
@@ -318,7 +322,7 @@ export function extractCivicLinksFromPages(
 export async function discoverCivicDocumentsFromTrackedPages(
   trackedUrls: string[],
   opts: { maxDocs?: number; tenantKey?: string } = {},
-): Promise<{ documentUrls: string[]; scrapedPages: number }> {
+): Promise<CivicDocumentResolution & { scrapedPages: number }> {
   const pages: CivicTrackedPage[] = [];
   let scrapedPages = 0;
   for (const trackedUrl of trackedUrls) {
@@ -347,10 +351,14 @@ export async function discoverCivicDocumentsFromTrackedPages(
     }
   }
 
-  const links = extractCivicLinksFromPages(pages);
-  const documentUrls = await classifyCivicMeetingUrls(links);
+  const resolution = await resolveCivicDocumentsFromPages(pages, {
+    ...opts,
+    strictMeetingBudget: true,
+  });
+  const documentUrls = resolution.documentUrls;
   const maxDocs = Math.max(1, opts.maxDocs ?? 5);
   return {
+    ...resolution,
     documentUrls: documentUrls.slice(0, maxDocs),
     scrapedPages,
   };
@@ -811,6 +819,7 @@ function civicDocumentClassText(link: CivicLink): string {
 }
 
 function civicDocumentClassPriority(text: string): number {
+  if (/agenda\s+front\s*sheet/.test(text)) return 0;
   if (hasAnyTerm(text, CIVIC_DOCUMENT_CLASS_TERMS.record)) return 4;
   if (hasAnyTerm(text, CIVIC_DOCUMENT_CLASS_TERMS.decision)) return 4;
   if (hasAnyTerm(text, CIVIC_DOCUMENT_CLASS_TERMS.agenda)) return 2;
@@ -852,4 +861,180 @@ function normalizeDateParts(
   return `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${
     String(dd).padStart(2, "0")
   }`;
+}
+
+/** One extra fetch layer, never a recursive archive crawl. */
+export const CIVIC_MEETING_PAGE_LIMIT = 8;
+const CIVIC_MEETING_FETCH_CONCURRENCY = 4;
+
+export interface CivicMeetingBudget {
+  remaining: number;
+  attempted: Set<string>;
+}
+
+export function createCivicMeetingBudget(): CivicMeetingBudget {
+  return { remaining: CIVIC_MEETING_PAGE_LIMIT, attempted: new Set() };
+}
+
+export interface CivicDocumentResolution {
+  documentUrls: string[];
+  meetings: Array<{
+    url: string;
+    outcome: "documents_found" | "no_documents" | "fetch_failed";
+    documentCount: number;
+    documentUrls: string[];
+  }>;
+  meetingBudgetExceeded: boolean;
+}
+
+export function modernGovMeetingKey(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (!/\/ieListDocuments\.aspx$/i.test(parsed.pathname)) return null;
+    const meetingId = [...parsed.searchParams].find(([key, value]) =>
+      key.toLowerCase() === "mid" && value.trim() !== ""
+    )?.[1];
+    return meetingId
+      ? `${parsed.origin}${parsed.pathname.toLowerCase()}?mid=${meetingId}`
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Shared by creation membership, preview and scheduled execution. ModernGov
+ * meeting pages are wrappers, not extraction documents: inspect their linked
+ * PDFs within a fixed budget, then rank actual minutes/decisions first. Keep
+ * agenda packs eligible: their attachments can contain substantive decisions.
+ * Transport and redirect validation remain with the existing scrape port.
+ */
+export async function resolveCivicDocumentsFromPages(
+  pages: CivicTrackedPage[],
+  opts: {
+    tenantKey?: string;
+    fetchPage?: (url: string) => Promise<string>;
+    meetingBudget?: CivicMeetingBudget;
+    strictMeetingBudget?: boolean;
+  } = {},
+): Promise<CivicDocumentResolution> {
+  const links = extractCivicLinksFromPages(pages);
+  const wrappers = new Map<string, CivicLink>();
+  // A tracked wrapper is supported too, using its already fetched HTML.
+  const suppliedPages = new Map<string, CivicTrackedPage>();
+  for (const page of pages) {
+    const key = modernGovMeetingKey(page.pageUrl);
+    if (key) suppliedPages.set(key, page);
+  }
+  const listingLinks = extractCivicLinksFromPages(
+    pages.filter((page) => !modernGovMeetingKey(page.pageUrl)),
+  );
+  for (const link of listingLinks) {
+    const key = modernGovMeetingKey(link.url);
+    if (key && !suppliedPages.has(key) && !wrappers.has(key)) {
+      wrappers.set(key, link);
+    }
+  }
+  const budget = opts.meetingBudget ?? createCivicMeetingBudget();
+  const pendingWrappers = [...wrappers.entries()]
+    .filter(([key]) => !budget.attempted.has(key))
+    .sort(([, a], [, b]) => compareCivicLinks(a, b));
+  const meetingBudgetExceeded = pendingWrappers.length > budget.remaining;
+  // Creation/preview must not spend their wrapper budget on a membership
+  // snapshot they already know is incomplete.
+  if (meetingBudgetExceeded && opts.strictMeetingBudget) {
+    return { documentUrls: [], meetings: [], meetingBudgetExceeded: true };
+  }
+  const selected = pendingWrappers.slice(0, budget.remaining);
+  for (const [key] of selected) budget.attempted.add(key);
+  budget.remaining -= selected.length;
+  const wrapperLinks = selected.map(([, link]) => link);
+  const fetchPage = opts.fetchPage ?? (async (url: string) => {
+    const result = await scrape(url, {
+      workloadClass: "utility",
+      tenantKey: opts.tenantKey,
+      formats: ["rawHtml"],
+      onlyMainContent: false,
+      timeoutMs: 45_000,
+    });
+    if ((result.status_code ?? 200) >= 400 || !result.rawHtml?.trim()) {
+      throw new Error("meeting page could not be read");
+    }
+    return result.rawHtml;
+  });
+  const fetched: Array<CivicTrackedPage | null> = new Array(wrapperLinks.length)
+    .fill(null);
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from({
+      length: Math.min(CIVIC_MEETING_FETCH_CONCURRENCY, wrapperLinks.length),
+    }, async () => {
+      while (nextIndex < wrapperLinks.length) {
+        const index = nextIndex++;
+        try {
+          fetched[index] = {
+            pageUrl: wrapperLinks[index].url,
+            rawHtml: await fetchPage(wrapperLinks[index].url),
+          };
+        } catch {
+          // Retain a distinct failure outcome; never feed an error page into extraction.
+        }
+      }
+    }),
+  );
+  const meetings: CivicDocumentResolution["meetings"] = [];
+  const documents = links.filter((link) => !modernGovMeetingKey(link.url));
+  // Do not recurse through links found on wrappers, even circular meeting links.
+  const meetingPages = [...suppliedPages.values(), ...fetched];
+  for (let index = 0; index < meetingPages.length; index++) {
+    const page = meetingPages[index];
+    if (!page) {
+      meetings.push({
+        url: wrapperLinks[index - suppliedPages.size].url,
+        outcome: "fetch_failed",
+        documentCount: 0,
+        documentUrls: [],
+      });
+      continue;
+    }
+    const pdfs = extractCivicLinksFromHtml(page.rawHtml ?? "", page.pageUrl)
+      .filter((link) => isCivicDirectDocumentUrl(link.url));
+    documents.push(...pdfs);
+    meetings.push({
+      url: page.pageUrl,
+      outcome: pdfs.length ? "documents_found" : "no_documents",
+      documentCount: pdfs.length,
+      documentUrls: pdfs.map((link) => link.url),
+    });
+  }
+  const unique = new Map(documents.map((link) => [link.url, link]));
+  const candidates = [...unique.values()];
+  // PDFs on a known meeting wrapper need no keyword/model guess: reports can
+  // have subject-only titles. All other sites retain the existing classifier.
+  const wrapperPdfs = new Set(
+    meetingPages.flatMap((page) =>
+      page
+        ? extractCivicLinksFromHtml(page.rawHtml ?? "", page.pageUrl).filter(
+          (link) => isCivicDirectDocumentUrl(link.url),
+        ).map((link) => link.url)
+        : []
+    ),
+  );
+  const otherCandidates = candidates.filter((link) =>
+    !wrapperPdfs.has(link.url)
+  );
+  const classified = new Set(
+    wrappers.size > 0 || suppliedPages.size > 0
+      ? keywordCivicMeetingDocumentLinks(otherCandidates).map((link) =>
+        link.url
+      )
+      : await classifyCivicMeetingUrls(otherCandidates),
+  );
+  return {
+    documentUrls: candidates.filter((link) =>
+      wrapperPdfs.has(link.url) || classified.has(link.url)
+    ).sort(compareCivicLinks).map((link) => link.url),
+    meetings,
+    meetingBudgetExceeded,
+  };
 }

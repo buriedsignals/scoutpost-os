@@ -34,6 +34,7 @@ import { NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { scrape } from "../_shared/scrape.ts";
 import {
+  buildCanonicalBaselineRow,
   hashChangeStatusForUrl,
   writeCanonicalBaseline,
 } from "../_shared/canonical_baseline.ts";
@@ -43,10 +44,10 @@ import {
   firecrawlUpstreamStatus,
 } from "../_shared/civic_diagnostics.ts";
 import {
-  classifyCivicMeetingUrls,
-  extractCivicLinksFromPages,
+  createCivicMeetingBudget,
   isCivicDirectDocumentUrl,
   isCivicScrapableUrl,
+  resolveCivicDocumentsFromPages,
 } from "../_shared/civic_links.ts";
 import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
 import {
@@ -68,6 +69,7 @@ import { sha256Hex } from "../_shared/unit_dedup.ts";
 import { parseDocument } from "../_shared/docparse.ts";
 import {
   assertCompleteCivicMembership,
+  baselineResolvedCivicMeetings,
   loadCivicDocumentBaselineHashes,
   replacementCheckUrls,
   shouldQueueCivicDocument,
@@ -228,7 +230,13 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
     let queuedCount = 0;
     let scrapeFailureCount = 0;
     let queueFailureCount = 0;
-    const trackedUrlStatus: CivicTrackedUrlStatus[] = [];
+    const trackedUrlStatus: Array<
+      CivicTrackedUrlStatus & {
+        meeting_budget_exceeded?: boolean;
+        meeting_pages_fetched?: number;
+      }
+    > = [];
+    const meetingBudget = createCivicMeetingBudget();
     const currentMembershipUrls = new Set<string>();
 
     for (const url of tracked) {
@@ -339,25 +347,19 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         result.markdown,
         { sourceUrl: url, fn: "civic-execute" },
       );
-      // Write the per-URL baseline on EVERY successful scrape (not only on
-      // change): raw_captures rows carry a 30-day TTL and are purged by
-      // cleanup_raw_captures, so a page that stays unchanged for >30 days
-      // would otherwise lose its only baseline and re-classify as "new",
-      // re-storming the queue. Writing each run refreshes the TTL and keeps a
-      // usable baseline. Written with this run's id → only usable once the run
-      // succeeds.
-      await writeCanonicalBaseline(db, {
+      const captureArgs = {
         userId: scout.user_id as string,
         scoutId,
         scoutRunId: runId,
         sourceUrl: url,
         markdown: result.markdown,
-      });
+      };
 
       const directDocumentUrl = isCivicDirectDocumentUrl(url)
         ? normalizeCivicUrl(url)
         : null;
       if (directDocumentUrl) {
+        await writeCanonicalBaseline(db, captureArgs);
         const documentHash = await civicDocumentContentHash(
           directDocumentUrl,
           scout.user_id as string,
@@ -416,10 +418,49 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
       // re-hashed each run; everything older is trusted as unchanged. This
       // keeps a run at ≤ MAX_DOCS_PER_RUN queued documents plus a fixed
       // number of parses, whatever the archive size.
-      const docs = (await classifyCivicMeetingUrls(extractCivicLinksFromPages([{
+      const discovery = await resolveCivicDocumentsFromPages([{
         pageUrl: url,
         rawHtml: result.rawHtml ?? "",
-      }]))).map((docUrl) => normalizeCivicUrl(docUrl)).filter(
+      }], { tenantKey: scout.user_id as string, meetingBudget });
+      if (
+        discovery.meetings.some((meeting) => meeting.outcome === "fetch_failed")
+      ) {
+        // Keep failed scrape evidence without a canonical hash: a sibling
+        // worker may eventually settle this run successfully, which must not
+        // turn an incomplete discovery capture into an authoritative baseline.
+        const failedCapture = await buildCanonicalBaselineRow({
+          ...captureArgs,
+          now: new Date().toISOString(),
+        });
+        const { error: captureError } = await db.from("raw_captures").insert({
+          ...failedCapture,
+          canonical_content_sha256: null,
+          canonicalizer_version: null,
+        });
+        if (captureError) throw new Error(captureError.message);
+        trackedUrlStatus.push({
+          url,
+          status: "scrape_failed",
+          queued_documents: 0,
+          meeting_budget_exceeded: discovery.meetingBudgetExceeded,
+          meeting_pages_fetched: discovery.meetings.length,
+          error: "Civic meeting document discovery failed",
+        });
+        await persistCivicRunMetadata(db, runId, trackedUrlStatus);
+        throw new Error(
+          "Civic meeting document discovery failed; retry without advancing membership",
+        );
+      }
+      await writeCanonicalBaseline(db, captureArgs);
+      await baselineResolvedCivicMeetings(db, {
+        scoutId: scout.id as string,
+        userId: scout.user_id as string,
+        meetings: discovery.meetings,
+        baselineHashes: documentBaselines,
+      });
+      const docs = discovery.documentUrls.map((docUrl) =>
+        normalizeCivicUrl(docUrl)
+      ).filter(
         (docUrl): docUrl is string => Boolean(docUrl),
       );
       for (const documentUrl of docs) currentMembershipUrls.add(documentUrl);
@@ -472,7 +513,7 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
           continue;
         }
 
-        const docKind = docUrl.toLowerCase().endsWith(".pdf") ? "pdf" : "html";
+        const docKind = isCivicDirectDocumentUrl(docUrl) ? "pdf" : "html";
         if (
           !(await enqueueCivicDocument(db, {
             userId: scout.user_id as string,
@@ -499,6 +540,8 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
         status: queuedForTrackedUrl > 0 ? "queued" : "no_new_documents",
         change_status: changeStatus,
         queued_documents: queuedForTrackedUrl,
+        meeting_budget_exceeded: discovery.meetingBudgetExceeded,
+        meeting_pages_fetched: discovery.meetings.length,
       });
     }
 

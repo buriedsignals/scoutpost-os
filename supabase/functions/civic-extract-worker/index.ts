@@ -53,8 +53,9 @@ import {
   type CivicEligibleItem,
   classifyCivicCandidates,
   retainCivicPromiseAlertItems,
-  shouldAlertForNewCivicItem,
 } from "../_shared/civic_accountability.ts";
+import { loadCivicBackfillSnapshot } from "../_shared/civic_backfill_snapshot.ts";
+import { persistCivicDocumentItems } from "../_shared/civic_document_persistence.ts";
 import { upsertCivicDocumentMembership } from "../_shared/civic_document_membership.ts";
 
 const RAW_CONTENT_MAX = 80_000;
@@ -244,7 +245,15 @@ async function markLinkedRunFailedIfSettled(
     errorClass: classified.errorClass,
     message: classified.message,
   });
-  if (shouldIncrementScoutFailure(classified.errorClass)) {
+  const { data: semantics, error: semanticsError } = await svc.from(
+    "civic_extraction_queue",
+  )
+    .select("ingestion_mode").eq("id", row.id).single();
+  if (semanticsError) throw new Error(semanticsError.message);
+  if (
+    semantics.ingestion_mode !== "backfill" &&
+    shouldIncrementScoutFailure(classified.errorClass)
+  ) {
     await incrementAndMaybeNotify(svc, {
       scoutId: row.scout_id,
       userId: row.user_id,
@@ -271,7 +280,9 @@ async function processItem(
   //    on downstream rows (and confirm the scout still exists).
   const { data: scout, error: scoutErr } = await svc
     .from("scouts")
-    .select("id, user_id, name, preferred_language, criteria, project_id")
+    .select(
+      "id, user_id, name, preferred_language, criteria, project_id, tracked_urls, type, is_active",
+    )
     .eq("id", row.scout_id)
     .maybeSingle();
   if (scoutErr) throw new Error(scoutErr.message);
@@ -287,7 +298,8 @@ async function processItem(
     .maybeSingle();
   if (queueSemanticsErr) throw new Error(queueSemanticsErr.message);
   const ingestionMode = queueSemantics?.ingestion_mode === "initial" ||
-      queueSemantics?.ingestion_mode === "repair"
+      queueSemantics?.ingestion_mode === "repair" ||
+      queueSemantics?.ingestion_mode === "backfill"
     ? queueSemantics.ingestion_mode
     : "scheduled";
   await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
@@ -301,18 +313,28 @@ async function processItem(
   // text, but civic-execute suppresses re-enqueueing already-processed URLs
   // (scouts.processed_pdf_urls), so each doc is parsed once and does not cause
   // content_sha256 churn across runs.
+  const backfill = ingestionMode === "backfill"
+    ? await loadCivicBackfillSnapshot(svc, {
+      userId: row.user_id,
+      scoutId: row.scout_id,
+      runId: row.scout_run_id,
+      sourceUrl: row.source_url,
+      scout,
+      semantics: queueSemantics?.semantics_snapshot ?? {},
+    })
+    : null;
   let scraped;
   try {
-    scraped = await parseDocument(row.source_url, {
+    scraped = backfill ?? await parseDocument(row.source_url, {
       workloadClass: "scout",
       tenantKey: userId,
     });
   } catch (e) {
-    // A scanned (bitmap-only) PDF has no extractable text. Production has
-    // never OCR'd, so this is the same outcome as the legacy empty-markdown
-    // path — surface it with the identical message for run classification.
+    // Preserve the existing parse-failure prefix and the actionable OCR cause.
     if (e instanceof NeedsOcrError) {
-      throw new Error("document parse returned empty markdown (needs OCR)");
+      throw new Error(
+        `document parse returned empty markdown (needs OCR): ${e.message}`,
+      );
     }
     throw e;
   }
@@ -356,22 +378,24 @@ async function processItem(
   const expiresAt = new Date(
     capturedAt.getTime() + RAW_CAPTURE_TTL_DAYS * 24 * 60 * 60 * 1000,
   );
-  const { data: capture, error: capErr } = await svc
-    .from("raw_captures")
-    .insert({
-      user_id: userId,
-      scout_id: row.scout_id,
-      scout_run_id: row.scout_run_id,
-      source_url: row.source_url,
-      source_domain: sourceDomain,
-      content_md: markdown,
-      content_sha256: contentHash,
-      token_count: Math.ceil(markdown.length / 4),
-      captured_at: capturedAt.toISOString(),
-      expires_at: expiresAt.toISOString(),
-    })
-    .select("id")
-    .single();
+  const { data: capture, error: capErr } = backfill
+    ? { data: { id: backfill.rawCaptureId }, error: null }
+    : await svc
+      .from("raw_captures")
+      .insert({
+        user_id: userId,
+        scout_id: row.scout_id,
+        scout_run_id: row.scout_run_id,
+        source_url: row.source_url,
+        source_domain: sourceDomain,
+        content_md: markdown,
+        content_sha256: contentHash,
+        token_count: Math.ceil(markdown.length / 4),
+        captured_at: capturedAt.toISOString(),
+        expires_at: expiresAt.toISOString(),
+      })
+      .select("id")
+      .single();
   if (capErr) throw new Error(capErr.message);
   const rawCaptureId = capture.id as string;
 
@@ -379,6 +403,7 @@ async function processItem(
   // work performs extraction normally. Neither path trusts client content.
   let candidateItems: CivicCandidate[] = [];
   let extracted: CivicEligibleItem[];
+  let rejectionCounts: Record<string, number> = {};
   if (ingestionMode === "initial") {
     extracted = await loadInitialSnapshotItems(svc, {
       snapshotId: queueSemantics?.preview_snapshot_id as string | null,
@@ -399,7 +424,9 @@ async function processItem(
     const userPrompt = buildCivicCandidatePrompt(promptText, {
       criteria: scout.criteria as string | null,
       languageName: langName,
-      referenceDate: extractDateFromUrl(row.source_url),
+      referenceDate: ingestionMode === "backfill"
+        ? queueSemantics?.semantics_snapshot?.document_date ?? null
+        : extractDateFromUrl(row.source_url),
     });
 
     if (row.scout_run_id) await markRunStage(svc, row.scout_run_id, "extract");
@@ -430,7 +457,9 @@ async function processItem(
       buildCivicVerifierPrompt(promptText, candidateItems, {
         criteria: scout.criteria as string | null,
         languageName: langName,
-        referenceDate: extractDateFromUrl(row.source_url),
+        referenceDate: ingestionMode === "backfill"
+          ? queueSemantics?.semantics_snapshot?.document_date ?? null
+          : extractDateFromUrl(row.source_url),
       }),
       CIVIC_VERIFIER_SCHEMA,
       {
@@ -447,10 +476,12 @@ async function processItem(
     candidateItems = Array.isArray(verification?.candidates)
       ? verification.candidates
       : [];
-    extracted = classifyCivicCandidates(candidateItems, {
+    const classified = classifyCivicCandidates(candidateItems, {
       today: new Date().toISOString().slice(0, 10),
       sourceText: promptText,
-    }).items;
+    });
+    extracted = classified.items;
+    rejectionCounts = classified.rejectionCounts;
   }
   await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
 
@@ -458,97 +489,111 @@ async function processItem(
   // material decisions as canonical fact leads. The policy has already
   // excluded schedules, procedural content, unsupported evidence, and
   // undated/past-due promises.
-  let inserted = 0;
-  let mergedExisting = 0;
-  const alertItems: Array<{ unit_id: string; statement: string }> = [];
   if (row.scout_run_id) {
     await markRunStage(svc, row.scout_run_id, "insert_units");
   }
-  for (let itemIndex = 0; itemIndex < extracted.length; itemIndex++) {
-    const item = extracted[itemIndex];
-    if (itemIndex % 5 === 0) {
-      await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
-    }
-    let embedding: number[] | null = null;
-    try {
-      embedding = await embedText(item.statement, "RETRIEVAL_DOCUMENT", {
-        title: scraped.title ?? null,
-      });
-    } catch (e) {
-      logEvent({
-        level: "warn",
-        fn: "civic-extract-worker",
-        event: "embed_failed",
-        queue_id: row.id,
-        scout_id: row.scout_id,
-        msg: e instanceof Error ? e.message : String(e),
-      });
-    }
-    const result = await upsertCanonicalUnit(svc, {
-      userId,
-      statement: item.statement,
-      unitType: item.kind === "promise" ? "promise" : "fact",
-      entities: [],
-      embedding,
-      embeddingModel: EMBEDDING_MODEL_TAG,
-      sourceUrl: row.source_url,
-      sourceDomain,
-      sourceTitle: scraped.title ?? null,
-      contextExcerpt: item.context,
-      occurredAt: item.meeting_date,
-      extractedAt: capturedAt.toISOString(),
-      sourceType: item.kind === "promise" ? "civic_promise" : "scout",
-      contentSha256: contentHash,
-      scoutId: row.scout_id,
-      scoutType: "civic",
-      scoutRunId: row.scout_run_id,
-      projectId: (scout.project_id as string | null) ?? null,
-      rawCaptureId,
-      metadata: {
-        civic_policy_version: CIVIC_POLICY_VERSION,
-        civic_kind: item.kind,
-        doc_kind: row.doc_kind,
-        meeting_date: item.meeting_date,
-        ...(item.kind === "promise"
-          ? {
-            actor: item.actor,
-            action: item.action,
-            due_date: item.due_date,
-            due_date_text: item.due_date_text,
-            date_confidence: item.date_confidence,
-          }
-          : {
-            adopting_body: item.adopting_body,
-            decision_kind: item.decision_kind,
-          }),
-      },
-    });
-
-    if (item.kind === "promise") {
-      await upsertPromiseTracker(svc, {
-        unitId: result.unitId,
-        userId,
-        scoutId: row.scout_id,
-        promiseText: item.statement,
-        context: item.context,
-        sourceUrl: row.source_url,
-        sourceTitle: scraped.title ?? null,
-        meetingDate: item.meeting_date,
-        dueDate: item.due_date,
-        dueDateText: item.due_date_text,
-        dateConfidence: item.date_confidence,
-      });
-    }
-
-    if (result.createdCanonical) {
-      inserted += 1;
-      if (shouldAlertForNewCivicItem(item, true)) {
-        alertItems.push({ unit_id: result.unitId, statement: item.statement });
+  const { inserted, mergedExisting } = await persistCivicDocumentItems(svc, {
+    queueId: row.id,
+    userId,
+    items: extracted,
+    persistItem: async (item, itemIndex) => {
+      if (itemIndex % 5 === 0) {
+        await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
       }
-    } else if (result.mergedExisting && result.occurrenceCreated) {
-      mergedExisting += 1;
-    }
+      let embedding: number[] | null = null;
+      try {
+        embedding = await embedText(item.statement, "RETRIEVAL_DOCUMENT", {
+          title: scraped.title ?? null,
+        });
+      } catch (e) {
+        logEvent({
+          level: "warn",
+          fn: "civic-extract-worker",
+          event: "embed_failed",
+          queue_id: row.id,
+          scout_id: row.scout_id,
+          msg: e instanceof Error ? e.message : String(e),
+        });
+      }
+      await upsertCanonicalUnit(svc, {
+        userId,
+        statement: item.statement,
+        unitType: item.kind === "promise" ? "promise" : "fact",
+        entities: [],
+        embedding,
+        embeddingModel: EMBEDDING_MODEL_TAG,
+        sourceUrl: row.source_url,
+        sourceDomain,
+        sourceTitle: scraped.title ?? null,
+        contextExcerpt: item.context,
+        occurredAt: item.meeting_date,
+        extractedAt: capturedAt.toISOString(),
+        sourceType: item.kind === "promise" ? "civic_promise" : "scout",
+        contentSha256: contentHash,
+        scoutId: row.scout_id,
+        scoutType: "civic",
+        scoutRunId: row.scout_run_id,
+        projectId: (scout.project_id as string | null) ?? null,
+        rawCaptureId,
+        metadata: {
+          ...(ingestionMode === "backfill"
+            ? {
+              backfill_coverage: {
+                selection: queueSemantics?.semantics_snapshot?.selection ??
+                  null,
+                source_content_sha256:
+                  queueSemantics?.semantics_snapshot?.source_content_sha256 ??
+                    null,
+                source_characters:
+                  queueSemantics?.semantics_snapshot?.source_characters ??
+                    markdown.length,
+                parsed_text_length: markdown.length,
+                partial: queueSemantics?.semantics_snapshot?.selection != null,
+              },
+            }
+            : {}),
+          civic_policy_version: CIVIC_POLICY_VERSION,
+          civic_kind: item.kind,
+          doc_kind: row.doc_kind,
+          meeting_date: item.meeting_date,
+          ...(item.kind === "promise"
+            ? {
+              actor: item.actor,
+              action: item.action,
+              due_date: item.due_date,
+              due_date_text: item.due_date_text,
+              date_confidence: item.date_confidence,
+            }
+            : {
+              adopting_body: item.adopting_body,
+              decision_kind: item.decision_kind,
+            }),
+        },
+      }, { queueId: row.id, workerId });
+    },
+  });
+
+  if (ingestionMode === "backfill") {
+    const { error: diagnosticsError } = await svc.from("civic_extraction_queue")
+      .update({
+        semantics_snapshot: {
+          ...queueSemantics?.semantics_snapshot,
+          backfill_diagnostics: {
+            parser: "pinned_snapshot",
+            parsed_text_length: markdown.length,
+            candidate_count: candidateItems.length,
+            eligible_count: extracted.length,
+            rejection_counts: rejectionCounts,
+            persisted_count: inserted + mergedExisting,
+          },
+        },
+      }).eq("id", row.id).eq("lease_owner", workerId).eq(
+        "status",
+        "processing",
+      );
+    if (diagnosticsError) throw new Error(diagnosticsError.message);
   }
+
   if (row.scout_run_id) {
     await recordCivicExtractionDiagnostics(svc, row.scout_run_id, {
       pdfsParsed: row.doc_kind === "pdf" ? 1 : 0,
@@ -559,28 +604,6 @@ async function processItem(
         ? "semantic_zero"
         : null,
     });
-  }
-
-  // Persist newly stored promise IDs before queue completion. The last
-  // document to settle reads this run-scoped ledger and sends one complete
-  // "saved for later reminder" alert. Decisions never enter this ledger.
-  if (
-    row.scout_run_id && ingestionMode === "scheduled" && alertItems.length > 0
-  ) {
-    const { error: alertItemError } = await svc.from("civic_run_alert_items")
-      .upsert(
-        alertItems.map((item) => ({
-          scout_run_id: row.scout_run_id,
-          queue_id: row.id,
-          user_id: userId,
-          unit_id: item.unit_id,
-          statement: item.statement,
-          source_url: row.source_url,
-          source_title: scraped.title ?? null,
-        })),
-        { onConflict: "queue_id,unit_id", ignoreDuplicates: true },
-      );
-    if (alertItemError) throw new Error(alertItemError.message);
   }
 
   await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
@@ -626,12 +649,14 @@ async function processItem(
   // Advance the durable URL+content baseline only after this fenced queue row
   // has reached success.  A failed parse/model attempt therefore remains
   // eligible for retry instead of being silently absorbed as "already seen".
-  await upsertCivicDocumentMembership(svc, {
-    scoutId: row.scout_id,
-    userId,
-    sourceUrl: row.source_url,
-    contentHash,
-  });
+  if (ingestionMode !== "backfill") {
+    await upsertCivicDocumentMembership(svc, {
+      scoutId: row.scout_id,
+      userId,
+      sourceUrl: row.source_url,
+      contentHash,
+    });
+  }
 
   // 7. Notify (fire-and-forget — a mail failure does not abort the queue row,
   //    which is already marked done by the finalize RPC above).
@@ -681,9 +706,13 @@ async function processItem(
         );
         const { data: promiseRows, error: promiseRowsError } = candidateUnitIds
             .length > 0
-          ? await svc.from("promises").select("unit_id")
+          ? await svc.from("promises").select(
+            "unit_id, information_units!inner(id)",
+          )
             .eq("user_id", userId)
             .in("unit_id", candidateUnitIds)
+            .eq("information_units.user_id", userId)
+            .is("information_units.deleted_at", null)
           : { data: [], error: null };
         if (promiseRowsError) throw new Error(promiseRowsError.message);
         const promiseAlertItems = retainCivicPromiseAlertItems(
@@ -865,14 +894,16 @@ async function processItem(
   //    extraction pipeline has succeeded. Previously this was done in
   //    civic-execute at enqueue time, which meant a failing Firecrawl call
   //    still flagged the URL as seen and it was never retried.
-  const { error: appendErr } = await svc.rpc(
-    "append_processed_pdf_url_capped",
-    {
-      p_scout_id: row.scout_id,
-      p_url: row.source_url,
-      p_cap: PROCESSED_URLS_CAP,
-    },
-  );
+  const { error: appendErr } = ingestionMode === "backfill"
+    ? { error: null }
+    : await svc.rpc(
+      "append_processed_pdf_url_capped",
+      {
+        p_scout_id: row.scout_id,
+        p_url: row.source_url,
+        p_cap: PROCESSED_URLS_CAP,
+      },
+    );
   if (appendErr) {
     // Non-fatal: at worst the URL could be re-extracted on a future run.
     // That's better than failing the whole queue row at this point.
@@ -1037,97 +1068,6 @@ function envInt(
     max,
     Math.max(min, Number.isFinite(parsed) ? parsed : fallback),
   );
-}
-
-async function upsertPromiseTracker(
-  svc: SupabaseClient,
-  input: {
-    unitId: string;
-    userId: string;
-    scoutId: string;
-    promiseText: string;
-    context: string | null;
-    sourceUrl: string;
-    sourceTitle: string | null;
-    meetingDate: string | null;
-    dueDate: string | null;
-    dueDateText: string | null;
-    dateConfidence: "high" | "medium" | "low" | null;
-  },
-): Promise<void> {
-  const { data: existing, error: existingErr } = await svc
-    .from("promises")
-    .select(
-      "id, scout_id, promise_text, status, context, source_url, source_title, meeting_date, due_date, date_confidence",
-    )
-    .eq("user_id", input.userId)
-    .eq("unit_id", input.unitId)
-    .maybeSingle();
-  if (existingErr) throw new Error(existingErr.message);
-
-  if (!existing) {
-    const { data: created, error: insertErr } = await svc.from("promises")
-      .insert({
-        unit_id: input.unitId,
-        user_id: input.userId,
-        scout_id: input.scoutId,
-        promise_text: input.promiseText,
-        context: input.context,
-        source_url: input.sourceUrl,
-        source_title: input.sourceTitle,
-        meeting_date: input.meetingDate,
-        due_date: input.dueDate,
-        date_confidence: input.dateConfidence,
-        status: "new",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }).select("id").single();
-    if (insertErr) throw new Error(insertErr.message);
-    if (
-      !created?.id || !input.dueDate || !input.dueDateText ||
-      !input.dateConfidence
-    ) {
-      throw new Error("new Civic promise is missing required revision fields");
-    }
-    const { data: revision, error: revisionErr } = await svc.from(
-      "promise_revisions",
-    ).insert({
-      promise_id: created.id,
-      user_id: input.userId,
-      due_date: input.dueDate,
-      date_confidence: input.dateConfidence,
-      due_date_text: input.dueDateText,
-      source_url: input.sourceUrl,
-      context: input.context ?? "",
-      amendment_reason: "initial",
-    }).select("id").single();
-    if (revisionErr || !revision?.id) {
-      throw new Error(
-        revisionErr?.message ?? "could not create promise revision",
-      );
-    }
-    const { error: revisionLinkErr } = await svc.from("promises").update({
-      active_revision_id: revision.id,
-    }).eq("id", created.id).eq("user_id", input.userId);
-    if (revisionLinkErr) throw new Error(revisionLinkErr.message);
-    return;
-  }
-
-  const { error: updateErr } = await svc
-    .from("promises")
-    .update({
-      scout_id: existing.scout_id ?? input.scoutId,
-      promise_text: existing.promise_text ?? input.promiseText,
-      context: existing.context ?? input.context,
-      source_url: existing.source_url ?? input.sourceUrl,
-      source_title: existing.source_title ?? input.sourceTitle,
-      meeting_date: existing.meeting_date ?? input.meetingDate,
-      due_date: existing.due_date ?? input.dueDate,
-      date_confidence: existing.date_confidence ?? input.dateConfidence,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", existing.id);
-  if (updateErr) throw new Error(updateErr.message);
 }
 
 async function recordCivicExtractionDiagnostics(

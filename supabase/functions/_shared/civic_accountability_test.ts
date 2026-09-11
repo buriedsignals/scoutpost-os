@@ -291,3 +291,122 @@ Deno.test("Civic accountability applies the documented rejection precedence", ()
     assertEquals(result, { outcome: "rejected", code }, name);
   }
 });
+
+const leedsAgendaItems = [
+  {
+    "statement":
+      "To consider any appeals in accordance with Procedure Rule 15.2 of the Access to Information Rules.",
+    "context":
+      "APPEALS AGAINST REFUSAL OF INSPECTION\nOF DOCUMENTS\n\n                         To consider any appeals in accordance with\n                         Procedure Rule 15.2 of the Access to Information\n                         Rules (in the event of an Appeal the press and\n                         public will be excluded)",
+    "decision_kind": "agenda item consideration",
+  },
+  {
+    "statement":
+      "To consider whether or not to accept the officers recommendation in respect of the above information.",
+    "context":
+      "1 To highlight reports or appendices which officers\n                         have identified as containing exempt information,\n                         and where officers consider that the public interest\n                         in maintaining the exemption outweighs the public\n                         interest in disclosing the information,\n                         for the\n                         reasons outlined in the report.\n\n                         2 To consider whether or not to accept the officers\n                         recommendation in respect of the above\n                         information.",
+    "decision_kind": "agenda item consideration",
+  },
+  {
+    "statement":
+      "To disclose or draw attention to any interests in accordance with Leeds City Council’s ‘Councillor Code of Conduct’.",
+    "context":
+      "DECLARATION OF INTERESTS\n\n                         To disclose or draw attention to any interests in\n                         accordance with Leeds City Council’s ‘Councillor\n                         Code of Conduct’.",
+    "decision_kind": "agenda item consideration",
+  },
+  {
+    "statement":
+      "To receive any apologies for absence and notification of substitutes.",
+    "context":
+      "APOLOGIES FOR ABSENCE\n\n                         To receive any apologies for absence and\n                         notification of substitutes.",
+    "decision_kind": "agenda item consideration",
+  },
+  {
+    "statement":
+      "To receive and consider the attached minutes of the previous meeting held on the 8th of June 2026.",
+    "context":
+      "MINUTES 5 - 12\n\n                         To receive and consider the attached minutes of\n                         the previous meeting held on the 8th of June 2026.",
+    "decision_kind": "agenda item consideration",
+  },
+  {
+    "statement":
+      "To update Members on the requirements of the next stage of consultation on the Leeds Local Plan: the Plan Content and Evidence stage.",
+    "context":
+      "LEEDS LOCAL PLAN NEXT STEPS 13 -\n                                                                               52\n\n                         The purpose of this report is to update Members\n                         on the requirements of the next stage of\n                         consultation on the Leeds Local Plan: the Plan\n                         Content and Evidence stage. It details work on the\n                         Vision, Aims and Measurable Outcomes of the\n                         Plan, as well as preferred approaches on the\n                         spatial strategy and settlement hierarchy,\n                         particularly as it relates to the distribution of\n                         housing. The report also provides an initial, high-\n                         level summary of the Local Plan Scoping\n                         Consultation.",
+    "decision_kind": "agenda item consideration",
+  },
+  {
+    "statement":
+      "To note the date and time of the next meeting as the 13th of October 2026 at 1:30pm.",
+    "context":
+      "DATE AND TIME OF NEXT MEETING\n\n                         To note the date and time of the next meeting as\n                         the 13th of October 2026 at 1:30pm.",
+    "decision_kind": "agenda item consideration",
+  },
+  {
+    "statement":
+      "Any published recording should be accompanied by a statement of when and where the recording was made, the context of the discussion that took place, and a clear identification of the main speakers and their role or title.",
+    "context":
+      "Use of Recordings by Third Parties– code of practice\n\n          a)   Any published recording should be accompanied by a statement of when and where the recording was made, the context of\n               the discussion that took place, and a clear identification of the main speakers and their role or title.",
+    "decision_kind": "code of practice",
+  },
+];
+
+Deno.test("Civic rejects the eight Leeds agenda instructions even when the model labels them adopted", () => {
+  for (const item of leedsAgendaItems) {
+    const result = classifyCivicCandidate({
+      ...item,
+      kind: "decision",
+      adopting_body: "Strategic Planning Panel",
+      adopted: true,
+      material: true,
+      evidence_supported: true,
+      criteria_match: true,
+    }, { today: TODAY, sourceText: item.context });
+    assertEquals(result.outcome, "rejected", item.statement);
+  }
+});
+
+Deno.test("Civic preserves adopted German and French decisions and rejects pending consideration", () => {
+  const cases = [
+    [
+      "Der Gemeinderat hat den Kredit von 2 Millionen Franken für die Schulsanierung beschlossen.",
+      true,
+    ],
+    [
+      "Le conseil a adopté un crédit de deux millions de francs pour rénover l’école.",
+      true,
+    ],
+    ["Zur Kenntnisnahme des Berichts.", false],
+    ["Pour examen du rapport par le conseil.", false],
+  ] as const;
+  for (const [statement, accepted] of cases) {
+    const result = classifyCivicCandidate({
+      kind: "decision",
+      statement,
+      context: statement,
+      adopting_body: "Council",
+      decision_kind: "resolution",
+      adopted: true,
+      material: true,
+      evidence_supported: true,
+    }, { today: TODAY, sourceText: statement });
+    assertEquals(result.outcome, accepted ? "eligible" : "rejected", statement);
+  }
+});
+
+Deno.test("Civic retains a newly adopted material recording transparency policy", () => {
+  const statement =
+    "Council adopted a requirement to publish all recordings with accessible transcripts.";
+  const result = classifyCivicCandidate({
+    kind: "decision",
+    statement,
+    context:
+      "Council adopted a requirement to publish all recordings with accessible transcripts.",
+    adopting_body: "Council",
+    decision_kind: "transparency policy",
+    adopted: true,
+    material: true,
+    evidence_supported: true,
+  }, { today: TODAY });
+  assertEquals(result.outcome, "eligible");
+});

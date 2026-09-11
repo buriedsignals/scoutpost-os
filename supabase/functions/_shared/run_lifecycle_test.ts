@@ -1,3 +1,4 @@
+import { sendBeatAlert } from "./notifications.ts";
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   classifyRunError,
@@ -228,4 +229,38 @@ Deno.test("only provider-like failures increment scout failure counters", () => 
   assertEquals(shouldIncrementScoutFailure("platform"), false);
   assertEquals(shouldIncrementScoutFailure("no_baseline"), false);
   assertEquals(shouldIncrementScoutFailure("quota"), false);
+});
+
+Deno.test("rejected Beat digest records notification failure while saved findings remain successful", async () => {
+  const fake = fakeClient();
+  await markRunSuccess(fake.client as never, "run-1", {
+    unitsCreated: 3,
+    unitsMerged: 2,
+    criteriaStatus: true,
+    notificationStatus: "pending",
+  });
+  // An empty client also proves rejection happens before credential lookup or
+  // provider access. Exercise the same result-to-lifecycle contract as Beat.
+  const result = await sendBeatAlert({} as never, {
+    userId: "user-1",
+    scoutId: "scout-1",
+    runId: "run-1",
+    scoutName: "Beat",
+    summary: "[unlisted](https://outside.example/story)",
+    articles: [],
+  });
+  assertEquals(result.ok, false);
+  await markNotificationResult(fake.client as never, "run-1", "failed", {
+    message: result.error,
+    reason: result.reason,
+  });
+  const resultingRun = Object.assign(
+    {},
+    ...fake.updates.map((update) => update.values),
+  );
+  assertEquals(resultingRun.status, "success");
+  assertEquals(resultingRun.units_created_count, 3);
+  assertEquals(resultingRun.units_merged_count, 2);
+  assertEquals(resultingRun.notification_status, "failed");
+  assertEquals(resultingRun.notification_reason, "summary_ungrounded");
 });

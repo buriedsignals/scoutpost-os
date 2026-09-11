@@ -222,10 +222,14 @@ function terminalFailure(
   if (operation === "parse_pdf") {
     const needsOcr = /needs_ocr:\s*(\d+) chars over (\d+) pages/i.exec(message);
     if (needsOcr) {
+      const reason = /; (ocr_not_configured|ocr_inline_limit_exceeded):/.exec(
+        message,
+      )?.[1];
       return new CrawlerProxyError(message, 422, {
         error: "needs_ocr",
         pages: Number(needsOcr[2]),
         chars: Number(needsOcr[1]),
+        ...(reason ? { reason } : {}),
       });
     }
     if (message.includes("not_a_pdf")) {

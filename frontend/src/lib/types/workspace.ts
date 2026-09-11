@@ -95,6 +95,11 @@ export interface Scout {
     status: string | null;
     articles_count: number | null;
     merged_existing_count?: number | null;
+    stage?: string | null;
+    error_class?: string | null;
+    notification_status?: string | null;
+    notification_reason?: string | null;
+    metadata?: Record<string, unknown> | null;
   } | null;
   created_at?: string | null;
 }

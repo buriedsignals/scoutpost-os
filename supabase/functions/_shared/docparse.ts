@@ -47,11 +47,19 @@ export interface DocParseOptions {
   abortAfterMs?: number;
 }
 
-/** A bitmap-only PDF: the density guard tripped, no extractable text. Distinct,
- * non-transient — the caller treats it like an empty document (no OCR today). */
+/** A low-yield PDF whose optional OCR fallback could not run. */
 export class NeedsOcrError extends Error {
-  constructor(public readonly pages: number, public readonly chars: number) {
-    super(`needs_ocr: ${chars} chars over ${pages} pages`);
+  constructor(
+    public readonly pages: number,
+    public readonly chars: number,
+    public readonly reason?: string,
+  ) {
+    const explanation = reason === "ocr_not_configured"
+      ? "; ocr_not_configured: set OPENROUTER_API_KEY on the workload parsing this PDF"
+      : reason === "ocr_inline_limit_exceeded"
+      ? "; ocr_inline_limit_exceeded: PDF exceeds the configured native OCR inline byte limit"
+      : "";
+    super(`needs_ocr: ${chars} chars over ${pages} pages${explanation}`);
     this.name = "NeedsOcrError";
   }
 }
@@ -71,6 +79,7 @@ function needsOcrFromDetail(detail: Record<string, unknown>): NeedsOcrError {
   return new NeedsOcrError(
     Number(detail.pages ?? 0),
     Number(detail.chars ?? 0),
+    typeof detail.reason === "string" ? detail.reason : undefined,
   );
 }
 

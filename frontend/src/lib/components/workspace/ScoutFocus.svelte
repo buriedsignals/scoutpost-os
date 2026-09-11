@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ScoutRunDetails from "./ScoutRunDetails.svelte";
 	import { MapPin, Tag, Calendar, Play, Trash2, X, Check, Globe, AtSign } from 'lucide-svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import DemoBadge from '$lib/components/ui/DemoBadge.svelte';
@@ -8,7 +9,8 @@
 		normalizeScoutType,
 		truncateUrl,
 		getScoutStatus,
-		getScoutStatusLabel
+		getScoutStatusLabel,
+		getScoutRunDetails
 	} from '$lib/utils/scouts';
 	import { parseTopicTags } from '$lib/utils/topics';
 	import type { Scout } from '$lib/types/workspace';
@@ -128,6 +130,7 @@
 
 	$: status = getScoutStatus({ type: normalizedType, last_run: scout.last_run });
 	$: statusLabel = getScoutStatusLabel(status);
+	$: runDetails = getScoutRunDetails({ type: normalizedType, last_run: scout.last_run });
 
 	$: canRun = scout.is_active !== false;
 
@@ -264,6 +267,8 @@
 			</div>
 		{/if}
 
+		<ScoutRunDetails details={runDetails} />
+
 		<div class="focus-footer">
 			<span
 				class="scout-shell-status"
@@ -284,6 +289,8 @@
 </div>
 
 <style>
+
+
 	/* Focus-specific overrides — shell primitives live in app.css under
 	   "Scout display primitives"; this file only carries the larger
 	   title size, the meta row, summary strip, and back-chip above. */

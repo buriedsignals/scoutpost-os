@@ -65,8 +65,13 @@ class NotAPdfError(Exception):
 
 
 class NeedsOcrError(Exception):
-    def __init__(self, pages: int, chars: int) -> None:
-        super().__init__(f"needs_ocr: {chars} chars over {pages} pages")
+    def __init__(self, pages: int, chars: int, reason: str = "needs_ocr") -> None:
+        detail = {
+            "ocr_not_configured": "set OPENROUTER_API_KEY on the workload parsing this PDF",
+            "ocr_inline_limit_exceeded": "PDF exceeds the configured native OCR inline byte limit",
+        }.get(reason, "no usable text extraction available")
+        super().__init__(f"needs_ocr: {chars} chars over {pages} pages; {reason}: {detail}")
+        self.reason = reason
         self.pages = pages
         self.chars = chars
 
@@ -229,5 +234,9 @@ async def parse_pdf_url(
                 chars=len(transcribed_text.strip()),
                 parser="openrouter",
             )
-        raise NeedsOcrError(pages=pages, chars=chars)
+        raise NeedsOcrError(
+            pages=pages,
+            chars=chars,
+            reason="ocr_not_configured" if transcribe is None else "ocr_inline_limit_exceeded",
+        )
     return ParsedPdf(text=text, pages=pages, chars=chars, parser="pdftotext")

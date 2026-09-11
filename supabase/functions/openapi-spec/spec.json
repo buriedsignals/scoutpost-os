@@ -452,7 +452,7 @@
           "scouts"
         ],
         "summary": "Step 2 (sample) for Civic scouts: resolve a bounded document sample from chosen listings and preview extraction",
-        "description": "Read-only. Resolves meeting documents from each listing (multi-hop for fingerprinted systems), parses at most two, runs one extraction pass and returns `sample_items`. When at least one document was extracted the response includes an opaque `preview_snapshot_token`; pass it to POST /scouts to import the previewed items and skip the create gate. `ok:false` codes: `no_documents` (nothing resolved), `parse_failed`, `model_failed`.",
+        "description": "Read-only. Resolves meeting documents from each listing (multi-hop for fingerprinted systems), parses at most two, runs one extraction pass and returns `sample_items`. When at least one document was extracted the response includes an opaque `preview_snapshot_token`; pass it to POST /scouts to import the previewed items and skip the create gate. `ok:false` codes: `no_documents` (nothing resolved), `unreachable` (a linked meeting could not be fetched), `parse_failed`, `model_failed`.",
         "requestBody": {
           "required": true,
           "content": {

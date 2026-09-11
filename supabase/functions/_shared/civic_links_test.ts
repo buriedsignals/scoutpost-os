@@ -6,6 +6,7 @@ import {
 import {
   civicSiteBaseHost,
   classifyCivicMeetingUrls,
+  createCivicMeetingBudget,
   extractCivicLinksFromHtml,
   extractCivicLinksFromPages,
   filterCivicDiscoveryCandidates,
@@ -18,6 +19,7 @@ import {
   isSameCivicSite,
   keywordCivicMeetingDocumentLinks,
   rankCivicDiscoveryUrls,
+  resolveCivicDocumentsFromPages,
 } from "./civic_links.ts";
 
 Deno.test("extractCivicLinksFromHtml extracts same-domain document links and strips fragments", () => {
@@ -621,4 +623,188 @@ Deno.test("extractCivicLinksFromHtml decodes entities and collapses whitespace i
     links[0].anchorText,
     "Scrutiny Board (Adults,Health & Active Lifestyles)",
   );
+});
+
+Deno.test("ModernGov wrappers resolve minutes before frontsheets and never become extracted documents", async () => {
+  const base = "https://democracy.leeds.gov.uk";
+  const meeting = `${base}/ieListDocuments.aspx?CId=1254&MId=14293&Ver=4`;
+  const fetched: string[] = [];
+  const resolved = await resolveCivicDocumentsFromPages([{
+    pageUrl: `${base}/ieListMeetings.aspx?CommitteeId=1254`,
+    rawHtml: `<a href="${meeting}">1 September 2026</a>
+      <a href="/ieListDocuments.aspx?MId=14293&amp;CId=1254&amp;Ver=4#top">duplicate</a>`,
+  }], {
+    fetchPage: async (url) => {
+      fetched.push(url);
+      return `<a href="/documents/g14293/Agenda%20frontsheet.pdf">Agenda frontsheet</a>
+      <a href="/documents/s284748/Minutes%20of%20Previous%20Meeting.pdf">Minutes of Previous Meeting</a>
+      <a href="${meeting}">Meeting</a>
+      <a href="/ieListDocuments.aspx?MId=999">Another meeting (not traversed)</a>
+      <a href="http://127.0.0.1/minutes.pdf">Minutes</a>`;
+    },
+  });
+  assertEquals(fetched, [meeting]);
+  assertEquals(resolved.documentUrls, [
+    `${base}/documents/s284748/Minutes%20of%20Previous%20Meeting.pdf`,
+    `${base}/documents/g14293/Agenda%20frontsheet.pdf`,
+  ]);
+  assertEquals(resolved.meetings[0].outcome, "documents_found");
+});
+
+Deno.test("ModernGov empty future wrappers and exhausted traversal are explicit", async () => {
+  const base = "https://democracy.leeds.gov.uk";
+  let calls = 0;
+  const resolved = await resolveCivicDocumentsFromPages([{
+    pageUrl: `${base}/ieListMeetings.aspx?CommitteeId=1254`,
+    rawHtml: Array.from(
+      { length: 20 },
+      (_, i) => `<a href="/ieListDocuments.aspx?MId=${i + 1}">Meeting ${i}</a>`,
+    ).join(""),
+  }], {
+    fetchPage: async () => {
+      calls++;
+      return '<a href="/ieListMeetings.aspx?CommitteeId=1254">Meetings</a>';
+    },
+  });
+  assertEquals(calls, 8);
+  assertEquals(resolved.documentUrls, []);
+  assertEquals(
+    resolved.meetings.every((m) => m.outcome === "no_documents"),
+    true,
+  );
+  assertEquals(resolved.meetingBudgetExceeded, true);
+});
+
+Deno.test("Leeds captured September listing selects real minutes and supporting papers before its frontsheet", async () => {
+  const { default: fixture } = await import(
+    "./fixtures/civic_leeds_discovery.json",
+    { with: { type: "json" } }
+  );
+  const resolved = await resolveCivicDocumentsFromPages([{
+    pageUrl: fixture.listingUrl,
+    rawHtml: fixture.listingHtml,
+  }], {
+    fetchPage: async (url) =>
+      url === fixture.meetingUrl
+        ? fixture.meetingHtml
+        : "<p>No published papers in this test fixture</p>",
+  });
+  assertEquals(resolved.meetings.length, 5);
+  assertEquals(resolved.meetingBudgetExceeded, false);
+  assertEquals(resolved.documentUrls.length, 9);
+  assertEquals(
+    resolved.documentUrls[0],
+    "https://democracy.leeds.gov.uk/documents/s284748/Minutes%20of%20Previous%20Meeting.pdf",
+  );
+  assertEquals(
+    resolved.documentUrls.at(-1)?.includes("Agenda%20frontsheet"),
+    true,
+  );
+  assertEquals(
+    resolved.documentUrls.some((url) => url.includes("s284822")),
+    true,
+  );
+});
+
+Deno.test("Civic wrapper failure is distinct from successfully inspected empty meeting", async () => {
+  const resolved = await resolveCivicDocumentsFromPages([{
+    pageUrl:
+      "https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=1254",
+    rawHtml: '<a href="/ieListDocuments.aspx?MId=1">Meeting</a>',
+  }], { fetchPage: () => Promise.reject(new Error("upstream failed")) });
+  assertEquals(resolved.documentUrls, []);
+  assertEquals(resolved.meetings[0].outcome, "fetch_failed");
+});
+
+Deno.test("request-wide wrapper budget stays at eight across tracked listings", async () => {
+  const pages = [1, 2].map((committee) => ({
+    pageUrl:
+      `https://democracy.leeds.gov.uk/ieListMeetings.aspx?CommitteeId=${committee}`,
+    rawHtml: Array.from(
+      { length: 9 },
+      (_, i) =>
+        `<a href="/ieListDocuments.aspx?MId=${
+          committee * 100 + i
+        }">Meeting ${i}</a>`,
+    ).join(""),
+  }));
+  let calls = 0;
+  let active = 0;
+  let maximum = 0;
+  const fetchPage = async (url: string) => {
+    calls++;
+    active++;
+    maximum = Math.max(maximum, active);
+    await Promise.resolve();
+    active--;
+    return `<a href="/documents/${
+      new URL(url).searchParams.get("MId")
+    }/minutes.pdf">Minutes</a>`;
+  };
+  const together = await resolveCivicDocumentsFromPages(pages, { fetchPage });
+  assertEquals(calls, 8);
+  assertEquals(maximum <= 4, true);
+  assertEquals(together.meetings.length, 8);
+  assertEquals(together.meetingBudgetExceeded, true);
+  calls = 0;
+  const budget = createCivicMeetingBudget();
+  const separate = [];
+  for (const page of pages) {
+    separate.push(
+      await resolveCivicDocumentsFromPages([page], {
+        fetchPage,
+        meetingBudget: budget,
+      }),
+    );
+  }
+  assertEquals(calls, 8);
+  assertEquals(separate[1].meetings.length, 0);
+  assertEquals(separate[1].meetingBudgetExceeded, true);
+  calls = 0;
+  const strict = await resolveCivicDocumentsFromPages(pages, {
+    fetchPage,
+    strictMeetingBudget: true,
+  });
+  assertEquals(calls, 0);
+  assertEquals(strict.meetingBudgetExceeded, true);
+  assertEquals(strict.documentUrls, []);
+});
+
+Deno.test("already fetched meeting wrapper does not expand next/previous meeting navigation", async () => {
+  const result = await resolveCivicDocumentsFromPages([{
+    pageUrl: "https://democracy.leeds.gov.uk/ieListDocuments.aspx?MId=1",
+    rawHtml:
+      '<a href="/documents/minutes.pdf">Minutes</a><a href="/ieListDocuments.aspx?MId=2">Next meeting</a>',
+  }], {
+    fetchPage: () => {
+      throw new Error("must not fetch adjacent meetings");
+    },
+  });
+  assertEquals(result.meetings.length, 1);
+  assertEquals(result.meetings[0].outcome, "documents_found");
+  assertEquals(result.documentUrls, [
+    "https://democracy.leeds.gov.uk/documents/minutes.pdf",
+  ]);
+});
+
+Deno.test("Swiss official Debatten PDF anchor resolves without model availability or DocID date inference", async () => {
+  const { default: fixture } = await import(
+    "./fixtures/civic_swiss_proceedings.json",
+    { with: { type: "json" } }
+  );
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = () => Promise.reject(new Error("model unavailable"));
+    const resolved = await resolveCivicDocumentsFromPages([{
+      pageUrl: fixture.listingUrl,
+      rawHtml: fixture.listingHtml,
+    }]);
+    assertEquals(resolved.documentUrls, [fixture.documentUrl]);
+    assertEquals(
+      isCivicDirectDocumentUrl(fixture.observedResolvedUrl + "?T=0"),
+      true,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
 });

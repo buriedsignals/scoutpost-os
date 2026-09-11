@@ -15,6 +15,8 @@
  * generative step.
  */
 
+import { emailLinkedUrls, escapeDigestText } from "./email_markdown.ts";
+
 import { Lexer, type Token, type Tokens } from "npm:marked@17.0.5";
 
 /** Render source excerpts as text before digest truncation and grounding. */
@@ -49,7 +51,19 @@ export function digestExcerptText(markdown: string): string {
         }
       }
     }).join("");
-  return text(Lexer.lex(markdown)).replace(/\s+/g, " ").trim();
+  // A clipped excerpt can start inside a link label, leaving a destination
+  // that the Markdown lexer correctly treats as literal text. Remove only a
+  // complete HTTP(S) link tail, never arbitrary parenthesized prose/URLs.
+  const plain = text(Lexer.lex(markdown));
+  const withoutOrphanTails = plain.replace(/\]\(https?:\/\/[^\s]*/g, (tail) => {
+    let depth = 1;
+    for (let i = 2; i < tail.length && i < 2048; i++) {
+      if (tail[i] === "(") depth++;
+      if (tail[i] === ")" && --depth === 0) return tail.slice(i + 1);
+    }
+    return tail;
+  });
+  return withoutOrphanTails.replace(/\s+/g, " ").trim();
 }
 
 export interface DigestArticle {
@@ -129,11 +143,15 @@ export function digestLine(
   language = "en",
 ): string {
   const emoji = emojiFor(article);
-  const title = article.title.replace(/\s+/g, " ").trim();
-  const excerpt = trimExcerpt(article.excerpt);
+  const title = escapeDigestText(digestExcerptText(article.title));
+  const excerpt = escapeDigestText(
+    trimExcerpt(digestExcerptText(article.excerpt)),
+  );
   const date = formatDate(article.publishedDate, language);
   const dateSuffix = date ? ` · ${date}` : "";
-  return `${emoji} ${title} ([${article.domain}](${article.url}))` +
+  return `${emoji} ${title} ([${
+    escapeDigestText(article.domain)
+  }](${article.url}))` +
     (excerpt ? ` — ${excerpt}` : "") +
     dateSuffix;
 }
@@ -171,22 +189,24 @@ export function verifyPlaceNamesGrounded(
   const offendingUrls: string[] = [];
   const offendingTokens: string[] = [];
   const cardUrls = new Set(articles.map((a) => a.url));
-  // URL audit: any markdown link in the digest must point to a card URL.
-  const urlRegex = /\((https?:\/\/[^)\s]+)\)/g;
-  let m: RegExpExecArray | null;
-  while ((m = urlRegex.exec(digestText)) !== null) {
-    if (!cardUrls.has(m[1])) offendingUrls.push(m[1]);
+  // Audit the same active links that the actual email renderer interprets.
+  for (const url of emailLinkedUrls(digestText)) {
+    if (!cardUrls.has(url)) offendingUrls.push(url);
   }
 
   // Place-name audit (only when a required city anchors the scout).
   // Strip markdown link metadata + date suffixes — those introduce tokens
   // (domains, month names) that aren't claims about the world.
   if (requiredCity && requiredCity.trim()) {
-    const scanText = digestText
-      .replace(/\[[^\]]+\]\([^)]+\)/g, " ") // remove [text](url)
-      .replace(/ · [^\n]+(?=\n|$)/g, " "); // remove trailing date suffix per line
+    const scanText = digestExcerptText(
+      digestText
+        .replace(/\[[^\]]+\]\([^)]+\)/g, " ") // remove [text](url)
+        .replace(/ · [^\n]+(?=\n|$)/g, " "),
+    ); // remove trailing date suffix per line
     const corpus = articles
-      .map((a) => `${a.title} ${a.excerpt}`)
+      .map((a) =>
+        `${digestExcerptText(a.title)} ${digestExcerptText(a.excerpt)}`
+      )
       .join(" ")
       .toLowerCase();
     const STOP = new Set([

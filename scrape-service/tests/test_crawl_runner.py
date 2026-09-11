@@ -245,3 +245,20 @@ async def test_runner_rejects_unknown_operation(monkeypatch):
         FakeScraper(), CrawlItem(id="a", operation="unknown", url="https://example.org")
     )
     assert outcome["error_class"] == "terminal"
+
+
+async def test_scanned_pdf_without_credential_is_actionable_terminal_failure():
+    import httpx
+    from tests.conftest import EMPTY_PDF, mock_http_client
+
+    async with mock_http_client(lambda _request: httpx.Response(200, content=EMPTY_PDF)) as client:
+        outcome = await run_item_safely(
+            FakeScraper(),
+            CrawlItem(id="scanned", operation="parse_pdf", url="https://example.org/scanned.pdf"),
+            pdf_client=client,
+            settings=make_settings(),
+        )
+    assert outcome["ok"] is False
+    assert outcome["error_class"] == "terminal"
+    assert "ocr_not_configured" in outcome["error"]
+    assert "OPENROUTER_API_KEY" in outcome["error"]

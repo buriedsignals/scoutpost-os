@@ -129,3 +129,12 @@ def test_auth_headers_helper_matches_token(app):
         "/scrape", json={"url": "https://example.org"}, headers=auth_headers()
     )
     assert res.status_code == 200
+
+
+@pytest.mark.parametrize("key, expected", [(None, "disabled_missing_api_key"), ("private-test-key", "configured")])
+def test_health_reports_redacted_ocr_configuration(key, expected):
+    app = create_app(make_settings(openrouter_api_key=key))
+    response = TestClient(app).get("/health")
+    assert response.status_code == 200
+    assert response.json()["pdf_ocr"] == expected
+    assert "private-test-key" not in response.text

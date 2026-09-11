@@ -176,7 +176,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health")
     async def health(request: Request):
-        return {"status": "ok", "browser": "warm" if request.app.state.scraper.warm else "cold"}
+        return {
+            "status": "ok",
+            "browser": "warm" if request.app.state.scraper.warm else "cold",
+            "pdf_ocr": request.app.state.settings.pdf_ocr,
+        }
 
     @app.post("/scrape", dependencies=[Depends(require_token)])
     async def scrape(body: ScrapeBody, request: Request):
@@ -264,7 +268,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         # parse_pdf_url always tries pdftotext first. Only a low-yield result
         # falls back to Google Vertex native-PDF transcription through
-        # OpenRouter. Absent key → the density guard returns needs_ocr.
+        # OpenRouter. Absent key → actionable needs_ocr configuration failure.
         transcribe = None
         if cfg.openrouter_api_key:
             async def transcribe(pdf_bytes: bytes) -> str:
@@ -289,7 +293,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except NeedsOcrError as e:
             raise HTTPException(
                 status_code=422,
-                detail={"error": "needs_ocr", "pages": e.pages, "chars": e.chars},
+                detail={
+                    "error": "needs_ocr", "pages": e.pages, "chars": e.chars,
+                    "reason": e.reason, "message": str(e),
+                },
             )
         except PdfTooLargeError:
             raise HTTPException(status_code=413, detail={"error": "pdf_too_large"})

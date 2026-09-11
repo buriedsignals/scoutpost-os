@@ -1,176 +1,238 @@
 /**
- * Read-only Civic historical-data inventory.
+ * Read-only, single-account Civic historical-data inventory.
  *
- * Run only with an operator service key:
- *   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
- *     deno run --allow-env --allow-net scripts/civic-repair-inventory.ts
+ * SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+ *   deno run --allow-env --allow-net scripts/civic-repair-inventory.ts --user-id UUID
  *
- * It intentionally prints only counts and IDs—never promise/source text.
- * Review this artifact before constructing any exact-target repair batch.
+ * Reads complete account cohorts, but prints only counts and bounded IDs.
+ * This is a diagnostic snapshot, never an approved repair manifest.
  */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  createClient,
+  type SupabaseClient,
+} from "https://esm.sh/@supabase/supabase-js@2";
 
-const url = Deno.env.get("SUPABASE_URL");
-const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-if (!url || !key) {
-  throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
-}
-
-const svc = createClient(url, key, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
 const MAX_IDS = 500;
+const MAX_ROWS = 100_000;
 const CALENDAR_LIKE =
   /\b(calendar|schedule|session|sessions|meeting|meetings|termine|sitzung|agenda)\b/i;
-type TrackerRow = { id: string; unit_id: string | null };
-type DatedPromiseRow = { id: string; meeting_date: string; due_date: string };
-type CivicPromiseRow = {
+type PromiseRow = {
   id: string;
+  scout_id: string | null;
   unit_id: string | null;
   status: string | null;
+  meeting_date: string | null;
   due_date: string | null;
+  date_confidence: string | null;
   due_notified_at: string | null;
   source_url: string | null;
   source_title: string | null;
 };
+type UnitRow = {
+  id: string;
+  scout_type: string | null;
+  type: string;
+  deleted_at: string | null;
+};
 
-async function ids(
+export function parseUserId(args: string[]): string {
+  if (
+    args.length !== 2 || args[0] !== "--user-id" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      args[1],
+    )
+  ) {
+    throw new Error(
+      "Usage: civic-repair-inventory.ts --user-id UUID (read-only)",
+    );
+  }
+  return args[1];
+}
+
+// Count checks catch truncation and observable concurrent changes. These reads
+// are not a transaction: exact-target provenance must be rechecked before repair.
+async function accountRows<T extends { id: string }>(
+  svc: SupabaseClient,
+  userId: string,
   table: string,
-  configure: (query: any) => any,
-): Promise<{ count: number; ids: string[] }> {
-  const query = configure(svc.from(table)).select("id", { count: "exact" })
-    .limit(MAX_IDS);
-  const { data, count, error } = await query;
-  if (error) throw new Error(`${table}: ${error.message}`);
+  columns: string,
+): Promise<T[]> {
+  const rows: T[] = [];
+  let expectedCount: number | undefined;
+  do {
+    const { data, count, error } = await svc.from(table)
+      .select(columns, { count: "exact" }).eq("user_id", userId)
+      .order("id", { ascending: true }).range(
+        rows.length,
+        rows.length + MAX_IDS - 1,
+      );
+    if (error) throw new Error(`${table}: ${error.message}`);
+    if (count === null || count > MAX_ROWS) {
+      throw new Error(
+        `${table}: exact count unavailable or account exceeds ${MAX_ROWS} rows; use a scoped SQL inventory`,
+      );
+    }
+    if (expectedCount !== undefined && expectedCount !== count) {
+      throw new Error(
+        `${table}: account changed during inventory; retry before drawing conclusions`,
+      );
+    }
+    expectedCount = count;
+    const page = (data ?? []) as unknown as T[];
+    if (page.length === 0 && rows.length < count) {
+      throw new Error(
+        `${table}: incomplete results; refusing absent-link classification`,
+      );
+    }
+    rows.push(...page);
+  } while (rows.length < expectedCount);
+  if (
+    rows.length !== expectedCount ||
+    new Set(rows.map((row) => row.id)).size !== rows.length
+  ) {
+    throw new Error(
+      `${table}: inconsistent pagination; retry before drawing conclusions`,
+    );
+  }
+  return rows;
+}
+
+function cohort(rows: { id: string }[]) {
   return {
-    count: count ?? 0,
-    ids: (data ?? []).map((row: { id: unknown }) => String(row.id)),
+    count: rows.length,
+    ids: rows.slice(0, MAX_IDS).map((row) => row.id),
+    ids_truncated: rows.length > MAX_IDS,
   };
 }
 
-const { data: civicScouts, error: civicScoutError } = await svc.from("scouts")
-  .select("id").eq("scout_type", "civic").limit(MAX_IDS);
-if (civicScoutError) throw new Error(civicScoutError.message);
-const civicScoutIds = (civicScouts ?? []).map((row) => String(row.id));
-if (civicScoutIds.length === 0) {
-  console.log(
-    JSON.stringify({ generated_at: new Date().toISOString(), civic_scouts: 0 }),
-  );
-  Deno.exit(0);
-}
-
-const civicPromises = (q: any) => q.in("scout_id", civicScoutIds);
-const [nullUnit, nullDue, nullConfidence, units, civicPromiseRows] =
-  await Promise.all([
-    ids("promises", (q) => civicPromises(q).is("unit_id", null)),
-    ids("promises", (q) => civicPromises(q).is("due_date", null)),
-    ids("promises", (q) => civicPromises(q).is("date_confidence", null)),
-    ids(
+export async function collectInventory(
+  svc: SupabaseClient,
+  userId: string,
+  now = new Date(),
+) {
+  parseUserId(["--user-id", userId]);
+  // Do not scope promises through current scouts: deleted/unlinked scouts are
+  // precisely the legacy cohort this inventory must retain.
+  const [scouts, promises, units, alerts] = await Promise.all([
+    accountRows<{ id: string; type: string }>(
+      svc,
+      userId,
+      "scouts",
+      "id,type",
+    ),
+    accountRows<PromiseRow>(
+      svc,
+      userId,
+      "promises",
+      "id,scout_id,unit_id,status,meeting_date,due_date,date_confidence,due_notified_at,source_url,source_title",
+    ),
+    accountRows<UnitRow>(
+      svc,
+      userId,
       "information_units",
-      (q) => q.eq("scout_type", "civic").eq("type", "promise"),
+      "id,scout_type,type,deleted_at",
     ),
-    civicPromises(svc.from("promises")).select(
-      "id,unit_id,status,due_date,due_notified_at,source_url,source_title",
-      { count: "exact" },
-    ).limit(MAX_IDS),
+    accountRows<{ id: string; unit_id: string }>(
+      svc,
+      userId,
+      "civic_run_alert_items",
+      "id,unit_id",
+    ),
   ]);
-if (civicPromiseRows.error) throw new Error(civicPromiseRows.error.message);
-
-const { data: trackerData, error: trackerError } = await civicPromises(
-  svc.from("promises"),
-)
-  .select("id,unit_id").not("unit_id", "is", null).limit(MAX_IDS);
-if (trackerError) throw new Error(trackerError.message);
-const trackerRows = (trackerData ?? []) as TrackerRow[];
-
-const { data: datedData, error: datedError } = await civicPromises(
-  svc.from("promises"),
-)
-  .select("id,meeting_date,due_date").not("meeting_date", "is", null)
-  .not("due_date", "is", null).limit(MAX_IDS);
-if (datedError) throw new Error(datedError.message);
-const datedRows = (datedData ?? []) as DatedPromiseRow[];
-const sameMeetingDue = datedRows.filter((row) =>
-  row.meeting_date === row.due_date
-).map((row) => String(row.id));
-
-const trackerUnits = new Set(
-  trackerRows.map((row) => String(row.unit_id)),
-);
-const civicUnitIds = new Set(units.ids);
-const unitsWithoutTracker = units.ids.filter((id) => !trackerUnits.has(id));
-const trackersWithoutUnit = trackerRows.filter((row) =>
-  !civicUnitIds.has(String(row.unit_id))
-).map((row) => String(row.id));
-const promiseSample = (civicPromiseRows.data ?? []) as CivicPromiseRow[];
-const calendarLike = promiseSample.filter((row) =>
-  CALENDAR_LIKE.test(`${row.source_url ?? ""} ${row.source_title ?? ""}`)
-).map((row) => String(row.id));
-const missedDue = promiseSample.filter((row) =>
-  row.due_date !== null &&
-  row.due_date < new Date().toISOString().slice(0, 10) &&
-  row.due_notified_at === null
-).map((row) => String(row.id));
-const statusCounts = Object.fromEntries(
-  Object.entries(Object.groupBy(promiseSample, (row) => row.status ?? "null"))
-    .map(([status, rows]) => [status, rows?.length ?? 0]),
-);
-const calendarUnitIds = new Set(
-  promiseSample.filter((row) =>
+  const civicScoutIds = new Set(
+    scouts.filter((row) => row.type === "civic").map((row) => row.id),
+  );
+  const unitsById = new Map(units.map((row) => [row.id, row]));
+  const trackerUnitIds = new Set(
+    promises.flatMap((row) => row.unit_id ? [row.unit_id] : []),
+  );
+  const calendarRows = promises.filter((row) =>
     CALENDAR_LIKE.test(`${row.source_url ?? ""} ${row.source_title ?? ""}`)
-  )
-    .map((row) => row.unit_id).filter((id): id is string =>
-      typeof id === "string"
-    ),
-);
-const alertRows = calendarUnitIds.size === 0
-  ? []
-  : (await svc.from("civic_run_alert_items")
-    .select("id").in("unit_id", [...calendarUnitIds]).limit(MAX_IDS)).data ??
-    [];
-
-console.log(JSON.stringify(
-  {
-    generated_at: new Date().toISOString(),
+  );
+  const calendarUnitIds = new Set(
+    calendarRows.flatMap((row) => row.unit_id ? [row.unit_id] : []),
+  );
+  const linkedRows = promises.filter((row) => row.unit_id !== null);
+  const statusCounts: Record<string, number> = {};
+  for (const row of promises) {
+    const status = row.status ?? "null";
+    statusCounts[status] = (statusCounts[status] ?? 0) + 1;
+  }
+  return {
+    schema_version: 2,
+    generated_at: now.toISOString(),
+    user_id: userId,
+    read_only: true,
     id_cap: MAX_IDS,
-    civic_scouts_sampled: civicScoutIds.length,
-    promises_null_unit_id: nullUnit,
-    promises_null_due_date: nullDue,
-    promises_null_date_confidence: nullConfidence,
-    promises_meeting_date_equals_due_date: {
-      count: sameMeetingDue.length,
-      ids: sameMeetingDue,
-      sampled_from: datedRows?.length ?? 0,
+    scope:
+      "all account promises, including null Scout links; all account units including deleted and other Scout types",
+    consistency:
+      "complete paginated reads, not a transactional snapshot; revalidate exact targets before repair",
+    civic_scouts: civicScoutIds.size,
+    promises_examined: promises.length,
+    units_examined: units.length,
+    promises_null_scout_id: cohort(
+      promises.filter((row) => row.scout_id === null),
+    ),
+    promises_null_scout_and_unit: cohort(
+      promises.filter((row) => row.scout_id === null && row.unit_id === null),
+    ),
+    promises_without_current_civic_scout: cohort(
+      promises.filter((row) =>
+        row.scout_id !== null && !civicScoutIds.has(row.scout_id)
+      ),
+    ),
+    promises_null_unit_id: cohort(
+      promises.filter((row) => row.unit_id === null),
+    ),
+    promises_null_due_date: cohort(
+      promises.filter((row) => row.due_date === null),
+    ),
+    promises_null_date_confidence: cohort(
+      promises.filter((row) => row.date_confidence === null),
+    ),
+    promises_meeting_date_equals_due_date: cohort(
+      promises.filter((row) =>
+        row.meeting_date !== null && row.meeting_date === row.due_date
+      ),
+    ),
+    civic_promise_units_without_tracker: cohort(
+      units.filter((row) =>
+        row.scout_type === "civic" && row.type === "promise" &&
+        row.deleted_at === null && !trackerUnitIds.has(row.id)
+      ),
+    ),
+    promise_trackers_without_owned_unit: {
+      ...cohort(linkedRows.filter((row) => !unitsById.has(row.unit_id!))),
+      interpretation:
+        "No matching unit in this account; does not prove global absence, deletion history, or permission to recreate.",
     },
-    civic_promise_units_without_tracker: {
-      count: unitsWithoutTracker.length,
-      ids: unitsWithoutTracker,
-      sampled_from: units.count,
-    },
-    promise_trackers_without_civic_unit: {
-      count: trackersWithoutUnit.length,
-      ids: trackersWithoutUnit,
-      sampled_from: trackerRows?.length ?? 0,
-    },
+    promise_trackers_linked_to_deleted_unit: cohort(
+      linkedRows.filter((row) =>
+        unitsById.get(row.unit_id!)?.deleted_at != null
+      ),
+    ),
+    promise_trackers_linked_to_non_civic_promise_unit: cohort(
+      linkedRows.filter((row) => {
+        const unit = unitsById.get(row.unit_id!);
+        return unit !== undefined &&
+          (unit.scout_type !== "civic" || unit.type !== "promise");
+      }),
+    ),
     likely_calendar_or_session_sources: {
-      count: calendarLike.length,
-      ids: calendarLike,
-      sampled_from: promiseSample.length,
+      ...cohort(calendarRows),
       indicator_only: true,
     },
-    status_counts: {
-      counts: statusCounts,
-      sampled_from: promiseSample.length,
-    },
-    overdue_without_due_reminder_marker: {
-      count: missedDue.length,
-      ids: missedDue,
-      sampled_from: promiseSample.length,
-    },
+    status_counts: { counts: statusCounts, examined: promises.length },
+    overdue_without_due_reminder_marker: cohort(
+      promises.filter((row) =>
+        row.due_date !== null &&
+        row.due_date < now.toISOString().slice(0, 10) &&
+        row.due_notified_at === null
+      ),
+    ),
     alerts_for_likely_calendar_rows: {
-      count: alertRows.length,
-      ids: alertRows.map((row) => String(row.id)),
-      sampled_from_candidate_units: calendarUnitIds.size,
+      ...cohort(alerts.filter((row) => calendarUnitIds.has(row.unit_id))),
       indicator_only: true,
     },
     initial_preview_seeded_rows: {
@@ -178,7 +240,23 @@ console.log(JSON.stringify(
       action:
         "Do not infer this cohort; use retained run/queue provenance when available.",
     },
-  },
-  null,
-  2,
-));
+    repair: {
+      state: "not_proposed",
+      action:
+        "Null links and source keywords do not establish provenance. Review exact IDs, source passages, ownership, deletion history, canonical matches, and lifecycle fields before proposing any repair. Preserve deleted units and existing tracker status/dates. No alerts or writes are performed.",
+    },
+  };
+}
+
+if (import.meta.main) {
+  const userId = parseUserId(Deno.args);
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) {
+    throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
+  }
+  const svc = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  console.log(JSON.stringify(await collectInventory(svc, userId), null, 2));
+}

@@ -843,5 +843,17 @@
   "transport_baselineReady": "Baseline established",
   "transport_baselineReadyHint": "Live check complete with {count} current matches. Name and schedule the scout next.",
   "transport_testFailed": "Fleet data test failed",
-  "transport_testChanged": "The setup changed while the test was running. Test the watched IDs again."
+  "transport_testChanged": "The setup changed while the test was running. Test the watched IDs again.",
+  "scoutRun_emailFailed": "Email could not be sent.",
+  "scoutRun_emailPending": "Email pending.",
+  "scoutRun_emailSent": "Email sent; delivery not confirmed.",
+  "scoutRun_emailDelivered": "Email delivered to recipient server; inbox placement unverified.",
+  "scoutRun_emailDelayed": "Email delivery delayed.",
+  "scoutRun_emailBounced": "Email bounced.",
+  "scoutRun_emailSuppressed": "Email delivery suppressed.",
+  "scoutRun_emailComplained": "Recipient reported this email as spam.",
+  "scoutRun_emailSkipped": "Email skipped.",
+  "scoutRun_documentFailed": "Document processing failed.",
+  "scoutRun_sourceFailed": "Some source pages could not be checked.",
+  "scoutRun_noDocuments": "No new documents were found."
 }

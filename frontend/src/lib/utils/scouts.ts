@@ -13,6 +13,7 @@
 import type { ComponentType } from 'svelte';
 import { Globe, Radar, Users, Landmark, Navigation } from 'lucide-svelte';
 import type { ScoutType } from '$lib/types';
+import * as m from '$lib/paraglide/messages';
 
 export type ScoutTypeLike = ScoutType | 'beat' | 'page' | 'location' | string;
 
@@ -246,6 +247,11 @@ export interface ScoutStatusInput {
 		scraper_status?: boolean | null;
 		criteria_status?: boolean | null;
 		card_summary?: string;
+		stage?: string | null;
+		error_class?: string | null;
+		notification_status?: string | null;
+		notification_reason?: string | null;
+		metadata?: Record<string, unknown> | null;
 	} | null;
 }
 
@@ -377,4 +383,45 @@ export function getScoutStatus(scout: ScoutStatusInput): ScoutStatusResult {
 	}
 	// Unreachable — last entry always matches
 	return { variant: 'neutral', key: 'noChanges' };
+}
+
+export interface ScoutRunDetail {
+	kind: 'neutral' | 'warning' | 'error';
+	message: string;
+}
+
+/** Independent delivery and Civic source outcomes; never render raw provider errors. */
+export function getScoutRunDetails(scout: ScoutStatusInput): ScoutRunDetail[] {
+	const run = scout.last_run;
+	if (!run) return [];
+	const details: ScoutRunDetail[] = [];
+	const notifications: Record<string, () => ScoutRunDetail> = {
+		pending: () => ({ kind: 'neutral', message: m.scoutRun_emailPending() }),
+		sent: () => ({ kind: 'neutral', message: m.scoutRun_emailSent() }),
+		delivered: () => ({ kind: 'neutral', message: m.scoutRun_emailDelivered() }),
+		delayed: () => ({ kind: 'warning', message: m.scoutRun_emailDelayed() }),
+		failed: () => ({ kind: 'error', message: m.scoutRun_emailFailed() }),
+		bounced: () => ({ kind: 'error', message: m.scoutRun_emailBounced() }),
+		suppressed: () => ({ kind: 'warning', message: m.scoutRun_emailSuppressed() }),
+		complained: () => ({ kind: 'warning', message: m.scoutRun_emailComplained() }),
+		skipped: () => ({ kind: 'neutral', message: m.scoutRun_emailSkipped() })
+	};
+	if (run.notification_status && Object.hasOwn(notifications, run.notification_status)) {
+		details.push(notifications[run.notification_status]());
+	}
+	if (scout.type !== 'civic' || !['success', 'error', 'failed'].includes(run.status ?? '')) return details;
+	if ((run.status === 'error' || run.status === 'failed') && run.stage === 'extract') {
+		details.push({ kind: 'error', message: m.scoutRun_documentFailed() });
+		return details;
+	}
+	const tracked = run.metadata?.tracked_url_status;
+	if (!Array.isArray(tracked) || tracked.length === 0) return details;
+	const states = tracked.map(entry => entry && typeof entry === 'object' ? entry.status : undefined);
+	if (states.some(state => ['scrape_failed', 'gone', 'unsupported'].includes(state))) {
+		details.push({ kind: 'warning', message: m.scoutRun_sourceFailed() });
+	} else if (run.status === 'success' && (run.articles_count ?? 0) === 0 &&
+			states.every(state => ['unchanged', 'already_seen', 'no_new_documents'].includes(state))) {
+		details.push({ kind: 'neutral', message: m.scoutRun_noDocuments() });
+	}
+	return details;
 }

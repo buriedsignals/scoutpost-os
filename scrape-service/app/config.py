@@ -20,7 +20,7 @@ class Settings:
     parse_min_chars_per_page: int
     # OpenRouter/Google Vertex native-PDF fallback for low-yield PDFs. When the
     # density guard trips and a key is present, /parse transcribes through the
-    # pinned ZDR route. Absent key → density guard still returns needs_ocr.
+    # pinned ZDR route. Absent key → needs_ocr with ocr_not_configured.
     openrouter_api_key: str | None
     openrouter_model: str
     openrouter_timeout_s: float
@@ -31,6 +31,11 @@ class Settings:
     # an exfiltration channel). Self-hosters legitimately monitoring internal
     # hosts can opt out with SCRAPE_ALLOW_PRIVATE_ADDRESSES=1.
     block_private_addresses: bool
+
+    @property
+    def pdf_ocr(self) -> str:
+        """Configuration only: presence of a key does not prove provider health."""
+        return "configured" if self.openrouter_api_key else "disabled_missing_api_key"
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:

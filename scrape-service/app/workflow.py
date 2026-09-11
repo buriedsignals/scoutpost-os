@@ -180,6 +180,7 @@ async def _crawl_batch_guarded(
             "batch_id": batch_id,
             "execution_id": client.execution_id,
             "processed": processed,
+            "pdf_ocr": settings.pdf_ocr,
             "succeeded": succeeded,
             "elapsed_ms": round((time.monotonic() - started) * 1_000),
             "memory_peak_bytes": cgroup_peak_bytes(),

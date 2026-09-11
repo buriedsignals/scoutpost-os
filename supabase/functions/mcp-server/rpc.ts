@@ -694,7 +694,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "preview_civic_items",
     description:
-      "Step 2 (sample) for Civic Scout creation, after discover_civic_sources and before create_scout. Read-only preview of 1-2 listing URLs: resolves meeting documents, parses at most two, runs one extraction pass and returns sample_items plus preview_snapshot_token (pass it to create_scout with import_current_items). Returns dated promises to follow and adopted material decisions; a valid empty result means no accountable item was found. Response carries the probe envelope { ok, stage:'sample', error_code?, error? } with valid and documents_found; ok:false codes are no_documents, parse_failed or model_failed. Every result is an AI-extracted lead that must be checked against the cited official source.",
+      "Step 2 (sample) for Civic Scout creation, after discover_civic_sources and before create_scout. Read-only preview of 1-2 listing URLs: resolves meeting documents, parses at most two, runs one extraction pass and returns sample_items plus preview_snapshot_token (pass it to create_scout with import_current_items). Returns dated promises to follow and adopted material decisions; a valid empty result means no accountable item was found. Response carries the probe envelope { ok, stage:'sample', error_code?, error? } with valid and documents_found; ok:false codes are no_documents, unreachable (a linked meeting could not be fetched), parse_failed or model_failed. Every result is an AI-extracted lead that must be checked against the cited official source.",
     inputSchema: {
       type: "object",
       required: ["tracked_urls"],

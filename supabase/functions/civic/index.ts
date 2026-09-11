@@ -44,7 +44,10 @@ import {
   filterCivicDiscoveryCandidates,
   rankCivicDiscoveryUrls,
 } from "../_shared/civic_links.ts";
-import { previewCivicTrackedUrls } from "../_shared/civic_preview.ts";
+import {
+  civicPreviewProbe,
+  previewCivicTrackedUrls,
+} from "../_shared/civic_preview.ts";
 import { probeFailure, probeOk } from "../_shared/scout_probe.ts";
 import {
   civicResolverFetcher,
@@ -170,18 +173,28 @@ function civicItemEnvelope(
   promise: Record<string, unknown> | null,
 ): Record<string, unknown> {
   const kind = unit.type === "promise" ? "promise" : "decision";
-  const metadata = unit.metadata && typeof unit.metadata === "object" &&
-      !Array.isArray(unit.metadata)
-    ? unit.metadata as Record<string, unknown>
+  const occurrence =
+    (unit.civic_occurrences as Record<string, unknown>[] | undefined)?.[0];
+  const rawMetadata = occurrence?.metadata ?? unit.metadata;
+  const metadata = rawMetadata && typeof rawMetadata === "object" &&
+      !Array.isArray(rawMetadata)
+    ? rawMetadata as Record<string, unknown>
     : {};
+  const sourceUrl = occurrence?.source_url ?? unit.source_url ?? null;
+  const trackerMatchesSource = promise?.source_url === sourceUrl;
   return {
     kind,
     unit_id: unit.id,
-    scout_id: unit.scout_id ?? null,
+    scout_id: occurrence?.scout_id ?? unit.scout_id ?? null,
     statement: unit.statement,
-    source_url: unit.source_url ?? null,
-    source_title: unit.source_title ?? null,
-    context: unit.context_excerpt ?? null,
+    source_url: sourceUrl,
+    source_title: occurrence?.source_title ??
+      (unit.source_url === sourceUrl ? unit.source_title ?? null : null),
+    context: trackerMatchesSource && promise?.context
+      ? promise.context
+      : sourceUrl === unit.source_url
+      ? unit.context_excerpt ?? null
+      : null,
     meeting_date: metadata.meeting_date ?? null,
     policy_version: metadata.civic_policy_version ?? null,
     ...(kind === "promise"
@@ -189,7 +202,10 @@ function civicItemEnvelope(
         actor: metadata.actor ?? null,
         action: metadata.action ?? null,
         due_date: promise?.due_date ?? metadata.due_date ?? null,
-        due_date_text: metadata.due_date_text ?? null,
+        due_date_text: (!promise ||
+            (trackerMatchesSource && promise.due_date === metadata.due_date))
+          ? metadata.due_date_text ?? null
+          : null,
         date_confidence: promise?.date_confidence ??
           metadata.date_confidence ?? null,
         tracker_id: promise?.id ?? null,
@@ -220,8 +236,20 @@ async function listCivicItems(url: URL, user: AuthedUser): Promise<Response> {
     Math.max(1, Number(url.searchParams.get("limit") ?? 50)),
   );
   const svc = getServiceClient();
-  let units = svc.from("information_units").select("*")
-    .eq("user_id", user.id).eq("scout_type", "civic")
+  // Civic membership comes from occurrence provenance. A canonical finding
+  // may retain its original Page/Beat scout after Civic rediscovery.
+  let units = svc.from("information_units").select(
+    "*, civic_occurrences:unit_occurrences!inner(scout_id, source_url, source_title, metadata, extracted_at)",
+  )
+    .eq("user_id", user.id)
+    .eq("civic_occurrences.user_id", user.id)
+    .eq("civic_occurrences.scout_type", "civic")
+    .order("extracted_at", {
+      referencedTable: "civic_occurrences",
+      ascending: false,
+    })
+    .limit(1, { referencedTable: "civic_occurrences" })
+    .is("deleted_at", null)
     .in(
       "type",
       kind === "promise"
@@ -231,7 +259,7 @@ async function listCivicItems(url: URL, user: AuthedUser): Promise<Response> {
         : ["promise", "fact"],
     )
     .order("last_seen_at", { ascending: false }).limit(limit);
-  if (scoutId) units = units.eq("scout_id", scoutId);
+  if (scoutId) units = units.eq("civic_occurrences.scout_id", scoutId);
   const { data: unitRows, error: unitError } = await units;
   if (unitError) throw new Error(unitError.message);
   const ids = (unitRows ?? []).map((row) => row.id as string);
@@ -265,8 +293,18 @@ async function getCivicItem(
   user: AuthedUser,
 ): Promise<Response> {
   const svc = getServiceClient();
-  const { data: unit, error } = await svc.from("information_units").select("*")
-    .eq("id", unitId).eq("user_id", user.id).eq("scout_type", "civic")
+  const { data: unit, error } = await svc.from("information_units").select(
+    "*, civic_occurrences:unit_occurrences!inner(scout_id, source_url, source_title, metadata, extracted_at)",
+  )
+    .eq("id", unitId).eq("user_id", user.id)
+    .eq("civic_occurrences.user_id", user.id)
+    .eq("civic_occurrences.scout_type", "civic")
+    .order("extracted_at", {
+      referencedTable: "civic_occurrences",
+      ascending: false,
+    })
+    .limit(1, { referencedTable: "civic_occurrences" })
+    .is("deleted_at", null)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!unit) return jsonError("not found", 404);
@@ -598,24 +636,15 @@ async function test(req: Request, user: AuthedUser): Promise<Response> {
     promises: allPromises.length,
   });
 
-  const failedOutcomes = preview.sourceResults.map((r) => r.outcome);
-  const sampleFailure = documentsFound > 0
-    ? null
-    : preview.documentsResolved === 0
-    ? probeFailure("sample", "no_documents")
-    : failedOutcomes.includes("model_failed") &&
-        !failedOutcomes.includes("parse_failed")
-    ? probeFailure("sample", "model_failed")
-    : probeFailure("sample", "parse_failed");
-
   return jsonOk({
-    ...(sampleFailure ?? probeOk("sample")),
+    ...civicPreviewProbe(preview),
     api_version: "2",
     valid: documentsFound > 0,
     documents_found: documentsFound,
     documents_resolved: preview.documentsResolved,
     documents_evaluated: documentsFound,
     source_results: preview.sourceResults,
+    discovery: preview.discovery,
     policy_version: preview.policyVersion,
     preview_snapshot_token: previewSnapshotToken,
     sample_items: allItems,

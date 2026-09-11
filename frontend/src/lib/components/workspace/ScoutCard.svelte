@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ScoutRunDetails from "./ScoutRunDetails.svelte";
 	import { Globe, MapPin, Tag, Calendar, Play, Trash2, X, Check } from 'lucide-svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import DemoBadge from '$lib/components/ui/DemoBadge.svelte';
@@ -7,7 +8,8 @@
 		getScoutTypeDisplay,
 		normalizeScoutType,
 		getScoutStatus,
-		getScoutStatusLabel
+		getScoutStatusLabel,
+		getScoutRunDetails
 	} from '$lib/utils/scouts';
 	import { parseTopicTags } from '$lib/utils/topics';
 	import { tooltip } from '$lib/utils/tooltip';
@@ -58,6 +60,7 @@
 
 	$: status = getScoutStatus({ type: normalizedType, last_run: scout.last_run });
 	$: statusLabel = getScoutStatusLabel(status);
+	$: runDetails = getScoutRunDetails({ type: normalizedType, last_run: scout.last_run });
 
 	$: canRun = scout.is_active !== false;
 
@@ -187,6 +190,8 @@
 		</div>
 	</div>
 
+	<ScoutRunDetails details={runDetails} />
+
 	<div class="scout-card-footer">
 		<span
 			class="scout-shell-status"
@@ -206,6 +211,8 @@
 </div>
 
 <style>
+
+
 	/* Size/padding overrides for the workspace-grid variant — shell
 	   primitives live in app.css under "Scout display primitives". */
 	.scout-card {

@@ -73,6 +73,8 @@ def test_parse_density_guard_flags_textless_pdf(client):
     assert detail["error"] == "needs_ocr"
     assert detail["pages"] == 1
     assert detail["chars"] < 100
+    assert detail["reason"] == "ocr_not_configured"
+    assert "OPENROUTER_API_KEY" in detail["message"]
 
 
 def test_parse_rejects_non_pdf(client):
@@ -315,7 +317,7 @@ async def test_parse_pdf_url_skips_openrouter_when_over_inline_limit():
         return "should not be called"
 
     client = mock_http_client(lambda req: httpx.Response(200, content=EMPTY_PDF))
-    with pytest.raises(pdfparse.NeedsOcrError):
+    with pytest.raises(pdfparse.NeedsOcrError) as error:
         await pdfparse.parse_pdf_url(
             client,
             "https://council.example/scanned.pdf",
@@ -326,6 +328,7 @@ async def test_parse_pdf_url_skips_openrouter_when_over_inline_limit():
             transcribe_max_bytes=1,  # EMPTY_PDF is comfortably larger than 1 byte
         )
     assert called is False
+    assert error.value.reason == "ocr_inline_limit_exceeded"
 
 
 async def test_parse_pdf_url_uses_openrouter_when_under_inline_limit():

@@ -180,7 +180,12 @@ Deno.test(
       Promise.resolve(jsonResponse({
         _scoutpost_workflow_error: {
           status: 422,
-          detail: { error: "needs_ocr", pages: 8, chars: 3 },
+          detail: {
+            error: "needs_ocr",
+            pages: 8,
+            chars: 3,
+            reason: "ocr_not_configured",
+          },
         },
       }))) as typeof fetch;
 
@@ -190,6 +195,8 @@ Deno.test(
     );
     assertEquals((error as NeedsOcrError).pages, 8);
     assertEquals((error as NeedsOcrError).chars, 3);
+    assertEquals((error as NeedsOcrError).reason, "ocr_not_configured");
+    assertEquals(error.message.includes("OPENROUTER_API_KEY"), true);
   }),
 );
 
@@ -397,4 +404,14 @@ Deno.test("parseDocument requires SCRAPE_SERVICE_TOKEN under crawl4ai", async ()
     Deno.env.delete("SCRAPE_PROVIDER");
     Deno.env.delete("SCRAPE_SERVICE_URL");
   }
+});
+
+Deno.test("OCR errors explain inline limits without propagating arbitrary detail", () => {
+  const oversized = new NeedsOcrError(2, 0, "ocr_inline_limit_exceeded");
+  assertEquals(
+    oversized.message.includes("native OCR inline byte limit"),
+    true,
+  );
+  const unknown = new NeedsOcrError(2, 0, "untrusted detail");
+  assertEquals(unknown.message, "needs_ocr: 0 chars over 2 pages");
 });

@@ -14,6 +14,10 @@
  * creation" baseline could not schedule a ~500-document Legistar calendar.
  */
 import type { SupabaseClient } from "./supabase.ts";
+import {
+  type CivicDocumentResolution,
+  modernGovMeetingKey,
+} from "./civic_links.ts";
 
 /** Sanity bound on URL membership per scout (a listing, not an archive crawl). */
 export const CIVIC_DOCUMENT_MEMBERSHIP_MAX = 5_000;
@@ -175,4 +179,52 @@ export function replacementCheckUrls(
   return documentUrls
     .filter((url) => baselineHashes.has(url))
     .slice(0, Math.max(0, limit));
+}
+
+/**
+ * Upgrade old wrapper-only membership once, without announcing its historical
+ * PDFs as new. Insert child URL membership before retiring the wrapper row:
+ * a partial write/retry remains conservative. Empty inspected meetings retire
+ * too, so documents published after this transition can be detected as new.
+ * This does not touch finding units, source content baselines, or user settings.
+ */
+export async function baselineResolvedCivicMeetings(
+  svc: SupabaseClient,
+  input: {
+    scoutId: string;
+    userId: string;
+    meetings: CivicDocumentResolution["meetings"];
+    baselineHashes: Map<string, string | null>;
+  },
+): Promise<number> {
+  let retired = 0;
+  for (const meeting of input.meetings) {
+    if (meeting.outcome === "fetch_failed") continue;
+    const key = modernGovMeetingKey(meeting.url);
+    if (!key) continue;
+    const oldUrls = [...input.baselineHashes.keys()].filter((url) =>
+      modernGovMeetingKey(url) === key
+    );
+    if (!oldUrls.length) continue;
+    await recordCivicDocumentUrls(svc, {
+      ...input,
+      sourceUrls: meeting.documentUrls,
+    });
+    const { error } = await svc.from("civic_document_baselines").delete()
+      .eq("scout_id", input.scoutId).eq("user_id", input.userId).in(
+        "source_url",
+        oldUrls,
+      );
+    if (error) {
+      throw new Error(
+        `civic wrapper membership transition failed: ${error.message}`,
+      );
+    }
+    for (const url of meeting.documentUrls) {
+      if (!input.baselineHashes.has(url)) input.baselineHashes.set(url, null);
+    }
+    for (const url of oldUrls) input.baselineHashes.delete(url);
+    retired += oldUrls.length;
+  }
+  return retired;
 }

@@ -1,3 +1,8 @@
+import { historicalBeatExcerpts } from "./beat_digest_regression_fixtures.ts";
+import {
+  formatBeatDigest,
+  verifyPlaceNamesGrounded,
+} from "./extractive_summary.ts";
 /**
  * Unit tests for the shared notification helpers. Pure-function coverage only —
  * no network. Run:
@@ -674,4 +679,179 @@ Deno.test("buildProfileUrl falls back to a {platform}.com host for unknown platf
 Deno.test("getString preserves Unicode without mangling", () => {
   assertStringIncludes(getString("email_disclaimer", "de"), "\u00e4");
   assertStringIncludes(getString("email_disclaimer", "fi"), "\u00e4");
+});
+
+Deno.test("historical Beat excerpts reach grounded HTML with only their card citation", () => {
+  for (const fixture of historicalBeatExcerpts) {
+    const article = {
+      title: "AI governance obligations",
+      url: fixture.source_url,
+      domain: new URL(fixture.source_url).hostname,
+      excerpt: fixture.retained_excerpt,
+    };
+    const digest = formatBeatDigest([article]);
+    assertEquals(
+      verifyPlaceNamesGrounded(digest, [article]).ok,
+      true,
+      fixture.run_id,
+    );
+    const html = markdownToHtml(digest);
+    assertEquals([...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), [
+      fixture.source_url,
+    ]);
+    assertStringIncludes(html, "August");
+    assertEquals(html.includes("](https:"), false);
+  }
+});
+
+Deno.test("source title and excerpt syntax stays text through truncation and rendering", () => {
+  const sources = [
+    "Read [policy](https://outside.example/policy).",
+    "Read [policy][ref].\n\n[ref]: https://outside.example/policy",
+    "Read <https://outside.example/policy>.",
+    "Read (https://outside.example/policy) (Article 50).",
+    "Read [policy](https://outside.example/policy_(2026)).",
+    '<a href="https://outside.example/policy">Read policy</a>.',
+    "![Policy](https://outside.example/policy.png) applies.",
+    "Policy](https://outside.example/policy) applies.",
+    "[unfinished title and [policy](https://outside.example/policy)",
+    "\\[policy](https://outside.example/policy) applies.",
+    "[policy](javascript:alert(1)) applies.",
+    "See **[policy](https://outside.example/policy)** today.",
+    "Text with [brackets] (and parentheses) " + "x".repeat(250),
+  ];
+  for (const source of sources) {
+    const article = {
+      title: source,
+      excerpt: source,
+      domain: "inside.example",
+      url: "https://inside.example/policy_(2026)",
+    };
+    const digest = formatBeatDigest([article]);
+    const html = markdownToHtml(digest);
+    assertEquals(verifyPlaceNamesGrounded(digest, [article]).ok, true, source);
+    assertEquals([...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]), [
+      article.url,
+    ], source);
+  }
+});
+
+Deno.test("all active generated citations are rejected before provider access", async () => {
+  for (
+    const summary of [
+      "[policy](https://outside.example/policy_(2026))",
+      "**[policy](https://outside.example/policy)**",
+      "[policy](javascript:alert(1))",
+      "[policy](//outside.example/policy)",
+    ]
+  ) {
+    let touched = false;
+    const svc = new Proxy({}, {
+      get() {
+        touched = true;
+        throw new Error("must reject before DB/provider");
+      },
+    });
+    const result = await sendBeatAlert(svc as never, {
+      userId: "test-user",
+      scoutId: "test-scout",
+      runId: "test-run",
+      scoutName: "Beat",
+      summary,
+      articles: [],
+    });
+    assertEquals(result.reason, "summary_ungrounded", summary);
+    assertEquals(touched, false);
+    assertEquals(verifyPlaceNamesGrounded(summary, []).ok, false, summary);
+  }
+});
+
+Deno.test("passing historical digests call mocked Resend exactly once with existing idempotency contract", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = Deno.env.get("RESEND_API_KEY");
+  let calls = 0;
+  let sentFlags = 0;
+  try {
+    Deno.env.set("RESEND_API_KEY", "offline-test-key");
+    globalThis.fetch = ((_url: unknown, init: RequestInit) => {
+      calls++;
+      assertEquals(
+        (init.headers as Record<string, string>)["Idempotency-Key"],
+        "beat/test-run/notification",
+      );
+      const payload = JSON.parse(String(init.body));
+      assertEquals(payload.to, ["offline@example.invalid"]);
+      assertStringIncludes(payload.html, "August");
+      return Promise.resolve(
+        new Response(JSON.stringify({ id: "offline-provider-id" }), {
+          status: 200,
+        }),
+      );
+    }) as typeof fetch;
+    const query = {
+      select() {
+        return this;
+      },
+      eq() {
+        return this;
+      },
+      maybeSingle() {
+        return Promise.resolve({ data: {}, error: null });
+      },
+      update(value: { notification_sent: boolean }) {
+        if (value.notification_sent) sentFlags++;
+        return this;
+      },
+    };
+    const svc = {
+      from() {
+        return query;
+      },
+      auth: {
+        admin: {
+          getUserById() {
+            return Promise.resolve({
+              data: { user: { email: "offline@example.invalid" } },
+            });
+          },
+        },
+      },
+    };
+    for (const fixture of historicalBeatExcerpts) {
+      const article = {
+        title: "AI Act",
+        url: fixture.source_url,
+        domain: "ec.europa.eu",
+        excerpt: fixture.retained_excerpt,
+      };
+      const result = await sendBeatAlert(svc as never, {
+        userId: "test-user",
+        scoutId: "test-scout",
+        runId: "test-run",
+        scoutName: "Beat",
+        summary: formatBeatDigest([article]),
+        articles: [article],
+      });
+      assertEquals(result.ok, true);
+    }
+    assertEquals(calls, historicalBeatExcerpts.length);
+    assertEquals(sentFlags, historicalBeatExcerpts.length);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) Deno.env.delete("RESEND_API_KEY");
+    else Deno.env.set("RESEND_API_KEY", originalKey);
+  }
+});
+
+Deno.test("email renderer never activates non-web link schemes", () => {
+  for (
+    const markdown of [
+      "[claim](javascript:alert(1))",
+      "<javascript:alert>",
+      "[claim](data:text/html,test)",
+      "[claim](//outside.example/path)",
+    ]
+  ) {
+    assertEquals(markdownToHtml(markdown).includes("href="), false);
+  }
 });

@@ -212,7 +212,8 @@ For decades, the United States has responded to social issues like mental health
     publishedDate: null,
   };
   assertEquals(
-    verifyPlaceNamesGrounded(formatBeatDigest([raw]), [raw]).offendingUrls,
+    verifyPlaceNamesGrounded(`- Legacy [Chicago](${url}#chicago)`, [raw])
+      .offendingUrls,
     [`${url}#chicago`],
   );
   // The same normalized article must feed rendering and the grounding corpus.
@@ -253,5 +254,35 @@ Deno.test("normalized place names remain grounded and long link destinations do 
   assertEquals(
     verifyPlaceNamesGrounded(digest, [article], "Hartford").ok,
     true,
+  );
+});
+
+Deno.test("August 3 orphan destination preserves the claim without its link tail", () => {
+  assertEquals(
+    digestExcerptText(
+      "Article 50 of the AI Act](https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-50) applies from 2 August 2026.",
+    ),
+    "Article 50 of the AI Act applies from 2 August 2026.",
+  );
+});
+
+Deno.test("orphan cleanup is bounded and preserves meaningful parentheses", () => {
+  assertEquals(
+    digestExcerptText("The Act (Article 50) applies (from August)."),
+    "The Act (Article 50) applies (from August).",
+  );
+  assertEquals(
+    digestExcerptText("See (https://example.org/policy) for context."),
+    "See (https://example.org/policy) for context.",
+  );
+  assertEquals(
+    digestExcerptText(
+      "The Act](https://example.org/policy_(2026)) applies today.",
+    ),
+    "The Act applies today.",
+  );
+  assertEquals(
+    digestExcerptText("The Act](https://example.org/unclosed applies today."),
+    "The Act](https://example.org/unclosed applies today.",
   );
 });

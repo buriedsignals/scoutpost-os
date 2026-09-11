@@ -24,6 +24,8 @@
  */
 
 import type { SupabaseClient } from "./supabase.ts";
+import { emailInlineTokens, emailLinkedUrls } from "./email_markdown.ts";
+import type { Token } from "npm:marked@17.0.5";
 import { logEvent } from "./log.ts";
 import { getString } from "./email_translations.ts";
 
@@ -436,15 +438,6 @@ export function buildPageScoutMatchedArticles(
   }];
 }
 
-function markdownLinkedUrls(text: string | null | undefined): string[] {
-  if (!text) return [];
-  const urls: string[] = [];
-  const re = /\((https?:\/\/[^)\s]+)\)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) urls.push(m[1]);
-  return urls;
-}
-
 function offCardSummaryUrls(
   summary: string | null | undefined,
   articles: Article[],
@@ -456,7 +449,7 @@ function offCardSummaryUrls(
         typeof url === "string" && url.length > 0
       ),
   );
-  return markdownLinkedUrls(summary).filter((url) => !cardUrls.has(url));
+  return emailLinkedUrls(summary ?? "").filter((url) => !cardUrls.has(url));
 }
 
 export async function sendBeatAlert(
@@ -1510,44 +1503,26 @@ export function markdownToHtml(text: string, accentColor = "#7c6fc7"): string {
 }
 
 function processInlineMarkdown(text: string, accentColor: string): string {
-  // Same placeholder-swap strategy as the Python version: extract markdown
-  // constructs, escape the remaining text, then re-insert them as safe HTML.
-  const boldParts: string[] = [];
-  const linkParts: Array<[string, string]> = [];
-
-  let t = text.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    (_m, a: string, b: string) => {
-      const idx = linkParts.length;
-      linkParts.push([a, b]);
-      return `\x00LINK${idx}\x00`;
-    },
-  );
-  t = t.replace(/\*\*([^*]+)\*\*/g, (_m, inner: string) => {
-    const idx = boldParts.length;
-    boldParts.push(inner);
-    return `\x00BOLD${idx}\x00`;
-  });
-
-  t = escapeHtml(t);
-
-  boldParts.forEach((content, idx) => {
-    t = t.replace(
-      `\x00BOLD${idx}\x00`,
-      `<strong>${escapeHtml(content)}</strong>`,
-    );
-  });
-  linkParts.forEach(([linkText, linkUrl], idx) => {
-    t = t.replace(
-      `\x00LINK${idx}\x00`,
-      `<a href="${
-        escapeHtml(linkUrl)
-      }" style="color: ${accentColor}; text-decoration: none;">${
-        escapeHtml(linkText)
-      }</a>`,
-    );
-  });
-  return t;
+  const render = (tokens: Token[]): string =>
+    tokens.map((token) => {
+      if (token.type === "link") {
+        // Only web citations become active anchors. Other schemes remain text.
+        if (!/^https?:\/\//i.test(token.href)) return escapeHtml(token.text);
+        return `<a href="${
+          escapeHtml(token.href)
+        }" style="color: ${accentColor}; text-decoration: none;">${
+          escapeHtml(token.text)
+        }</a>`;
+      }
+      if (token.type === "strong") {
+        return `<strong>${render(token.tokens ?? [])}</strong>`;
+      }
+      if (token.type === "escape" || token.type === "text") {
+        return escapeHtml(token.text);
+      }
+      return escapeHtml(token.raw);
+    }).join("");
+  return render(emailInlineTokens(text));
 }
 
 export function escapeHtml(s: string | null | undefined): string {

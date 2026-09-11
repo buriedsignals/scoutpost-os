@@ -136,6 +136,7 @@ export async function sha256Hex(input: string): Promise<string> {
 export async function upsertCanonicalUnit(
   db: SupabaseClient,
   input: CanonicalUnitInput,
+  civicQueue?: { queueId: string; workerId: string },
 ): Promise<CanonicalUpsertResult> {
   const statement = input.statement.trim();
   if (!statement) throw new Error("upsertCanonicalUnit: statement is required");
@@ -177,7 +178,13 @@ export async function upsertCanonicalUnit(
     p_abstain_reason: input.abstainReason ?? null,
   };
 
-  const { data, error } = await db.rpc("upsert_canonical_unit_v2", payload);
+  const { data, error } = civicQueue
+    ? await db.rpc("persist_civic_item", {
+      p_queue_id: civicQueue.queueId,
+      p_worker_id: civicQueue.workerId,
+      p_input: payload,
+    })
+    : await db.rpc("upsert_canonical_unit_v2", payload);
   if (error) throw new Error(error.message);
 
   const row = Array.isArray(data) ? data[0] : data;

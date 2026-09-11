@@ -90,9 +90,8 @@ import {
 } from "../_shared/civic_document_membership.ts";
 import {
   type CivicTrackedPage,
-  classifyCivicMeetingUrls,
-  extractCivicLinksFromPages,
   isCivicDirectDocumentUrl,
+  resolveCivicDocumentsFromPages,
 } from "../_shared/civic_links.ts";
 import { openRouterExtract } from "../_shared/openrouter.ts";
 import { compressContext } from "../_shared/taco_compress.ts";
@@ -901,9 +900,23 @@ async function establishCivicBaseline(
   // pages list right now is recorded (URL only, no parsing) so a scheduled
   // run can queue what is NEW. Content hashes arrive later, from the worker
   // on success and from the bounded replacement check on recent documents.
-  const discovered = await classifyCivicMeetingUrls(
-    extractCivicLinksFromPages(pages),
-  );
+  const discovery = await resolveCivicDocumentsFromPages(pages, {
+    tenantKey: scout.user_id,
+    strictMeetingBudget: true,
+  });
+  if (
+    discovery.meetings.some((meeting) => meeting.outcome === "fetch_failed")
+  ) {
+    throw new ValidationError(
+      "could not read civic meeting documents; retry before scheduling",
+    );
+  }
+  if (discovery.meetingBudgetExceeded) {
+    throw new ValidationError(
+      "civic meeting discovery budget exceeded; choose a narrower committee or date listing before scheduling",
+    );
+  }
+  const discovered = discovery.documentUrls;
   const documentUrls = [
     ...new Set([...directDocuments, ...discovered].map(
       canonicalCivicUrl,
@@ -991,7 +1004,7 @@ async function assertArchiveEntitled(
   }
 }
 
-async function ensureScheduledBaseline(
+export async function ensureScheduledBaseline(
   svc: ReturnType<typeof getServiceClient>,
   scout: BaselineableScout,
   cachedWebScrape: ScrapeResult | null = null,

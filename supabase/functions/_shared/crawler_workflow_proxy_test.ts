@@ -322,3 +322,38 @@ Deno.test("proxy sweep removes stale result artifacts and clears manifests", asy
   assertEquals(removed, ["results/job-1/result.json.gz"]);
   assertEquals(clearedIds, ["job-1"]);
 });
+
+Deno.test("proxy preserves actionable missing OCR configuration", async () => {
+  const svc = serviceClient();
+  const error = await assertRejects(
+    () =>
+      executeCrawlerProxy(svc.client as never, {
+        operation: "parse_pdf",
+        url: "https://example.test/scan.pdf",
+        timeoutMs: 120_000,
+        waitMs: 205_000,
+        workloadClass: "scout",
+        tenantKey: "00000000-0000-4000-8000-000000000003",
+        requestId: "request-1",
+      }, {
+        now: () => 0,
+        load: () =>
+          Promise.resolve({
+            id: "job-1",
+            status: "terminal_failed",
+            error_class: "terminal",
+            error_message:
+              "needs_ocr: 12 chars over 4 pages; ocr_not_configured: set OPENROUTER_API_KEY on the workload parsing this PDF",
+            result_manifest: null,
+          }),
+      }),
+    CrawlerProxyError,
+  );
+  assertEquals(error.status, 422);
+  assertEquals(error.detail, {
+    error: "needs_ocr",
+    pages: 4,
+    chars: 12,
+    reason: "ocr_not_configured",
+  });
+});

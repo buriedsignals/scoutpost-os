@@ -135,6 +135,7 @@ remove_hosted_shared_file storage_prefix_cleanup_test.ts
 sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" AGENTS.md
 sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" CLAUDE.md
 sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" docs/architecture/developer-guide.md
+sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" supabase/functions/civic/items_test.ts
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" AGENTS.md
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" CLAUDE.md
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" docs/architecture/developer-guide.md
