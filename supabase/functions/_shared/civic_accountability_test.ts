@@ -410,3 +410,121 @@ Deno.test("Civic retains a newly adopted material recording transparency policy"
   }, { today: TODAY });
   assertEquals(result.outcome, "eligible");
 });
+
+Deno.test("live minutes approval and noted reports remain procedural even with model material=true", () => {
+  for (
+    const [statement, context, decision_kind] of [
+      [
+        "The municipal assembly approves the minutes of the previous meeting.",
+        "Die Gemeindeversammlung genehmigt das Protokoll der Gemeindeversammlung mit grossem Mehr.",
+        "approval",
+      ],
+      [
+        "The contents of the report, along with Members comments, be noted.",
+        "RESOLVED – That the contents of the report, along with Members comments, be noted.",
+        "noted",
+      ],
+    ]
+  ) {
+    const result = classifyCivicCandidate({
+      kind: "decision",
+      statement,
+      context,
+      decision_kind,
+      adopting_body: "Council",
+      adopted: true,
+      material: true,
+      evidence_supported: true,
+    }, { today: TODAY, sourceText: context });
+    assertEquals(result, { outcome: "rejected", code: "procedural_only" });
+  }
+});
+Deno.test("OCR layout normalization admits identical source words without accepting changed amounts", () => {
+  const source =
+    "**Antrag 1**\nDie Gemeindeversammlung stimmt dem Gesetz für „Sana-\ndura\" mit CHF 272'500 (10.90 %) und 348 Ja- zu 0 Nein-\nStimmen zu.";
+  const candidate: CivicCandidate = {
+    kind: "decision",
+    statement: "The assembly approved CHF 272,500 for Sanadura.",
+    context:
+      "Antrag 1 Die Gemeindeversammlung stimmt dem Gesetz für „Sanadura\" mit CHF 272'500 (10.90%) und 348 Ja- zu 0 Nein-Stimmen zu.",
+    adopting_body: "Gemeindeversammlung",
+    decision_kind: "approval",
+    adopted: true,
+    material: true,
+    evidence_supported: true,
+  };
+  assertEquals(
+    classifyCivicCandidate(candidate, { today: TODAY, sourceText: source })
+      .outcome,
+    "eligible",
+  );
+  assertEquals(
+    classifyCivicCandidate({
+      ...candidate,
+      context: candidate.context!.replace("272'500", "272'900"),
+    }, { today: TODAY, sourceText: source }),
+    { outcome: "rejected", code: "unsupported_evidence" },
+  );
+});
+
+Deno.test("Civic verifier cannot silently reconstruct a missing OCR currency digit", () => {
+  const context = "Die Gemeindeversammlung stimmt CHF 436'00 als Darlehen zu.";
+  const candidate: CivicCandidate = {
+    kind: "decision",
+    statement: "The assembly approved CHF 436,000 as a loan.",
+    context,
+    adopting_body: "Gemeindeversammlung",
+    decision_kind: "approval",
+    adopted: true,
+    material: true,
+    evidence_supported: true,
+  };
+  assertEquals(
+    classifyCivicCandidate(candidate, { today: TODAY, sourceText: context }),
+    { outcome: "rejected", code: "unsupported_evidence" },
+  );
+});
+
+Deno.test("Civic monetary evidence permits equivalent formats but preserves decimals", () => {
+  for (
+    const [quoted, stated, accepted] of [
+      ["€500", "EUR 500", true],
+      ["£500", "GBP 500", true],
+      ["500 EUR", "EUR 500", true],
+      ["CHF 436 000", "CHF 436,000", true],
+      ["CHF 436.00", "CHF 43600", false],
+      ["CHF 436'000.50", "CHF 436,000.50", true],
+      ["EUR 1.250,50", "EUR 1,250.50", true],
+    ] as const
+  ) {
+    const context = `The council approved ${quoted} for school repairs.`;
+    const result = classifyCivicCandidate({
+      kind: "decision",
+      statement: `The council approved ${stated} for school repairs.`,
+      context,
+      adopting_body: "Council",
+      decision_kind: "approval",
+      adopted: true,
+      material: true,
+      evidence_supported: true,
+    }, { today: TODAY, sourceText: context });
+    assertEquals(result.outcome, accepted ? "eligible" : "rejected", quoted);
+  }
+});
+
+Deno.test("Civic checks recommendation wording in the operative quote", () => {
+  const context = "RESOLVED: the plan be approved and recommended to Council.";
+  assertEquals(
+    classifyCivicCandidate({
+      kind: "decision",
+      statement: "The council approved the plan.",
+      context,
+      adopting_body: "Council",
+      decision_kind: "approval",
+      adopted: true,
+      material: true,
+      evidence_supported: true,
+    }, { today: TODAY, sourceText: context }),
+    { outcome: "rejected", code: "not_adopted" },
+  );
+});
