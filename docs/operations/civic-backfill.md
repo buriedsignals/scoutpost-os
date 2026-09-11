@@ -73,6 +73,12 @@ error before any explicit retry. A different batch cannot silently duplicate the
 same Scout/source/content. Concurrent work on that Scout is rejected during the
 backfill; finish or classify the batch before normal dispatch resumes.
 
+In the September 11 production acceptance, the normal cron worker completed the
+approved batches, while the operator `drain` convenience call returned HTTP 401
+with the available CLI credential. Treat a non-2xx drain response as inconclusive:
+inspect `status`, and let the scoped cron worker resume the run. Do not weaken the
+worker authorization check to make the convenience command pass.
+
 `status` reconciles canonical units, run occurrences, promise revisions and absent
 alert rows. It reports document diagnostics, semantic-zero outcomes and failures.
 To verify the real user-facing APIs, authenticate Scout CLI as the manifest owner:

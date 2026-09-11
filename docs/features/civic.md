@@ -160,7 +160,7 @@ judgment; Civic never infers it automatically.
 | `scout_runs`             | Per-run status, errors, timings, and counts.                                                                  |
 | `civic_extraction_queue` | Pending/processing/done/failed document extraction work.                                                      |
 | `raw_captures`           | Temporary extracted markdown/raw content with `expires_at`.                                                   |
-| `information_units`      | Canonical factual units created from newly extracted promises.                                                |
+| `information_units`      | Canonical factual units created from policy-qualified promises or material decisions.                         |
 | `unit_occurrences`       | Source/provenance occurrences for canonical units.                                                            |
 | `promises`               | Promise tracker linked to `information_units.unit_id`, with `due_date`, `date_confidence`, and status.        |
 
