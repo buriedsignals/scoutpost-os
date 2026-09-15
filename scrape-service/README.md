@@ -14,6 +14,10 @@ Error taxonomy: upstream failure → 502, typed `navigation_timeout` → 504,
 scanned/unsupported PDF → 422, oversized → 413, non-PDF → 415, bad token → 401.
 `document_download_timeout` also returns 504 but is terminal document processing,
 not a navigation timeout eligible for primary retry or Firecrawl recovery.
+Chromium's `net::ERR_TIMED_OUT` is a navigation timeout too. Native Workflow
+jobs use the same classification, making these exhausted attempts eligible
+for the existing one-shot Firecrawl fallback. Connection resets remain ordinary
+retryable failures.
 
 `markdown` always contains the complete renderer output. For substantial
 `main`, `[role=main]`, or single/dominant `article` landmarks, the response also

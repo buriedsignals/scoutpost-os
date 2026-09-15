@@ -249,7 +249,7 @@ def classify_failure(item_id: str, error: object) -> dict[str, Any]:
         error_class = "retryable"
     elif any(word in lowered for word in ("anti-bot", "captcha", "challenge")):
         error_class = "anti_bot"
-    elif any(word in lowered for word in ("timeout", "timed out")):
+    elif any(word in lowered for word in ("timeout", "timed out", "net::err_timed_out")):
         error_class = "timeout"
     else:
         error_class = "retryable"

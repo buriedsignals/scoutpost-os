@@ -29,8 +29,12 @@ def test_scrape_happy_path(app):
     assert fake.calls == [("https://example.org", 25_000)]
 
 
-def test_library_navigation_timeout_keeps_the_retryable_http_code(app):
-    app.state.scraper = FakeScraper(exc=RuntimeError("Page.goto: Timeout 25000ms exceeded"))
+@pytest.mark.parametrize("message", [
+    "Page.goto: Timeout 25000ms exceeded",
+    "Page.goto: net::ERR_TIMED_OUT at https://example.org",
+])
+def test_library_navigation_timeout_keeps_the_retryable_http_code(app, message):
+    app.state.scraper = FakeScraper(exc=RuntimeError(message))
     response = TestClient(app).post(
         "/scrape", json={"url": "https://example.org"}, headers=auth_headers()
     )

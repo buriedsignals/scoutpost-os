@@ -217,6 +217,7 @@ async def test_safe_wrapper_contains_guard_failure(monkeypatch):
         (RuntimeError("Page.goto: net::ERR_CONNECTION_RESET"), "retryable"),
         (RuntimeError("captcha"), "anti_bot"),
         (RuntimeError("timed out"), "timeout"),
+        (RuntimeError("Page.goto: net::ERR_TIMED_OUT at https://example.org"), "timeout"),
         (RuntimeError("upstream"), "retryable"),
         # DNS has no address for the host: permanent, terminal on attempt 1.
         (
