@@ -9,6 +9,8 @@ import {
   maybeInitializeMissingWebBaselineRun,
 } from "./web_scout_baseline.ts";
 import type { CaptureStoreContext } from "./snapshot_capture.ts";
+import { ValidationError } from "./errors.ts";
+import { PAGE_SCOUT_MAX_CONTENT_CHARS } from "./page_scout_change.ts";
 
 function createFakeSvc() {
   const inserts: Array<{ table: string; payload: unknown }> = [];
@@ -348,4 +350,126 @@ Deno.test("baseline archive capture failure remains non-fatal", async () => {
     },
   );
   assertEquals(result, null);
+});
+
+Deno.test("Page repair refuses nonempty HTTP failures before baseline membership or readiness writes", async () => {
+  const { svc, inserts, updates, rpcs } = createFakeSvc();
+  await assertRejects(
+    () =>
+      ensureWebBaseline(
+        svc as unknown as SupabaseClient,
+        {
+          id: "scout-1",
+          user_id: "user-1",
+          url: "https://example.com/policy",
+          baseline_established_at: "2026-08-01T00:00:00Z",
+        },
+        {
+          scrape: async () => ({
+            markdown: "# Policy not found\nThis policy was removed.",
+            source_url: "https://example.com/policy",
+            status_code: 404,
+            fetched_at: "2026-09-14T00:00:00Z",
+          }),
+          hasCurrentCanonicalBaseline: async () => false,
+        },
+      ),
+    Error,
+    "HTTP 404",
+  );
+  assertEquals(inserts, []);
+  assertEquals(updates, []);
+  assertEquals(rpcs, []);
+});
+
+Deno.test("Page creation and missing-baseline runs reject oversized full content without writes", async () => {
+  for (const initializeRun of [false, true]) {
+    const { svc, inserts, updates, rpcs } = createFakeSvc();
+    const scout = {
+      id: "scout-large",
+      user_id: "user-1",
+      url: "https://example.com/policy",
+    };
+    const deps = {
+      scrape: async () => ({
+        markdown: "x".repeat(PAGE_SCOUT_MAX_CONTENT_CHARS + 1),
+        comparison_markdown: "Short focused projection",
+        source_url: scout.url,
+        fetched_at: "2026-09-14T00:00:00Z",
+      }),
+      hasCurrentCanonicalBaseline: async () => false,
+      now: () => "2026-09-14T00:00:00Z",
+    };
+    await assertRejects(
+      () =>
+        initializeRun
+          ? maybeInitializeMissingWebBaselineRun(
+            svc as unknown as SupabaseClient,
+            scout,
+            "run-large",
+            deps,
+          )
+          : ensureWebBaseline(svc as unknown as SupabaseClient, scout, deps),
+      ValidationError,
+    );
+    assertEquals(inserts, []);
+    assertEquals(updates, []);
+    assertEquals(rpcs, []);
+  }
+});
+
+Deno.test("Page creation accepts exactly the normalized size limit", async () => {
+  const { svc, inserts, updates } = createFakeSvc();
+  const established = await ensureWebBaseline(
+    svc as unknown as SupabaseClient,
+    { id: "scout-limit", user_id: "user-1", url: "https://example.com/policy" },
+    {
+      scrape: async () => ({
+        markdown: `\n\n${"x".repeat(PAGE_SCOUT_MAX_CONTENT_CHARS)} \t\n\n`,
+        source_url: "https://example.com/policy",
+        fetched_at: "2026-09-14T00:00:00Z",
+      }),
+      hasCurrentCanonicalBaseline: async () => false,
+      now: () => "2026-09-14T00:00:00Z",
+    },
+  );
+  assertEquals(established, true);
+  assertEquals(inserts.map((entry) => entry.table), ["raw_captures"]);
+  assertEquals(
+    (updates[0].payload as Record<string, unknown>).baseline_established_at,
+    "2026-09-14T00:00:00Z",
+  );
+});
+
+Deno.test("Page baseline archive skips invalid detection without snapshot or trust work", async () => {
+  const { svc, inserts, updates } = createFakeSvc();
+  let captureCalls = 0;
+  let trustCalls = 0;
+  const outcome = await captureWebBaselineSnapshot(
+    svc as unknown as SupabaseClient,
+    { id: "s1", user_id: "u1", url: "https://example.com/policy" },
+    {
+      scrape: async () => ({
+        markdown: "Not found",
+        status_code: 404,
+        source_url: "https://example.com/policy",
+        fetched_at: "2026-09-14T00:00:00Z",
+      }),
+      now: () => "2026-09-14T00:00:00Z",
+      resolveArchiveGate: async () => true,
+      performArchiveCapture: async () => {
+        captureCalls++;
+        throw new Error("invalid page must not be archived as a baseline");
+      },
+      applyTrustLayer: async () => {
+        trustCalls++;
+        throw new Error("invalid page must not be trusted");
+      },
+    },
+  );
+  assertEquals(outcome, null);
+  assertEquals(captureCalls, 0);
+  assertEquals(trustCalls, 0);
+  assertEquals(inserts, []);
+  assertEquals(updates, []);
 });

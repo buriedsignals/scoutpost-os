@@ -217,7 +217,8 @@ Envelope (additive on every probe response, and the whole 422 body):
 ```
 
 `error_code` enum: `unreachable`, `blocked`, `empty_content`,
-`outside_configured_page` (web reach); `no_meetings_detected` (civic detect —
+`outside_configured_page`, `page_too_long` (web reach; the size limit is 150,000
+normalized extracted characters); `no_meetings_detected` (civic detect —
 an *outcome*, not an error: `candidates` lists listing pages with
 `documents_visible ≥ 1`, `recommended:true` on the best); `no_documents`,
 `parse_failed`, `model_failed` (civic sample); `criteria_not_met` (web,

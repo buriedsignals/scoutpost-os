@@ -5,14 +5,101 @@ import {
 import {
   buildPageContentDiff,
   decidePageScoutAlert,
+  isPageScoutContentTooLong,
+  PAGE_SCOUT_MAX_CONTENT_CHARS,
   pageTargetErrorMessage,
+  validatePageResponse,
 } from "./page_scout_change.ts";
+
+Deno.test("Page size gate includes the boundary without invalidating larger historical captures", () => {
+  const atLimit = "x".repeat(PAGE_SCOUT_MAX_CONTENT_CHARS);
+  assertEquals(isPageScoutContentTooLong(atLimit), false);
+  assertEquals(isPageScoutContentTooLong(`${atLimit}x`), true);
+  assertEquals(validatePageResponse({ markdown: `${atLimit}x` }).valid, true);
+  assertEquals(isPageScoutContentTooLong(null), false);
+  assertEquals(isPageScoutContentTooLong(undefined), false);
+});
+
+Deno.test("Page size gate counts canonical extracted content rather than asset URLs and whitespace", () => {
+  const atLimit = "x".repeat(PAGE_SCOUT_MAX_CONTENT_CHARS);
+  const padded = `\n\n![](${`https://cdn.test/${
+    "asset".repeat(1000)
+  }.png`})\n\n${atLimit} \t\r\n\n`;
+  assertEquals(isPageScoutContentTooLong(padded), false);
+  assertEquals(isPageScoutContentTooLong(`${padded}x`), true);
+});
 
 Deno.test("Page target status rejects error pages without relabeling success", () => {
   assertEquals(pageTargetErrorMessage(200), null);
   assertEquals(pageTargetErrorMessage(undefined), null);
   assertEquals(pageTargetErrorMessage(404), "page returned HTTP 404");
   assertEquals(pageTargetErrorMessage(503), "page returned HTTP 503");
+});
+
+Deno.test("saved Meta diagnostic documents are invalid with or without target status", () => {
+  // Saved captures 74a9cfef-356e-4942-8740-b855a82c0671 and
+  // 7c485e40-1e5e-410d-b77e-312b6cbae0a0: second has a tracking image.
+  const body =
+    "[![Meta](https://static.xx.fbcdn.net/rsrc.php/y9/r/tL_v571NdZ0.svg)](https://transparency.meta.com/)\nThis page isn't available\nThe link may be broken, or the page may have been removed. Check to see if the link you're trying to open is correct.\n[Back to Transparency Center](https://transparency.meta.com/)\n";
+  assertEquals(validatePageResponse({ markdown: body }).outcome, "error_page");
+  assertEquals(
+    validatePageResponse({
+      markdown: body +
+        "![](https://scontent.xx.fbcdn.net/hads-ak-prn2/1487645_6012475414660_1439393861_n.png)\n",
+      status_code: 200,
+    }).outcome,
+    "error_page",
+  );
+  assertEquals(
+    validatePageResponse({ markdown: body, status_code: 404 }).outcome,
+    "target_http_error",
+  );
+});
+
+Deno.test("Page validity accepts short legitimate pages and quoted unavailable text", () => {
+  assertEquals(validatePageResponse({ markdown: "OK" }).valid, true);
+  assertEquals(
+    validatePageResponse({
+      markdown:
+        "# Investigating broken links\nThe notice reads:\n> This page isn't available\n> The link may be broken, or the page may have been removed. Check to see if the link you're trying to open is correct.\n\nThe policy is still enforced.",
+      status_code: 200,
+    }).valid,
+    true,
+  );
+  assertEquals(
+    validatePageResponse({
+      markdown: 'This article discusses the message "page unavailable".',
+    }).valid,
+    true,
+  );
+  assertEquals(
+    validatePageResponse({
+      markdown:
+        "This page isn't available\nThe link may be broken, or the page may have been removed. Check to see if the link you're trying to open is correct.\n\nHere is our analysis of this notice.",
+    }).valid,
+    true,
+  );
+  assertEquals(
+    validatePageResponse({ markdown: " \n " }).outcome,
+    "empty_content",
+  );
+});
+
+Deno.test("Page response validity retains configured redirect policy", () => {
+  assertEquals(
+    validatePageResponse({
+      markdown: "OK",
+      source_url: "https://example.test/news/",
+    }, "https://example.test/news").valid,
+    true,
+  );
+  assertEquals(
+    validatePageResponse({
+      markdown: "OK",
+      source_url: "https://example.test/other",
+    }, "https://example.test/news").outcome,
+    "outside_configured_page",
+  );
 });
 
 Deno.test("buildPageContentDiff ignores canonicalized technical noise", () => {

@@ -130,6 +130,11 @@ assumptions:
   visible date near the top of scraped markdown second, and the search hit date
   last. Known dates older than the 28-day relaxed window are rejected after
   rendering; preview applies the same check to dates found during extraction.
+- If every readable source is excluded as stale and no retrieval failed, the run
+  succeeds with zero units and no alert; its pre-charge is refunded. A baseline
+  run becomes ready. If no fresh source remains and any retrieval failed, the
+  run fails with the actual retrieval errors. An all-query search outage also
+  fails during baseline initialization and cannot establish readiness.
 - **Homepage/index rejection**: bare `/`, `/blog`, `/news` etc. are dropped (`is_index_or_homepage`)
 - **Standing page rejection**: institutional/section pages with short paths and no numeric IDs (`is_likely_standing_page`) — catches gov landing pages, stats dashboards, agenda indexes
 - Removes exact duplicate URLs from multiple queries
@@ -222,7 +227,7 @@ asserts Crawl4AI actually served and retrieval was `firecrawl`.
 This split is intentional. Hosting Firecrawl itself would add a broader AGPL
 service and would still require a separately operated search backend for
 self-hosted search. Crawl4AI gives Scoutpost a narrow, controllable renderer;
-Firecrawl Cloud supplies managed search and the classified anti-bot fallback.
+Firecrawl Cloud supplies managed search and one bounded fallback for classified anti-bot failures or typed, retry-exhausted navigation timeouts, within the original deadline.
 See `docs/architecture/retrieval-ports.md`.
 
 ## Search Relevance Guardrails

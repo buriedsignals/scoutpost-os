@@ -4,6 +4,7 @@ import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlsplit
 
 _seen: dict[str, int] = {}
@@ -55,6 +56,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "http://169.254.169.254/latest/meta-data/")
             self.end_headers()
             return
+        if path in ("/download/pdf", "/download/octet"):
+            pdf_path = os.environ.get("DOWNLOAD_FIXTURE_PDF")
+            if not pdf_path:
+                self._send(503, b"Set DOWNLOAD_FIXTURE_PDF to an owned text PDF", "text/plain")
+                return
+            self._send(
+                200,
+                Path(pdf_path).read_bytes(),
+                "application/pdf" if path.endswith("/pdf") else "application/octet-stream",
+                attachment=True,
+            )
+            return
+        if path == "/download/unsupported":
+            self._send(200, b"MZ unsupported download fixture", "application/octet-stream", attachment=True)
+            return
         self._send(200, _stable, "text/html; charset=utf-8")
 
     def _first(self, key: str) -> bool:
@@ -63,10 +79,14 @@ class Handler(BaseHTTPRequestHandler):
             _seen[key] = count + 1
             return count == 0
 
-    def _send(self, status: int, body: bytes, content_type: str) -> None:
+    def _send(
+        self, status: int, body: bytes, content_type: str, *, attachment: bool = False
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if attachment:
+            self.send_header("Content-Disposition", 'attachment; filename="owned-fixture"')
         self.end_headers()
         try:
             self.wfile.write(body)

@@ -207,6 +207,7 @@ export type ProbeErrorCode =
 	| 'blocked'
 	| 'empty_content'
 	| 'outside_configured_page'
+	| 'page_too_long'
 	| 'no_meetings_detected'
 	| 'no_documents'
 	| 'parse_failed'

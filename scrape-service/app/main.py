@@ -27,7 +27,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from .config import Settings, load_settings
-from .crawl_runner import CrawlResultError, execute_crawl
+from .crawl_runner import DownloadResponseError, classify_failure, execute_crawl
 from .network_policy import guarded_egress
 from .openrouter_pdf import (
     OPENROUTER_INLINE_MAX_BYTES,
@@ -35,6 +35,7 @@ from .openrouter_pdf import (
     transcribe_pdf,
 )
 from .pdfparse import (
+    InvalidPdfError,
     NeedsOcrError,
     NotAPdfError,
     PdfDownloadError,
@@ -101,6 +102,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     pool_size=resolved.browser_pool_size,
                     proxy_server=proxy_server,
                 )
+            if proxy_server and app.state.http_client is default_http_client:
+                # Download inspection must use the same DNS-pinned egress as
+                # navigation, not a second unguarded connection after DNS checks.
+                headers = default_http_client.headers
+                await default_http_client.aclose()
+                app.state.http_client = httpx.AsyncClient(
+                    proxy=proxy_server, headers=headers
+                )
             try:
                 yield
             finally:
@@ -139,6 +148,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         }
     )
+    default_http_client = app.state.http_client
 
     def require_token(
         request: Request,
@@ -227,6 +237,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     body.url,
                     timeout_ms=timeout_ms,
                     snapshot=body.snapshot,
+                    pdf_client=request.app.state.http_client,
+                    settings=cfg,
                 )
                 # The browser proxy blocks unsafe destinations before connect;
                 # this final check also prevents an invalid effective URL from
@@ -236,10 +248,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except asyncio.TimeoutError:
                 raise HTTPException(
                     status_code=504,
-                    detail=f"scrape timed out after {timeout_ms}ms",
+                    detail={"error": "navigation_timeout", "message": f"scrape timed out after {timeout_ms}ms"},
                 )
-            except CrawlResultError as e:
-                raise HTTPException(status_code=502, detail=f"scrape failed: {e}")
+            except NeedsOcrError as e:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "needs_ocr", "pages": e.pages, "chars": e.chars,
+                        "reason": e.reason, "message": str(e),
+                    },
+                )
+            except PdfTooLargeError:
+                raise HTTPException(status_code=413, detail={"error": "pdf_too_large"})
+            except NotAPdfError:
+                raise HTTPException(status_code=415, detail={"error": "not_a_pdf"})
+            except DownloadResponseError as e:
+                raise HTTPException(
+                    status_code=e.status_code,
+                    detail={"error": "document_download_timeout" if e.status_code == 504 else "unsupported_document", "message": str(e)},
+                )
             except PrivateAddressError:
                 raise HTTPException(
                     status_code=422,
@@ -255,6 +282,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     status_code=502, detail=f"crawl result mapping failed: {e}"
                 )
             except Exception as e:  # crawl4ai raises library-specific errors
+                failure = classify_failure("", e)
+                if failure["error_class"] == "timeout":
+                    raise HTTPException(
+                        status_code=504,
+                        detail={"error": "navigation_timeout", "message": f"scrape failed: {e}"},
+                    )
                 raise HTTPException(status_code=502, detail=f"scrape failed: {e}")
         finally:
             slots.release()
@@ -309,6 +342,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except OpenRouterParseError as e:
             # Fallback transcription itself failed → treat as an upstream 502.
             raise HTTPException(status_code=502, detail=e.detail)
+        except InvalidPdfError as e:
+            raise HTTPException(status_code=422, detail=e.detail)
         except PdfDownloadError as e:
             raise HTTPException(status_code=502, detail=e.detail)
         return {

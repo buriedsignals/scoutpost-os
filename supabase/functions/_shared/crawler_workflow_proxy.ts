@@ -3,6 +3,7 @@ import { cleanupCrawlerResults, loadCrawlerResult } from "./crawler_results.ts";
 import { internalServiceAuthHeaders } from "./auth.ts";
 import { getServiceRoleKey, getSupabaseUrl } from "./supabase.ts";
 import type { SupabaseClient } from "./supabase.ts";
+import { crawlerFallbackReason } from "./scrape_fallback.ts";
 
 export type ProxyOperation = "scrape" | "snapshot" | "parse_pdf";
 export type ProxyWorkloadClass = "scout" | "utility" | "system";
@@ -15,6 +16,8 @@ interface StoredProxyJob {
   id: string;
   status: string;
   error_class: string | null;
+  attempts?: number;
+  max_attempts?: number;
   error_message: string | null;
   result_manifest: Record<string, unknown> | null;
 }
@@ -37,7 +40,6 @@ interface ProxyDeps {
     manifest: Record<string, unknown> | null,
     operation: ProxyOperation,
   ): Promise<Record<string, unknown>>;
-  cleanup(job: StoredProxyJob): Promise<void>;
   sleep(ms: number): Promise<void>;
   now(): number;
 }
@@ -81,24 +83,46 @@ export async function executeCrawlerProxy(
         current.result_manifest,
         input.operation,
       );
-      await deps.cleanup(current);
       return result;
     }
+    if (current.status === "cancelled") {
+      throw new CrawlerProxyError("crawler job cancelled", 409);
+    }
     if (current.status === "fallback_required") {
+      const reason = crawlerFallbackReason(
+        input.operation,
+        current.error_class,
+        current.attempts ?? 0,
+        current.max_attempts ?? 3,
+      );
+      if (!reason) {
+        throw new CrawlerProxyError(
+          "crawler fallback reason is ineligible",
+          502,
+        );
+      }
       const completed = await svc.rpc("complete_crawler_fallback", {
         p_job_id: current.id,
         p_ok: false,
         p_manifest: null,
-        p_error: "anti-bot fallback delegated to scrape caller",
+        p_error: reason === "anti_bot"
+          ? "anti-bot fallback delegated to scrape caller"
+          : "timeout-exhausted fallback delegated to scrape caller",
       });
       if (completed.error || completed.data !== true) {
         throw new CrawlerProxyError("crawler fallback handoff failed", 500);
       }
-      throw new CrawlerProxyError(
-        "scrape blocked by anti-bot protection",
-        502,
-        "scrape failed: Blocked by anti-bot protection",
-      );
+      throw reason === "timeout_exhausted"
+        ? new CrawlerProxyError("primary navigation retries exhausted", 504, {
+          error: "primary_timeout_exhausted",
+          attempts: current.attempts,
+          max_attempts: current.max_attempts,
+        })
+        : new CrawlerProxyError(
+          "scrape blocked by anti-bot protection",
+          502,
+          "scrape failed: Blocked by anti-bot protection",
+        );
     }
     if (!ACTIVE.has(current.status)) {
       throw terminalFailure(current, input.operation);
@@ -175,7 +199,9 @@ function proxyDeps(
     dispatch: triggerImmediateCrawlerDispatch,
     load: async (jobId) => {
       const { data, error } = await svc.from("crawler_jobs")
-        .select("id,status,error_class,error_message,result_manifest")
+        .select(
+          "id,status,error_class,error_message,result_manifest,attempts,max_attempts",
+        )
         .eq("id", jobId)
         .single();
       if (error || !data) throw new Error("crawler proxy job lookup failed");
@@ -183,7 +209,6 @@ function proxyDeps(
     },
     loadResult: (manifest, operation) =>
       loadCrawlerResult(svc, manifest, operation),
-    cleanup: (job) => cleanupCrawlerResults(svc, [job]),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now: () => Date.now(),
     ...overrides,
@@ -219,6 +244,25 @@ function terminalFailure(
   operation: ProxyOperation,
 ): CrawlerProxyError {
   const message = job.error_message || job.error_class || "crawler job failed";
+  if (operation === "scrape" && job.error_class === "terminal") {
+    if (message.startsWith("document_download_timeout:")) {
+      return new CrawlerProxyError(message, 504, {
+        error: "document_download_timeout",
+      });
+    }
+    if (message === "pdf_too_large") {
+      return new CrawlerProxyError(message, 413, { error: "pdf_too_large" });
+    }
+    if (message === "not_a_pdf" || message.startsWith("document_download_")) {
+      return new CrawlerProxyError(
+        message,
+        message === "not_a_pdf" ? 415 : 422,
+        {
+          error: "unsupported_document",
+        },
+      );
+    }
+  }
   if (operation === "parse_pdf") {
     const needsOcr = /needs_ocr:\s*(\d+) chars over (\d+) pages/i.exec(message);
     if (needsOcr) {

@@ -264,7 +264,7 @@
           "scouts"
         ],
         "summary": "Probe a Page (web) scout URL without creating it (establishes no baseline)",
-        "description": "Step 1 (reach) for Page scouts. One fresh scrape plus an optional criteria check. `scraper_status:false` maps to `unreachable`, `blocked`, `empty_content` or `outside_configured_page` — the same codes POST /scouts returns as 422 for the same URL. `criteria_status:false` with criteria supplied maps to advisory `criteria_not_met` while `ok` stays true.",
+        "description": "Step 1 (reach) for Page scouts. One fresh scrape plus an optional criteria check. `scraper_status:false` maps to `unreachable`, `blocked`, `empty_content`, `outside_configured_page` or `page_too_long` — the same codes POST /scouts returns as 422 for the same URL. Pages above 150,000 characters of normalized extracted Markdown are rejected; choose a shorter or more specific page. `criteria_status:false` with criteria supplied maps to advisory `criteria_not_met` while `ok` stays true.",
         "requestBody": {
           "required": true,
           "content": {
@@ -2950,6 +2950,7 @@
           "blocked",
           "empty_content",
           "outside_configured_page",
+          "page_too_long",
           "no_meetings_detected",
           "no_documents",
           "parse_failed",

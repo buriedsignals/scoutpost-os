@@ -14,6 +14,12 @@
  *     `candidates`, never as an error panel.
  */
 
+import {
+  isPageScoutContentTooLong,
+  PAGE_SCOUT_CONTENT_TOO_LONG_MESSAGE,
+  type PageResponseInput,
+  validatePageResponse,
+} from "./page_scout_change.ts";
 export type ProbeStage = "reach" | "detect" | "sample";
 
 export type ProbeErrorCode =
@@ -21,6 +27,7 @@ export type ProbeErrorCode =
   | "blocked"
   | "empty_content"
   | "outside_configured_page"
+  | "page_too_long"
   | "no_meetings_detected"
   | "no_documents"
   | "parse_failed"
@@ -32,6 +39,7 @@ export const PROBE_ERROR_CODES: readonly ProbeErrorCode[] = [
   "blocked",
   "empty_content",
   "outside_configured_page",
+  "page_too_long",
   "no_meetings_detected",
   "no_documents",
   "parse_failed",
@@ -54,6 +62,7 @@ const PROBE_MESSAGES: Record<ProbeErrorCode, string> = {
   outside_configured_page:
     "The page redirected to a different address. Enter the final address " +
     "of the page you want to monitor.",
+  page_too_long: PAGE_SCOUT_CONTENT_TOO_LONG_MESSAGE,
   no_meetings_detected:
     "No council meetings were detected on this website. Choose one of the " +
     "suggested pages, or enter the page that lists individual meetings " +
@@ -134,6 +143,25 @@ export function classifyScrapeError(
   opts: { antiBot: (e: unknown) => boolean },
 ): Extract<ProbeErrorCode, "blocked" | "unreachable"> {
   return opts.antiBot(error) ? "blocked" : "unreachable";
+}
+
+/** Page-only reach gate. Civic probes keep their existing outcome contract. */
+export function pageResponseProbeFailure(
+  response: PageResponseInput,
+  configuredUrl: string,
+): ProbeNotOk | null {
+  const validation = validatePageResponse(response, configuredUrl);
+  if (validation.valid) {
+    return isPageScoutContentTooLong(response.markdown)
+      ? probeFailure("reach", "page_too_long")
+      : null;
+  }
+  const code = validation.outcome === "outside_configured_page"
+    ? "outside_configured_page"
+    : validation.outcome === "empty_content"
+    ? "empty_content"
+    : "unreachable";
+  return probeFailure("reach", code, validation.message ?? undefined);
 }
 
 /** HTTP status used when the create gate rejects a scout. */

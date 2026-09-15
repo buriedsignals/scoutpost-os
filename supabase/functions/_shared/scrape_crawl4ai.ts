@@ -60,6 +60,9 @@ export async function crawl4aiScrape(
         "Content-Type": "application/json",
         "X-Scoutpost-Workload-Class": opts.workloadClass ?? "system",
         ...crawlerProxyTenantHeaders(base, opts.tenantKey),
+        ...(opts.requestId && isCrawlerWorkflowProxyBase(base)
+          ? { "X-Scoutpost-Proxy-Request-Id": opts.requestId }
+          : {}),
       },
       body: JSON.stringify({
         url,
@@ -69,13 +72,14 @@ export async function crawl4aiScrape(
       signal: ac.signal,
     });
     if (!res.ok) {
-      // Match the Firecrawl provider exactly: every non-OK upstream response
-      // (including an upstream 504 body) maps to ApiError(502); only a
-      // client-side abort maps to 504.
-      throw new ApiError(
-        `crawl4ai scrape failed: ${res.status} ${await res.text()}`,
-        502,
-      );
+      const text = await res.text();
+      let detail: unknown;
+      try {
+        detail = JSON.parse(text)?.detail;
+      } catch {
+        detail = null;
+      }
+      throw scrapeResponseError(res.status, detail, text);
     }
     // Keep the fuse alive while a Workflow response streams heartbeats.
     d = await res.json();
@@ -92,11 +96,10 @@ export async function crawl4aiScrape(
   }
   const proxyError = readCrawlerProxyError(d);
   if (proxyError) {
-    throw new ApiError(
-      `crawl4ai scrape failed: ${proxyError.status} ${
-        JSON.stringify(proxyError.detail)
-      }`,
-      502,
+    throw scrapeResponseError(
+      proxyError.status,
+      proxyError.detail,
+      JSON.stringify(proxyError.detail),
     );
   }
   const metadata = (d.metadata ?? {}) as Record<string, unknown>;
@@ -150,6 +153,25 @@ export async function crawl4aiScrape(
       }
       : {}),
   };
+}
+
+function scrapeResponseError(
+  status: number,
+  detail: unknown,
+  text: string,
+): ApiError {
+  const code = detail && typeof detail === "object"
+    ? (detail as Record<string, unknown>).error
+    : undefined;
+  return new ApiError(
+    `crawl4ai scrape failed: ${status} ${text}`,
+    [413, 415, 422].includes(status) ? status : 502,
+    code === "primary_timeout_exhausted" || code === "navigation_timeout"
+      ? code
+      : code === "document_download_timeout" || [413, 415, 422].includes(status)
+      ? "unsupported_document"
+      : undefined,
+  );
 }
 
 function comparisonStrategy(

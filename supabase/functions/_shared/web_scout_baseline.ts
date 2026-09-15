@@ -23,11 +23,15 @@ import {
   extractSubpageLinksFromHtml,
   extractSubpageLinksFromMarkdown,
   filterSubpageUrls,
-  isConfiguredPageUrl,
   primaryContentHtml,
   selectPrimarySubpageLinks,
 } from "./subpage-filter.ts";
 import { capPageScoutCandidates } from "./page_scout_schedule.ts";
+import {
+  isPageScoutContentTooLong,
+  PAGE_SCOUT_CONTENT_TOO_LONG_MESSAGE,
+  validatePageResponse,
+} from "./page_scout_change.ts";
 
 export interface WebBaselineScout {
   id: string;
@@ -127,16 +131,12 @@ export async function establishWebBaseline(
         tenantKey: scout.user_id,
       },
     );
-    if (!isConfiguredPageUrl(scrape.source_url ?? scout.url, scout.url)) {
-      throw new ValidationError(
-        "page baseline scrape resolved outside the configured URL",
-      );
+    const validation = validatePageResponse(scrape, scout.url);
+    if (!validation.valid) {
+      throw new ValidationError(validation.message!);
     }
-    const markdown = scrape.markdown?.trim() ?? "";
-    if (!markdown) {
-      throw new ValidationError(
-        "unable to establish page baseline from empty content",
-      );
+    if (isPageScoutContentTooLong(scrape.markdown)) {
+      throw new ValidationError(PAGE_SCOUT_CONTENT_TOO_LONG_MESSAGE);
     }
     const comparison = webComparisonContent(scrape);
     await writeCanonicalBaseline(svc, {
@@ -148,6 +148,8 @@ export async function establishWebBaseline(
       comparisonStrategy: comparison.strategy,
       scoutRunId,
       now: deps.now(),
+      validityMode: "page",
+      pageResponse: scrape,
     });
     await persistBaselineMembership(
       svc,
@@ -278,16 +280,16 @@ export async function captureWebBaselineSnapshot(
     return null;
   }
 
-  const markdown = detection.markdown?.trim() ?? "";
-  if (!markdown) return null;
-  if (!isConfiguredPageUrl(detection.source_url ?? scout.url, scout.url)) {
+  const validation = validatePageResponse(detection, scout.url);
+  if (!validation.valid) {
     logEvent({
       level: "warn",
       fn: "web-scout-baseline",
-      event: "baseline_capture_out_of_scope",
+      event: "baseline_capture_invalid_response",
       scout_id: scout.id,
       requested_url: scout.url,
       effective_url: detection.source_url ?? scout.url,
+      validation_outcome: validation.outcome,
     });
     return null;
   }

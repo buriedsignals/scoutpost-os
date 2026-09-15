@@ -6,17 +6,24 @@ Self-hosted replacement for Firecrawl scrape + PDF parse
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
-| `POST /scrape` `{url, timeout_ms?}` | Bearer | Playwright render → `ScrapeResult` JSON (KTD2 mapping, server-side), including a quality-gated semantic-main comparison projection when available |
+| `POST /scrape` `{url, timeout_ms?}` | Bearer | Playwright render → `ScrapeResult` JSON, including a quality-gated semantic-main projection when available. A browser download signal makes one guarded PDF-parser transition instead of repeating navigation. |
 | `POST /parse` `{url}` | Bearer | PDF → deterministic text via `pdftotext -layout` (`parser:"pdftotext"`). Low-yield/scanned docs fall back to Google Vertex native-PDF transcription through OpenRouter when `OPENROUTER_API_KEY` is set (`parser:"openrouter"`), else `422 {error:"needs_ocr"}` |
 | `GET /health` | none | `{status, browser: warm\|cold, pdf_ocr}` — Render health checks cannot send headers |
 
-Error taxonomy (mirrors `_shared/scrape.ts`): upstream failure → 502,
-timeout → 504, scanned PDF → 422, oversized → 413, non-PDF → 415, bad token → 401.
+Error taxonomy: upstream failure → 502, typed `navigation_timeout` → 504,
+scanned/unsupported PDF → 422, oversized → 413, non-PDF → 415, bad token → 401.
+`document_download_timeout` also returns 504 but is terminal document processing,
+not a navigation timeout eligible for primary retry or Firecrawl recovery.
 
 `markdown` always contains the complete renderer output. For substantial
 `main`, `[role=main]`, or single/dominant `article` landmarks, the response also
 sets `comparison_markdown`, `comparison_strategy`, and `comparison_ratio`.
 Otherwise `comparison_markdown` is null and `comparison_strategy` is `full`.
+
+Downloaded PDFs return the same `ScrapeResult` shape: extracted text in
+`markdown`, null HTML fields, and `metadata.document` with PDF type, page count,
+character count and parser. This includes extensionless download URLs. The
+parser retains redirect/DNS safety, byte limits and a bounded download deadline.
 
 ## Env
 

@@ -29,6 +29,117 @@ def test_scrape_happy_path(app):
     assert fake.calls == [("https://example.org", 25_000)]
 
 
+def test_library_navigation_timeout_keeps_the_retryable_http_code(app):
+    app.state.scraper = FakeScraper(exc=RuntimeError("Page.goto: Timeout 25000ms exceeded"))
+    response = TestClient(app).post(
+        "/scrape", json={"url": "https://example.org"}, headers=auth_headers()
+    )
+    assert response.status_code == 504
+    assert response.json()["detail"]["error"] == "navigation_timeout"
+
+
+def test_scrape_download_returns_scrape_schema_and_parse_retains_parse_schema(app):
+    from tests.conftest import TEXT_PDF, mock_http_client
+
+    app.state.scraper = FakeScraper(exc=RuntimeError("Page.goto: Download is starting"))
+    app.state.http_client = mock_http_client(
+        lambda _request: httpx.Response(
+            200, content=TEXT_PDF, headers={"content-type": "application/octet-stream"}
+        )
+    )
+    client = TestClient(app)
+    scrape = client.post(
+        "/scrape", json={"url": "https://example.org/download"}, headers=auth_headers()
+    )
+    parse = client.post(
+        "/parse", json={"url": "https://example.org/download"}, headers=auth_headers()
+    )
+    assert scrape.status_code == 200 and parse.status_code == 200
+    scraped, parsed = scrape.json(), parse.json()
+    assert "Council meeting minutes" in scraped["markdown"]
+    assert scraped["markdown"] == parsed["markdown"]
+    assert scraped["metadata"]["document"]["pages"] == parsed["pages"]
+    assert scraped["rawHtml"] is None and scraped["html"] is None
+    assert scraped["requested_url"] == "https://example.org/download"
+    assert set(parsed) == {"markdown", "pages", "chars", "parser", "source_url"}
+    assert len(app.state.scraper.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("document", "settings", "status", "error"),
+    [
+        ("unsupported", {}, 415, "not_a_pdf"),
+        ("oversized", {"parse_max_pdf_bytes": 10}, 413, "pdf_too_large"),
+        ("scanned", {}, 422, "needs_ocr"),
+        ("malformed", {}, 422, "document_download_failed"),
+        ("timeout", {}, 504, "download timed out"),
+    ],
+)
+def test_scrape_download_errors_keep_actionable_http_statuses(document, settings, status, error):
+    from tests.conftest import EMPTY_PDF, TEXT_PDF, mock_http_client
+
+    def handler(_request):
+        if document == "timeout":
+            raise httpx.ReadTimeout("timed out")
+        return httpx.Response(
+            200,
+            content={
+                "unsupported": b"<html>not a document</html>",
+                "oversized": TEXT_PDF,
+                "scanned": EMPTY_PDF,
+                "malformed": b"%PDF broken",
+            }[document],
+            headers={"content-type": "application/pdf"},
+        )
+
+    app = create_app(make_settings(**settings))
+    app.state.scraper = FakeScraper(exc=RuntimeError("Page.goto: Download is starting"))
+    app.state.http_client = mock_http_client(handler)
+    response = TestClient(app).post(
+        "/scrape", json={"url": "https://example.org/download"}, headers=auth_headers()
+    )
+    assert response.status_code == status
+    assert error in str(response.json()["detail"])
+    assert len(app.state.scraper.calls) == 1
+
+
+def test_scrape_download_snapshot_is_not_misrepresented_as_an_archive(app):
+    from tests.conftest import mock_http_client
+
+    def unexpected(_request):
+        raise AssertionError("snapshot rejection must not download or invoke OCR")
+
+    app.state.scraper = FakeScraper(exc=RuntimeError("Page.goto: Download is starting"))
+    app.state.http_client = mock_http_client(unexpected)
+    response = TestClient(app).post(
+        "/scrape",
+        json={"url": "https://example.org/download", "snapshot": True},
+        headers=auth_headers(),
+    )
+    assert response.status_code == 422
+
+
+def test_download_http_client_blocks_rebinding_at_the_proxy(monkeypatch):
+    from app import network_policy
+
+    # Initial public-host checks pass, but the destination becomes private
+    # when the actual connect is resolved. No connection to that IP may occur.
+    def rebound_addresses(_host, port=None):
+        return {"93.184.216.34"} if port is None else {"169.254.169.254"}
+
+    monkeypatch.setattr(pdfparse, "resolve_addresses", rebound_addresses)
+    monkeypatch.setattr(network_policy, "resolve_addresses", rebound_addresses)
+    app = create_app(make_settings())
+    app.state.scraper = FakeScraper(exc=RuntimeError("Page.goto: Download is starting"))
+    with TestClient(app) as client:
+        response = client.post(
+            "/scrape", json={"url": "https://council.example/download"}, headers=auth_headers()
+        )
+        assert response.status_code == 422
+        assert app.state.egress_stats.blocked == 1
+        assert app.state.egress_stats.allowed == 0
+
+
 def test_operation_counter_is_content_free(app, caplog):
     app.state.scraper = FakeScraper(result=crawl_result())
     secret_url = "https://example.org/private-user-path"
@@ -93,7 +204,7 @@ def test_scrape_timeout_maps_to_504(app):
         "/scrape", json={"url": "https://example.org"}, headers=auth_headers()
     )
     assert res.status_code == 504
-    assert "timed out" in res.json()["detail"]
+    assert res.json()["detail"]["error"] == "navigation_timeout"
 
 
 def test_scrape_library_error_maps_to_502(app):

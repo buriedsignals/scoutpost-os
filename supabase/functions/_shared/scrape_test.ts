@@ -763,3 +763,43 @@ Deno.test("isTransientScrapeError classifies retryable failures for both provide
   );
   assertEquals(isTransientScrapeError("plain string error"), false);
 });
+
+Deno.test("an exhausted original deadline prevents any provider request", async () => {
+  let calls = 0;
+  await assertRejects(() =>
+    scrapePrimaryPageResilient({
+      url: "https://example.com",
+      deadlineMs: Date.now() - 1,
+      deps: {
+        scrape: () => {
+          calls++;
+          return Promise.resolve(scrapeResult("unexpected"));
+        },
+      },
+    }), ApiError);
+  assertEquals(calls, 0);
+});
+
+Deno.test("a terminal document error during the split stage stops further retrieval", async () => {
+  let calls = 0;
+  await assertRejects(() =>
+    scrapePrimaryPageResilient({
+      url: "https://example.com",
+      retryDelayMs: 0,
+      deps: {
+        scrape: () => {
+          calls++;
+          return Promise.reject(
+            calls < 3
+              ? new ApiError("crawl4ai scrape failed: 503", 503)
+              : new ApiError(
+                "unsupported document",
+                415,
+                "unsupported_document",
+              ),
+          );
+        },
+      },
+    }), ApiError);
+  assertEquals(calls, 3);
+});

@@ -27,7 +27,7 @@ import { handleCors } from "../_shared/cors.ts";
 import { requireServiceKey } from "../_shared/auth.ts";
 import { getServiceClient, SupabaseClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
-import { NotFoundError, ValidationError } from "../_shared/errors.ts";
+import { ApiError, NotFoundError, ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { scrape, scrapeProvider } from "../_shared/scrape.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
@@ -408,6 +408,61 @@ async function execute(
     }
   }
 
+  // Empty discovery and readable-but-stale retrieval are both non-billable
+  // no-match outcomes. Neither establishes readiness after a provider failure.
+  async function finishEmptyRun(
+    sourcesScraped: number,
+    note: string,
+  ): Promise<Response> {
+    if (baselineOnly) {
+      const { error } = await db
+        .from("scouts")
+        .update({ baseline_established_at: new Date().toISOString() })
+        .eq("id", scoutId);
+      if (error) throw new Error(error.message);
+    }
+    await markRunSuccess(db, runId, {
+      unitsCreated: 0,
+      unitsMerged: 0,
+      criteriaStatus: false,
+      notificationStatus: baselineOnly ? "not_applicable" : "skipped",
+      sourcesScraped,
+      sourcesFailed: 0,
+    });
+    if (chargedCredits) {
+      await refundCredits(db, {
+        userId: scout.user_id as string,
+        cost: CREDIT_COSTS.beat,
+        scoutId,
+        scoutType: "beat",
+        operation: "beat",
+      });
+      chargedCredits = false;
+    }
+    const { error } = await db.rpc("reset_scout_failures", {
+      p_scout_id: scoutId,
+    });
+    if (error) {
+      logEvent({
+        level: "warn",
+        fn: "scout-beat-execute",
+        event: "reset_failures_failed",
+        scout_id: scoutId,
+        msg: error.message,
+      });
+    }
+    return jsonOk({
+      status: "ok",
+      run_id: runId,
+      sources_scraped: sourcesScraped,
+      sources_failed: 0,
+      articles_count: 0,
+      merged_existing_count: 0,
+      note,
+      baseline_initialized: baselineOnly,
+    });
+  }
+
   try {
     await markRunStage(db, runId, "scrape");
     // --- Stage 0: prepare pipeline inputs ---
@@ -531,7 +586,7 @@ async function execute(
       if (hit.url) beatHitByUrl.set(hit.url, hit);
     }
 
-    if (finalUrls.length === 0 && retrievalSearchErrored && !baselineOnly) {
+    if (finalUrls.length === 0 && retrievalSearchErrored) {
       // Zero URLs because EVERY search query threw — a provider outage (revoked
       // key, Firecrawl down, 429 storm), not a quiet news day. Recording a no-op
       // success here (as the block below does) would make the two
@@ -548,62 +603,16 @@ async function execute(
         run_id: runId,
         retrieval: "firecrawl",
       });
-      await markRunError(db, runId, {
-        stage: "scrape",
-        errorClass: "provider",
-        message: msg,
-      });
-      if (chargedCredits) {
-        await refundCredits(db, {
-          userId: scout.user_id as string,
-          cost: CREDIT_COSTS.beat,
-          scoutId,
-          scoutType: "beat",
-          operation: "beat",
-        });
-      }
-      throw new Error(msg);
+      throw new ApiError(msg, 502);
     }
 
     if (finalUrls.length === 0) {
-      // Empty pipeline outcome (no discovered URLs) — record a no-op success
-      // and refund the pre-charge (matches legacy source behaviour).
-      if (baselineOnly) {
-        const { error: baselineErr } = await db
-          .from("scouts")
-          .update({ baseline_established_at: new Date().toISOString() })
-          .eq("id", scoutId);
-        if (baselineErr) throw new Error(baselineErr.message);
-      }
-      await markRunSuccess(db, runId, {
-        unitsCreated: 0,
-        unitsMerged: 0,
-        criteriaStatus: false,
-        notificationStatus: baselineOnly ? "not_applicable" : "skipped",
-        sourcesScraped: 0,
-        sourcesFailed: 0,
-      });
-      if (chargedCredits) {
-        await refundCredits(db, {
-          userId: scout.user_id as string,
-          cost: CREDIT_COSTS.beat,
-          scoutId,
-          scoutType: "beat",
-          operation: "beat",
-        });
-      }
-      return jsonOk({
-        status: "ok",
-        run_id: runId,
-        sources_scraped: 0,
-        sources_failed: 0,
-        articles_count: 0,
-        merged_existing_count: 0,
-        note: baselineOnly
+      return await finishEmptyRun(
+        0,
+        baselineOnly
           ? "beat baseline initialized with zero discovered sources"
           : "beat pipeline produced zero sources for this query",
-        baseline_initialized: baselineOnly,
-      });
+      );
     }
 
     // --- Stage 2 continuation: bounded full-markdown scrapes ---
@@ -741,14 +750,21 @@ async function execute(
       stale_sources_filtered: staleSourcesFiltered,
     });
 
-    if (succeeded.length === 0) {
-      throw new Error(
-        `all ${attemptedScrapeCount} sources failed: ${
+    if (succeeded.length === 0 && failures.length > 0) {
+      throw new ApiError(
+        `beat retrieval failed: ${failures.length} of ${attemptedScrapeCount} sources failed; ${staleSourcesFiltered} stale sources excluded: ${
           failures
             .map((f) => `${f.url} (${f.error})`)
             .slice(0, 3)
             .join("; ")
         }`,
+        502,
+      );
+    }
+    if (succeeded.length === 0) {
+      return await finishEmptyRun(
+        readableScrapes.length,
+        "beat pipeline found no fresh sources after excluding known stale publications",
       );
     }
 

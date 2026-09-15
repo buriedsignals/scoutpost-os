@@ -1,3 +1,6 @@
+import asyncio
+import sys
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -221,6 +224,34 @@ async def test_run_pdftotext_timeout(monkeypatch):
         await pdfparse.run_pdftotext(TEXT_PDF, timeout_s=0.0001)
 
 
+async def test_cancelling_pdf_conversion_reaps_the_child(monkeypatch):
+    spawn = asyncio.create_subprocess_exec
+    started = asyncio.Event()
+    children = []
+
+    async def slow_converter(*_args, **kwargs):
+        child = await spawn(sys.executable, "-c", "import time; time.sleep(30)", **kwargs)
+        children.append(child)
+        started.set()
+        return child
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", slow_converter)
+    task = asyncio.create_task(pdfparse.run_pdftotext(TEXT_PDF))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert children[0].returncode is not None
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        for child in children:
+            if child.returncode is None:
+                child.kill()
+                await child.wait()
+
+
 async def test_run_pdftotext_bad_input_exits_nonzero():
     # pdftotext -q on garbage: poppler exits 1 with empty output
     with pytest.raises(pdfparse.PdfDownloadError, match="pdftotext exited"):
@@ -369,3 +400,74 @@ def test_download_client_sends_browser_ua(app):
     # council/document hosts 403 library-default agents (observed on U1 smoke):
     # the contract is simply that create_app's client carries a browser UA.
     assert "Mozilla/5.0" in app.state.http_client.headers.get("user-agent", "")
+
+
+def test_encrypted_document_fails_terminally_without_ocr(monkeypatch):
+    from app.main import create_app
+    from tests.conftest import make_settings
+
+    class EncryptedProcess:
+        returncode = 3
+
+        async def communicate(self, _body):
+            return b"", b"Incorrect password"
+
+    async def encrypted_process(*_args, **_kwargs):
+        return EncryptedProcess()
+
+    monkeypatch.setattr(pdfparse.asyncio, "create_subprocess_exec", encrypted_process)
+    app = create_app(make_settings(openrouter_api_key="configured"))
+    fetched = []
+
+    def handler(request):
+        fetched.append(request.url.host)
+        assert request.url.host == "council.example", "encrypted bytes must never reach OCR"
+        return httpx.Response(200, content=TEXT_PDF)
+
+    app.state.http_client = mock_http_client(handler)
+    response = TestClient(app).post(
+        "/parse", json={"url": "https://council.example/encrypted"}, headers=auth_headers()
+    )
+    assert response.status_code == 422
+    assert "Incorrect password" in response.json()["detail"]
+    assert fetched == ["council.example"]
+
+
+async def test_download_total_deadline_bounds_drip_fed_body():
+    import asyncio
+
+    class DripBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"%PDF"
+            while True:
+                await asyncio.sleep(0.01)
+                yield b" "
+
+    async with mock_http_client(
+        lambda _request: httpx.Response(200, stream=DripBody())
+    ) as client:
+        with pytest.raises(pdfparse.PdfTimeoutError, match="download timed out"):
+            await pdfparse.download_pdf(
+                client, "https://council.example/drip", timeout_s=0.05, max_bytes=1000000
+            )
+
+
+async def test_download_stream_limit_aborts_without_content_length():
+    consumed_tail = False
+
+    class OversizedBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            nonlocal consumed_tail
+            yield b"%PDF"
+            yield b"x" * 20
+            consumed_tail = True
+            yield b"unbounded remainder"
+
+    async with mock_http_client(
+        lambda _request: httpx.Response(200, stream=OversizedBody())
+    ) as client:
+        with pytest.raises(pdfparse.PdfTooLargeError):
+            await pdfparse.download_pdf(
+                client, "https://council.example/large", timeout_s=1, max_bytes=10
+            )
+    assert not consumed_tail

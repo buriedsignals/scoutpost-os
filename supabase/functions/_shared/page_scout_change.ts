@@ -1,4 +1,17 @@
 import { canonicalizeWebMarkdown } from "./web_content_canonical.ts";
+import { isConfiguredPageUrl } from "./subpage-filter.ts";
+
+export const PAGE_SCOUT_MAX_CONTENT_CHARS = 150000;
+export const PAGE_SCOUT_CONTENT_TOO_LONG_MESSAGE =
+  "This page exceeds the Page Scout limit of 150,000 characters of normalized " +
+  "extracted text. Choose a shorter or more specific page to monitor.";
+
+export function isPageScoutContentTooLong(
+  markdown: string | null | undefined,
+): boolean {
+  return canonicalizeWebMarkdown(markdown ?? "").length >
+    PAGE_SCOUT_MAX_CONTENT_CHARS;
+}
 
 export type PageScoutAlertMode = "any" | "specific";
 
@@ -55,6 +68,82 @@ export function pageTargetErrorMessage(status: unknown): string | null {
     return null;
   }
   return `page returned HTTP ${status}`;
+}
+
+export const PAGE_RESPONSE_VALIDATION_VERSION = "page-response-v1";
+
+export interface PageResponseInput {
+  markdown?: string | null;
+  status_code?: unknown;
+  source_url?: string | null;
+}
+
+export type PageResponseOutcome =
+  | "valid"
+  | "target_http_error"
+  | "empty_content"
+  | "error_page"
+  | "outside_configured_page";
+
+export interface PageResponseValidation {
+  version: typeof PAGE_RESPONSE_VALIDATION_VERSION;
+  outcome: PageResponseOutcome;
+  valid: boolean;
+  message: string | null;
+}
+
+/**
+ * Validate the complete capture, not the focused comparison projection.
+ * Error-body recognition requires an entire diagnostic document, not a phrase
+ * occurring in an article. Unknown templates remain eligible without a target
+ * failure status; missing legacy status is not evidence of failure.
+ */
+export function validatePageResponse(
+  response: PageResponseInput,
+  configuredUrl?: string,
+): PageResponseValidation {
+  const result = (
+    outcome: PageResponseOutcome,
+    message: string | null,
+  ): PageResponseValidation => ({
+    version: PAGE_RESPONSE_VALIDATION_VERSION,
+    outcome,
+    valid: outcome === "valid",
+    message,
+  });
+  if (
+    configuredUrl &&
+    !isConfiguredPageUrl(response.source_url ?? configuredUrl, configuredUrl)
+  ) {
+    return result(
+      "outside_configured_page",
+      "page scrape resolved outside the configured URL",
+    );
+  }
+  const targetError = pageTargetErrorMessage(response.status_code);
+  if (targetError) return result("target_http_error", targetError);
+  const markdown = response.markdown?.trim() ?? "";
+  if (!markdown) return result("empty_content", "page returned empty content");
+
+  // Ignore standalone image/navigation markup, but never quotes, code fences,
+  // or prose containing links. Remaining text must match the whole template.
+  const body = markdown.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) =>
+      line &&
+      !/^(?:!\[[^\[\]\n]*\]\([^\n()]*\)|\[(?:[^\[\]\n]*|!\[[^\[\]\n]*\]\([^\n()]*\))\]\([^\n()]*\))$/
+        .test(line)
+    )
+    .map((line) => line.replace(/^#{1,6}\s+/, ""))
+    .join(" ").replace(/\s+/g, " ").replace(/’/g, "'");
+  const metaUnavailable =
+    "This page isn't available The link may be broken, or the page may have been removed. Check to see if the link you're trying to open is correct.";
+  const standardNotFound =
+    /^(?:404(?: Error)?[: -]*Not Found|Not Found) The requested URL(?: [^\s]+)? was not found on this server\.?$/i;
+  if (body === metaUnavailable || standardNotFound.test(body)) {
+    return result("error_page", "page returned a confirmed error document");
+  }
+  return result("valid", null);
 }
 
 /**

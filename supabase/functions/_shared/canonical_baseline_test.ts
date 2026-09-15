@@ -25,6 +25,13 @@ interface Capture {
   canonical_content_sha256: string | null;
   canonicalizer_version: string | null;
   source_url?: string;
+  page_response_status?: number | null;
+  page_validation_version?: string | null;
+  page_validation_outcome?:
+    | "valid"
+    | "error_page"
+    | "target_http_error"
+    | "empty_content";
 }
 
 function fakeSvc(opts: {
@@ -35,6 +42,7 @@ function fakeSvc(opts: {
   captureError?: boolean;
   runsError?: boolean;
   insertError?: boolean;
+  updateError?: boolean;
 }) {
   const eqFilters: Record<string, unknown> = {};
   const inserts: Array<Record<string, unknown>> = [];
@@ -61,7 +69,10 @@ function fakeSvc(opts: {
               order() {
                 return this;
               },
-              limit() {
+              range(start: number, end: number) {
+                return this.limit(end - start + 1, start);
+              },
+              limit(count = 50, offset = 0) {
                 if (opts.captureError) {
                   return Promise.resolve({
                     data: null,
@@ -88,7 +99,9 @@ function fakeSvc(opts: {
                   );
                 }
                 return Promise.resolve({
-                  data: opts.captureDataNull ? null : rows,
+                  data: opts.captureDataNull
+                    ? null
+                    : rows.slice(offset, offset + count),
                   error: null,
                 });
               },
@@ -105,7 +118,11 @@ function fakeSvc(opts: {
             return {
               eq(_col: string, val: unknown) {
                 updates.push({ id: val, payload });
-                return Promise.resolve({ error: null });
+                return Promise.resolve({
+                  error: opts.updateError
+                    ? { message: "classification write failed" }
+                    : null,
+                });
               },
             };
           },
@@ -764,4 +781,227 @@ Deno.test("writeCanonicalBaseline throws on insert error", async () => {
     assertEquals((e as Error).message, "insert failed");
   }
   assertEquals(threw, true);
+});
+
+Deno.test("Page readiness and comparison skip invalid legacy captures without erasing evidence", async () => {
+  const url = "https://transparency.meta.com/policies/brandedcontent/";
+  const errorBody =
+    "[![Meta](https://static.xx.fbcdn.net/rsrc.php/y9/r/tL_v571NdZ0.svg)](https://transparency.meta.com/)\nThis page isn't available\nThe link may be broken, or the page may have been removed. Check to see if the link you're trying to open is correct.\n[Back to Transparency Center](https://transparency.meta.com/)\n";
+  const good: Capture = {
+    id: "previous-valid",
+    scout_run_id: null,
+    source_url: url,
+    content_md: "Policy remains in effect.",
+    content_sha256: null,
+    canonical_content_sha256: await canonicalOf("Policy remains in effect."),
+    canonicalizer_version: WEB_CANONICALIZER_VERSION,
+  };
+  // More than a query page of invalid newer rows cannot mask the older page.
+  const invalid = Array.from({ length: 51 }, (_, index) => ({
+    ...good,
+    id: `invalid-${index}`,
+    content_md: errorBody,
+    canonical_content_sha256: "error-hash",
+  }));
+  const { svc, updates } = fakeSvc({ captures: [...invalid, good] });
+  assertEquals(await hasCurrentCanonicalBaselineForUrl(svc, "s1", url), true);
+  const comparison = await compareCanonicalContentForUrl(
+    svc,
+    "s1",
+    good.content_md!,
+    { sourceUrl: url, validityMode: "page" },
+  );
+  assertEquals(comparison.status, "same");
+  assertEquals(comparison.previousCaptureId, good.id);
+  assertEquals(comparison.successfulMarkdownHistory, [good.content_md]);
+  assertEquals(
+    updates.filter((update) => update.id === "invalid-0")
+      .every((update) =>
+        update.payload.page_validation_outcome === "error_page"
+      ),
+    true,
+  );
+  assertEquals(invalid[0].content_md, errorBody);
+});
+
+Deno.test("Page legacy body without status is validated instead of trusting its hash", async () => {
+  const url = "https://example.test/page";
+  const capture: Capture = {
+    id: "empty-legacy",
+    scout_run_id: null,
+    source_url: url,
+    content_md: null,
+    content_sha256: await canonicalOf("OK"),
+    canonical_content_sha256: await canonicalOf("OK"),
+    canonicalizer_version: WEB_CANONICALIZER_VERSION,
+  };
+  const { svc } = fakeSvc({ captures: [capture] });
+  assertEquals(await hasCurrentCanonicalBaselineForUrl(svc, "s1", url), false);
+  assertEquals(
+    (await compareCanonicalContentForUrl(svc, "s1", "OK", {
+      sourceUrl: url,
+      validityMode: "page",
+    })).status,
+    "new",
+  );
+  // Default Civic consumers still use the stored canonical hash.
+  assertEquals(
+    await hashChangeStatusForUrl(svc, "s1", "OK", { sourceUrl: url }),
+    "same",
+  );
+});
+
+Deno.test("Page writes reject target failures even with a legitimate focused projection", async () => {
+  const { svc, inserts } = fakeSvc({});
+  await assertRejects(() =>
+    writeCanonicalBaseline(svc, {
+      userId: "u1",
+      scoutId: "s1",
+      sourceUrl: "https://example.test/page",
+      markdown: "Not found",
+      comparisonMarkdown: "Valid looking projection",
+      comparisonStrategy: "main",
+      validityMode: "page",
+      pageResponse: { status_code: 404 },
+    })
+  );
+  assertEquals(inserts, []);
+  await assertRejects(() =>
+    compareCanonicalContentForUrl(svc, "s1", "Projection", {
+      validityMode: "page",
+      pageResponse: { markdown: "Not found", status_code: 404 },
+    })
+  );
+});
+
+Deno.test("Page valid short capture persists reusable validation and unknown status", async () => {
+  const { svc, inserts } = fakeSvc({});
+  await writeCanonicalBaseline(svc, {
+    userId: "u1",
+    scoutId: "s1",
+    sourceUrl: "https://example.test/page",
+    markdown: "OK",
+    validityMode: "page",
+  });
+  const stored = inserts[0];
+  const reader = fakeSvc({
+    captures: [{ ...stored, id: "written" } as unknown as Capture],
+  });
+  assertEquals(
+    await hasCurrentCanonicalBaselineForUrl(
+      reader.svc,
+      "s1",
+      "https://example.test/page",
+    ),
+    true,
+  );
+  assertEquals(reader.updates, []);
+});
+
+Deno.test("Page readiness reuses validated legacy content while comparison migrates its canonicalizer", async () => {
+  const url = "https://example.test/policy";
+  const legacy: Capture = {
+    id: "legacy",
+    scout_run_id: null,
+    source_url: url,
+    content_md: "Navigation\nPolicy is in force.\nFooter",
+    content_sha256: null,
+    comparison_md: "Policy is in force.",
+    comparison_strategy: "main",
+    canonical_content_sha256: "old-canonical-hash",
+    canonicalizer_version: "web-md-v1",
+  };
+  const { svc } = fakeSvc({ captures: [legacy] });
+  assertEquals(await hasCurrentCanonicalBaselineForUrl(svc, "s1", url), true);
+  const comparison = await compareCanonicalContentForUrl(
+    svc,
+    "s1",
+    "Policy is in force.",
+    { sourceUrl: url, validityMode: "page", comparisonStrategy: "main" },
+  );
+  assertEquals(comparison.status, "same");
+  assertEquals(comparison.previousCaptureId, "legacy");
+  assertEquals(comparison.comparisonStrategyChanged, false);
+});
+
+Deno.test("Page comparison excludes failed-run content even when it already passed validation", async () => {
+  const { svc } = fakeSvc({
+    captures: [{
+      id: "failed",
+      scout_run_id: "run-failed",
+      content_md: "Policy changed",
+      content_sha256: null,
+      canonical_content_sha256: await canonicalOf("Policy changed"),
+      canonicalizer_version: WEB_CANONICALIZER_VERSION,
+      page_validation_version: "page-response-v1",
+      page_validation_outcome: "valid",
+    }],
+    runs: [{ id: "run-failed", status: "error" }],
+  });
+  const comparison = await compareCanonicalContentForUrl(
+    svc,
+    "s1",
+    "Policy changed",
+    {
+      validityMode: "page",
+    },
+  );
+  assertEquals(comparison.status, "new");
+  assertEquals(comparison.previousCaptureId, null);
+  assertEquals(comparison.successfulMarkdownHistory, []);
+});
+
+Deno.test("Page classification storage failure cannot establish readiness or comparison", async () => {
+  const { svc } = fakeSvc({
+    updateError: true,
+    captures: [{
+      id: "legacy",
+      scout_run_id: null,
+      content_md: "A valid policy.",
+      source_url: "https://example.test",
+      content_sha256: null,
+      canonical_content_sha256: "old",
+      canonicalizer_version: WEB_CANONICALIZER_VERSION,
+    }],
+  });
+  await assertRejects(() =>
+    hasCurrentCanonicalBaselineForUrl(svc, "s1", "https://example.test")
+  );
+  await assertRejects(() =>
+    compareCanonicalContentForUrl(svc, "s1", "A new policy.", {
+      validityMode: "page",
+    })
+  );
+});
+
+Deno.test("an HTTP error cannot replace a validated Page baseline", async () => {
+  const { svc, inserts } = fakeSvc({});
+  const args = {
+    userId: "u1",
+    scoutId: "s1",
+    sourceUrl: "https://example.test/policy",
+    markdown: "Applications open in June.",
+    validityMode: "page" as const,
+    pageResponse: { status_code: 200 },
+  };
+  await writeCanonicalBaseline(svc, args);
+  await assertRejects(() =>
+    writeCanonicalBaseline(svc, {
+      ...args,
+      markdown: "Not found",
+      pageResponse: { status_code: 404 },
+    })
+  );
+  const captures = inserts.map((
+    row,
+    index,
+  ) => ({ ...row, id: `capture-${index}` } as unknown as Capture));
+  const comparison = await compareCanonicalContentForUrl(
+    fakeSvc({ captures }).svc,
+    "s1",
+    "Applications open in July.",
+    { sourceUrl: args.sourceUrl, validityMode: "page" },
+  );
+  assertEquals(comparison.status, "changed");
+  assertEquals(comparison.previousMarkdown, args.markdown);
 });

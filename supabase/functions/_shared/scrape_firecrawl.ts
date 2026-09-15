@@ -59,9 +59,9 @@ export async function firecrawlScrape(
 
   const ac = new AbortController();
   const fuse = setTimeout(() => ac.abort(), abortAfterMs);
-  let res: Response;
+  let bodyJson;
   try {
-    res = await fetch(`${FIRECRAWL_BASE}/scrape`, {
+    const res = await fetch(`${FIRECRAWL_BASE}/scrape`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${firecrawlApiKey()}`,
@@ -70,24 +70,24 @@ export async function firecrawlScrape(
       body: JSON.stringify(body),
       signal: ac.signal,
     });
+    if (!res.ok) {
+      throw new ApiError(
+        `firecrawl scrape failed: ${res.status} ${await res.text()}`,
+        502,
+      );
+    }
+    bodyJson = await res.json();
   } catch (e) {
-    clearTimeout(fuse);
-    if ((e as { name?: string }).name === "AbortError") {
+    if (e instanceof Error && e.name === "AbortError") {
       throw new ApiError(
         `firecrawl scrape aborted after ${abortAfterMs}ms`,
         504,
       );
     }
     throw e;
+  } finally {
+    clearTimeout(fuse);
   }
-  clearTimeout(fuse);
-  if (!res.ok) {
-    throw new ApiError(
-      `firecrawl scrape failed: ${res.status} ${await res.text()}`,
-      502,
-    );
-  }
-  const bodyJson = await res.json();
   const d = bodyJson?.data ?? {};
   const metadata = d.metadata ?? {};
   const sourceUrl =

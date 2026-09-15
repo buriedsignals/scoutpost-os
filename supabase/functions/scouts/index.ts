@@ -71,6 +71,7 @@ import {
   scrapeProviderConfigured,
 } from "../_shared/scrape.ts";
 import {
+  pageResponseProbeFailure,
   PROBE_GATE_STATUS,
   probeFailure,
   probeOk,
@@ -104,10 +105,7 @@ import { runSnapshotInBackground } from "../_shared/snapshot_capture.ts";
 import { deleteScoutSnapshots } from "../_shared/snapshot_store.ts";
 import { ApiError } from "../_shared/errors.ts";
 import { WEB_SCOUT_FRESH_SCRAPE_OPTIONS } from "../_shared/web_content_canonical.ts";
-import {
-  isConfiguredPageUrl,
-  pageScoutMetadataForUrlChange,
-} from "../_shared/subpage-filter.ts";
+import { pageScoutMetadataForUrlChange } from "../_shared/subpage-filter.ts";
 import {
   formatSocialBaselinePosts,
   scanSocialBaseline,
@@ -1357,21 +1355,9 @@ async function probeCreateGate(
         ),
       };
     }
-    if (!isConfiguredPageUrl(scraped.source_url ?? rest.url, rest.url)) {
-      return {
-        response: jsonOk(
-          probeFailure("reach", "outside_configured_page"),
-          PROBE_GATE_STATUS,
-        ),
-      };
-    }
-    if (!(scraped.markdown ?? "").trim()) {
-      return {
-        response: jsonOk(
-          probeFailure("reach", "empty_content"),
-          PROBE_GATE_STATUS,
-        ),
-      };
+    const failure = pageResponseProbeFailure(scraped, rest.url);
+    if (failure) {
+      return { response: jsonOk(failure, PROBE_GATE_STATUS) };
     }
     return { cachedWebScrape: scraped };
   }
@@ -2320,15 +2306,10 @@ async function testScout(
     });
   }
 
-  if (!isConfiguredPageUrl(scraped.source_url ?? url, url)) {
-    logEvent({
-      level: "warn",
-      fn: "scouts",
-      event: "test_scrape_out_of_scope",
-      user_id: user.id,
-    });
+  const failure = pageResponseProbeFailure(scraped, url);
+  if (failure) {
     return jsonOk({
-      ...probeFailure("reach", "outside_configured_page"),
+      ...failure,
       summary: "",
       scraper_status: false,
       criteria_status: false,

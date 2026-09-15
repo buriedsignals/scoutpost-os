@@ -67,15 +67,27 @@ import {
 } from "../_shared/fact_check.ts";
 import { isWithinRunDuplicateWithGuards } from "../_shared/dedup.ts";
 import {
+  type PageScoutNotificationMode,
   planPageScoutNotification,
   resolvePageScoutNotificationMode,
 } from "../_shared/page_scout_notifications.ts";
 import {
   buildPageContentDiff,
+  isPageScoutContentTooLong,
+  PAGE_SCOUT_CONTENT_TOO_LONG_MESSAGE,
   type PageContentDiff,
-  pageTargetErrorMessage,
+  type PageResponseValidation,
+  validatePageResponse,
 } from "../_shared/page_scout_change.ts";
-import type { PageScoutCriteriaFinding } from "../_shared/page_scout_criteria.ts";
+import {
+  assertPageScoutReplayApproval,
+  bindPageScoutNotificationMode,
+} from "../_shared/page_scout_run_controls.ts";
+import { cancelTerminalPageCrawlerJobs } from "../_shared/crawler_jobs.ts";
+import {
+  PageScoutCriteriaCoverageError,
+  type PageScoutCriteriaFinding,
+} from "../_shared/page_scout_criteria.ts";
 import { analyzePageScoutAlert } from "../_shared/page_scout_alert_pipeline.ts";
 import {
   applyEffectiveCandidateUrls,
@@ -100,7 +112,6 @@ import {
   extractSubpageLinksFromMarkdown,
   filterSubpageUrls,
   hasDeterministicListingSignal,
-  isConfiguredPageUrl,
   isLikelyArticleUrl,
   isStrictChildUrl,
   primaryContentHtml,
@@ -207,12 +218,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const { data: scout, error: scoutErr } = await svc
     .from("scouts")
     .select(
-      "id, user_id, type, name, url, criteria, project_id, is_active, preferred_language, baseline_established_at, archive_enabled, wayback_enabled, metadata",
+      "id, user_id, type, name, url, criteria, project_id, is_active, schedule_cron, preferred_language, baseline_established_at, archive_enabled, wayback_enabled, metadata",
     )
     .eq("id", scout_id)
     .maybeSingle();
   if (scoutErr) return jsonFromError(new Error(scoutErr.message));
   if (!scout) return jsonFromError(new NotFoundError("scout"));
+  if (scout.type !== "web") {
+    return jsonFromError(new ValidationError("scout is not a Page Scout"));
+  }
   if (!scout.url) {
     return jsonFromError(new ValidationError("scout has no url"));
   }
@@ -226,6 +240,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
         user_id: scout.user_id,
         status: "running",
         started_at: new Date().toISOString(),
+        page_notification_mode: resolvePageScoutNotificationMode(
+          notification_mode,
+          scout.metadata,
+        ),
       })
       .select("id")
       .single();
@@ -233,12 +251,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     run_id = runRow.id as string;
   }
   const runId = run_id as string;
-  await markRunStage(svc, runId, "dispatch");
 
   const { data: runState, error: runStateError } = await svc
     .from("scout_runs")
-    .select("status,crawler_backend")
+    .select("status,crawler_backend,metadata")
     .eq("id", runId)
+    .eq("scout_id", scout.id)
+    .eq("user_id", scout.user_id)
     .single();
   if (runStateError) return jsonFromError(new Error(runStateError.message));
   if ((runState as { status: string }).status !== "running") {
@@ -247,6 +266,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
   const workflowEnabled = (runState as { crawler_backend?: string })
     .crawler_backend === "workflow";
+  let effectiveNotificationMode: PageScoutNotificationMode;
+  try {
+    effectiveNotificationMode = await bindPageScoutNotificationMode(
+      svc,
+      runId,
+      scout.id,
+      notification_mode,
+      scout.metadata,
+    );
+  } catch (error) {
+    return jsonFromError(error);
+  }
+  await markRunStage(svc, runId, "dispatch");
   let workflowLeaseToken: string | null = null;
   let workflowTransport: PageWorkflowTransport | null = null;
   if (workflowEnabled) {
@@ -271,8 +303,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   let chargedCredits = false;
+  let chargedCost: number = CREDIT_COSTS.website_extraction;
 
   try {
+    assertPageScoutReplayApproval(
+      scout,
+      runState.metadata,
+      effectiveNotificationMode,
+      CREDIT_COSTS.website_extraction,
+    );
     const baselineDeps = {
       scrape: workflowTransport
         ? async (url: string) =>
@@ -320,47 +359,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
         run_id: runId,
         served_by: initialized.served_by ?? scrapeProvider(),
       });
-      if (workflowEnabled && workflowLeaseToken) {
-        const completed = await svc.rpc("set_page_workflow_stage", {
-          p_run_id: runId,
-          p_lease_token: workflowLeaseToken,
-          p_stage: "done",
-          p_release: true,
-        });
-        if (completed.error || completed.data !== true) {
-          logEvent({
-            level: "warn",
-            fn: "scout-web-execute",
-            event: "workflow_stage_completion_failed",
-            scout_id: scout.id,
-            run_id: runId,
-          });
-        }
-        const finished = await svc.rpc("finish_waiting_scout_dispatch", {
-          p_run_id: runId,
-        });
-        if (finished.error) {
-          logEvent({
-            level: "warn",
-            fn: "scout-web-execute",
-            event: "workflow_dispatch_finish_failed",
-            scout_id: scout.id,
-            run_id: runId,
-          });
-        }
-        await workflowTransport?.cleanup().catch((cleanupError) =>
-          logEvent({
-            level: "warn",
-            fn: "scout-web-execute",
-            event: "workflow_result_cleanup_failed",
-            scout_id: scout.id,
-            run_id: runId,
-            msg: cleanupError instanceof Error
-              ? cleanupError.message
-              : String(cleanupError),
-          })
-        );
-      }
+      await workflowTransport?.cleanup().catch((cleanupError) =>
+        logEvent({
+          level: "warn",
+          fn: "scout-web-execute",
+          event: "workflow_result_cleanup_failed",
+          scout_id: scout.id,
+          run_id: runId,
+          msg: cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError),
+        })
+      );
       return jsonOk({
         status: "ok",
         change: initialized.change_status,
@@ -419,10 +429,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       scout,
       runId,
       workflowTransport,
-    );
-    const effectiveNotificationMode = resolvePageScoutNotificationMode(
-      notification_mode,
-      scout.metadata,
     );
     const notificationPlan = planPageScoutNotification(
       result,
@@ -602,38 +608,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
     }
 
-    if (workflowEnabled) {
-      if (workflowLeaseToken) {
-        const completed = await svc.rpc("set_page_workflow_stage", {
-          p_run_id: runId,
-          p_lease_token: workflowLeaseToken,
-          p_stage: "done",
-          p_release: true,
-        });
-        if (completed.error || completed.data !== true) {
-          logEvent({
-            level: "warn",
-            fn: "scout-web-execute",
-            event: "workflow_stage_completion_failed",
-            scout_id: scout.id,
-            run_id: runId,
-          });
-        }
-      }
-      await svc.rpc("finish_waiting_scout_dispatch", { p_run_id: runId });
-      await workflowTransport?.cleanup().catch((cleanupError) =>
-        logEvent({
-          level: "warn",
-          fn: "scout-web-execute",
-          event: "workflow_result_cleanup_failed",
-          scout_id: scout.id,
-          run_id: runId,
-          msg: cleanupError instanceof Error
-            ? cleanupError.message
-            : String(cleanupError),
-        })
-      );
-    }
+    await workflowTransport?.cleanup().catch((cleanupError) =>
+      logEvent({
+        level: "warn",
+        fn: "scout-web-execute",
+        event: "workflow_result_cleanup_failed",
+        scout_id: scout.id,
+        run_id: runId,
+        msg: cleanupError instanceof Error
+          ? cleanupError.message
+          : String(cleanupError),
+      })
+    );
 
     // Archive capture (PAGE-ARCHIVE-PRD U3) — scheduled AFTER the run is
     // marked success and the notification is sent, so a capture fetch that
@@ -737,16 +723,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
   } catch (e) {
     if (e instanceof PageWorkflowPending && workflowLeaseToken) {
+      const stage = e.stage;
       const released = await svc.rpc("set_page_workflow_stage", {
         p_run_id: runId,
         p_lease_token: workflowLeaseToken,
-        p_stage: e.stage,
+        p_stage: stage,
         p_release: true,
       });
       if (released.error || released.data !== true) {
         return jsonFromError(new Error("page workflow lease release failed"));
       }
-      return jsonOk({ status: "waiting", stage: e.stage, run_id: runId }, 202);
+      return jsonOk({ status: "waiting", stage, run_id: runId }, 202);
     }
     const msg = e instanceof Error ? e.message : String(e);
     const classified = classifyRunError(e, "finalize");
@@ -756,6 +743,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
         errorClass: classified.errorClass,
         message: classified.message,
       });
+      if (workflowEnabled && !chargedCredits) {
+        const charge = await svc.from("usage_records").select("cost")
+          .eq("idempotency_key", `page:${runId}:charge`).maybeSingle();
+        if (charge.error) throw new Error(charge.error.message);
+        if (typeof charge.data?.cost === "number" && charge.data.cost > 0) {
+          chargedCredits = true;
+          chargedCost = charge.data.cost;
+        }
+      }
       if (shouldIncrementScoutFailure(classified.errorClass)) {
         await incrementAndMaybeNotify(svc, {
           scoutId: scout.id as string,
@@ -763,6 +759,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           scoutName: (scout.name as string | null) ?? "Page Scout",
           scoutType: "web",
           language: scout.preferred_language as string | null,
+          notificationMode: effectiveNotificationMode,
         });
       }
       if (chargedCredits) {
@@ -772,21 +769,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
           ? refundCreditsOnce(svc, {
             idempotencyKey: `page:${runId}:refund`,
             userId: scout.user_id as string,
-            cost: CREDIT_COSTS.website_extraction,
+            cost: chargedCost,
             scoutId: scout.id as string,
             scoutType: "web",
             operation: "website_extraction",
           })
           : refundCredits(svc, {
             userId: scout.user_id as string,
-            cost: CREDIT_COSTS.website_extraction,
+            cost: chargedCost,
             scoutId: scout.id as string,
             scoutType: "web",
             operation: "website_extraction",
           }));
-      }
-      if (workflowEnabled) {
-        await svc.rpc("finish_waiting_scout_dispatch", { p_run_id: runId });
       }
     } catch (cleanupErr) {
       logEvent({
@@ -810,6 +804,41 @@ Deno.serve(async (req: Request): Promise<Response> => {
       msg,
     });
     return jsonFromError(e);
+  } finally {
+    if (workflowEnabled && workflowLeaseToken) {
+      try {
+        const terminal = await svc.from("scout_runs")
+          .select("status").eq("id", runId).single();
+        if (terminal.error) throw new Error(terminal.error.message);
+        if (["success", "error", "skipped"].includes(terminal.data?.status)) {
+          const released = await svc.rpc("set_page_workflow_stage", {
+            p_run_id: runId,
+            p_lease_token: workflowLeaseToken,
+            p_stage: "done",
+            p_release: true,
+          });
+          if (released.error) throw new Error(released.error.message);
+          await cancelTerminalPageCrawlerJobs(svc, {
+            runId,
+            limit: 500,
+            apply: true,
+          });
+          const finished = await svc.rpc("finish_waiting_scout_dispatch", {
+            p_run_id: runId,
+          });
+          if (finished.error) throw new Error(finished.error.message);
+        }
+      } catch (error) {
+        logEvent({
+          level: "warn",
+          fn: "scout-web-execute",
+          event: "workflow_finalization_failed",
+          scout_id: scout.id,
+          run_id: runId,
+          msg: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
 });
 
@@ -945,22 +974,12 @@ async function runPipeline(
   const scrapeWarning = fresh.scrape_warning;
   const servedBy = fresh.served_by;
 
-  const rootStatusError = pageTargetErrorMessage(
-    detectionResult?.status_code,
-  );
-  if (rootStatusError) {
-    throw new ApiError(rootStatusError, 502);
+  const rootValidation = validatePageResponse(detectionResult, scout.url);
+  if (!rootValidation.valid) {
+    throw new ApiError(rootValidation.message ?? "invalid page response", 502);
   }
-
-  const effectiveRootUrl = chooseSubpageSourceUrl(
-    detectionResult?.source_url,
-    scout.url,
-  );
-  if (!isConfiguredPageUrl(effectiveRootUrl, scout.url)) {
-    throw new ApiError(
-      "page scrape resolved outside the configured URL",
-      502,
-    );
+  if (isPageScoutContentTooLong(markdown)) {
+    throw new ValidationError(PAGE_SCOUT_CONTENT_TOO_LONG_MESSAGE);
   }
 
   // The local per-source canonical baseline is the sole alert authority.
@@ -969,6 +988,8 @@ async function runPipeline(
       sourceUrl: scout.url,
       fn: "scout-web-execute",
       comparisonStrategy,
+      validityMode: "page",
+      pageResponse: detectionResult,
     });
   const changeStatus = rootComparison.status;
   const rootDiff: PageContentDiff = rootComparison.previousMarkdown === null
@@ -1111,6 +1132,8 @@ async function runPipeline(
         comparisonMarkdown,
         comparisonStrategy,
         contentHash,
+        pageValidation: rootValidation,
+        responseStatus: detectionResult.status_code,
         workflowEffectKey: workflowTransport
           ? `page:${runId}:root:${normalizeUrlKey(scout.url)}`
           : null,
@@ -1142,9 +1165,6 @@ async function runPipeline(
     };
   }
 
-  if (!markdown.trim()) {
-    throw new ApiError("page scrape returned empty markdown", 502);
-  }
   await markRunStage(svc, runId, "insert_units");
   // Keep the legacy local name for the rest of the pipeline below.
   const scrape = {
@@ -1171,6 +1191,8 @@ async function runPipeline(
     comparisonMarkdown,
     comparisonStrategy,
     contentHash,
+    pageValidation: rootValidation,
+    responseStatus: detectionResult.status_code,
     workflowEffectKey: workflowTransport
       ? `page:${runId}:root:${normalizeUrlKey(scout.url)}`
       : null,
@@ -1480,6 +1502,7 @@ async function runPipeline(
         units_merged_existing: subpageResult.totalMergedExisting,
       });
     } catch (error) {
+      if (error instanceof PageScoutCriteriaCoverageError) throw error;
       sourcesFailed += 1;
       coverageComplete = false;
       logEvent({
@@ -1824,17 +1847,7 @@ function firstReadableExcerpt(markdown: string): string | undefined {
   return line?.slice(0, 500);
 }
 
-async function runPhaseB(
-  svc: SupabaseClient,
-  scout: ScoutRow,
-  runId: string,
-  links: [string, string][],
-  candidateUrls: string[],
-  initialRootCandidates: Set<string>,
-  archiveGateOn: boolean,
-  deadlineMs: number,
-  workflowTransport: PageWorkflowTransport | null = null,
-): Promise<{
+interface PhaseBResult {
   linksFound: number;
   candidates: number;
   fresh: number;
@@ -1853,19 +1866,31 @@ async function runPhaseB(
   alertSummaries: string[];
   effectiveUrls: Array<{ requested: string; effective: string }>;
   archiveContexts: PipelineResult["archiveContexts"];
-}> {
-  // Rotate by the oldest per-source capture, not unit occurrences. A child
-  // that extracts zero or fully deduplicated units still advances its turn.
+}
+
+async function runPhaseB(
+  svc: SupabaseClient,
+  scout: ScoutRow,
+  runId: string,
+  links: [string, string][],
+  candidateUrls: string[],
+  initialRootCandidates: Set<string>,
+  archiveGateOn: boolean,
+  deadlineMs: number,
+  workflowTransport: PageWorkflowTransport | null = null,
+): Promise<PhaseBResult> {
+  // Rotate by the oldest per-source capture, including children with no units.
   const ordered = await orderCandidatesByOldestCheck(
     svc,
     scout.id,
     candidateUrls,
   );
-  const known = new Set((await loadKnownChildUrls(svc, scout.id, scout.url))
-    .map(normalizeUrlKey));
-  const fresh = ordered.filter((url) => !known.has(normalizeUrlKey(url)));
+  const known = new Set(
+    (await loadKnownChildUrls(svc, scout.id, scout.url)).map(normalizeUrlKey),
+  );
+  const fresh =
+    ordered.filter((url) => !known.has(normalizeUrlKey(url))).length;
   const processable = ordered.slice(0, SUBPAGE_FETCH_CAP);
-
   let totalInserted = 0;
   let totalMergedExisting = 0;
   let scraped = 0;
@@ -1911,20 +1936,16 @@ async function runPhaseB(
         tenantKey: scout.user_id,
         timeoutMs: SUBPAGE_SCRAPE_TIMEOUT_MS,
         abortAfterMs: SUBPAGE_SCRAPE_ABORT_AFTER_MS,
+        deadlineMs,
         snapshot: archiveGateOn ? "on_fallback" : undefined,
         ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
       } satisfies PrimaryPageScrapeOptions;
       const subScrape = workflowTransport
-        ? await workflowTransport.scrape(
-          subpageOptions,
-          childStage(subUrl),
-        )
+        ? await workflowTransport.scrape(subpageOptions, childStage(subUrl))
         : await scrapePrimaryPageResilient(subpageOptions);
 
-      const subpageStatusError = pageTargetErrorMessage(
-        subScrape.status_code,
-      );
-      if (subpageStatusError) {
+      const subpageValidation = validatePageResponse(subScrape);
+      if (!subpageValidation.valid) {
         failed++;
         logEvent({
           level: "warn",
@@ -1936,9 +1957,10 @@ async function runPhaseB(
         });
         continue;
       }
-      if (!subScrape.markdown?.trim()) {
-        failed++;
-        continue;
+      if (isPageScoutContentTooLong(subScrape.markdown)) {
+        throw new PageScoutCriteriaCoverageError(
+          PAGE_SCOUT_CONTENT_TOO_LONG_MESSAGE,
+        );
       }
       scraped++;
       const chosenSubpageSourceUrl = chooseSubpageSourceUrl(
@@ -2011,6 +2033,8 @@ async function runPhaseB(
           sourceUrl: subSourceUrl,
           fn: "scout-web-execute",
           comparisonStrategy: subCurrentComparison.strategy,
+          validityMode: "page",
+          pageResponse: subScrape,
         },
       );
       const subDiff = comparison.previousMarkdown === null
@@ -2058,6 +2082,8 @@ async function runPhaseB(
         comparisonMarkdown: subCurrentComparison.markdown,
         comparisonStrategy: subCurrentComparison.strategy,
         contentHash: subContentHash,
+        pageValidation: subpageValidation,
+        responseStatus: subScrape.status_code,
         workflowEffectKey: workflowTransport
           ? `page:${runId}:child:${normalizeUrlKey(subSourceUrl)}`
           : null,
@@ -2204,6 +2230,7 @@ async function runPhaseB(
       }
       processed++;
     } catch (error) {
+      if (error instanceof PageScoutCriteriaCoverageError) throw error;
       failed++;
       logEvent({
         level: "warn",
@@ -2228,7 +2255,7 @@ async function runPhaseB(
   return {
     linksFound: links.length,
     candidates: candidateUrls.length,
-    fresh: fresh.length,
+    fresh,
     scraped,
     attempted: attemptedUrls.length,
     processed,
@@ -2258,9 +2285,14 @@ async function insertRawCapture(
     comparisonMarkdown: string;
     comparisonStrategy: string;
     contentHash: string;
+    pageValidation: PageResponseValidation;
+    responseStatus?: number;
     workflowEffectKey?: string | null;
   },
 ): Promise<string> {
+  if (!input.pageValidation.valid) {
+    throw new Error("invalid Page response cannot become a canonical capture");
+  }
   if (input.workflowEffectKey) {
     const existing = await svc.from("raw_captures")
       .select("id")
@@ -2287,6 +2319,9 @@ async function insertRawCapture(
         input.comparisonMarkdown,
       ),
       canonicalizer_version: WEB_CANONICALIZER_VERSION,
+      page_validation_version: input.pageValidation.version,
+      page_validation_outcome: input.pageValidation.outcome,
+      page_response_status: input.responseStatus ?? null,
       token_count: Math.ceil(input.markdown.length / 4),
       captured_at: new Date().toISOString(),
       expires_at: rawCaptureExpiresAt(),

@@ -720,7 +720,6 @@
   "webScout_description": "Get notified when a webpage's content changes",
   "webScout_email": "Sähköposti",
   "webScout_emailHint": "Saat sähköposti-ilmoituksia, kun muutoksia havaitaan",
-  "webScout_errorBlocked": "Sivusto esti pääsyn",
   "webScout_footerHint": "Scoutisi suoritetaan automaattisesti määritetyllä tiheydellä.",
   "webScout_monitoringFrequency": "Seurantatiheys",
   "webScout_notificationMethod": "Ilmoitustapa",

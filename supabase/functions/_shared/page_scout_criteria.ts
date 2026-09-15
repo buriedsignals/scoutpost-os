@@ -3,6 +3,7 @@ import {
   openRouterExtract,
   type OpenRouterExtractOptions,
 } from "./openrouter.ts";
+export class PageScoutCriteriaCoverageError extends Error {}
 
 export interface PageScoutCriteriaFinding {
   beforeQuote: string;
@@ -96,18 +97,9 @@ const DECISION_SCHEMA: Record<string, unknown> = {
   required: ["alert_warranted", "certainty", "reason", "findings"],
 };
 
-// This keeps the complete before/after evidence in one model judgment while
-// bounding cost and latency. Deltas above the bound fail before baseline
-// advancement instead of being judged from incomplete evidence.
-const MAX_DELTA_CHARS = 160_000;
+const MAX_PROMPT_CHARS = 160_000;
 
-export class PageScoutCriteriaCoverageError extends Error {}
-
-/**
- * Ask one agent for the final alert decision over the user's saved criteria
- * and the complete bounded delta. Code validates the decision contract and
- * grounds positive evidence; it does not make a second semantic judgment.
- */
+/** One semantic judgment over the complete bounded comparison. */
 export async function evaluatePageScoutCriteria(
   input: {
     criteria: string;
@@ -119,25 +111,36 @@ export async function evaluatePageScoutCriteria(
     decisionExtract?: Extract<DecisionResponse>;
   } = {},
 ): Promise<PageScoutCriteriaResult> {
-  if (input.delta.length > MAX_DELTA_CHARS) {
-    throw new PageScoutCriteriaCoverageError(
-      `page delta has ${input.delta.length} characters; maximum is ${MAX_DELTA_CHARS}`,
-    );
-  }
-
+  const prompt = decisionPrompt(input.criteria, input.delta);
+  const options = extractOptions(input.timeoutMs, input.usage);
+  const system = options.systemInstruction ?? "";
   const decisionExtract = deps.decisionExtract ??
     ((prompt, schema, options) =>
       openRouterExtract<DecisionResponse>(prompt, schema, options));
-  const decision = await decisionExtract(
-    decisionPrompt(input.criteria, input.delta),
-    DECISION_SCHEMA,
-    extractOptions(input.timeoutMs, input.usage),
-  );
+  if (
+    prompt.length + system.length + JSON.stringify(DECISION_SCHEMA).length >
+      MAX_PROMPT_CHARS
+  ) {
+    throw new PageScoutCriteriaCoverageError(
+      "Page comparison is too large to evaluate within the 160,000-character prompt limit; no decision was made and the baseline is preserved.",
+    );
+  }
+  const decision = await decisionExtract(prompt, DECISION_SCHEMA, options);
+  return normalizeDecision(decision, input.criteria, input.delta);
+}
 
+function normalizeDecision(
+  decision: DecisionResponse,
+  criteria: string,
+  delta: string,
+): PageScoutCriteriaResult {
   if (
     typeof decision?.alert_warranted !== "boolean" ||
     !["certain", "uncertain"].includes(decision?.certainty) ||
-    !clean(decision?.reason)
+    !clean(decision?.reason) ||
+    !Array.isArray(decision?.findings) ||
+    decision.findings.length > 8 ||
+    (!decision.alert_warranted && decision.findings.length !== 0)
   ) {
     throw new PageScoutCriteriaCoverageError(
       "criteria agent returned an invalid decision",
@@ -160,12 +163,16 @@ export async function evaluatePageScoutCriteria(
     };
   }
 
-  const evidence = deltaEvidence(input.delta);
-  const findings = (Array.isArray(decision.findings) ? decision.findings : [])
-    .slice(0, 8)
-    .map((finding) => normalize(finding, input.criteria, evidence))
-    .filter((finding): finding is PageScoutCriteriaFinding => finding !== null);
-  const acceptedFindings = dedupe(findings);
+  const evidence = deltaEvidence(delta);
+  const findings = decision.findings.map((finding) =>
+    normalize(finding, criteria, evidence)
+  );
+  if (findings.some((finding) => finding === null)) {
+    throw new PageScoutCriteriaCoverageError(
+      "positive criteria decision did not include exact grounded evidence for every finding",
+    );
+  }
+  const acceptedFindings = dedupe(findings as PageScoutCriteriaFinding[]);
   if (acceptedFindings.length === 0) {
     throw new PageScoutCriteriaCoverageError(
       "positive criteria decision did not include exact grounded evidence",
@@ -194,6 +201,7 @@ function extractOptions(
   return {
     timeoutMs,
     abortAfterMs: timeoutMs + 1_000,
+    maxTokens: 4096,
     usage,
     systemInstruction: [
       "You are the final Page Scout notification decision-maker.",

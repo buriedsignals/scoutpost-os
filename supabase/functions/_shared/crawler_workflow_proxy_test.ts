@@ -45,30 +45,40 @@ function serviceClient() {
   };
 }
 
-Deno.test("proxy enqueues, nudges dispatch, returns and cleans its result", async () => {
+Deno.test("same-ID retry recovers a lost successful response without another crawl", async () => {
   const svc = serviceClient();
   const statuses = ["queued", "succeeded"];
   let now = 0;
   let dispatches = 0;
-  let dispatchedJobId = "";
-  let cleaned = 0;
-  const result = await executeCrawlerProxy(svc.client as never, {
-    operation: "scrape",
-    url: "https://Example.Test/page",
+  let manifest: Record<string, unknown> | null = { artifacts: [] };
+  const client = {
+    ...svc.client,
+    from: () => ({
+      update: () => ({
+        in: () => {
+          manifest = null;
+          return Promise.resolve({ error: null });
+        },
+      }),
+    }),
+  };
+  const input = {
+    operation: "scrape" as const,
+    url: "https://example.test/page",
     timeoutMs: 25_000,
     waitMs: 30_000,
-    workloadClass: "scout",
+    workloadClass: "scout" as const,
     tenantKey: "00000000-0000-4000-8000-000000000003",
     requestId: "request-1",
-  }, {
+  };
+  const deps = {
     now: () => now,
-    sleep: (ms) => {
+    sleep: (ms: number) => {
       now += ms;
       return Promise.resolve();
     },
-    dispatch: (_operation, jobId) => {
+    dispatch: () => {
       dispatches++;
-      dispatchedJobId = jobId;
       return Promise.resolve();
     },
     load: () =>
@@ -77,30 +87,23 @@ Deno.test("proxy enqueues, nudges dispatch, returns and cleans its result", asyn
         status: statuses.shift() ?? "succeeded",
         error_class: null,
         error_message: null,
-        result_manifest: { artifacts: [] },
+        result_manifest: manifest,
       }),
-    loadResult: () =>
-      Promise.resolve({
-        markdown: "ok",
-        source_url: "https://example.test/page",
-      }),
-    cleanup: () => {
-      cleaned++;
-      return Promise.resolve();
+    loadResult: (stored: Record<string, unknown> | null) => {
+      if (!stored) {
+        throw new Error("successful result was deleted before client receipt");
+      }
+      return Promise.resolve({
+        markdown: "Original policy body",
+        source_url: input.url,
+      });
     },
-  });
-  assertEquals(result.markdown, "ok");
+  };
+  // The server completed, but the caller did not receive the first response.
+  await executeCrawlerProxy(client as never, input, deps);
+  const recovered = await executeCrawlerProxy(client as never, input, deps);
+  assertEquals(recovered.markdown, "Original policy body");
   assertEquals(dispatches, 1);
-  assertEquals(dispatchedJobId, "job-1");
-  assertEquals(now, 2_000);
-  assertEquals(cleaned, 1);
-  assertEquals(svc.calls[0].name, "enqueue_crawler_job");
-  assertEquals(
-    svc.calls[0].args.p_tenant_key,
-    "00000000-0000-4000-8000-000000000003",
-  );
-  assertEquals(svc.calls[0].args.p_continuation_key, "request-1");
-  assertEquals(svc.calls[0].args.p_operation, "scrape");
 });
 
 Deno.test("utility proxy traffic retains atomic utility admission", async () => {
@@ -128,7 +131,6 @@ Deno.test("utility proxy traffic retains atomic utility admission", async () => 
         markdown: "ok",
         source_url: "https://example.test/page",
       }),
-    cleanup: () => Promise.resolve(),
   });
   assertEquals(svc.calls[0].name, "admit_and_enqueue_crawler_utility");
 });
@@ -161,6 +163,36 @@ Deno.test("proxy closes anti-bot jobs before delegating Firecrawl fallback", asy
   );
   assertEquals(error.status, 502);
   assertEquals(svc.calls[1].name, "complete_crawler_fallback");
+});
+
+Deno.test("proxy cancellation cannot be mistaken for an anti-bot fallback request", async () => {
+  const svc = serviceClient();
+  const error = await assertRejects(
+    () =>
+      executeCrawlerProxy(svc.client as never, {
+        operation: "scrape",
+        url: "https://example.test",
+        timeoutMs: 25_000,
+        waitMs: 30_000,
+        workloadClass: "scout",
+        tenantKey: "tenant",
+        requestId: "cancelled-request",
+      }, {
+        now: () => 0,
+        load: () =>
+          Promise.resolve({
+            id: "job-1",
+            status: "cancelled",
+            error_class: "anti_bot",
+            error_message: "Blocked by anti-bot protection",
+            result_manifest: null,
+          }),
+      }),
+    CrawlerProxyError,
+    "cancelled",
+  );
+  assertEquals(error.status, 409);
+  assertEquals(error.detail, "crawler job cancelled");
 });
 
 Deno.test("proxy preserves structured PDF compatibility errors", async () => {

@@ -128,6 +128,36 @@ Deno.test(
 );
 
 Deno.test(
+  "a non-PDF sniff followed by a PDF download reuses the parsed document without another request",
+  restoreEnvAfter(async () => {
+    setCrawl4ai();
+    const calls: string[] = [];
+    globalThis.fetch = (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (calls.length === 1) {
+        return Promise.resolve(new Response("not pdf", { status: 415 }));
+      }
+      if (calls.length !== 2) {
+        throw new Error("document was requested again after parsing");
+      }
+      return Promise.resolve(jsonResponse({
+        markdown: "Minutes approved the new housing budget.",
+        source_url: "https://c/download",
+        metadata: { document: { type: "pdf", pages: 7, parser: "pdftotext" } },
+      }));
+    };
+    const result = await parseDocument("https://c/download");
+    assertEquals(result.pages, 7);
+    assertEquals(result.markdown, "Minutes approved the new housing budget.");
+    assertEquals(calls, [
+      "https://scrape.internal/parse",
+      "https://scrape.internal/scrape",
+    ]);
+  }),
+);
+
+Deno.test(
   "parseDocument honors a streamed Workflow not-a-PDF envelope",
   restoreEnvAfter(async () => {
     setCrawl4ai();

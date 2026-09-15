@@ -720,7 +720,6 @@
   "webScout_description": "Get notified when a webpage's content changes",
   "webScout_email": "E-post",
   "webScout_emailHint": "Du vil motta e-postvarsler når endringer oppdages",
-  "webScout_errorBlocked": "Nettstedet blokkerte tilgang",
   "webScout_footerHint": "Scouten din vil kjøre automatisk med angitt frekvens.",
   "webScout_monitoringFrequency": "Overvåkingsfrekvens",
   "webScout_notificationMethod": "Varslingsmetode",

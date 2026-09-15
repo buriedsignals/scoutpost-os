@@ -77,119 +77,6 @@ Deno.test("an ordered move can ground a criteria finding", async () => {
   }]);
 });
 
-Deno.test("the criteria judge defaults reorder and identical-copy evidence to non-substantive", async () => {
-  let prompt = "";
-  let systemInstruction = "";
-  const result = await evaluatePageScoutCriteria({
-    criteria:
-      "Alert only on substantive changes to cryptocurrency policy wording.",
-    delta: [
-      "SECTION: ## Italy",
-      "OCCURRENCE: identical text count changed from 1 to 2; this is an additional occurrence, not new wording.",
-      "ADDED[A1]: Software wallets are allowed with limitations.",
-      "MOVED[M1]: 8 -> 3 | Software wallets",
-    ].join("\n"),
-    timeoutMs: 100,
-  }, {
-    decisionExtract: (value, _schema, options) => {
-      prompt = value;
-      systemInstruction = options.systemInstruction ?? "";
-      return Promise.resolve({
-        alert_warranted: false,
-        certainty: "certain" as const,
-        reason:
-          "The wording is unchanged and only its occurrence and position changed.",
-        findings: [],
-      });
-    },
-  });
-
-  assertStringIncludes(
-    systemInstruction,
-    "Treat pure reordering and additional or removed copies of identical wording as non-substantive by default",
-  );
-  assertStringIncludes(
-    prompt,
-    "Ignore it unless the saved criteria explicitly asks about order, rank, position, or list placement.",
-  );
-  assertStringIncludes(
-    prompt,
-    "the containing SECTION shows that the same rule was newly applied to or removed from a locale, entity, or scope named by the criteria",
-  );
-  assertEquals(result.matches, false);
-});
-
-Deno.test("the final agent judgment keeps changed UI instructions silent", async () => {
-  const before =
-    'Select the Settings icon at the bottom of the video player, select "Subtitles," and then specify your language.';
-  const after =
-    'Select the Settings icon at the top right of the video player, select "Captions," and then specify your language.';
-  const result = await evaluatePageScoutCriteria({
-    criteria:
-      "Report only substantive policy wording changes. Ignore navigation, styling, and boilerplate.",
-    delta: `REMOVED[R1]: ${before}\nADDED[A1]: ${after}`,
-    timeoutMs: 100,
-  }, {
-    decisionExtract: () =>
-      Promise.resolve({
-        alert_warranted: false,
-        certainty: "certain" as const,
-        reason: "The change is player help text, not policy wording.",
-        findings: [],
-      }),
-  });
-
-  assertEquals(result.matches, false);
-  assertEquals(result.acceptedFindings, []);
-  assertEquals(
-    result.agentReason,
-    "The change is player help text, not policy wording.",
-  );
-});
-
-Deno.test("the final agent judgment keeps historical-date churn silent", async () => {
-  const result = await evaluatePageScoutCriteria({
-    criteria:
-      "Nur Änderungen an den aktuell geltenden Werberichtlinien melden.",
-    delta: "REMOVED[R1]: Zuletzt aktualisiert am 2. Januar 2021\n" +
-      "REMOVED[R2]: 15. März 2020\n" +
-      "ADDED[A1]: Zuletzt aktualisiert am 3. Januar 2021\n" +
-      "ADDED[A2]: 16. März 2020",
-    timeoutMs: 100,
-  }, {
-    decisionExtract: () =>
-      Promise.resolve({
-        alert_warranted: false,
-        certainty: "certain" as const,
-        reason:
-          "Die Verschiebung historischer Datumsangaben ändert keine geltende Richtlinie.",
-        findings: [],
-      }),
-  });
-
-  assertEquals(result.matches, false);
-});
-
-Deno.test("the final agent judgment keeps equivalent list-marker churn silent", async () => {
-  const result = await evaluatePageScoutCriteria({
-    criteria:
-      "Alerte uniquement en cas de modification substantielle des règles publicitaires.",
-    delta: "REMOVED[R1]: * Les annonces trompeuses sont interdites.\n" +
-      "ADDED[A1]: - Les annonces trompeuses sont interdites.",
-    timeoutMs: 100,
-  }, {
-    decisionExtract: () =>
-      Promise.resolve({
-        alert_warranted: false,
-        certainty: "certain" as const,
-        reason: "Le sens est identique; seul le marqueur de liste a changé.",
-        findings: [],
-      }),
-  });
-
-  assertEquals(result.matches, false);
-});
-
 Deno.test("a positive agent decision with unknown evidence IDs fails closed", async () => {
   await assertRejects(
     () =>
@@ -384,41 +271,6 @@ Deno.test("an uncertain agent decision raises a coverage error", async () => {
   );
 });
 
-Deno.test("the agent treats fully contextualized unrelated boilerplate as a certain negative", async () => {
-  let prompt = "";
-  await evaluatePageScoutCriteria({
-    criteria: "Report only substantive policy wording changes.",
-    delta: [
-      "CONTEXT: Send feedback on...",
-      "REMOVED[R1]: 2507032178178457788",
-      "CONTEXT: Search Help Center",
-      "CONTEXT: Send feedback on...",
-      "ADDED[A1]: 16235620894640803440",
-      "CONTEXT: Search Help Center",
-    ].join("\n"),
-    timeoutMs: 100,
-  }, {
-    decisionExtract: (value) => {
-      prompt = value;
-      return Promise.resolve({
-        alert_warranted: false,
-        certainty: "certain" as const,
-        reason: "Only an unrelated feedback identifier changed.",
-        findings: [],
-      });
-    },
-  });
-
-  assertStringIncludes(
-    prompt,
-    "Complete evidence showing that a change is unrelated boilerplate supports a certain negative decision.",
-  );
-  assertStringIncludes(
-    prompt,
-    "Reserve certainty=uncertain for genuinely incomplete or ambiguous evidence.",
-  );
-});
-
 Deno.test("the evaluator makes one authoritative decision over the complete bounded delta", async () => {
   let calls = 0;
   let receivedPrompt = "";
@@ -485,27 +337,59 @@ Deno.test("criteria and delta remain JSON data when page text resembles a delimi
   assertEquals(result.matches, false);
 });
 
-Deno.test("an oversized delta fails before spending an incomplete inference call", async () => {
+Deno.test("the complete serialized prompt is accepted at the limit and rejected above it before inference", async () => {
+  const criteria = "alert when registration closes";
+  const prefix = "ADDED[A1]: ";
   let calls = 0;
-  await assertRejects(
-    () =>
-      evaluatePageScoutCriteria({
-        criteria: "alert when registration closes",
-        delta: `ADDED[A1]: ${"x".repeat(160_001)}`,
-        timeoutMs: 1_000,
-      }, {
-        decisionExtract: () => {
-          calls++;
-          return Promise.resolve({
-            alert_warranted: false,
-            certainty: "certain" as const,
-            reason: "No match.",
-            findings: [],
-          });
-        },
-      }),
-    PageScoutCriteriaCoverageError,
-    "maximum",
-  );
-  assertEquals(calls, 0);
+  let promptChars = 0;
+  const deps = {
+    decisionExtract: (
+      prompt: string,
+      schema: Record<string, unknown>,
+      options: { systemInstruction?: string },
+    ) => {
+      calls++;
+      promptChars = prompt.length + (options.systemInstruction?.length ?? 0) +
+        JSON.stringify(schema).length;
+      return Promise.resolve({
+        alert_warranted: false,
+        certainty: "certain" as const,
+        reason: "No match.",
+        findings: [],
+      });
+    },
+  };
+  await evaluatePageScoutCriteria({
+    criteria,
+    delta: prefix,
+    timeoutMs: 1_000,
+  }, deps);
+  const delta = prefix + "x".repeat(160_000 - promptChars);
+  const result = await evaluatePageScoutCriteria({
+    criteria,
+    delta,
+    timeoutMs: 1_000,
+  }, deps);
+  assertEquals(promptChars, 160_000);
+  assertEquals(result.matches, false);
+  assertEquals(calls, 2);
+
+  // Each input crosses the actual request limit, including JSON escaping.
+  for (
+    const oversized of [
+      { criteria, delta: delta + "x" },
+      { criteria: criteria + "x", delta },
+      { criteria, delta: delta.slice(0, -1) + '"' },
+    ]
+  ) {
+    await assertRejects(
+      () =>
+        evaluatePageScoutCriteria({
+          ...oversized,
+          timeoutMs: 1_000,
+        }, deps),
+      PageScoutCriteriaCoverageError,
+    );
+    assertEquals(calls, 2);
+  }
 });

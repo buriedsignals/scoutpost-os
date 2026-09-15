@@ -19,6 +19,8 @@ export interface ScoutFailureContext {
   scoutType: string;
   language?: string | null;
   threshold?: number;
+  /** A persisted internal run policy; failure accounting still occurs. */
+  notificationMode?: "deliver" | "disabled";
 }
 
 export interface IncrementResult {
@@ -51,7 +53,12 @@ export async function incrementAndMaybeNotify(
       scout_id: ctx.scoutId,
       msg: error.message,
     });
-    return { consecutiveFailures: 0, isActive: true, deactivated: false, notified: false };
+    return {
+      consecutiveFailures: 0,
+      isActive: true,
+      deactivated: false,
+      notified: false,
+    };
   }
 
   const row = Array.isArray(data) ? data[0] : data;
@@ -59,7 +66,7 @@ export async function incrementAndMaybeNotify(
   const isActive = row?.is_active !== false; // treat null as still active
   const deactivated = !isActive && consecutiveFailures >= threshold;
 
-  if (!deactivated) {
+  if (!deactivated || ctx.notificationMode === "disabled") {
     return { consecutiveFailures, isActive, deactivated, notified: false };
   }
 

@@ -29,9 +29,9 @@ call into `crawler_jobs`, nudges `crawler-dispatch`, verifies the private result
 artifacts, and returns the existing response shape. Every immediate nudge names
 the just-enqueued job and forms a one-job batch; scheduled recovery retains the
 normal throughput-oriented batch sizes and shared 28-start reservation gate.
-Successful proxy artifacts are removed on consumption, with a scheduled
-30-minute orphan sweep; the same sweep closes proxy-only anti-bot handoffs
-whose caller disconnected before delegating the existing Firecrawl fallback.
+Successful proxy artifacts remain available through the bounded retry window;
+the scheduled 30-minute sweep removes expired results and closes proxy-only
+fallback handoffs whose caller disconnected before delegation.
 Callers must send a validated server-owned tenant key: the verified user UUID
 for Scout/utility work, or `system:<consumer>` for true system work. Scout
 traffic uses normal admission; utility and system traffic use the atomic
@@ -109,14 +109,14 @@ explicitly for clarity:
 supabase secrets set SCRAPE_PROVIDER=crawl4ai
 ```
 Compatibility rollback is the reverse (`SCRAPE_PROVIDER=firecrawl`).
-`FIRECRAWL_API_KEY` remains required for Beat search and for the classified
-anti-bot scrape fallback.
+`FIRECRAWL_API_KEY` remains required for Beat search and for one classified
+anti-bot or retry-exhausted navigation-timeout fallback within the original deadline.
 
 ## OSS / self-host
 
 `deploy/docker/docker-compose.yml` ships the `scrape-service` container
 **default-on** with `SCRAPE_PROVIDER=crawl4ai`. Self-hosters still need a
-Firecrawl Cloud key for Beat search and the classified anti-bot fallback. The
+Firecrawl Cloud key for Beat search and the bounded, classified fallback. The
 edge-functions service points at
 `http://scrape-service:8080` with a shared `SCRAPE_SERVICE_TOKEN`
 (defaults to a local dev token).

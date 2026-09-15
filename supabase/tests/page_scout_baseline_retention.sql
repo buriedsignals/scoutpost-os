@@ -1,6 +1,6 @@
 BEGIN;
 SET LOCAL search_path = public, extensions;
-SELECT plan(17);
+SELECT plan(22);
 
 INSERT INTO auth.users (
   id, instance_id, aud, role, email, encrypted_password,
@@ -149,6 +149,13 @@ INSERT INTO public.raw_captures (
     now() - interval '99 days', now() - interval '60 days'
   );
 
+-- These fixtures represent already-validated captures. Unvalidated history
+-- must be retained conservatively until the Page reader inspects its body.
+UPDATE public.raw_captures
+   SET page_validation_version = 'page-response-v1',
+       page_validation_outcome = 'valid'
+ WHERE scout_id = '00000000-0000-4000-8000-000000000962';
+
 SELECT public.cleanup_raw_captures();
 
 SELECT isnt(
@@ -264,6 +271,87 @@ SELECT is(
     '00000000-0000-4000-8000-000000000972'),
   0::bigint,
   'initialized active membership restores removed-child TTL cleanup'
+);
+
+INSERT INTO public.raw_captures (
+  id, user_id, scout_id, source_url, content_md,
+  canonical_content_sha256, canonicalizer_version, captured_at, expires_at,
+  page_validation_version, page_validation_outcome
+) VALUES
+  (
+    '00000000-0000-4000-8000-000000000973',
+    '00000000-0000-4000-8000-000000000961',
+    '00000000-0000-4000-8000-000000000971',
+    'https://legacy.example.test/news/', 'earlier valid policy',
+    repeat('a', 64), 'web-md-v2', now() - interval '62 days',
+    now() - interval '30 days', 'page-response-v1', 'valid'
+  ),
+  (
+    '00000000-0000-4000-8000-000000000974',
+    '00000000-0000-4000-8000-000000000961',
+    '00000000-0000-4000-8000-000000000971',
+    'https://legacy.example.test/news/', 'confirmed error body',
+    repeat('b', 64), 'web-md-v2', now() - interval '61 days',
+    now() + interval '1 day', 'page-response-v1', 'error_page'
+  ),
+  (
+    '00000000-0000-4000-8000-000000000975',
+    '00000000-0000-4000-8000-000000000961',
+    '00000000-0000-4000-8000-000000000971',
+    'https://legacy.example.test/news/', 'unclassified legacy body',
+    repeat('c', 64), 'web-md-v2', now() - interval '60 days',
+    now() - interval '30 days', NULL, NULL
+  ),
+  (
+    '00000000-0000-4000-8000-000000000976',
+    '00000000-0000-4000-8000-000000000961',
+    '00000000-0000-4000-8000-000000000971',
+    'https://legacy.example.test/news/', 'another unclassified legacy body',
+    repeat('d', 64), 'web-md-v2', now() - interval '59 days',
+    now() - interval '30 days', NULL, NULL
+  );
+SELECT public.cleanup_raw_captures();
+SELECT is(
+  (SELECT content_md FROM public.raw_captures
+    WHERE id = '00000000-0000-4000-8000-000000000973'),
+  'earlier valid policy',
+  'later invalid and unvalidated captures cannot erase the valid baseline'
+);
+SELECT is(
+  (SELECT content_md FROM public.raw_captures
+    WHERE id = '00000000-0000-4000-8000-000000000974'),
+  'confirmed error body',
+  'confirmed invalid capture retains its raw evidence until ordinary expiry'
+);
+SELECT is(
+  (SELECT count(*) FROM public.raw_captures WHERE id IN (
+    '00000000-0000-4000-8000-000000000975',
+    '00000000-0000-4000-8000-000000000976'
+  )),
+  2::bigint,
+  'all unvalidated legacy candidates survive until actual content validation'
+);
+UPDATE public.raw_captures
+   SET page_validation_version = 'page-response-v1',
+       page_validation_outcome = 'error_page'
+ WHERE id IN (
+    '00000000-0000-4000-8000-000000000975',
+    '00000000-0000-4000-8000-000000000976'
+ );
+SELECT public.cleanup_raw_captures();
+SELECT is(
+  (SELECT count(*) FROM public.raw_captures WHERE id IN (
+    '00000000-0000-4000-8000-000000000975',
+    '00000000-0000-4000-8000-000000000976'
+  )),
+  0::bigint,
+  'confirmed invalid historical rows return to ordinary evidence retention'
+);
+SELECT is(
+  (SELECT content_md FROM public.raw_captures
+    WHERE id = '00000000-0000-4000-8000-000000000973'),
+  'earlier valid policy',
+  'valid baseline remains pinned after invalid history expires'
 );
 
 SELECT * FROM finish();

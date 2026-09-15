@@ -72,6 +72,8 @@ export interface ScrapeResult {
    * scoreboard's fallback-health monitoring.
    */
   served_by?: "firecrawl" | "crawl4ai";
+  /** Actual fallback trigger, never inferred from the serving provider. */
+  fallback_reason?: "anti_bot" | "timeout_exhausted";
 }
 
 export interface ScrapeOptions {
@@ -81,6 +83,8 @@ export interface ScrapeOptions {
   /** Verified user UUID, or a stable `system:<consumer>` identity for true
    * system work. Required only when the hosted crawler proxy is configured. */
   tenantKey?: string;
+  /** Stable authenticated proxy identity across one logical retry ladder. */
+  requestId?: string;
   formats?: Array<"markdown" | "html" | "rawHtml">;
   onlyMainContent?: boolean;
   /**
@@ -152,7 +156,9 @@ export type PrimaryScrapeStrategy =
   | "split"
   | "markdown_only_fallback"
   | "workflow"
-  | "workflow_antibot_fallback";
+  | "workflow_antibot_fallback"
+  | "workflow_timeout_fallback"
+  | "timeout_fallback";
 
 export interface PrimaryPageScrapeResult extends ScrapeResult {
   scrape_strategy: PrimaryScrapeStrategy;
@@ -172,6 +178,8 @@ export interface PrimaryPageScrapeOptions {
   onlyMainContent?: boolean;
   timeoutMs?: number;
   abortAfterMs?: number;
+  /** Absolute caller deadline; nested retrieval must not start a fresh budget. */
+  deadlineMs?: number;
   maxAgeMs?: number;
   storeInCache?: boolean;
   retryDelayMs?: number;

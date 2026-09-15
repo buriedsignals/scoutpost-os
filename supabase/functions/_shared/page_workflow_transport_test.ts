@@ -6,8 +6,9 @@ import {
 } from "./page_workflow_transport.ts";
 import { maybeInitializeMissingWebBaselineRun } from "./web_scout_baseline.ts";
 
+import type { CrawlerJobStatus } from "./crawler_jobs.ts";
 function transportWithStatus(
-  status: string,
+  status: CrawlerJobStatus,
   errorMessage: string | null = null,
 ) {
   const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
@@ -19,9 +20,15 @@ function transportWithStatus(
     continuation_key: "run-1",
     url: "https://example.com",
     attempts: 1,
-    error_class: status === "terminal_failed" ? "terminal" : null,
+    max_attempts: 3,
+    error_class: status === "terminal_failed"
+      ? "terminal"
+      : status === "fallback_required"
+      ? "anti_bot"
+      : null,
     error_message: errorMessage,
     result_manifest: null,
+    lease_token: null,
   };
   const query = {
     select() {
@@ -38,7 +45,7 @@ function transportWithStatus(
     rpc(fn: string, args: Record<string, unknown>) {
       calls.push({ fn, args });
       return Promise.resolve({
-        data: fn === "enqueue_crawler_job" ? row : true,
+        data: fn === "enqueue_crawler_job" ? row : null,
         error: null,
       });
     },
@@ -123,4 +130,32 @@ Deno.test("terminal crawler failure fails the resumable Page run", async () => {
 Deno.test("terminal child failure remains a per-URL Page result", async () => {
   const { transport } = transportWithStatus("terminal_failed", "unsafe URL");
   await transport.prepareChildren(["https://example.com/child"], 25_000);
+});
+
+Deno.test("cancelled children stay failed per-URL results rather than pending or retrieved", async () => {
+  const { transport } = transportWithStatus("cancelled", "original challenge");
+  await transport.prepareChildren(["https://example.com/child"], 25_000);
+  await assertRejects(
+    () =>
+      transport.scrape({
+        url: "https://example.com/child",
+        workloadClass: "scout",
+      }, "child:test"),
+    Error,
+    "crawler job cancelled",
+  );
+});
+
+Deno.test("a fallback without a durable claim waits without spending on a provider", async () => {
+  const { transport } = transportWithStatus("fallback_required");
+  // This service denies the fallback claim. No storage or provider result
+  // methods exist: attempting the provider path must not be necessary.
+  await assertRejects(
+    () =>
+      transport.scrape({
+        url: "https://example.com",
+        workloadClass: "scout",
+      }, "root"),
+    PageWorkflowPending,
+  );
 });

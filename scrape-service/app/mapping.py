@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .main_content import project_main_content
+from .pdfparse import ParsedPdf
 
 
 def _extract_markdown(raw: Any) -> str:
@@ -70,6 +71,32 @@ def map_crawl_result(result: Any, requested_url: str) -> dict[str, Any]:
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "status_code": getattr(result, "status_code", None),
         "response_headers": headers if isinstance(headers, dict) else {},
+    }
+
+
+def map_pdf_scrape_result(parsed: ParsedPdf, requested_url: str) -> dict[str, Any]:
+    """Adapt parsed text without pretending a document was rendered as HTML."""
+    return {
+        "markdown": parsed.text,
+        "comparison_markdown": None,
+        "comparison_strategy": "full",
+        "comparison_ratio": 1.0,
+        "rawHtml": None,
+        "html": None,
+        "title": None,
+        "metadata": {
+            "document": {
+                "type": "pdf",
+                "pages": parsed.pages,
+                "chars": parsed.chars,
+                "parser": parsed.parser,
+            },
+        },
+        "requested_url": requested_url,
+        "source_url": parsed.source_url or requested_url,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "status_code": parsed.status_code,
+        "response_headers": parsed.response_headers,
     }
 
 

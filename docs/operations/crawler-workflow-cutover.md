@@ -44,7 +44,7 @@ Run:
 
 Require exact response-contract parity, a terminal successful `proxy` job, a
 real Render task ID, a one-job immediate batch, no retry or duplicate batch,
-and removal of consumed Storage artifacts. Capture
+and removal of Storage artifacts after the bounded replay-retention window. Capture
 `X-Scoutpost-Proxy-Request-Id` from the streamed response and join it exactly
 to `crawler_jobs.continuation_key`:
 
@@ -110,3 +110,81 @@ The exact 168-hour mark was 16:29:06 UTC; the operator explicitly accepted the
 remaining 4 hours 25 minutes of observation-window risk and authorized
 retirement. The HTTP adapter, Dockerfile, self-host configuration, and
 validated recovery Blueprint remain in the repository.
+
+## Page reliability rollout and operator replay
+
+This rollout stays on Render Workflows. It does not restore the retired hosted
+HTTP service, change customer URLs or schedules, or unpause customer Scouts.
+
+Before applying `20260914131000_page_crawler_cancellation.sql`, stop new internal
+Scout dispatch admission and let existing Page executions and their crawler jobs
+finish. Record the internal cron rows before holding `drain-scout-dispatch`;
+keep crawler dispatch and continuations running while those executions drain.
+Queued, not-yet-started runs may remain queued. Do not proceed while an old Page
+executor can still spend an unclaimed fallback. Once drained, hold the internal
+crawler-dispatch schedule too. Leave individual `scout-<uuid>` schedules intact.
+
+Apply the four `2026091413*` migrations in order. Release the reviewed Render
+Workflow revision and deploy every affected Edge Function bundle, including
+`scout-web-execute`, `crawler-worker` and `crawler-proxy`. Deploy the upgraded
+`crawler-dispatch` last: it explicitly enables terminal-parent cancellation in
+reconciliation. Restore the saved internal cron state only after confirming the
+new schema and deployed versions. Do not roll back to an old unclaimed native
+fallback caller against the new ownership contract.
+
+Include the Beat executor and every caller of the changed shared modules in the
+bundle deployment; do not deploy only the Page entrypoint. The release also
+changes Page probing/creation and the MCP error contract. Verify the 150,000
+normalized-character limit and the Beat all-stale, zero-net-credit outcome.
+Retain the existing Page and Beat benchmark assertions and run their deployed
+canaries. A local regression pass does not replace these deployment checks.
+
+Verify the deployed paths with operator-owned canaries before customer replay:
+ordinary HTML, a download response, a truthful invalid/error page, and exhausted
+navigation-timeout recovery. Record job/batch IDs, actual Workflow revision,
+attempts, queue wait, provider duration, served provider and terminal state.
+Local tests or a standalone provider CLI response do not prove the deployed
+native path.
+
+Preview abandoned work with the service-role-only RPC:
+
+```sql
+SELECT * FROM public.cancel_terminal_page_crawler_jobs(
+  p_limit := 100, p_apply := false
+);
+```
+
+Inspect parent status, child/fallback status and both leases. Apply the same
+bounded predicate with `p_apply := true`, then preview again. Cancellation
+preserves attempts, errors, manifests and parent links; it does not delete jobs
+or turn failed runs into successes. Active parents and live leases are excluded.
+
+For an explicitly selected paused Page Scout, use a private preview path and
+the service environment (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`):
+
+```sh
+deno run --allow-env --allow-net --allow-write --allow-run=jj \
+  scripts/ops/replay-paused-web-scouts.ts preview \
+  --scout-id "$SCOUT_ID" --output "$PREVIEW"
+```
+
+Repeat `--scout-id` for each approved candidate. The preview includes fixed run
+IDs, original URLs, paused configuration, baseline capture snapshots, intended
+writes and maximum credits. Record the current Render Workflow and affected
+Edge Function deployment versions alongside it; `source_version` identifies
+the local recorded commit, not a deployed version or uncommitted changes.
+Obtain explicit approval for the total maximum credits and recheck deployment
+versions before applying. Stop on deployment or configuration drift.
+
+```sh
+deno run --allow-env --allow-net --allow-read \
+  scripts/ops/replay-paused-web-scouts.ts apply \
+  --preview "$PREVIEW" --approve-maximum-credits "$APPROVED_MAXIMUM_CREDITS"
+```
+
+Apply keeps the Scouts paused and durably disables both change and deactivation
+emails. Normal workflow persistence and idempotent charging/refunding remain
+active. After a partial or uncertain submission, retry the same preview and
+approval, not a new preview with new run IDs. A queued acknowledgement is not a
+successful run: inspect final status, baseline eligibility, billing entries and
+notification state separately. A still-invalid target remains a truthful error.

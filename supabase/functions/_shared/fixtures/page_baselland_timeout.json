@@ -1,0 +1,18 @@
+{
+  "github_run_id": 34844614562,
+  "scout_run_id": "36263e02-b00d-4d61-8797-de4fdedd1603",
+  "event": {
+    "ts": "2026-09-14T12:49:41.137Z",
+    "level": "warn",
+    "fn": "scout-web-execute",
+    "event": "phase_b_subpage_failed",
+    "scout_id": "7da51b71-b321-4b55-9192-560298889d0c",
+    "url": "https://www.baselland.ch/politik-und-behorden/regierungsrat/medienmitteilungen/beschlossene-vorlagen-und-stellungnahmen-des-regierungsrats-1782214097.6149137",
+    "msg": "firecrawl scrape failed: 408 {\"success\":false,\"code\":\"SCRAPE_TIMEOUT\",\"error\":\"The scrape operation timed out before completing. This happens when a page takes too long to load, render, or process. Possible causes: (1) The website is slow or unresponsive, (2) The page has heavy JavaScript that takes time to execute, (3) The page is very large or has many resources to load, (4) Network latency is high. To fix this, try increasing the timeout parameter in your scrape request, or if using actions, ensure your selectors are correct and the page is ready before actions are executed.\"}"
+  },
+  "response": {
+    "success": false,
+    "code": "SCRAPE_TIMEOUT",
+    "error": "The scrape operation timed out before completing. This happens when a page takes too long to load, render, or process. Possible causes: (1) The website is slow or unresponsive, (2) The page has heavy JavaScript that takes time to execute, (3) The page is very large or has many resources to load, (4) Network latency is high. To fix this, try increasing the timeout parameter in your scrape request, or if using actions, ensure your selectors are correct and the page is ready before actions are executed."
+  }
+}

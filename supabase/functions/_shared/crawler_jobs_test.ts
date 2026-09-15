@@ -4,6 +4,7 @@ import {
   assertThrows,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import {
+  cancelTerminalPageCrawlerJobs,
   crawlerJobDedupeKey,
   crawlerUtilityDailyLimit,
   enqueueCrawlerJob,
@@ -21,6 +22,41 @@ const base = {
   scoutId: "00000000-0000-4000-8000-000000000002",
   userId: "00000000-0000-4000-8000-000000000003",
 };
+
+Deno.test("cancellation rejects unsafe bounds before touching the ledger", async () => {
+  const svc = {
+    rpc() {
+      throw new Error("ledger should not be accessed");
+    },
+  };
+  for (const limit of [0, 501, 1.5, Number.NaN]) {
+    await assertRejects(
+      () => cancelTerminalPageCrawlerJobs(svc as never, { limit, apply: true }),
+      Error,
+      "cancellation limit",
+    );
+  }
+});
+
+Deno.test("cancellation surfaces database failure instead of reporting an empty cleanup", async () => {
+  const svc = {
+    rpc() {
+      return Promise.resolve({
+        data: null,
+        error: { message: "connection lost" },
+      });
+    },
+  };
+  await assertRejects(
+    () =>
+      cancelTerminalPageCrawlerJobs(svc as never, {
+        runId: base.continuationKey,
+        apply: true,
+      }),
+    Error,
+    "connection lost",
+  );
+});
 
 Deno.test("crawler dedupe is stable and scopes URL, tenant, and stage", async () => {
   const first = await crawlerJobDedupeKey(base);

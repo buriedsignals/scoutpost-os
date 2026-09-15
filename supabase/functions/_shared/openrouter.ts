@@ -45,6 +45,8 @@ export interface OpenRouterExtractOptions {
   systemInstruction?: string;
   timeoutMs?: number;
   abortAfterMs?: number;
+  /** Optional completion-token ceiling shared by both bounded attempts. */
+  maxTokens?: number;
   /** Test/ops override for the bounded delay before fallback. */
   retryDelayMs?: number;
   usage?: AiUsageContext;
@@ -108,11 +110,14 @@ export async function openRouterExtract<T>(
       Math.min(timeoutMs, Math.floor(remainingMs / attemptsLeft)),
     );
     try {
-      const response = await openRouterRequest(
+      const body = await openRouterRequest(
         "chat/completions",
         {
           model: attemptModel,
           messages,
+          ...(options.maxTokens !== undefined
+            ? { max_tokens: options.maxTokens }
+            : {}),
           response_format: {
             type: "json_schema",
             json_schema: {
@@ -134,7 +139,6 @@ export async function openRouterExtract<T>(
         attemptTimeoutMs,
         "extraction",
       );
-      const body = await parseResponseJson(response, "extraction");
       throwIfProviderError(body, "extraction");
       await recordOpenRouterUsage(
         options.usage
@@ -189,7 +193,7 @@ async function openRouterRequest(
   body: Record<string, unknown>,
   abortAfterMs: number,
   operation: string,
-): Promise<Response> {
+): Promise<Record<string, unknown>> {
   const controller = new AbortController();
   const fuse = setTimeout(() => controller.abort(), abortAfterMs);
   try {
@@ -216,9 +220,9 @@ async function openRouterRequest(
         retryAfterMs(response.headers.get("Retry-After")),
       );
     }
-    return response;
+    return await parseResponseJson(response, operation);
   } catch (error) {
-    if ((error as { name?: string }).name === "AbortError") {
+    if (error instanceof Error && error.name === "AbortError") {
       throw new OpenRouterRequestError(
         `OpenRouter ${operation} aborted after ${abortAfterMs}ms`,
         504,
@@ -246,7 +250,8 @@ async function parseResponseJson(
     const body: unknown = await response.json();
     if (!isRecord(body)) throw new TypeError("response is not an object");
     return body;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
     throw new OpenRouterRequestError(
       `OpenRouter ${operation} returned malformed JSON`,
       502,

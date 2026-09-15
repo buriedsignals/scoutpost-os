@@ -188,7 +188,8 @@ export async function parseDocument(
   const parsed = await parseViaService(url, opts);
   if (parsed !== NOT_A_PDF) return parsed;
 
-  // Not a PDF → the document is an HTML page (e.g. an agenda). Render it.
+  // A non-PDF sniff can resolve differently on navigation. Reuse the scrape's
+  // parsed document result if it is a download; never send it back to /parse.
   const r = await scrape(url, {
     workloadClass: opts.workloadClass,
     tenantKey: opts.tenantKey,
@@ -196,5 +197,16 @@ export async function parseDocument(
     timeoutMs: opts.timeoutMs,
     abortAfterMs: opts.abortAfterMs,
   });
-  return { markdown: r.markdown, source_url: r.source_url, title: r.title };
+  const document = r.metadata?.document;
+  return {
+    markdown: r.markdown,
+    source_url: r.source_url,
+    title: r.title,
+    ...(document !== null && typeof document === "object" &&
+        "type" in document && document.type === "pdf" &&
+        "pages" in document && typeof document.pages === "number" &&
+        Number.isInteger(document.pages) && document.pages > 0
+      ? { pages: document.pages }
+      : {}),
+  };
 }

@@ -15,13 +15,18 @@ before testing the page. **Any Change** remains available as an explicit choice
 and for legacy/API requests with empty criteria; the UI warns that pages without
 a reliable main-content landmark can still produce page-chrome noise.
 
-Uses the configured scrape port (Crawl4AI with the existing Firecrawl anti-bot
-fallback), but Page Scout change detection is owned locally by Scoutpost:
-the unmodified provider markdown is retained while a quality-gated semantic
-projection is canonicalized, version-hashed, and compared against the latest
-successful per-source `raw_captures` baseline. Firecrawl
-Cloud remains available only through the classified anti-bot fallback or the
-operator-wide `SCRAPE_PROVIDER=firecrawl` compatibility switch.
+Uses the configured scrape port (Crawl4AI with classified Firecrawl recovery),
+but Page Scout change detection is owned locally by Scoutpost: unmodified
+provider markdown is retained while a quality-gated semantic projection is
+canonicalized, version-hashed, and compared against the latest valid,
+successful per-source `raw_captures` baseline. Firecrawl recovery is limited to
+classified anti-bot responses or exhausted typed navigation timeouts, at most
+once within the original remaining deadline. The operator-wide
+`SCRAPE_PROVIDER=firecrawl` compatibility switch remains separate.
+
+For native Page children, fallback rendering uses the remaining Phase B budget,
+not the completed primary renderer's shorter navigation limit. The fallback
+cannot extend that absolute deadline or start a second paid attempt.
 
 ## Change Detection and Renderer Attribution
 
@@ -39,9 +44,15 @@ single/dominant `article`, Page Scout compares that projection. It falls back
 to the complete rendered document when the candidate is absent, too small, or
 cannot be converted safely. The unmodified provider markdown is retained for
 evidence, extraction, and child-link discovery in either case. A Firecrawl
-anti-bot fallback labels its existing `onlyMainContent` output as
+fallback labels its existing `onlyMainContent` output as
 `provider_main`; that provider does not supply a separate complete Markdown
 document on that path.
+
+The shared Page response validator rejects HTTP errors, empty content, recognizable
+error pages, and responses outside the configured page before baseline promotion
+or analysis. Historical captures are classified lazily from their retained body;
+an invalid newer capture cannot hide an earlier valid baseline. Classification
+records its version and outcome without deleting the evidence.
 
 The Page Scout canonicalizer then removes deterministic scrape noise before
 hashing:
@@ -68,6 +79,23 @@ sections remains alertable because it can change the locale, entity, or policy
 scope to which a rule applies. Mixed deltas retain exact `MOVED` evidence plus
 occurrence counts, surrounding context, and nearest headings for criteria
 evaluation.
+
+## Page size and criteria limits
+
+Page Scouts accept up to **150,000 characters of normalized extracted Markdown**.
+The existing canonicalizer removes technical noise and redundant whitespace
+before counting; raw HTML size is not the limit. Probe and creation return
+`page_too_long` above this threshold, before the preview model or baseline writes.
+Fresh root/child content and baseline initialization use the same limit.
+Historical captures remain intact and are not invalidated solely by size.
+
+Specific Criteria uses one complete comparison, with a **160,000-character
+prompt limit** including criteria, instructions and schema, and a 4,096-token
+output cap. There are no chunk inventories or analysis checkpoints. A page can
+pass the size gate but later produce a large two-version comparison that exceeds
+the prompt limit. That fails explicitly, preserving the previous authoritative
+baseline and suppressing the alert; evidence is never truncated to claim success.
+Model routing, ordinary deadlines and the one-credit Page run price are unchanged.
 
 ## Execution Pipeline
 
@@ -118,7 +146,7 @@ evaluation.
 |------|----------|---------|
 | `scout-web-execute/index.ts` | `supabase/functions/` | Main scheduled/run-now Page Scout pipeline |
 | `scouts/index.ts` | `supabase/functions/` | Scout CRUD, preview/test, run, pause/resume |
-| `_shared/scrape.ts` | `supabase/functions/` | Provider port and classified anti-bot fallback policy |
+| `_shared/scrape.ts` | `supabase/functions/` | Provider port and bounded classified fallback policy |
 | `_shared/web_content_canonical.ts` | `supabase/functions/` | Versioned markdown canonicalizer |
 | `_shared/web_scout_baseline.ts` | `supabase/functions/` | Schedule-time baseline establishment |
 | `_shared/page_scout_change.ts` | `supabase/functions/` | Deterministic normalized delta and alert decision |
@@ -182,12 +210,13 @@ tool `test_web_scout`, and the raw API. It returns the shared envelope from
 | Scrape threw, any other reason | false | reach | `unreachable` |
 | Final URL is not the configured page | false | reach | `outside_configured_page` |
 | Page fetched but no readable markdown | false | reach | `empty_content` |
+| Normalized extracted Markdown exceeds 150,000 characters | false | reach | `page_too_long` |
 | Fetched, criteria given, no match | **true** | reach | `criteria_not_met` (advisory, no `error` text) |
 | Fetched, summary model unavailable | true | reach | — (`summary` says summary unavailable) |
 
 `POST /scouts` with `type:"web"` runs the same reach step server-side before
 insert (`probeCreateGate`) and answers **HTTP 422** with the envelope for
-`blocked`, `unreachable`, `outside_configured_page` or `empty_content`; the
+`blocked`, `unreachable`, `outside_configured_page`, `empty_content` or `page_too_long`; the
 successful scrape is reused for the baseline so a passing create pays for one
 fetch. There is no bypass flag. `criteria_not_met` never blocks creation.
 
@@ -221,13 +250,16 @@ document. Page Scout rows include:
 - `comparison_strategy` — `main`, `role_main`, `article`, `provider_main`, or `full`
 - `canonical_content_sha256` — versioned hash of the comparison document
 - `canonicalizer_version` — e.g. `web-md-v2`
+- `page_response_status` — observed HTTP status when available
+- `page_validation_version` / `page_validation_outcome` — versioned Page response classification
 - `expires_at` — raw capture retention cutoff
 
-The ordinary 30-day TTL still bounds raw-capture history, but cleanup pins the
-newest successful canonical capture for each Page Scout source. Before 90-day
-run cleanup, that capture is detached from its expiring run, so paused scouts
-and rotated index children retain one comparison baseline for the scout's
-lifetime. Deleting the scout still deletes those captures.
+Ordinary history expires after 30 days. For the configured root and currently
+active children, cleanup pins the newest validated successful canonical capture
+and unclassified legacy candidates. Those candidates remain pinned until
+classified; confirmed invalid captures keep ordinary retention. Pinned captures
+are detached before their parent runs expire. Scout or account deletion still
+cascades to the retained captures.
 
 ### `scout_runs`
 

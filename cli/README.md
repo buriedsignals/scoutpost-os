@@ -207,7 +207,7 @@ checks a Page scout's URL is reachable; `scout civic resolve` finds pages that
 list council meetings and `scout civic validate` checks the pages you chose.
 `scout scouts add` is rejected by the server (HTTP 422) when that probe fails,
 with the same `error_code` the web UI shows — `unreachable`, `blocked`,
-`empty_content`, `outside_configured_page` for Page scouts;
+`empty_content`, `outside_configured_page`, `page_too_long` for Page scouts;
 `no_meetings_detected` for Council scouts. The CLI prints the envelope as
 JSON on stdout (agents read `candidates` and retry with one), a summary on
 stderr, and exits 1. There is no bypass flag.

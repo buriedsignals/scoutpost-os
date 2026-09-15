@@ -6,7 +6,10 @@ import {
   gzipCrawlerJson,
   loadCrawlerResult,
 } from "./crawler_results.ts";
-import { firecrawlScrape } from "./scrape_firecrawl.ts";
+import {
+  crawlerFallbackReason,
+  scrapeFallbackOnce,
+} from "./scrape_fallback.ts";
 import type {
   PrimaryPageScrapeOptions,
   PrimaryPageScrapeResult,
@@ -19,9 +22,11 @@ const ACTIVE = new Set(["queued", "batched", "running", "retryable_failed"]);
 interface StoredCrawlerJob extends CrawlerJobRow {
   url: string;
   attempts: number;
+  max_attempts: number;
   error_class: string | null;
   error_message: string | null;
   result_manifest: Record<string, unknown> | null;
+  lease_token: string | null;
 }
 
 export class PageWorkflowPending extends Error {
@@ -32,8 +37,6 @@ export class PageWorkflowPending extends Error {
 }
 
 export class PageWorkflowTransport {
-  private readonly failedFallbackJobs = new Set<string>();
-
   constructor(
     private readonly svc: SupabaseClient,
     private readonly run: {
@@ -48,6 +51,11 @@ export class PageWorkflowTransport {
     opts: PrimaryPageScrapeOptions,
     stage: string,
   ): Promise<PrimaryPageScrapeResult> {
+    // Queued primary work has already finished when fallback is admitted.
+    // A Page child shares Phase B's remaining renderer budget; the primary
+    // navigation fuse must not clip that budget a second time.
+    const deadlineMs = opts.deadlineMs ??
+      Date.now() + (opts.abortAfterMs ?? (opts.timeoutMs ?? 25_000) + 5_000);
     const job = await this.enqueue(opts.url, stage, opts.timeoutMs ?? 25_000);
     const current = await this.load(job.id);
     if (ACTIVE.has(current.status)) {
@@ -56,11 +64,18 @@ export class PageWorkflowTransport {
       );
     }
     if (current.status === "fallback_required") {
-      if (this.failedFallbackJobs.has(current.id)) {
-        throw new Error("anti-bot fallback failed");
+      const completed = await this.completeFallback(current, opts, deadlineMs);
+      if (
+        !completed && (await this.load(job.id)).status === "fallback_required"
+      ) {
+        throw new PageWorkflowPending(
+          stage === "root" ? "waiting_root" : "waiting_children",
+        );
       }
-      await this.completeAntiBotFallback(current, opts);
       return await this.scrape(opts, stage);
+    }
+    if (current.status === "cancelled") {
+      throw new Error("crawler job cancelled because its Page run terminated");
     }
     if (current.status !== "succeeded") {
       throw new Error(
@@ -74,7 +89,9 @@ export class PageWorkflowTransport {
       served_by: crawlerManifestProvider(current.result_manifest) ?? "crawl4ai",
       scrape_strategy:
         crawlerManifestProvider(current.result_manifest) === "firecrawl"
-          ? "workflow_antibot_fallback"
+          ? pageResult.fallback_reason === "timeout_exhausted"
+            ? "workflow_timeout_fallback"
+            : "workflow_antibot_fallback"
           : "workflow",
       scrape_attempts: Math.max(1, current.attempts),
     };
@@ -85,22 +102,12 @@ export class PageWorkflowTransport {
       urls.map((url) => this.enqueue(url, childStage(url), timeoutMs)),
     );
     const rows = await Promise.all(jobs.map((job) => this.load(job.id)));
-    for (const row of rows) {
-      if (row.status === "fallback_required") {
-        try {
-          await this.completeAntiBotFallback(row, {
-            url: row.url,
-            workloadClass: "scout",
-            timeoutMs,
-          });
-        } catch {
-          // Child failures are recorded by the existing Page pipeline per URL.
-          this.failedFallbackJobs.add(row.id);
-        }
-      }
-    }
-    const refreshed = await Promise.all(jobs.map((job) => this.load(job.id)));
-    if (refreshed.some((row) => ACTIVE.has(row.status))) {
+    if (
+      rows.some((row) =>
+        ACTIVE.has(row.status) ||
+        (row.status === "fallback_required" && row.lease_token !== null)
+      )
+    ) {
       throw new PageWorkflowPending("waiting_children");
     }
   }
@@ -145,7 +152,7 @@ export class PageWorkflowTransport {
   private async load(id: string): Promise<StoredCrawlerJob> {
     const { data, error } = await this.svc.from("crawler_jobs")
       .select(
-        "id,dedupe_key,status,request_kind,continuation_key,url,attempts,error_class,error_message,result_manifest",
+        "id,dedupe_key,status,request_kind,continuation_key,url,attempts,max_attempts,error_class,error_message,result_manifest,lease_token",
       )
       .eq("id", id)
       .single();
@@ -153,20 +160,40 @@ export class PageWorkflowTransport {
     return data as StoredCrawlerJob;
   }
 
-  private async completeAntiBotFallback(
+  private async completeFallback(
     job: StoredCrawlerJob,
     opts: PrimaryPageScrapeOptions,
-  ): Promise<void> {
+    deadlineMs: number,
+  ): Promise<boolean> {
+    const reason = crawlerFallbackReason(
+      "scrape",
+      job.error_class,
+      job.attempts,
+      job.max_attempts,
+    );
+    if (!reason) throw new Error("crawler job has no eligible fallback reason");
+    const claim = await this.svc.rpc("claim_page_crawler_fallback", {
+      p_job_id: job.id,
+      p_lease_seconds: 600,
+    });
+    if (claim.error) throw new Error("fallback claim failed");
+    if (typeof claim.data !== "string") return false;
+    const leaseToken = claim.data;
     let uploadedPath: string | null = null;
     try {
-      const result = {
-        ...await firecrawlScrape(opts.url, {
+      const result = await scrapeFallbackOnce(
+        opts.url,
+        {
+          ...opts,
+          timeoutMs: opts.deadlineMs === undefined
+            ? opts.timeoutMs
+            : Math.floor(deadlineMs - Date.now()),
           workloadClass: "scout",
-          timeoutMs: opts.timeoutMs,
           formats: ["markdown", "rawHtml"],
-        }),
-        served_by: "firecrawl",
-      };
+        },
+        reason,
+        deadlineMs,
+      );
       const bytes = await gzipCrawlerJson(result);
       const executionId = crypto.randomUUID();
       const path = `results/${job.id}/fallback/${executionId}.json.gz`;
@@ -180,6 +207,7 @@ export class PageWorkflowTransport {
       const manifest = {
         execution_id: executionId,
         provider: "firecrawl",
+        fallback_reason: reason,
         artifacts: [{
           kind: "result",
           path,
@@ -189,6 +217,7 @@ export class PageWorkflowTransport {
       };
       const completed = await this.svc.rpc("complete_crawler_fallback", {
         p_job_id: job.id,
+        p_lease_token: leaseToken,
         p_ok: true,
         p_manifest: manifest,
         p_error: null,
@@ -199,10 +228,11 @@ export class PageWorkflowTransport {
           if (current.result_manifest?.execution_id !== executionId) {
             await this.svc.storage.from("crawler-results").remove([path]);
           }
-          return;
+          return true;
         }
         throw new Error("fallback completion rejected");
       }
+      return true;
     } catch (error) {
       const current = await this.load(job.id).catch(() => null);
       if (uploadedPath && current && current.status !== "succeeded") {
@@ -210,6 +240,7 @@ export class PageWorkflowTransport {
       }
       await this.svc.rpc("complete_crawler_fallback", {
         p_job_id: job.id,
+        p_lease_token: leaseToken,
         p_ok: false,
         p_manifest: null,
         p_error: error instanceof Error ? error.message : String(error),

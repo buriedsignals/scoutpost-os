@@ -10,6 +10,10 @@ import { ApiError } from "./errors.ts";
 import { logEvent } from "./log.ts";
 import { firecrawlScrape } from "./scrape_firecrawl.ts";
 import { crawl4aiScrape } from "./scrape_crawl4ai.ts";
+import {
+  crawlerFallbackReason,
+  scrapeFallbackOnce,
+} from "./scrape_fallback.ts";
 import type {
   PrimaryPageScrapeDeps,
   PrimaryPageScrapeOptions,
@@ -77,36 +81,36 @@ export async function scrape(
       served_by: "firecrawl",
     };
   }
+  const deadlineMs = Date.now() +
+    (opts.abortAfterMs ?? (opts.timeoutMs ?? 120_000) + 5_000);
   try {
     return { ...await crawl4aiScrape(url, opts), served_by: "crawl4ai" };
   } catch (e) {
-    // Anti-bot fallback (Tom, 2026-07-06): Firecrawl stays as a scoped
-    // fallback for hosts whose bot protection our own service cannot pass
-    // (measured 2026-07-06: 8 of 53 fleet URLs — Cloudflare, DataDome,
-    // Imperva). Fires ONLY on anti-bot classification, never on transient
-    // errors; every fallback is logged and the result is stamped so the
-    // weekly scoreboard attributes serving per provider.
-    //
-    // KTD2 capture-fetch pin: `noAntibotFallback` propagates the block
-    // instead — a Firecrawl-served capture must never masquerade as a local
-    // render; the caller degrades to a markdown_only record.
+    const reason = isAntiBotBlockedError(e)
+      ? "anti_bot"
+      : e instanceof ApiError && e.code === "primary_timeout_exhausted"
+      ? "timeout_exhausted"
+      : null;
     if (
-      opts.noAntibotFallback || !isAntiBotBlockedError(e) ||
-      !Deno.env.get("FIRECRAWL_API_KEY")
+      opts.noAntibotFallback || !reason || !Deno.env.get("FIRECRAWL_API_KEY")
     ) {
       throw e;
     }
+    // Both eligibility cases above require an ApiError.
+    const failure = e as ApiError;
     logEvent({
       level: "warn",
       fn: "scrape-port",
-      event: "antibot_fallback_to_firecrawl",
+      event: reason === "anti_bot"
+        ? "antibot_fallback_to_firecrawl"
+        : "timeout_fallback_to_firecrawl",
       url,
-      msg: e.message.slice(0, 300),
+      msg: failure.message.slice(0, 300),
     });
     // A snapshot hint (either mode) rides into the Firecrawl request as the
     // KTD9 same-fetch capture formats — this branch is the only place the
     // "on_fallback" hint materializes into artifacts.
-    return { ...await firecrawlScrape(url, opts), served_by: "firecrawl" };
+    return await scrapeFallbackOnce(url, opts, reason, deadlineMs);
   }
 }
 
@@ -123,6 +127,7 @@ export async function scrapePrimaryPageResilient(
     ...opts.deps,
   };
   const baseOpts = {
+    requestId: crypto.randomUUID(),
     workloadClass: opts.workloadClass,
     tenantKey: opts.tenantKey,
     onlyMainContent: opts.onlyMainContent,
@@ -136,29 +141,61 @@ export async function scrapePrimaryPageResilient(
   };
   const retryDelayMs = opts.retryDelayMs ?? 2_000;
   const warnings: string[] = [];
+  // Reuse the existing maximum ladder budget (two combined + Markdown + HTML).
+  // A terminal timeout uses the unused HTML slot, not an additional timeout.
+  const deadlineMs = opts.deadlineMs ?? Date.now() +
+      4 * (opts.abortAfterMs ?? (opts.timeoutMs ?? 120_000) + 5_000) +
+      retryDelayMs;
   let attempts = 0;
+  let navigationTimeouts = 0;
 
-  const combined = async () => {
+  const request = (
+    formats: ScrapeOptions["formats"],
+    capture = true,
+    noAntibotFallback = false,
+  ) => {
+    const remaining = deadlineMs - Date.now();
+    if (remaining <= 0) {
+      throw new ApiError(
+        "primary scrape deadline exhausted",
+        504,
+        "primary_deadline_exhausted",
+      );
+    }
     attempts++;
-    return await deps.scrape(opts.url, {
+    return deps.scrape(opts.url, {
       ...baseOpts,
-      formats: ["markdown", "rawHtml"],
+      formats,
+      snapshot: capture ? baseOpts.snapshot : undefined,
+      noAntibotFallback,
+      timeoutMs: Math.min(opts.timeoutMs ?? 120_000, remaining),
+      abortAfterMs: Math.min(
+        opts.abortAfterMs ?? (opts.timeoutMs ?? 120_000) + 5_000,
+        remaining,
+      ),
     });
   };
 
   let firstError: unknown;
   try {
-    const result = await combined();
+    const result = await request(["markdown", "rawHtml"]);
     return withPrimaryMetadata(result, "combined", attempts);
   } catch (e) {
     firstError = e;
+    if (e instanceof ApiError && e.code === "navigation_timeout") {
+      navigationTimeouts++;
+    }
     if (!isTransientScrapeError(e)) throw e;
     warnings.push(warningForScrapeError(e, "combined"));
   }
 
-  if (retryDelayMs > 0) await deps.sleep(retryDelayMs);
+  if (retryDelayMs > 0) {
+    await deps.sleep(
+      Math.min(retryDelayMs, Math.max(0, deadlineMs - Date.now())),
+    );
+  }
   try {
-    const result = await combined();
+    const result = await request(["markdown", "rawHtml"]);
     return withPrimaryMetadata(
       result,
       "combined_retry",
@@ -166,13 +203,15 @@ export async function scrapePrimaryPageResilient(
       warnings,
     );
   } catch (e) {
+    if (e instanceof ApiError && e.code === "navigation_timeout") {
+      navigationTimeouts++;
+    }
     if (!isTransientScrapeError(e)) throw e;
     warnings.push(warningForScrapeError(e, "combined_retry"));
   }
 
   let markdownResult: ScrapeResult;
   try {
-    attempts++;
     // The split path issues TWO independent fetches (markdown, then rawHtml),
     // which can be served by different providers — so it can never satisfy the
     // KTD9 same-fetch capture guarantee. Drop the snapshot hint from both
@@ -181,12 +220,30 @@ export async function scrapePrimaryPageResilient(
     // split-path detection scrape degrades to markdown_only rather than
     // sealing a screenshot and rawHtml from two different fetches as one
     // "rendered_thirdparty" snapshot.
-    const splitOpts = { ...baseOpts, snapshot: undefined };
-    markdownResult = await deps.scrape(opts.url, {
-      ...splitOpts,
-      formats: ["markdown"],
-    });
+    markdownResult = await request(["markdown"], false);
   } catch (e) {
+    if (e instanceof ApiError && e.code === "navigation_timeout") {
+      navigationTimeouts++;
+    }
+    if (!isTransientScrapeError(e)) throw e;
+    if (
+      e instanceof ApiError && e.code === "navigation_timeout" &&
+      crawlerFallbackReason("scrape", "timeout", navigationTimeouts, 3) ===
+        "timeout_exhausted"
+    ) {
+      const result = await scrapeFallbackOnce(
+        opts.url,
+        { ...baseOpts, formats: ["markdown", "rawHtml"] },
+        "timeout_exhausted",
+        deadlineMs,
+      );
+      return withPrimaryMetadata(
+        result,
+        "timeout_fallback",
+        attempts,
+        warnings,
+      );
+    }
     if (firstError instanceof Error) throw firstError;
     throw e;
   }
@@ -196,12 +253,11 @@ export async function scrapePrimaryPageResilient(
   }
 
   try {
-    attempts++;
-    const rawHtmlResult = await deps.scrape(opts.url, {
-      ...baseOpts,
-      snapshot: undefined,
-      formats: ["rawHtml"],
-    });
+    const rawHtmlResult = await request(
+      ["rawHtml"],
+      false,
+      markdownResult.served_by === "firecrawl",
+    );
     return withPrimaryMetadata(
       {
         ...markdownResult,
@@ -246,6 +302,14 @@ function withPrimaryMetadata(
 }
 
 export function isTransientScrapeError(error: unknown): boolean {
+  if (
+    error instanceof ApiError && (
+      error.code === "scrape_fallback_failed" ||
+      error.code === "unsupported_document" ||
+      error.code === "primary_timeout_exhausted" ||
+      error.code === "primary_deadline_exhausted"
+    )
+  ) return false;
   const message = error instanceof Error ? error.message : String(error);
   if (/SCRAPE_UNSUPPORTED_FILE_ERROR/i.test(message)) return false;
   if (/aborted|timeout|timed out|network/i.test(message)) return true;

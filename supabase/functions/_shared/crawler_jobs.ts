@@ -11,6 +11,16 @@ export type CrawlerRequestKind =
   | "proxy";
 export type CrawlerAdmissionClass = "scout" | "utility";
 
+export type CrawlerJobStatus =
+  | "queued"
+  | "batched"
+  | "running"
+  | "succeeded"
+  | "fallback_required"
+  | "retryable_failed"
+  | "terminal_failed"
+  | "cancelled";
+
 export interface CrawlerJobInput {
   requestKind: CrawlerRequestKind;
   /** Proxy requests retain request_kind=proxy for lifecycle cleanup while
@@ -34,9 +44,40 @@ export interface CrawlerJobInput {
 export interface CrawlerJobRow {
   id: string;
   dedupe_key: string;
-  status: string;
+  status: CrawlerJobStatus;
   request_kind: CrawlerRequestKind;
   continuation_key: string;
+}
+
+export interface CancelledPageCrawlerJob {
+  job_id: string;
+  run_id: string;
+  parent_status: "success" | "error" | "skipped";
+  previous_status: CrawlerJobStatus;
+  cancellation_reason: string;
+  applied: boolean;
+}
+
+/** Service-only bounded preview by default; SQL rechecks eligibility on apply. */
+export async function cancelTerminalPageCrawlerJobs(
+  svc: SupabaseClient,
+  options: { runId?: string; limit?: number; apply?: boolean } = {},
+): Promise<CancelledPageCrawlerJob[]> {
+  const limit = options.limit ?? 100;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+    throw new Error(
+      "crawler cancellation limit must be an integer from 1 to 500",
+    );
+  }
+  const { data, error } = await svc.rpc("cancel_terminal_page_crawler_jobs", {
+    p_run_id: options.runId ?? null,
+    p_limit: limit,
+    p_apply: options.apply === true,
+  });
+  if (error) {
+    throw new Error(`crawler cancellation failed: ${error.message}`);
+  }
+  return (data ?? []) as CancelledPageCrawlerJob[];
 }
 
 export async function crawlerJobDedupeKey(

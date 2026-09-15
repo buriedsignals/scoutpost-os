@@ -13,7 +13,7 @@ as a primary parser).
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 import httpx
@@ -31,6 +31,10 @@ class PdfDownloadError(Exception):
         super().__init__(detail)
         self.detail = detail
         self.status_code = status_code
+
+
+class InvalidPdfError(PdfDownloadError):
+    """Malformed or encrypted document; replaying navigation cannot repair it."""
 
 
 class UnresolvableHostError(PdfDownloadError):
@@ -82,6 +86,17 @@ class ParsedPdf:
     pages: int
     chars: int
     parser: str = "pdftotext"
+    source_url: str | None = None
+    status_code: int | None = None
+    response_headers: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class DownloadedPdf:
+    body: bytes
+    source_url: str
+    status_code: int
+    response_headers: dict[str, str]
 
 
 def assert_public_host(url: str) -> None:
@@ -123,14 +138,28 @@ async def download_pdf(
     *,
     timeout_s: float,
     max_bytes: int,
-) -> bytes:
+) -> DownloadedPdf:
+    try:
+        async with asyncio.timeout(timeout_s):
+            return await _download_pdf(client, url, timeout_s=timeout_s, max_bytes=max_bytes)
+    except TimeoutError as exc:
+        raise PdfTimeoutError("download timed out") from exc
+
+
+async def _download_pdf(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    timeout_s: float,
+    max_bytes: int,
+) -> DownloadedPdf:
     # Streamed so the size cap bounds memory: a multi-GB (or drip-fed) body is
     # aborted as soon as the accumulated bytes exceed max_bytes, never buffered.
     current = url
     for _ in range(MAX_PDF_REDIRECTS + 1):
         # Re-validate BEFORE connecting to each hop — the whole point of manual
         # redirect handling is that the guard sees the redirect target.
-        assert_public_host(current)
+        await asyncio.to_thread(assert_public_host, current)
         chunks: list[bytes] = []
         received = 0
         try:
@@ -153,6 +182,12 @@ async def download_pdf(
                         f"download failed: HTTP {response.status_code}",
                         status_code=response.status_code,
                     )
+                # MIME is advisory: extensionless/octet-stream PDFs are common.
+                # Require the PDF signature as well, never trust a .pdf URL or
+                # application/pdf header enough to feed arbitrary bytes to poppler.
+                content_length = response.headers.get("content-length", "")
+                if content_length.isdecimal() and int(content_length) > max_bytes:
+                    raise PdfTooLargeError()
                 async for chunk in response.aiter_bytes():
                     received += len(chunk)
                     if received > max_bytes:
@@ -165,7 +200,12 @@ async def download_pdf(
         body = b"".join(chunks)
         if not body.startswith(b"%PDF"):
             raise NotAPdfError()
-        return body
+        return DownloadedPdf(
+            body=body,
+            source_url=str(response.url),
+            status_code=response.status_code,
+            response_headers=dict(response.headers),
+        )
     raise PdfDownloadError(f"download failed: exceeded {MAX_PDF_REDIRECTS} redirects")
 
 
@@ -191,12 +231,19 @@ async def run_pdftotext(pdf_bytes: bytes, *, timeout_s: float = 30.0) -> str:
         stdout, stderr = await asyncio.wait_for(
             process.communicate(pdf_bytes), timeout=timeout_s
         )
-    except asyncio.TimeoutError as e:
-        process.kill()
+    except (asyncio.TimeoutError, asyncio.CancelledError) as e:
+        if process.returncode is None:
+            process.kill()
+        await process.communicate()
+        if isinstance(e, asyncio.CancelledError):
+            raise
         raise PdfTimeoutError("pdftotext timed out") from e
     if process.returncode != 0:
         detail = stderr.decode("utf-8", "replace").strip() or "pdftotext failed"
-        raise PdfDownloadError(f"pdftotext exited {process.returncode}: {detail}")
+        raise InvalidPdfError(
+            "invalid_or_encrypted_pdf: supply a readable, unlocked PDF; "
+            f"pdftotext exited {process.returncode}: {detail}"
+        )
     return stdout.decode("utf-8", "replace")
 
 
@@ -210,10 +257,16 @@ async def parse_pdf_url(
     transcribe: "Callable[[bytes], Awaitable[str]] | None" = None,
     transcribe_max_bytes: int | None = None,
 ) -> ParsedPdf:
-    pdf_bytes = await download_pdf(
+    downloaded = await download_pdf(
         client, url, timeout_s=timeout_s, max_bytes=max_bytes
     )
+    pdf_bytes = downloaded.body
     text = await run_pdftotext(pdf_bytes)
+    provenance = {
+        "source_url": downloaded.source_url,
+        "status_code": downloaded.status_code,
+        "response_headers": downloaded.response_headers,
+    }
     pages = count_pages_from_text(text)
     chars = len(text.strip())
     if chars < min_chars_per_page * pages:
@@ -233,10 +286,11 @@ async def parse_pdf_url(
                 pages=pages,
                 chars=len(transcribed_text.strip()),
                 parser="openrouter",
+                **provenance,
             )
         raise NeedsOcrError(
             pages=pages,
             chars=chars,
             reason="ocr_not_configured" if transcribe is None else "ocr_inline_limit_exceeded",
         )
-    return ParsedPdf(text=text, pages=pages, chars=chars, parser="pdftotext")
+    return ParsedPdf(text=text, pages=pages, chars=chars, parser="pdftotext", **provenance)

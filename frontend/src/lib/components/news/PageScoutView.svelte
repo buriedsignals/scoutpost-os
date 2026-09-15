@@ -194,7 +194,6 @@
 					state={progressState}
 					successMessage={m.webScout_scraperTestSuccess()}
 					successDetails={testResult?.summary || ''}
-					errorTitle={m.webScout_errorBlocked()}
 					errorMessage={testError}
 					showButton={false}
 					hintText={isTestingScraper ? m.webScout_scraperTestRunning() : ''}

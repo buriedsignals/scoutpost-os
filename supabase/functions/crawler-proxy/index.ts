@@ -91,7 +91,10 @@ export async function handleCrawlerProxy(
       : timeoutMs + 40_000;
     const abort = new AbortController();
     req.signal.addEventListener("abort", () => abort.abort(), { once: true });
-    const requestId = deps.randomUUID();
+    const suppliedRequestId = req.headers.get("X-Scoutpost-Proxy-Request-Id");
+    const requestId = suppliedRequestId
+      ? z.string().uuid().parse(suppliedRequestId)
+      : deps.randomUUID();
     return streamJson(
       () =>
         deps.execute({

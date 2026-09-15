@@ -6,6 +6,7 @@ import {
 import {
   artifactPath,
   benchmarkFaults,
+  completeBatch,
   gunzipLimited,
   readStreamLimited,
   rejectedBundleIsLosing,
@@ -14,6 +15,64 @@ import {
   verifyCompletionBundle,
   workerTokenAccepted,
 } from "./index.ts";
+
+Deno.test("late cancelled-job callback is rejected without a resume or retrieval write", async () => {
+  const jobId = "00000000-0000-4000-8000-000000001351";
+  const attemptId = "00000000-0000-4000-8000-000000001352";
+  const executionId = "00000000-0000-4000-8000-000000001353";
+  const removed: string[] = [];
+  const query = {
+    select() {
+      return this;
+    },
+    eq() {
+      return this;
+    },
+    maybeSingle() {
+      return Promise.resolve({
+        data: {
+          id: jobId,
+          status: "cancelled",
+          lease_token: null,
+          operation: "scrape",
+          request_kind: "scout_run",
+          result_manifest: null,
+        },
+        error: null,
+      });
+    },
+  };
+  const svc = {
+    from() {
+      return query;
+    },
+    rpc() {
+      throw new Error("cancelled callback must not write a completion");
+    },
+    storage: {
+      from() {
+        return {
+          remove(paths: string[]) {
+            removed.push(...paths);
+            return Promise.resolve({ error: null });
+          },
+        };
+      },
+    },
+  };
+  const result = await completeBatch(svc as never, "batch", [{
+    job_id: jobId,
+    attempt_id: attemptId,
+    execution_id: executionId,
+    ok: false,
+    error_class: "anti_bot",
+    error: "late challenge response",
+  }]);
+  assertEquals(result, { accepted: 0, rejected: 1, resumeRuns: [] });
+  assertEquals(removed, [
+    artifactPath(jobId, attemptId, executionId, "result"),
+  ]);
+});
 
 Deno.test("benchmark faults are fixed and only exposed on attempt one", () => {
   const job = {

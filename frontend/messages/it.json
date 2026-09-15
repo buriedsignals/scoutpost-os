@@ -720,7 +720,6 @@
   "webScout_description": "Get notified when a webpage's content changes",
   "webScout_email": "Email",
   "webScout_emailHint": "Riceverai notifiche email quando vengono rilevati cambiamenti",
-  "webScout_errorBlocked": "Il sito ha bloccato l'accesso",
   "webScout_footerHint": "Il tuo scout verrà eseguito automaticamente con la frequenza specificata.",
   "webScout_monitoringFrequency": "Frequenza di monitoraggio",
   "webScout_notificationMethod": "Metodo di notifica",

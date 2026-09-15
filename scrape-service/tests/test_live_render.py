@@ -11,6 +11,7 @@ healthcheck plus scripts/dev/scrape-stack.sh cover this path in Docker.
 from email import policy
 from email.parser import Parser
 import re
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +22,69 @@ from app.scraper import Scraper
 from tests.conftest import auth_headers, make_settings
 
 pytestmark = pytest.mark.live
+
+
+def test_owned_extensionless_download_boundary(monkeypatch):
+    """Point SCOUTPOST_DOWNLOAD_FIXTURE_ORIGIN at benchmark-fixtures/server.py
+    on an owned public origin; DOWNLOAD_FIXTURE_PDF must contain TEXT_PDF from
+    tests.conftest (or an equivalent council-minutes PDF). No DNS/egress bypass.
+    Requires the pinned Crawl4AI 0.9.2 + Chromium + poppler runtime.
+    """
+    from app.crawl_runner import is_download_signal
+    from app.mapping import crawl_failure_detail
+
+    origin = os.environ.get("SCOUTPOST_DOWNLOAD_FIXTURE_ORIGIN")
+    if not origin:
+        pytest.skip("owned download fixture origin is not configured")
+    app = create_app(make_settings())
+    with TestClient(app) as client:
+        scraper = app.state.scraper
+        real_run = scraper.run
+        navigations = []
+        download_signals = []
+
+        async def observed_run(url, **kwargs):
+            navigations.append(url)
+            try:
+                raw = await real_run(url, **kwargs)
+            except Exception as exc:
+                if is_download_signal(exc):
+                    download_signals.append(url)
+                raise
+            if not raw.success and is_download_signal(crawl_failure_detail(raw)):
+                download_signals.append(url)
+            return raw
+
+        monkeypatch.setattr(scraper, "run", observed_run)
+        for path in ("/download/pdf", "/download/octet"):
+            url = origin.rstrip("/") + path
+            response = client.post(
+                "/scrape", json={"url": url, "timeout_ms": 30_000}, headers=auth_headers()
+            )
+            assert response.status_code == 200, response.text
+            result = response.json()
+            assert "Council meeting minutes" in result["markdown"]
+            assert result["metadata"]["document"]["parser"] == "pdftotext"
+            assert result["rawHtml"] is None and result["html"] is None
+            assert result["source_url"] == url
+            assert navigations.count(url) == 1
+            assert download_signals.count(url) == 1, "fixture did not exercise real download boundary"
+
+        unsupported_url = origin.rstrip("/") + "/download/unsupported"
+        unsupported = client.post(
+            "/scrape", json={"url": unsupported_url}, headers=auth_headers()
+        )
+        assert unsupported.status_code == 415, unsupported.text
+        assert unsupported.json()["detail"]["error"] == "not_a_pdf"
+        assert download_signals.count(unsupported_url) == 1
+        assert navigations.count(unsupported_url) == 1
+
+        html_url = origin.rstrip("/") + "/stable"
+        html = client.post("/scrape", json={"url": html_url}, headers=auth_headers())
+        assert html.status_code == 200, html.text
+        assert "Owned crawler fixture" in html.json()["markdown"]
+        assert "<main>" in html.json()["rawHtml"]
+        assert html_url not in download_signals
 
 DISCLOSURE_SENTINEL = "CLICK_MOUNTED_DISCLOSURE_SENTINEL"
 SECOND_DISCLOSURE_SENTINEL = "SECOND_CLICK_MOUNTED_DISCLOSURE_SENTINEL"

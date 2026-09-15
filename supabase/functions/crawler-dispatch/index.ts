@@ -132,7 +132,10 @@ export async function handleCrawlerDispatch(req: Request): Promise<Response> {
     if (submissionError) {
       return jsonError("crawler submission reconciliation failed", 500);
     }
-    const { error: reconcileError } = await svc.rpc("reconcile_crawler_jobs");
+    // Deploy this opt-in only after old, unleased Page fallback calls drain.
+    const { error: reconcileError } = await svc.rpc("reconcile_crawler_jobs", {
+      p_cancel_terminal_page_jobs: true,
+    });
     if (reconcileError) return jsonError("crawler reconciliation failed", 500);
     const { error: waitingError } = await svc.rpc(
       "reconcile_waiting_scout_dispatches",

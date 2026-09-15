@@ -3,6 +3,7 @@ import {
   assertEquals,
   assertRejects,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { FakeTime } from "https://deno.land/std@0.208.0/testing/time.ts";
 import {
   OPENROUTER_DEFAULT_CHAT_MODEL,
   OPENROUTER_DEFAULT_FALLBACK_MODEL,
@@ -576,5 +577,47 @@ Deno.test("OpenRouter does not fallback for non-retryable provider errors", asyn
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv("OPENROUTER_API_KEY", originalKey);
+  }
+});
+
+Deno.test("OpenRouter bounds response streaming after successful headers", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = Deno.env.get("OPENROUTER_API_KEY");
+  const clock = new FakeTime(1_800_000_000_000);
+  Deno.env.set("OPENROUTER_API_KEY", "test-secret");
+  let aborted = false;
+  globalThis.fetch =
+    ((_input: RequestInfo | URL, init?: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              init?.signal?.addEventListener("abort", () => {
+                aborted = true;
+                controller.error(new DOMException("aborted", "AbortError"));
+              }, { once: true });
+            },
+          }),
+        ),
+      )) as typeof fetch;
+  try {
+    const failure = assertRejects(
+      () =>
+        openRouterExtract("body", { type: "object" }, {
+          timeoutMs: 5_000,
+          abortAfterMs: 5_000,
+          fallbackModel: null,
+        }),
+      Error,
+    );
+    await clock.tickAsync(5_000);
+    assert(aborted);
+    const error = await failure;
+    assert("code" in error);
+    assertEquals(error.code, "openrouter_timeout");
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv("OPENROUTER_API_KEY", originalKey);
+    clock.restore();
   }
 });

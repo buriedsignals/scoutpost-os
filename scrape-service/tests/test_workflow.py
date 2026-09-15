@@ -304,3 +304,70 @@ async def test_benchmark_delay_is_task_wrapper_only(monkeypatch):
     monkeypatch.setattr(workflow.time, "monotonic", lambda: 10.0)
     await workflow._apply_benchmark_delay(100, 9.95)
     assert slept == [pytest.approx(0.05)]
+
+
+async def test_download_completion_replay_does_not_reparse_or_change_manifest(monkeypatch):
+    import httpx
+    from tests.conftest import FakeScraper, TEXT_PDF, mock_http_client
+
+    committed = False
+    callbacks = 0
+    downloads = []
+    uploaded = []
+
+    def handler(request):
+        downloads.append(str(request.url))
+        return httpx.Response(200, content=TEXT_PDF)
+
+    pdf_client = mock_http_client(handler)
+    scraper = FakeScraper(exc=RuntimeError("Page.goto: Download is starting"))
+    item = {
+        "id": "download",
+        "attempt_id": "attempt",
+        "execution_id": "execution",
+        "operation": "scrape",
+        "url": "https://example.org/download",
+        "timeout_ms": 10000,
+        "fault_callback_timeout": True,
+    }
+
+    class Client:
+        execution_id = "execution"
+
+        def __init__(self, _proxy):
+            pass
+
+        async def claim(self, _batch):
+            return [] if committed else [item]
+
+        async def upload(self, job, result):
+            uploaded.append((job["operation"], result))
+            return {"job_id": job["id"], "ok": True, "artifacts": []}
+
+        async def complete(self, _batch, result, **_kwargs):
+            nonlocal committed, callbacks
+            callbacks += 1
+            assert result["ok"]
+            committed = True
+            if callbacks == 1:
+                raise workflow.CallbackTimeoutError("response lost after commit")
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(workflow, "WorkflowClient", Client)
+    monkeypatch.setattr(workflow, "Scraper", lambda **_kwargs: scraper)
+    monkeypatch.setattr(workflow.httpx, "AsyncClient", lambda **_kwargs: pdf_client)
+    monkeypatch.setattr(workflow, "load_settings", make_settings)
+    first = await workflow._crawl_batch_guarded("batch", "http://proxy")
+    replay = await workflow._crawl_batch_guarded("batch", "http://proxy")
+    assert first["succeeded"] == 1 and replay["processed"] == 0
+    assert callbacks == 2
+    assert len(uploaded) == 1
+    operation, result = uploaded[0]
+    assert operation == "scrape"
+    assert "Council meeting minutes" in result["markdown"]
+    assert result["metadata"]["document"]["parser"] == "pdftotext"
+    assert result["rawHtml"] is None
+    assert len(scraper.calls) == 1
+    assert downloads == ["https://example.org/download"]

@@ -32,7 +32,7 @@ Discovery and page rendering have deliberately different responsibilities:
 | Boundary | Primary | Fallback |
 |---|---|---|
 | Beat discovery | Firecrawl Cloud `/v2/search` | None |
-| Page/article rendering | Self-hosted Crawl4AI scrape service | Firecrawl Cloud scrape for classified anti-bot failures only |
+| Page/article rendering | Self-hosted Crawl4AI scrape service | One Firecrawl Cloud scrape for classified anti-bot failures or typed, retry-exhausted browser navigation timeouts, within the original deadline |
 
 Crawl4AI remains the primary renderer because Scoutpost controls that narrow
 self-hosted service and its output contract. Self-hosting Firecrawl merely to
