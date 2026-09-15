@@ -6,6 +6,7 @@ import {
   gzipCrawlerJson,
   loadCrawlerResult,
 } from "./crawler_results.ts";
+import { ApiError } from "./errors.ts";
 import {
   crawlerFallbackReason,
   scrapeFallbackOnce,
@@ -18,6 +19,9 @@ import { sha256HexBytes } from "./snapshot_store.ts";
 
 const MAX_PIPELINE_STAGE_LENGTH = 100;
 const ACTIVE = new Set(["queued", "batched", "running", "retryable_failed"]);
+const FALLBACK_REQUEST_TIMEOUT_MS = 60_000;
+const FALLBACK_CLIENT_TIMEOUT_MS = FALLBACK_REQUEST_TIMEOUT_MS + 5_000;
+const FALLBACK_ADMISSION_BUDGET_MS = 35_000;
 
 interface StoredCrawlerJob extends CrawlerJobRow {
   url: string;
@@ -37,6 +41,10 @@ export class PageWorkflowPending extends Error {
 }
 
 export class PageWorkflowTransport {
+  // Admission is bounded per invocation, not renewed after each child. Once
+  // admitted, a paid request gets its own complete renderer/client window.
+  private readonly fallbackAdmissionDeadlineMs: number;
+
   constructor(
     private readonly svc: SupabaseClient,
     private readonly run: {
@@ -45,17 +53,16 @@ export class PageWorkflowTransport {
       userId: string;
       tenantKey: string;
     },
-  ) {}
+    invocationStartedAt = Date.now(),
+  ) {
+    this.fallbackAdmissionDeadlineMs = invocationStartedAt +
+      FALLBACK_ADMISSION_BUDGET_MS;
+  }
 
   async scrape(
     opts: PrimaryPageScrapeOptions,
     stage: string,
   ): Promise<PrimaryPageScrapeResult> {
-    // Queued primary work has already finished when fallback is admitted.
-    // A Page child shares Phase B's remaining renderer budget; the primary
-    // navigation fuse must not clip that budget a second time.
-    const deadlineMs = opts.deadlineMs ??
-      Date.now() + (opts.abortAfterMs ?? (opts.timeoutMs ?? 25_000) + 5_000);
     const job = await this.enqueue(opts.url, stage, opts.timeoutMs ?? 25_000);
     const current = await this.load(job.id);
     if (ACTIVE.has(current.status)) {
@@ -64,13 +71,18 @@ export class PageWorkflowTransport {
       );
     }
     if (current.status === "fallback_required") {
-      const completed = await this.completeFallback(current, opts, deadlineMs);
+      const completed = await this.completeFallback(current, opts);
       if (
         !completed && (await this.load(job.id)).status === "fallback_required"
       ) {
         throw new PageWorkflowPending(
           stage === "root" ? "waiting_root" : "waiting_children",
         );
+      }
+      if (completed && stage === "root") {
+        // Resume from the stored result rather than combining a slow root
+        // render with child work inside the Edge request's 150s idle limit.
+        throw new PageWorkflowPending("waiting_root");
       }
       return await this.scrape(opts, stage);
     }
@@ -97,9 +109,14 @@ export class PageWorkflowTransport {
     };
   }
 
-  async prepareChildren(urls: string[], timeoutMs: number): Promise<void> {
+  async prepareChildren(
+    urls: string[],
+    opts: Omit<PrimaryPageScrapeOptions, "url">,
+  ): Promise<void> {
     const jobs = await Promise.all(
-      urls.map((url) => this.enqueue(url, childStage(url), timeoutMs)),
+      urls.map((url) =>
+        this.enqueue(url, childStage(url), opts.timeoutMs ?? 12_000)
+      ),
     );
     const rows = await Promise.all(jobs.map((job) => this.load(job.id)));
     if (
@@ -108,6 +125,32 @@ export class PageWorkflowTransport {
         (row.status === "fallback_required" && row.lease_token !== null)
       )
     ) {
+      throw new PageWorkflowPending("waiting_children");
+    }
+    let attemptedFallback = false;
+    for (const row of rows) {
+      if (row.status !== "fallback_required") continue;
+      try {
+        const completed = await this.completeFallback(row, {
+          ...opts,
+          url: row.url,
+        });
+        if (!completed) throw new PageWorkflowPending("waiting_children");
+      } catch (error) {
+        // Provider failures remain durable per-URL failures for Phase B.
+        // Claim, storage and completion failures must still fail the run.
+        if (
+          !(error instanceof ApiError &&
+            error.code === "scrape_fallback_failed")
+        ) {
+          throw error;
+        }
+      }
+      attemptedFallback = true;
+    }
+    if (attemptedFallback) {
+      // Keep slow rendering before Phase B effects; the existing resume pass
+      // consumes stored results without replaying partial notification work.
       throw new PageWorkflowPending("waiting_children");
     }
   }
@@ -163,7 +206,6 @@ export class PageWorkflowTransport {
   private async completeFallback(
     job: StoredCrawlerJob,
     opts: PrimaryPageScrapeOptions,
-    deadlineMs: number,
   ): Promise<boolean> {
     const reason = crawlerFallbackReason(
       "scrape",
@@ -172,6 +214,9 @@ export class PageWorkflowTransport {
       job.max_attempts,
     );
     if (!reason) throw new Error("crawler job has no eligible fallback reason");
+    if (Date.now() >= this.fallbackAdmissionDeadlineMs) {
+      return false;
+    }
     const claim = await this.svc.rpc("claim_page_crawler_fallback", {
       p_job_id: job.id,
       p_lease_seconds: 600,
@@ -185,14 +230,12 @@ export class PageWorkflowTransport {
         opts.url,
         {
           ...opts,
-          timeoutMs: opts.deadlineMs === undefined
-            ? opts.timeoutMs
-            : Math.floor(deadlineMs - Date.now()),
+          timeoutMs: FALLBACK_REQUEST_TIMEOUT_MS,
           workloadClass: "scout",
           formats: ["markdown", "rawHtml"],
         },
         reason,
-        deadlineMs,
+        Date.now() + FALLBACK_CLIENT_TIMEOUT_MS,
       );
       const bytes = await gzipCrawlerJson(result);
       const executionId = crypto.randomUUID();
@@ -238,13 +281,18 @@ export class PageWorkflowTransport {
       if (uploadedPath && current && current.status !== "succeeded") {
         await this.svc.storage.from("crawler-results").remove([uploadedPath]);
       }
-      await this.svc.rpc("complete_crawler_fallback", {
+      const failed = await this.svc.rpc("complete_crawler_fallback", {
         p_job_id: job.id,
         p_lease_token: leaseToken,
         p_ok: false,
         p_manifest: null,
         p_error: error instanceof Error ? error.message : String(error),
       });
+      if (failed.error || failed.data !== true) {
+        throw new Error("fallback failure completion rejected", {
+          cause: error,
+        });
+      }
       throw error;
     }
   }

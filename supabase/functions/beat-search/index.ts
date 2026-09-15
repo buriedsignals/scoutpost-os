@@ -17,7 +17,7 @@
  *     }
  *     -> 200 { status, category, task_completed, articles, totalResults,
  *              search_queries_used, urls_scraped, processing_time_ms,
- *              summary, response_markdown, filteredOutCount }
+ *              summary, response_markdown, filteredOutCount, outcome, diagnostics }
  *
  * Pipeline:
  *   1. Shared Beat discovery pipeline (query generation, search, recency,
@@ -98,6 +98,27 @@ interface ExtractedArticle {
   matches_criteria?: boolean;
   matches_location?: boolean;
 }
+
+export interface BeatPreviewDiagnostics {
+  search_failures: number;
+  sources_attempted: number;
+  sources_read: number;
+  sources_failed: number;
+  excluded_candidates: number;
+  stale_sources: number;
+  criteria_filtered: number;
+  location_filtered: number;
+  stale_articles: number;
+  model_filtered: number;
+}
+
+export type BeatPreviewOutcome =
+  | "results"
+  | "filtered_empty"
+  | "no_candidates"
+  | "unreadable_sources"
+  | "unverified_empty"
+  | "error";
 
 interface PrioritySourcePlan {
   directUrls: string[];
@@ -208,9 +229,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   const startedAt = Date.now();
+  const diagnostics: BeatPreviewDiagnostics = {
+    search_failures: 0,
+    sources_attempted: 0,
+    sources_read: 0,
+    sources_failed: 0,
+    excluded_candidates: 0,
+    stale_sources: 0,
+    criteria_filtered: 0,
+    location_filtered: 0,
+    stale_articles: 0,
+    model_filtered: 0,
+  };
 
   try {
-    return await runSearch(input, user, startedAt);
+    return await runSearch(input, user, startedAt, diagnostics);
   } catch (e) {
     logEvent({
       level: "error",
@@ -221,6 +254,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
     return jsonOk({
       status: "failed",
+      outcome: "error",
+      diagnostics,
       category: input.category,
       task_completed: false,
       articles: [],
@@ -242,6 +277,7 @@ async function runSearch(
   input: z.infer<typeof InputSchema>,
   user: AuthedUser,
   startedAt: number,
+  diagnostics: BeatPreviewDiagnostics,
 ): Promise<Response> {
   const excluded = new Set(
     (input.excluded_domains ?? []).map((d) => d.toLowerCase()),
@@ -303,6 +339,7 @@ async function runSearch(
     queries.push(...discovery.queriesUsed);
     selectedHits.push(...discovery.hits);
     const searchStats = summarizeSearchJobs(prioritySearchStats, discovery);
+    diagnostics.search_failures = searchStats.jobsErrored;
     if (
       searchStats.allErrored &&
       selectedHits.length === 0
@@ -315,9 +352,16 @@ async function runSearch(
 
   const filteredHits: BeatHit[] = [];
   for (const h of selectedHits) {
-    if (!h.url || seen.has(h.url) || excludeUrls.has(h.url)) continue;
+    if (!h.url || seen.has(h.url)) continue;
+    if (excludeUrls.has(h.url)) {
+      diagnostics.excluded_candidates++;
+      continue;
+    }
     const dom = safeDomain(h.url);
-    if (dom && excluded.has(dom)) continue;
+    if (dom && excluded.has(dom)) {
+      diagnostics.excluded_candidates++;
+      continue;
+    }
     seen.add(h.url);
     filteredHits.push(h);
     if (filteredHits.length >= MAX_SCRAPES) break;
@@ -325,7 +369,14 @@ async function runSearch(
 
   if (filteredHits.length === 0) {
     return jsonOk(
-      emptyResponse(input.category, startedAt, "No results found", queries),
+      emptyResponse(
+        input.category,
+        startedAt,
+        "No candidates available after discovery and request exclusions",
+        "no_candidates",
+        diagnostics,
+        queries,
+      ),
     );
   }
 
@@ -432,13 +483,30 @@ async function runSearch(
     ...filteredHits.map((hit) => hit.url),
     ...followupHits.map((hit) => hit.url),
   ];
+  diagnostics.sources_attempted = attemptedScrapeUrls.length;
+  // Count actual successful reads, including section pages used for discovery.
+  diagnostics.sources_read = initialScrapedOk.length + followupByUrl.size;
+  diagnostics.sources_failed = diagnostics.sources_attempted -
+    diagnostics.sources_read;
+  diagnostics.stale_sources = staleFilteredOut;
 
   if (scrapedOk.length === 0) {
+    const outcome = readableScrapes.length === 0
+      ? "unreadable_sources"
+      : diagnostics.sources_failed === 0 && diagnostics.search_failures === 0
+      ? "filtered_empty"
+      : "unverified_empty";
     return jsonOk(
       emptyResponse(
         input.category,
         startedAt,
-        "Sources could not be read",
+        outcome === "filtered_empty"
+          ? "All readable article sources were outside the freshness window"
+          : outcome === "unreadable_sources"
+          ? "Sources could not be read"
+          : "Readable article sources were stale; other retrievals failed",
+        outcome,
+        diagnostics,
         queries,
         attemptedScrapeUrls,
       ),
@@ -490,6 +558,9 @@ async function runSearch(
     });
     return jsonOk({
       status: "partial",
+      outcome: "error",
+      diagnostics,
+      error: e instanceof Error ? e.message : String(e),
       category: input.category,
       task_completed: false,
       articles: scrapedOk.slice(0, MAX_ARTICLES_OUT).map(({ hit, scrape }) => ({
@@ -539,10 +610,12 @@ async function runSearch(
     if (seenUrls.has(a.url)) continue;
     if (input.criteria && a.matches_criteria === false) {
       filteredOut += 1;
+      diagnostics.criteria_filtered++;
       continue;
     }
     if (input.location && a.matches_location === false) {
       filteredOut += 1;
+      diagnostics.location_filtered++;
       continue;
     }
     if (
@@ -553,6 +626,7 @@ async function runSearch(
       )
     ) {
       filteredOut += 1;
+      diagnostics.location_filtered++;
       continue;
     }
     const source = scrapedByUrl.get(a.url);
@@ -568,6 +642,7 @@ async function runSearch(
     );
     if (isKnownStaleBeatDate(publishedDate)) {
       filteredOut += 1;
+      diagnostics.stale_articles++;
       continue;
     }
     seenUrls.add(a.url);
@@ -583,9 +658,18 @@ async function runSearch(
     if (articles.length >= MAX_ARTICLES_OUT) break;
   }
 
-  if (typeof extraction.filtered_out === "number") {
-    filteredOut = Math.max(filteredOut, extraction.filtered_out);
+  if (
+    Number.isInteger(extraction.filtered_out) &&
+    extraction.filtered_out! >= 0
+  ) {
+    diagnostics.model_filtered = extraction.filtered_out!;
+    filteredOut = Math.max(filteredOut, diagnostics.model_filtered);
   }
+  // A stale source alone cannot explain why extraction of fresh sources was empty.
+  const verifiedFilteredEmpty = Array.isArray(extraction.articles) &&
+    diagnostics.sources_failed === 0 && diagnostics.search_failures === 0 &&
+    (diagnostics.criteria_filtered + diagnostics.location_filtered +
+        diagnostics.stale_articles + diagnostics.model_filtered > 0);
 
   const finalSummary = input.location &&
       locationMatcher &&
@@ -609,6 +693,12 @@ async function runSearch(
 
   return jsonOk({
     status: articles.length > 0 ? "completed" : "not_found",
+    outcome: articles.length > 0
+      ? "results"
+      : verifiedFilteredEmpty
+      ? "filtered_empty"
+      : "unverified_empty",
+    diagnostics,
     category: input.category,
     task_completed: true,
     articles,
@@ -657,13 +747,17 @@ function emptyResponse(
   category: string,
   startedAt: number,
   reason: string,
+  outcome: BeatPreviewOutcome,
+  diagnostics: BeatPreviewDiagnostics,
   queries: string[] = [],
   urls: string[] = [],
 ) {
   return {
-    status: "not_found" as const,
+    status: outcome === "unreadable_sources" ? "failed" : "not_found",
+    outcome,
+    diagnostics,
     category,
-    task_completed: true,
+    task_completed: outcome !== "unreadable_sources",
     articles: [] as unknown[],
     totalResults: 0,
     search_queries_used: queries,
@@ -671,7 +765,8 @@ function emptyResponse(
     processing_time_ms: Date.now() - startedAt,
     summary: "",
     response_markdown: reason,
-    filteredOutCount: 0,
+    filteredOutCount: diagnostics.stale_sources,
+    ...(outcome === "unreadable_sources" ? { error: reason } : {}),
   };
 }
 

@@ -110,7 +110,19 @@ export async function scrape(
     // A snapshot hint (either mode) rides into the Firecrawl request as the
     // KTD9 same-fetch capture formats — this branch is the only place the
     // "on_fallback" hint materializes into artifacts.
-    return await scrapeFallbackOnce(url, opts, reason, deadlineMs);
+    // Inline timeout recovery keeps the original remaining budget; durable
+    // Page recovery supplies its independently admitted renderer window.
+    return await scrapeFallbackOnce(
+      url,
+      {
+        ...opts,
+        timeoutMs: reason === "timeout_exhausted"
+          ? Math.floor(deadlineMs - Date.now())
+          : opts.timeoutMs,
+      },
+      reason,
+      deadlineMs,
+    );
   }
 }
 
@@ -233,7 +245,11 @@ export async function scrapePrimaryPageResilient(
     ) {
       const result = await scrapeFallbackOnce(
         opts.url,
-        { ...baseOpts, formats: ["markdown", "rawHtml"] },
+        {
+          ...baseOpts,
+          formats: ["markdown", "rawHtml"],
+          timeoutMs: Math.floor(deadlineMs - Date.now()),
+        },
         "timeout_exhausted",
         deadlineMs,
       );

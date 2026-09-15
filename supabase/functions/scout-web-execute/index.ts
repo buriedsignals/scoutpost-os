@@ -184,6 +184,7 @@ function rawCaptureExpiresAt(days = RAW_CAPTURE_TTL_DAYS): string {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
+  const invocationStartedAt = Date.now();
   const cors = handleCors(req);
   if (cors) return cors;
 
@@ -299,7 +300,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       scoutId: scout.id as string,
       userId: scout.user_id as string,
       tenantKey: scout.user_id as string,
-    });
+    }, invocationStartedAt);
   }
 
   let chargedCredits = false;
@@ -1275,7 +1276,13 @@ async function runPipeline(
     );
     await workflowTransport.prepareChildren(
       orderedChildren.slice(0, SUBPAGE_FETCH_CAP),
-      SUBPAGE_SCRAPE_TIMEOUT_MS,
+      {
+        workloadClass: "scout",
+        tenantKey: scout.user_id,
+        timeoutMs: SUBPAGE_SCRAPE_TIMEOUT_MS,
+        snapshot: archiveGateOn ? "on_fallback" : undefined,
+        ...WEB_SCOUT_FRESH_SCRAPE_OPTIONS,
+      },
     );
   }
   const activeMembershipChanged = persistedActiveCandidates === null ||

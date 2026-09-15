@@ -20,13 +20,20 @@ but Page Scout change detection is owned locally by Scoutpost: unmodified
 provider markdown is retained while a quality-gated semantic projection is
 canonicalized, version-hashed, and compared against the latest valid,
 successful per-source `raw_captures` baseline. Firecrawl recovery is limited to
-classified anti-bot responses or exhausted typed navigation timeouts, at most
-once within the original remaining deadline. The operator-wide
+classified anti-bot responses or exhausted typed navigation timeouts, with one
+paid attempt per durable crawler job. The operator-wide
 `SCRAPE_PROVIDER=firecrawl` compatibility switch remains separate.
 
-For native Page children, fallback rendering uses the remaining Phase B budget,
-not the completed primary renderer's shorter navigation limit. The fallback
-cannot extend that absolute deadline or start a second paid attempt.
+Native Page fallbacks get a 60-second Firecrawl request window and a 65-second
+client limit. An invocation admits fallback work during its first 35 seconds;
+earlier children cannot consume an admitted request's window. Unadmitted
+children stay pending for the existing workflow resume.
+
+Root fallback results are persisted before yielding. Child fallbacks finish
+before Phase B analysis, which consumes their stored results on resume without
+another paid request. This separates slow rendering from analysis inside the
+hosted request limit. Inline compatibility scraping retains its original
+remaining-budget policy.
 
 ## Change Detection and Renderer Attribution
 
@@ -179,10 +186,11 @@ Model routing, ordinary deadlines and the one-credit Page run price are unchange
 - Page Scout renderer calls are client-side bounded; fresh scrapes abort if
   the renderer stalls.
 - OpenRouter extraction and embedding calls are bounded so a provider stall cannot leave the run row in `running` indefinitely.
-- Listing-page Phase B subpage-follow runs under a total wall-clock budget and
-  per-subpage scrape cap instead of unbounded sequential fetches. Candidate
-  selection uses prior capture and attempt times, so failed, zero-unit, and
-  deduplicated children cannot monopolize every run.
+- Native child rendering uses the bounded fallback/resume path above. Phase B
+  analysis retains its separate wall-clock budget; unattempted children do not
+  become failed provider requests. Candidate selection uses prior capture and
+  attempt times, so failed, zero-unit, and deduplicated children cannot
+  monopolize every run.
 - The configured URL and every renderer-reported effective child URL are
   validated before comparison, persistence, extraction, archiving, or alerting.
 - Run metadata reports candidate, checked, scraped, failed, and

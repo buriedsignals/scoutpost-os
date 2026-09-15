@@ -135,6 +135,14 @@ assumptions:
   run becomes ready. If no fresh source remains and any retrieval failed, the
   run fails with the actual retrieval errors. An all-query search outage also
   fails during baseline initialization and cannot establish readiness.
+- Preview responses expose an `outcome` and `diagnostics`: `results`,
+  `filtered_empty`, `no_candidates`, `unreadable_sources`, `unverified_empty`,
+  or `error`. Verified filtering requires successful reads, policy-rejection
+  evidence, and no search/read failures. Diagnostics separate stale sources,
+  stale articles, criteria/location exclusions, and model-reported filtering.
+- All-unreadable previews report `status: failed` and `task_completed: false`.
+  An unexplained empty extraction is not evidence that filtering worked.
+  Preview does not compare against a Scout baseline.
 - **Homepage/index rejection**: bare `/`, `/blog`, `/news` etc. are dropped (`is_index_or_homepage`)
 - **Standing page rejection**: institutional/section pages with short paths and no numeric IDs (`is_likely_standing_page`) — catches gov landing pages, stats dashboards, agenda indexes
 - Removes exact duplicate URLs from multiple queries
@@ -326,8 +334,9 @@ quiet zero on the immediate Run Now is valid when the baseline already observed
 the same stable URLs; relevance and source-link gates use units from both runs.
 Set `SCOUT_FULL_BEAT_BENCHMARK=1` to run all eight, including the
 priority-domain canary.
-Each canary runs once: zero-result, timeout, provider-path, and semantic-drift
-failures remain visible instead of being hidden by a retry.
+Each canary runs once. Verified filtered-empty previews can pass; unexplained
+emptiness, timeouts, provider errors, and semantic drift remain failures.
+Explicit recent-source and priority-domain cases still require matching sources.
 `--scout-id` replays one existing Beat scout configuration on a temporary
 benchmark user to validate backward compatibility without touching the original scout.
 `--scenario` filters by scenario name so operators can rerun a single canary

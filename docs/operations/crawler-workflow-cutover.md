@@ -136,8 +136,10 @@ Include the Beat executor and every caller of the changed shared modules in the
 bundle deployment; do not deploy only the Page entrypoint. The release also
 changes Page probing/creation and the MCP error contract. Verify the 150,000
 normalized-character limit and the Beat all-stale, zero-net-credit outcome.
-Retain the existing Page and Beat benchmark assertions and run their deployed
-canaries. A local regression pass does not replace these deployment checks.
+Run the deployed Page and Beat canaries. Preserve positive scope/source checks
+and real-error failures; accept an empty Beat preview only with the documented
+filtered-empty outcome and read/filter evidence. A local regression pass does
+not replace these deployment checks.
 
 Verify the deployed paths with operator-owned canaries before customer replay:
 ordinary HTML, a download response, a truthful invalid/error page, and exhausted

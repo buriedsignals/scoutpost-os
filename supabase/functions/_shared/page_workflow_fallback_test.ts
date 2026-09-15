@@ -5,6 +5,7 @@ import {
 import { FakeTime } from "https://deno.land/std@0.224.0/testing/time.ts";
 import {
   childStage,
+  PageWorkflowPending,
   PageWorkflowTransport,
 } from "./page_workflow_transport.ts";
 import fixture from "./fixtures/page_baselland_timeout.json" with {
@@ -12,38 +13,50 @@ import fixture from "./fixtures/page_baselland_timeout.json" with {
 };
 
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape";
-const RESULT_URL = "https://storage.example.test/result";
+const RESULT_URL = "https://storage.example.test/";
 const CONTENT =
   "# Regierungsrat\nDie beschlossenen Vorlagen werden veröffentlicht.";
 
-// A stateful durable-job boundary: fallback completion is loaded on the next
-// scrape, including real gzip, manifest integrity checking and result decoding.
-function fallbackJob() {
-  const row = {
-    id: "child-job",
-    dedupe_key: "child-key",
+// Stateful durable jobs: resumes read real gzip results through their manifests.
+function fallbackJobs(urls: string[], timeoutExhausted = false) {
+  const rows = urls.map((url, index) => ({
+    id: `job-${index}`,
+    dedupe_key: `key-${index}`,
     status: "fallback_required",
     request_kind: "scout_run",
     continuation_key: fixture.scout_run_id,
-    url: fixture.event.url,
-    attempts: 1,
+    url,
+    attempts: timeoutExhausted ? 3 : 1,
     max_attempts: 3,
-    error_class: "anti_bot",
-    error_message: "primary challenge",
+    error_class: timeoutExhausted ? "timeout" : "anti_bot",
+    error_message: "primary failed",
     lease_token: null as string | null,
     result_manifest: null as Record<string, unknown> | null,
-  };
-  let stored: Uint8Array | null = null;
+  }));
+  const stored = new Map<string, Uint8Array>();
+  const claims: string[] = [];
+  let rejectCompletion = false;
   const svc = {
     rpc(fn: string, args: Record<string, unknown>) {
       if (fn === "enqueue_crawler_job") {
+        const row = rows.find((row) => row.url === args.p_url);
+        if (!row) throw new Error("unexpected enqueue URL");
         return Promise.resolve({ data: row, error: null });
       }
+      const row = rows.find((row) => row.id === args.p_job_id);
+      if (!row) throw new Error("unexpected job ID");
       if (fn === "claim_page_crawler_fallback") {
+        if (row.status !== "fallback_required" || row.lease_token) {
+          return Promise.resolve({ data: null, error: null });
+        }
+        claims.push(row.url);
         row.lease_token = "fallback-lease";
         return Promise.resolve({ data: row.lease_token, error: null });
       }
       if (fn === "complete_crawler_fallback") {
+        if (rejectCompletion) {
+          return Promise.resolve({ data: false, error: null });
+        }
         row.status = args.p_ok ? "succeeded" : "terminal_failed";
         row.error_message = String(args.p_error ?? "");
         row.result_manifest = args.p_manifest as Record<string, unknown> | null;
@@ -53,33 +66,38 @@ function fallbackJob() {
       throw new Error(`unexpected RPC ${fn}`);
     },
     from() {
+      let id: unknown;
       return {
         select() {
           return this;
         },
-        eq() {
+        eq(_column: string, value: unknown) {
+          id = value;
           return this;
         },
         single() {
-          return Promise.resolve({ data: row, error: null });
+          return Promise.resolve({
+            data: rows.find((row) => row.id === id),
+            error: null,
+          });
         },
       };
     },
     storage: {
       from() {
         return {
-          upload(_path: string, bytes: Uint8Array) {
-            stored = bytes;
+          upload(path: string, bytes: Uint8Array) {
+            stored.set(path, bytes);
             return Promise.resolve({ error: null });
           },
-          createSignedUrl() {
+          createSignedUrl(path: string) {
             return Promise.resolve({
-              data: { signedUrl: RESULT_URL },
+              data: { signedUrl: `${RESULT_URL}${path}` },
               error: null,
             });
           },
-          remove() {
-            stored = null;
+          remove(paths: string[]) {
+            for (const path of paths) stored.delete(path);
             return Promise.resolve({ error: null });
           },
         };
@@ -87,15 +105,22 @@ function fallbackJob() {
     },
   };
   return {
-    transport: new PageWorkflowTransport(svc as never, {
-      id: fixture.scout_run_id,
-      scoutId: fixture.event.scout_id,
-      userId: "benchmark-user",
-      tenantKey: "benchmark-user",
-    }),
-    resultResponse() {
-      if (!stored) throw new Error("no persisted fallback result");
-      return new Response(stored.slice().buffer);
+    rows,
+    claims,
+    transport: () =>
+      new PageWorkflowTransport(svc as never, {
+        id: fixture.scout_run_id,
+        scoutId: fixture.event.scout_id,
+        userId: "benchmark-user",
+        tenantKey: "benchmark-user",
+      }),
+    rejectCompletion() {
+      rejectCompletion = true;
+    },
+    resultResponse(url: string) {
+      const bytes = stored.get(url.slice(RESULT_URL.length));
+      if (!bytes) throw new Error("no persisted fallback result");
+      return new Response(bytes.slice().buffer);
     },
   };
 }
@@ -117,131 +142,192 @@ function withFallbackClock(test: (clock: FakeTime) => Promise<void>) {
   };
 }
 
-Deno.test(
-  "native Page fallback can render beyond the primary navigation cap within Phase B",
-  withFallbackClock(async (clock) => {
-    const job = fallbackJob();
-    let requests = 0;
-    let admitted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      admitted = resolve;
-    });
-    globalThis.fetch = (input, init) => {
-      if (String(input) === RESULT_URL) {
-        return Promise.resolve(job.resultResponse());
-      }
-      assertEquals(String(input), FIRECRAWL_URL);
-      requests++;
-      const request = init as RequestInit;
-      const timeout = JSON.parse(String(request.body)).timeout as number;
-      admitted();
-      // The historical 408 is replayed when a synthetic 20s render cannot fit.
-      // This duration tests budget separation; it is not a measured site latency.
-      return new Promise<Response>((resolve, reject) => {
-        const timer = setTimeout(() =>
+function renderer(
+  jobs: { resultResponse(url: string): Response },
+  durations: number[],
+) {
+  const starts = durations.map(() => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => resolve = done);
+    return { promise, resolve };
+  });
+  const requests: string[] = [];
+  globalThis.fetch = (input, init) => {
+    if (String(input).startsWith(RESULT_URL)) {
+      return Promise.resolve(jobs.resultResponse(String(input)));
+    }
+    assertEquals(String(input), FIRECRAWL_URL);
+    const request = init as RequestInit;
+    const body = JSON.parse(String(request.body));
+    const index = requests.length;
+    const duration = durations[index];
+    requests.push(body.url);
+    starts[index].resolve();
+    return new Promise<Response>((resolve, reject) => {
+      const timer = Number.isFinite(duration)
+        ? setTimeout(() => {
+          const timedOut = body.timeout < duration;
           resolve(
             new Response(
               JSON.stringify(
-                timeout < 20_000 ? fixture.response : {
+                timedOut ? fixture.response : {
                   data: {
-                    markdown: CONTENT,
-                    metadata: { sourceURL: fixture.event.url, statusCode: 200 },
+                    markdown: body.maxAge === 0 && body.storeInCache === false
+                      ? CONTENT
+                      : "Stale cached content",
+                    screenshot: body.formats.some((format: unknown) =>
+                        typeof format === "object" && format !== null &&
+                        "type" in format && format.type === "screenshot"
+                      )
+                      ? "https://storage.example.test/screenshot.png"
+                      : undefined,
+                    metadata: { sourceURL: body.url, statusCode: 200 },
                   },
                 },
               ),
-              { status: timeout < 20_000 ? 408 : 200 },
+              { status: timedOut ? 408 : 200 },
             ),
-          ), Math.min(timeout, 20_000));
-        request.signal?.addEventListener("abort", () => {
-          clearTimeout(timer);
-          reject(new DOMException("deadline", "AbortError"));
-        }, { once: true });
-      });
-    };
-    await job.transport.prepareChildren([fixture.event.url], 12_000);
-    const deadlineMs = Date.now() + 35_000;
-    const result = job.transport.scrape({
-      url: fixture.event.url,
-      timeoutMs: 12_000,
-      abortAfterMs: 15_000,
-      deadlineMs,
-    }, childStage(fixture.event.url));
-    // Attach a rejection handler before advancing a pre-fix timeout.
-    const observed = result.then(
-      (value) => ({ value }),
-      (error: unknown) => ({ error }),
-    );
-    await started;
-    await clock.tickAsync(20_000);
-    const outcome = await observed;
-    if ("error" in outcome) throw outcome.error;
-    assertEquals(outcome.value.markdown, CONTENT);
-    assertEquals(outcome.value.source_url, fixture.event.url);
-    assertEquals(outcome.value.served_by, "firecrawl");
-    assertEquals(requests, 1);
-  }),
-);
-
-Deno.test(
-  "native Page fallback cannot renew an exhausted Phase B deadline",
-  withFallbackClock(async (clock) => {
-    const job = fallbackJob();
-    let requests = 0;
-    let admitted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      admitted = resolve;
+          );
+        }, Math.min(body.timeout, duration))
+        : undefined;
+      request.signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new DOMException("deadline", "AbortError"));
+      }, { once: true });
     });
-    globalThis.fetch = (input, init) => {
-      assertEquals(String(input), FIRECRAWL_URL);
-      requests++;
-      admitted();
-      return new Promise<Response>((_resolve, reject) => {
-        (init as RequestInit).signal?.addEventListener("abort", () => {
-          reject(new DOMException("deadline", "AbortError"));
-        }, { once: true });
-      });
-    };
-    const options = {
-      url: fixture.event.url,
-      timeoutMs: 12_000,
-      abortAfterMs: 15_000,
-      deadlineMs: Date.now() + 35_000,
-    };
-    await clock.tickAsync(30_000);
-    const failure = assertRejects(() =>
-      job.transport.scrape(options, childStage(options.url))
+  };
+  return { requests, starts };
+}
+
+Deno.test(
+  "a root fallback can finish after 30s and resume from its single durable result",
+  withFallbackClock(async (clock) => {
+    const url = "https://wohnraumverteidigen.org/";
+    const jobs = fallbackJobs([url], true);
+    const provider = renderer(jobs, [40_000]);
+    const pending = assertRejects(
+      () =>
+        jobs.transport().scrape({
+          url,
+          timeoutMs: 25_000,
+          abortAfterMs: 30_000,
+          maxAgeMs: 0,
+          storeInCache: false,
+        }, "root"),
+      PageWorkflowPending,
     );
-    await started;
-    await clock.tickAsync(5_000);
-    await failure;
-    // A failed paid attempt stays terminal even if another caller offers more time.
-    await assertRejects(() =>
-      job.transport.scrape(
-        { ...options, deadlineMs: Date.now() + 35_000 },
-        childStage(options.url),
-      )
-    );
-    assertEquals(requests, 1);
+    await provider.starts[0].promise;
+    await clock.tickAsync(40_000);
+    assertEquals((await pending).stage, "waiting_root");
+    const resumed = await jobs.transport().scrape({ url }, "root");
+    assertEquals(resumed.markdown, CONTENT);
+    assertEquals(resumed.fallback_reason, "timeout_exhausted");
+    assertEquals(resumed.served_by, "firecrawl");
+    assertEquals(provider.requests, [url]);
+    assertEquals(jobs.claims, [url]);
   }),
 );
 
 Deno.test(
-  "native Page fallback rejects an already expired budget before provider admission",
-  withFallbackClock(async () => {
-    const job = fallbackJob();
-    let requests = 0;
-    globalThis.fetch = () => {
-      requests++;
-      throw new Error("provider must not be called");
-    };
-    await assertRejects(() =>
-      job.transport.scrape({
-        url: fixture.event.url,
-        timeoutMs: 12_000,
-        abortAfterMs: 15_000,
-        deadlineMs: Date.now() - 1,
-      }, childStage(fixture.event.url))
+  "later children get a full fallback window while unadmitted children wait for resume",
+  withFallbackClock(async (clock) => {
+    const urls = ["first", "second", "third"].map((name) =>
+      `https://example.test/notices/${name}`
     );
-    assertEquals(requests, 0);
+    const jobs = fallbackJobs(urls);
+    const provider = renderer(jobs, [30_000, 40_000, 2_000]);
+    const options = {
+      timeoutMs: 12_000,
+      maxAgeMs: 0,
+      storeInCache: false,
+      snapshot: "on_fallback" as const,
+    };
+    const pending = assertRejects(
+      () => jobs.transport().prepareChildren(urls, options),
+      PageWorkflowPending,
+    );
+    await provider.starts[0].promise;
+    await clock.tickAsync(30_000);
+    await provider.starts[1].promise;
+    await clock.tickAsync(40_000);
+    assertEquals((await pending).stage, "waiting_children");
+    assertEquals(jobs.rows.map((row) => row.status), [
+      "succeeded",
+      "succeeded",
+      "fallback_required",
+    ]);
+    assertEquals(jobs.rows[2].lease_token, null);
+    assertEquals(jobs.claims, urls.slice(0, 2));
+
+    const resumed = assertRejects(
+      () => jobs.transport().prepareChildren(urls, options),
+      PageWorkflowPending,
+    );
+    await provider.starts[2].promise;
+    await clock.tickAsync(2_000);
+    await resumed;
+    const ready = jobs.transport();
+    await ready.prepareChildren(urls, options);
+    for (const url of urls) {
+      const result = await ready.scrape({ ...options, url }, childStage(url));
+      assertEquals(result.markdown, CONTENT);
+      assertEquals(result.source_url, url);
+      assertEquals(
+        result.screenshot_url,
+        "https://storage.example.test/screenshot.png",
+      );
+    }
+    assertEquals(provider.requests, urls);
+    assertEquals(jobs.claims, urls);
+  }),
+);
+
+Deno.test(
+  "a stalled fallback exhausts its own request window and cannot spend again on resume",
+  withFallbackClock(async (clock) => {
+    const url = fixture.event.url;
+    const jobs = fallbackJobs([url]);
+    const transport = jobs.transport();
+    const provider = renderer(jobs, [Infinity]);
+    await clock.tickAsync(30_000);
+    let settled = false;
+    const pending = assertRejects(
+      () => transport.prepareChildren([url], { timeoutMs: 12_000 }),
+      PageWorkflowPending,
+    ).then((error) => {
+      settled = true;
+      return error;
+    });
+    await provider.starts[0].promise;
+    await clock.tickAsync(60_000);
+    assertEquals(settled, false);
+    await clock.tickAsync(5_000);
+    await pending;
+    assertEquals(jobs.rows[0].status, "terminal_failed");
+    const resumed = jobs.transport();
+    await resumed.prepareChildren([url], { timeoutMs: 12_000 });
+    await assertRejects(
+      () => resumed.scrape({ url }, childStage(url)),
+      Error,
+      "firecrawl scrape aborted",
+    );
+    assertEquals(provider.requests, [url]);
+    assertEquals(jobs.claims, [url]);
+  }),
+);
+
+Deno.test(
+  "fallback completion rejection is a runtime failure, not a successful pause",
+  withFallbackClock(async () => {
+    const url = fixture.event.url;
+    const jobs = fallbackJobs([url]);
+    jobs.rejectCompletion();
+    globalThis.fetch = () =>
+      Promise.resolve(new Response("failed", { status: 504 }));
+    await assertRejects(
+      () => jobs.transport().prepareChildren([url], { timeoutMs: 12_000 }),
+      Error,
+      "fallback failure completion rejected",
+    );
   }),
 );

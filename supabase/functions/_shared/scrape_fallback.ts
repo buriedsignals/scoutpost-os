@@ -40,10 +40,7 @@ export async function scrapeFallbackOnce(
     return {
       ...await firecrawlScrape(url, {
         ...opts,
-        // A primary navigation limit is not a second limit on exhausted-timeout recovery.
-        timeoutMs: reason === "timeout_exhausted"
-          ? remainingMs
-          : Math.min(opts.timeoutMs ?? 120_000, remainingMs),
+        timeoutMs: Math.min(opts.timeoutMs ?? 120_000, remainingMs),
         abortAfterMs: remainingMs,
       }),
       served_by: "firecrawl",

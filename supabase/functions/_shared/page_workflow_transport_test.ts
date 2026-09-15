@@ -129,12 +129,25 @@ Deno.test("terminal crawler failure fails the resumable Page run", async () => {
 
 Deno.test("terminal child failure remains a per-URL Page result", async () => {
   const { transport } = transportWithStatus("terminal_failed", "unsafe URL");
-  await transport.prepareChildren(["https://example.com/child"], 25_000);
+  await transport.prepareChildren(["https://example.com/child"], {
+    timeoutMs: 25_000,
+  });
+  await assertRejects(
+    () =>
+      transport.scrape({
+        url: "https://example.com/child",
+        workloadClass: "scout",
+      }, "child:test"),
+    Error,
+    "unsafe URL",
+  );
 });
 
 Deno.test("cancelled children stay failed per-URL results rather than pending or retrieved", async () => {
   const { transport } = transportWithStatus("cancelled", "original challenge");
-  await transport.prepareChildren(["https://example.com/child"], 25_000);
+  await transport.prepareChildren(["https://example.com/child"], {
+    timeoutMs: 25_000,
+  });
   await assertRejects(
     () =>
       transport.scrape({
