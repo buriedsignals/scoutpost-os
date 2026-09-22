@@ -53,9 +53,8 @@ import {
   classifyRunError,
   markRunError,
   markRunStage,
-  shouldIncrementScoutFailure,
 } from "../_shared/run_lifecycle.ts";
-import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
+import { recordScoutRunFailure } from "../_shared/scout_failures.ts";
 
 const KickoffSchema = z.object({
   scout_id: z.string().uuid(),
@@ -518,15 +517,16 @@ async function markQueueFailed(
         errorClass: classified.errorClass,
         message: classified.message,
       });
-      if (shouldIncrementScoutFailure(classified.errorClass)) {
-        await incrementAndMaybeNotify(svc, {
-          scoutId: refund.scoutId,
-          userId: refund.userId,
-          scoutName: refund.scoutName ?? "Social Scout",
-          scoutType: "social",
-          language: refund.language ?? null,
-        });
-      }
+      await recordScoutRunFailure(svc, {
+        scoutId: refund.scoutId,
+        userId: refund.userId,
+        scoutName: refund.scoutName ?? "Social Scout",
+        scoutType: "social",
+        language: refund.language ?? null,
+        runId: refund.runId,
+        errorClass: classified.errorClass,
+        errorMessage: classified.message,
+      });
     } catch (e) {
       logEvent({
         level: "error",

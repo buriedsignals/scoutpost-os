@@ -31,7 +31,6 @@ import {
   markRunError,
   markRunStage,
   markRunSuccess,
-  shouldIncrementScoutFailure,
 } from "../_shared/run_lifecycle.ts";
 import {
   CREDIT_COSTS,
@@ -41,7 +40,7 @@ import {
   insufficientCreditsResponse,
   refundCredits,
 } from "../_shared/credits.ts";
-import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
+import { recordScoutRunFailure } from "../_shared/scout_failures.ts";
 import { sendTransportScoutAlert } from "../_shared/notifications.ts";
 import {
   IMPLEMENTED_MODES,
@@ -515,14 +514,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
       errorClass: classified.errorClass,
       message: classified.message,
     });
-    if (shouldIncrementScoutFailure(classified.errorClass)) {
-      await incrementAndMaybeNotify(svc, {
-        scoutId: scout.id,
-        userId: scout.user_id,
-        scoutName: scout.name as string,
-        scoutType: "transport",
-      });
-    }
+    await recordScoutRunFailure(svc, {
+      scoutId: scout.id,
+      userId: scout.user_id,
+      scoutName: scout.name as string,
+      scoutType: "transport",
+      runId,
+      errorClass: classified.errorClass,
+      errorMessage: classified.message,
+    });
     return jsonFromError(e);
   }
 

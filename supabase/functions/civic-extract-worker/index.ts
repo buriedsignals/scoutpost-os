@@ -40,9 +40,8 @@ import {
   markNotificationResult,
   markRunError,
   markRunStage,
-  shouldIncrementScoutFailure,
 } from "../_shared/run_lifecycle.ts";
-import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
+import { recordScoutRunFailure } from "../_shared/scout_failures.ts";
 import {
   buildCivicCandidatePrompt,
   buildCivicVerifierPrompt,
@@ -250,18 +249,17 @@ async function markLinkedRunFailedIfSettled(
   )
     .select("ingestion_mode").eq("id", row.id).single();
   if (semanticsError) throw new Error(semanticsError.message);
-  if (
-    semantics.ingestion_mode !== "backfill" &&
-    shouldIncrementScoutFailure(classified.errorClass)
-  ) {
-    await incrementAndMaybeNotify(svc, {
-      scoutId: row.scout_id,
-      userId: row.user_id,
-      scoutName: "Civic Scout",
-      scoutType: "civic",
-      language: null,
-    });
-  }
+  await recordScoutRunFailure(svc, {
+    scoutId: row.scout_id,
+    userId: row.user_id,
+    scoutName: "Civic Scout",
+    scoutType: "civic",
+    language: null,
+    runId: row.scout_run_id,
+    errorClass: classified.errorClass,
+    errorMessage: classified.message,
+    countFailure: semantics.ingestion_mode !== "backfill",
+  });
 }
 
 interface ProcessResult {

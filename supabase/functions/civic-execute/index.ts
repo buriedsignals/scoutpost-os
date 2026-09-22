@@ -49,13 +49,12 @@ import {
   isCivicScrapableUrl,
   resolveCivicDocumentsFromPages,
 } from "../_shared/civic_links.ts";
-import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
+import { recordScoutRunFailure } from "../_shared/scout_failures.ts";
 import {
   classifyRunError,
   markRunError,
   markRunStage,
   markRunSuccess,
-  shouldIncrementScoutFailure,
 } from "../_shared/run_lifecycle.ts";
 import {
   CREDIT_COSTS,
@@ -672,15 +671,16 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
       message: classified.message,
     });
 
-    if (shouldIncrementScoutFailure(classified.errorClass)) {
-      await incrementAndMaybeNotify(db, {
-        scoutId,
-        userId: scout.user_id as string,
-        scoutName: (scout.name as string | null) ?? "Civic Scout",
-        scoutType: "civic",
-        language: scout.preferred_language as string | null,
-      });
-    }
+    await recordScoutRunFailure(db, {
+      scoutId,
+      userId: scout.user_id as string,
+      scoutName: (scout.name as string | null) ?? "Civic Scout",
+      scoutType: "civic",
+      language: scout.preferred_language as string | null,
+      runId,
+      errorClass: classified.errorClass,
+      errorMessage: classified.message,
+    });
     // Refund the pre-charge on error — the run never got to enqueue work.
     await refundCredits(db, {
       userId: scout.user_id as string,

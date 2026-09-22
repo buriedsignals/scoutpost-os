@@ -63,7 +63,7 @@ import {
   refundCredits,
 } from "../_shared/credits.ts";
 import { Article, sendBeatAlert } from "../_shared/notifications.ts";
-import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
+import { recordScoutRunFailure } from "../_shared/scout_failures.ts";
 import {
   extractAtomicUnits,
   preferSourcePublishedDate,
@@ -84,7 +84,6 @@ import {
   markRunError,
   markRunStage,
   markRunSuccess,
-  shouldIncrementScoutFailure,
 } from "../_shared/run_lifecycle.ts";
 
 const InputSchema = z.object({
@@ -1260,15 +1259,17 @@ async function execute(
       message: classified.message,
     });
 
-    if (!baselineOnly && shouldIncrementScoutFailure(classified.errorClass)) {
-      await incrementAndMaybeNotify(db, {
-        scoutId,
-        userId: scout.user_id as string,
-        scoutName: (scout.name as string | null) ?? "Beat Scout",
-        scoutType: "beat",
-        language: scout.preferred_language as string | null,
-      });
-    }
+    await recordScoutRunFailure(db, {
+      scoutId,
+      userId: scout.user_id as string,
+      scoutName: (scout.name as string | null) ?? "Beat Scout",
+      scoutType: "beat",
+      language: scout.preferred_language as string | null,
+      runId,
+      errorClass: classified.errorClass,
+      errorMessage: classified.message,
+      countFailure: !baselineOnly,
+    });
     if (chargedCredits) {
       // Refund the 7-credit pre-charge — the run produced no billable output.
       await refundCredits(db, {

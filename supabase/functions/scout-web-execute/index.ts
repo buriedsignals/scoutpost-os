@@ -146,7 +146,7 @@ import {
   PageWorkflowTransport,
 } from "../_shared/page_workflow_transport.ts";
 import { sendPageScoutAlert } from "../_shared/notifications.ts";
-import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
+import { recordScoutRunFailure } from "../_shared/scout_failures.ts";
 import {
   classifyRunError,
   markNotificationAttempted,
@@ -154,7 +154,6 @@ import {
   markRunError,
   markRunStage,
   markRunSuccess,
-  shouldIncrementScoutFailure,
 } from "../_shared/run_lifecycle.ts";
 
 const SUBPAGE_FETCH_CAP = 10;
@@ -267,6 +266,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
   const workflowEnabled = (runState as { crawler_backend?: string })
     .crawler_backend === "workflow";
+  const runDispatchSource = (state: unknown): string | null => {
+    const metadata = (state as { metadata?: Record<string, unknown> | null })
+      .metadata;
+    const source = metadata?.dispatch_source;
+    return typeof source === "string" ? source : null;
+  };
   let effectiveNotificationMode: PageScoutNotificationMode;
   try {
     effectiveNotificationMode = await bindPageScoutNotificationMode(
@@ -753,16 +758,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
           chargedCost = charge.data.cost;
         }
       }
-      if (shouldIncrementScoutFailure(classified.errorClass)) {
-        await incrementAndMaybeNotify(svc, {
-          scoutId: scout.id as string,
-          userId: scout.user_id as string,
-          scoutName: (scout.name as string | null) ?? "Page Scout",
-          scoutType: "web",
-          language: scout.preferred_language as string | null,
-          notificationMode: effectiveNotificationMode,
-        });
-      }
+      await recordScoutRunFailure(svc, {
+        scoutId: scout.id as string,
+        userId: scout.user_id as string,
+        scoutName: (scout.name as string | null) ?? "Page Scout",
+        scoutType: "web",
+        language: scout.preferred_language as string | null,
+        notificationMode: effectiveNotificationMode,
+        runId,
+        errorClass: classified.errorClass,
+        errorMessage: classified.message,
+        dispatchSource: runDispatchSource(runState),
+        crawlerBackend:
+          (runState as { crawler_backend?: string | null }).crawler_backend ??
+            null,
+      });
       if (chargedCredits) {
         // Refund the pre-run charge on failure — users shouldn't pay for
         // scheduled scrapes that never produced billable output.

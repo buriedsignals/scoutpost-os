@@ -327,10 +327,5 @@ export function classifyRunError(
   return { errorClass: "unknown", stage: fallbackStage, message };
 }
 
-export function shouldIncrementScoutFailure(
-  errorClass: RunErrorClass,
-): boolean {
-  return errorClass === "provider" ||
-    errorClass === "timeout" ||
-    errorClass === "unknown";
-}
+// The failure policy now lives with the accounting in scout_failures.ts.
+export { shouldIncrementScoutFailure } from "./scout_failures.ts";

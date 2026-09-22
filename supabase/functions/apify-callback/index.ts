@@ -59,9 +59,8 @@ import {
   markRunStage,
   markRunSuccess,
   RunErrorClass,
-  shouldIncrementScoutFailure,
 } from "../_shared/run_lifecycle.ts";
-import { incrementAndMaybeNotify } from "../_shared/scout_failures.ts";
+import { recordScoutRunFailure } from "../_shared/scout_failures.ts";
 import {
   criteriaScoreFromUnit,
   socialCriteriaThreshold,
@@ -206,15 +205,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
         message: eventType ?? "unknown_event",
       });
     }
-    if (shouldIncrementScoutFailure(errorClass)) {
-      await incrementAndMaybeNotify(svc, {
-        scoutId: queueRow.scout_id,
-        userId: queueRow.user_id,
-        scoutName: "Social Scout",
-        scoutType: "social",
-        language: null,
-      });
-    }
+    await recordScoutRunFailure(svc, {
+      scoutId: queueRow.scout_id,
+      userId: queueRow.user_id,
+      scoutName: "Social Scout",
+      scoutType: "social",
+      language: null,
+      runId: queueRow.scout_run_id,
+      errorClass,
+      errorMessage: eventType ?? "unknown_event",
+    });
 
     if (queueRow.user_id && queueRow.platform) {
       const op = SOCIAL_MONITORING_KEYS[queueRow.platform] ??
@@ -380,15 +380,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
         errorClass: classified.errorClass,
         message: classified.message,
       });
-      if (shouldIncrementScoutFailure(classified.errorClass)) {
-        await incrementAndMaybeNotify(svc, {
-          scoutId: queueRow.scout_id,
-          userId: queueRow.user_id,
-          scoutName: "Social Scout",
-          scoutType: "social",
-          language: null,
-        });
-      }
+      await recordScoutRunFailure(svc, {
+        scoutId: queueRow.scout_id,
+        userId: queueRow.user_id,
+        scoutName: "Social Scout",
+        scoutType: "social",
+        language: null,
+        runId: queueRow.scout_run_id,
+        errorClass: classified.errorClass,
+        errorMessage: classified.message,
+      });
     }
     if (queueRow.user_id && queueRow.platform) {
       const op = SOCIAL_MONITORING_KEYS[queueRow.platform] ??
