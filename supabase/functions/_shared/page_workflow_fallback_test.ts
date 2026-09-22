@@ -5,6 +5,7 @@ import {
 import { FakeTime } from "https://deno.land/std@0.224.0/testing/time.ts";
 import {
   childStage,
+  isHostPolicyRouted,
   PageWorkflowPending,
   PageWorkflowTransport,
 } from "./page_workflow_transport.ts";
@@ -104,16 +105,19 @@ function fallbackJobs(urls: string[], timeoutExhausted = false) {
       },
     },
   };
+  const run = {
+    id: fixture.scout_run_id,
+    scoutId: fixture.event.scout_id,
+    userId: "benchmark-user",
+    tenantKey: "benchmark-user",
+  };
   return {
     rows,
     claims,
-    transport: () =>
-      new PageWorkflowTransport(svc as never, {
-        id: fixture.scout_run_id,
-        scoutId: fixture.event.scout_id,
-        userId: "benchmark-user",
-        tenantKey: "benchmark-user",
-      }),
+    transport: () => new PageWorkflowTransport(svc as never, run),
+    transportWith: (
+      deps: ConstructorParameters<typeof PageWorkflowTransport>[3],
+    ) => new PageWorkflowTransport(svc as never, run, Date.now(), deps),
     rejectCompletion() {
       rejectCompletion = true;
     },
@@ -329,5 +333,133 @@ Deno.test(
       Error,
       "fallback failure completion rejected",
     );
+  }),
+);
+
+Deno.test("a blocked host enqueues its durable job already routed to fallback", async () => {
+  const enqueues: Record<string, unknown>[] = [];
+  const job = {
+    id: "job-policy",
+    dedupe_key: "key",
+    status: "queued",
+    request_kind: "scout_run",
+    continuation_key: fixture.scout_run_id,
+    lease_token: null,
+  };
+  const svc = {
+    rpc(fn: string, args: Record<string, unknown>) {
+      if (fn !== "enqueue_crawler_job") throw new Error(`unexpected RPC ${fn}`);
+      enqueues.push(args);
+      return Promise.resolve({ data: job, error: null });
+    },
+    from() {
+      return {
+        select() {
+          return this;
+        },
+        eq() {
+          return this;
+        },
+        single() {
+          return Promise.resolve({ data: job, error: null });
+        },
+      };
+    },
+  };
+  const transport = new PageWorkflowTransport(
+    svc as never,
+    {
+      id: fixture.scout_run_id,
+      scoutId: fixture.event.scout_id,
+      userId: "u",
+      tenantKey: "u",
+    },
+    Date.now(),
+    {
+      resolvePlan: (url) =>
+        Promise.resolve({
+          host: new URL(url).hostname,
+          providers: ["firecrawl"],
+          policy: null,
+          skipPrimary: url.includes("blocked"),
+        }),
+    },
+  );
+  // Both jobs are still active after enqueue, so the run parks as usual.
+  await assertRejects(
+    () =>
+      transport.prepareChildren(
+        ["https://blocked.example/a", "https://open.example/b"],
+        { timeoutMs: 12_000 },
+      ),
+    PageWorkflowPending,
+  );
+  const byUrl = Object.fromEntries(enqueues.map((a) => [a.p_url, a]));
+  assertEquals(
+    byUrl["https://blocked.example/a"].p_fallback_reason,
+    "anti_bot",
+  );
+  assertEquals(
+    (byUrl["https://blocked.example/a"].p_options as Record<string, unknown>)
+      .host_policy,
+    "firecrawl",
+  );
+  assertEquals(byUrl["https://open.example/b"].p_fallback_reason, null);
+  assertEquals(
+    (byUrl["https://open.example/b"].p_options as Record<string, unknown>)
+      .host_policy,
+    undefined,
+  );
+  assertEquals(
+    isHostPolicyRouted({
+      error_message:
+        "host policy: primary renderer blocked by anti-bot protection",
+    }),
+    true,
+  );
+  assertEquals(isHostPolicyRouted({ error_message: "primary failed" }), false);
+  assertEquals(isHostPolicyRouted({ error_message: null }), false);
+});
+
+Deno.test(
+  "a worker-reported anti-bot rescue records host evidence; a policy-routed one does not",
+  withFallbackClock(async (clock) => {
+    const url = "https://www.mardigras.org.au/";
+    const jobs = fallbackJobs([url]);
+    const rescued: (string | null)[] = [];
+    const transport = jobs.transportWith({
+      resolvePlan: (u) =>
+        Promise.resolve({
+          host: new URL(u).hostname,
+          providers: ["crawl4ai", "firecrawl"],
+          policy: null,
+          skipPrimary: false,
+        }),
+      noteAntiBotRescue: (host) => {
+        rescued.push(host);
+        return Promise.resolve();
+      },
+    });
+    const provider = renderer(jobs, [1_000]);
+    const first = transport.scrape({ url, timeoutMs: 25_000 }, childStage(url));
+    await provider.starts[0].promise;
+    await clock.tickAsync(1_100);
+    await first;
+    assertEquals(rescued, ["www.mardigras.org.au"]);
+
+    jobs.rows[0].status = "fallback_required";
+    jobs.rows[0].lease_token = null;
+    jobs.rows[0].result_manifest = null;
+    jobs.rows[0].error_message =
+      "host policy: primary renderer blocked by anti-bot protection";
+    const again = renderer(jobs, [1_000]);
+    const second = transport.scrape(
+      { url, timeoutMs: 25_000 },
+      childStage(url),
+    );
+    await again.starts[0].promise;
+    await clock.tickAsync(1_100);
+    await second;
+    assertEquals(rescued, ["www.mardigras.org.au"]);
   }),
 );

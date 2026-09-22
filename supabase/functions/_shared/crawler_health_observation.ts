@@ -76,6 +76,10 @@ export function parseCrawlerObservation(
       result.oldestWaitSeconds === null)
   ) invalid();
 
+  // Added with scrape_host_policy; older observations omit it.
+  if (row.blocked_hosts !== undefined) {
+    result.blockedHosts = count("blocked_hosts");
+  }
   if (
     !Array.isArray(row.retrieval_groups) || row.retrieval_groups.length > 10
   ) invalid();

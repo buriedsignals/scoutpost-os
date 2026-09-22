@@ -185,6 +185,46 @@ Deno.test("scrape() falls back to firecrawl on an anti-bot block", async () => {
   }
 });
 
+Deno.test("scrape() skips crawl4ai for a host that memory marks blocked", async () => {
+  const originalFetch = globalThis.fetch;
+  const seen: string[] = [];
+  try {
+    globalThis.fetch = ((input) => {
+      seen.push(String(input));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ data: { markdown: "fc-direct" } }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    fallbackEnv();
+    Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+
+    const result = await scrape("https://blocked.example/", {
+      plan: {
+        host: "blocked.example",
+        providers: ["firecrawl"],
+        policy: {
+          host: "blocked.example",
+          primary_provider: "firecrawl",
+          reason: "anti_bot",
+          evidence_count: 3,
+          expires_at: "2099-01-01T00:00:00Z",
+        },
+        skipPrimary: true,
+      },
+    });
+    assertEquals(result.markdown, "fc-direct");
+    assertEquals(result.served_by, "firecrawl");
+    assertEquals(result.fallback_reason, "host_policy");
+    assertEquals(seen, ["https://api.firecrawl.dev/v2/scrape"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearFallbackEnv();
+  }
+});
+
 Deno.test("scrape() rethrows an anti-bot block when no FIRECRAWL_API_KEY", async () => {
   const originalFetch = globalThis.fetch;
   try {

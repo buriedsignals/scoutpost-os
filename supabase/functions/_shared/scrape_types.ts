@@ -73,7 +73,7 @@ export interface ScrapeResult {
    */
   served_by?: "firecrawl" | "crawl4ai";
   /** Actual fallback trigger, never inferred from the serving provider. */
-  fallback_reason?: "anti_bot" | "timeout_exhausted";
+  fallback_reason?: "anti_bot" | "timeout_exhausted" | "host_policy";
 }
 
 export interface ScrapeOptions {
@@ -123,6 +123,8 @@ export interface ScrapeOptions {
    * An anti-bot block then propagates as an error for the caller to degrade.
    */
   noAntibotFallback?: boolean;
+  /** Pre-resolved renderer plan; callers that already consulted host memory pass it through. */
+  plan?: import("./scrape_plan.ts").ScrapePlan;
 }
 
 export interface SearchHit {

@@ -170,3 +170,17 @@ Deno.test("observation RPC failures fail closed", async () => {
   } as never, NOW);
   assertEquals(result.terminalFailedRecent, 0);
 });
+
+Deno.test("blocked_hosts is optional, must be a count when present", () => {
+  assertEquals(parseCrawlerObservation(healthy, NOW).blockedHosts, undefined);
+  assertEquals(
+    parseCrawlerObservation({ ...healthy, blocked_hosts: 2 }, NOW).blockedHosts,
+    2,
+  );
+  assertThrows(() =>
+    parseCrawlerObservation({ ...healthy, blocked_hosts: -1 }, NOW)
+  );
+  assertThrows(() =>
+    parseCrawlerObservation({ ...healthy, blocked_hosts: "2" }, NOW)
+  );
+});

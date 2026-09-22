@@ -52,6 +52,8 @@ export interface CrawlerWorkflowObservation {
   retrievalFailedRecent?: number;
   callerAbandonedRecent?: number;
   observedAt?: string;
+  /** Hosts currently routed away from the primary renderer by scrape_host_policy. */
+  blockedHosts?: number;
   retrievalGroups?: Array<{
     category: string;
     operation: string;

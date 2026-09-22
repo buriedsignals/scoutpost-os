@@ -12,7 +12,7 @@ SELECT ok(
 SELECT ok(
   NOT has_function_privilege(
     'authenticated',
-    'public.enqueue_crawler_job(text,text,text,text,text,text,text,jsonb,integer,integer,uuid,uuid,uuid)',
+    'public.enqueue_crawler_job(text,text,text,text,text,text,text,jsonb,integer,integer,uuid,uuid,uuid,text)',
     'EXECUTE'
   ),
   'authenticated users cannot enqueue crawler jobs'

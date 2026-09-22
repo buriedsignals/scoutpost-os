@@ -11,6 +11,12 @@ import {
   crawlerFallbackReason,
   scrapeFallbackOnce,
 } from "./scrape_fallback.ts";
+import {
+  noteAntiBotRescue,
+  resolveScrapePlan,
+  scrapeHost,
+  type ScrapePlan,
+} from "./scrape_plan.ts";
 import type {
   PrimaryPageScrapeOptions,
   PrimaryPageScrapeResult,
@@ -40,11 +46,24 @@ export class PageWorkflowPending extends Error {
   }
 }
 
+export function isHostPolicyRouted(
+  job: { error_message: string | null },
+): boolean {
+  return typeof job.error_message === "string" &&
+    job.error_message.startsWith("host policy:");
+}
+
+export interface PageWorkflowTransportDeps {
+  resolvePlan: (url: string) => Promise<ScrapePlan>;
+  noteAntiBotRescue: (host: string | null) => Promise<void>;
+}
+
 export class PageWorkflowTransport {
   // Admission is bounded per invocation, not renewed after each child. Once
   // admitted, a paid request gets its own complete renderer/client window.
   private readonly fallbackAdmissionDeadlineMs: number;
 
+  private readonly deps: PageWorkflowTransportDeps;
   constructor(
     private readonly svc: SupabaseClient,
     private readonly run: {
@@ -54,9 +73,15 @@ export class PageWorkflowTransport {
       tenantKey: string;
     },
     invocationStartedAt = Date.now(),
+    deps: Partial<PageWorkflowTransportDeps> = {},
   ) {
     this.fallbackAdmissionDeadlineMs = invocationStartedAt +
       FALLBACK_ADMISSION_BUDGET_MS;
+    this.deps = {
+      resolvePlan: (url) => resolveScrapePlan(url),
+      noteAntiBotRescue,
+      ...deps,
+    };
   }
 
   async scrape(
@@ -176,6 +201,9 @@ export class PageWorkflowTransport {
     stage: string,
     timeoutMs: number,
   ): Promise<CrawlerJobRow> {
+    // Host memory decides the renderer order for the durable path too: a
+    // blocked host skips the worker and lands directly in fallback_required.
+    const plan = await this.deps.resolvePlan(url);
     return await enqueueCrawlerJob(this.svc, {
       requestKind: "scout_run",
       tenantKey: this.run.tenantKey,
@@ -184,11 +212,14 @@ export class PageWorkflowTransport {
       pipelineStage: stage,
       url,
       itemKey: stage,
-      options: { timeout_ms: timeoutMs },
+      options: plan.skipPrimary
+        ? { timeout_ms: timeoutMs, host_policy: "firecrawl" }
+        : { timeout_ms: timeoutMs },
       scoutRunId: this.run.id,
       scoutId: this.run.scoutId,
       userId: this.run.userId,
       maxAttempts: 3,
+      fallbackReason: plan.skipPrimary ? "anti_bot" : undefined,
     });
   }
 
@@ -213,6 +244,9 @@ export class PageWorkflowTransport {
       job.attempts,
       job.max_attempts,
     );
+    // Decide before completion rewrites the job row: a policy-routed job never
+    // tried crawl4ai, so its rescue is not evidence of a block.
+    const policyRouted = isHostPolicyRouted(job);
     if (!reason) throw new Error("crawler job has no eligible fallback reason");
     if (Date.now() >= this.fallbackAdmissionDeadlineMs) {
       return false;
@@ -274,6 +308,11 @@ export class PageWorkflowTransport {
           return true;
         }
         throw new Error("fallback completion rejected");
+      }
+      // Evidence for host memory: the worker's crawl4ai attempt was blocked
+      // and Firecrawl rescued it. Policy-routed jobs never tried crawl4ai.
+      if (reason === "anti_bot" && !policyRouted) {
+        await this.deps.noteAntiBotRescue(scrapeHost(job.url));
       }
       return true;
     } catch (error) {

@@ -14,6 +14,11 @@ import {
   crawlerFallbackReason,
   scrapeFallbackOnce,
 } from "./scrape_fallback.ts";
+import {
+  noteAntiBotRescue,
+  notePrimarySuccess,
+  resolveScrapePlan,
+} from "./scrape_plan.ts";
 import type {
   PrimaryPageScrapeDeps,
   PrimaryPageScrapeOptions,
@@ -83,8 +88,30 @@ export async function scrape(
   }
   const deadlineMs = Date.now() +
     (opts.abortAfterMs ?? (opts.timeoutMs ?? 120_000) + 5_000);
+  const plan = opts.plan ?? await resolveScrapePlan(url);
+  if (plan.skipPrimary) {
+    // Host memory: crawl4ai is known to be blocked here. Route straight to
+    // Firecrawl with the full budget instead of paying for the doomed attempt.
+    logEvent({
+      level: "info",
+      fn: "scrape-port",
+      event: "host_policy_firecrawl",
+      url,
+      host: plan.host,
+    });
+    return {
+      ...await firecrawlScrape(url, opts),
+      served_by: "firecrawl",
+      fallback_reason: "host_policy",
+    };
+  }
   try {
-    return { ...await crawl4aiScrape(url, opts), served_by: "crawl4ai" };
+    const result = {
+      ...await crawl4aiScrape(url, opts),
+      served_by: "crawl4ai" as const,
+    };
+    if (plan.policy) await notePrimarySuccess(plan);
+    return result;
   } catch (e) {
     const reason = isAntiBotBlockedError(e)
       ? "anti_bot"
@@ -112,7 +139,7 @@ export async function scrape(
     // "on_fallback" hint materializes into artifacts.
     // Inline timeout recovery keeps the original remaining budget; durable
     // Page recovery supplies its independently admitted renderer window.
-    return await scrapeFallbackOnce(
+    const rescued = await scrapeFallbackOnce(
       url,
       {
         ...opts,
@@ -123,6 +150,8 @@ export async function scrape(
       reason,
       deadlineMs,
     );
+    if (reason === "anti_bot") await noteAntiBotRescue(plan.host);
+    return rescued;
   }
 }
 

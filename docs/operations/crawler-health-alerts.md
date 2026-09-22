@@ -41,3 +41,11 @@ send a generic recovery email for that administrative retirement.
 
 No scout replay or reactivation is part of release or rollback. Any later
 recovery action must inspect each scout's current state and avoid duplicate runs.
+
+## Host memory
+
+`crawler_operations_observation().blocked_hosts` counts hosts currently routed
+away from crawl4ai by `scrape_host_policy`. A sudden rise across many hosts
+points at the renderer or the anti-bot detector, not at the sites; inspect the
+table before treating it as many independent blocks. Rows expire after fourteen
+days and are cleared by any crawl4ai success for the host.

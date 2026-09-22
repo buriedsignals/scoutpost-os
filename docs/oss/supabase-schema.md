@@ -216,6 +216,15 @@ created_at      TIMESTAMPTZ
 expires_at      TIMESTAMPTZ  -- NOW() + 90 days (TTL)
 ```
 
+### `scrape_host_policy`
+
+Service-only memory of hosts whose anti-bot protection blocks the primary
+renderer (crawl4ai). One row per host: `reason`, `evidence_count`,
+`first_seen_at`, `last_seen_at`, and `expires_at`. A row is enforced only while
+`expires_at` is in the future; both scrape paths then go straight to Firecrawl.
+Written through `record_scrape_host_block` / `clear_scrape_host_block`; RLS
+enabled with no customer policies.
+
 ### `user_preferences`
 
 User configuration. Replaces `USER#`/`PROFILE` records. Tier + active_org_id added by `00025_credits.sql` drive credit entitlements.

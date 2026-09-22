@@ -39,6 +39,11 @@ export interface CrawlerJobInput {
   scoutRunId?: string;
   scoutId?: string;
   userId?: string;
+  /**
+   * Host memory routing: insert the job already in fallback_required so the
+   * caller's Firecrawl fallback runs without a doomed primary attempt.
+   */
+  fallbackReason?: "anti_bot";
 }
 
 export interface CrawlerJobRow {
@@ -139,6 +144,9 @@ export async function enqueueCrawlerJob(
   const utility = input.requestKind === "ingest" ||
     input.requestKind === "baseline" || input.requestKind === "preview" ||
     (input.requestKind === "proxy" && input.admissionClass === "utility");
+  if (input.fallbackReason && (utility || input.operation !== "scrape")) {
+    throw new Error("fallback routing is only for durable scrape jobs");
+  }
   const request = utility
     ? svc.rpc("admit_and_enqueue_crawler_utility", {
       ...common,
@@ -151,6 +159,7 @@ export async function enqueueCrawlerJob(
       p_scout_run_id: input.scoutRunId ?? null,
       p_scout_id: input.scoutId ?? null,
       p_user_id: input.userId ?? null,
+      p_fallback_reason: input.fallbackReason ?? null,
     });
   const { data, error } = await request;
   if (error) throw new Error(`crawler enqueue failed: ${error.message}`);

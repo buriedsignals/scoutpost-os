@@ -125,6 +125,8 @@ async function runScenario(retrieval: Retrieval, baselineOnly: boolean) {
           return json(request.method === "GET" ? [row] : null);
         }
         if (resource === "scout_run_events") return json(null);
+        // Host memory read on every scrape; no row means the static order.
+        if (resource === "scrape_host_policy") return json([]);
         if (resource === "rpc/decrement_credits") {
           charges++;
           balance -= Number(body.p_cost);
