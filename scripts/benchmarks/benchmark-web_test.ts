@@ -6,7 +6,7 @@ import {
 import { sha256Hex } from "../../supabase/functions/_shared/unit_dedup.ts";
 import { webCanonicalHash } from "../../supabase/functions/_shared/web_content_canonical.ts";
 import { BenchCtx } from "./_bench_shared.ts";
-import { seedChangedBaseline } from "./benchmark-web.ts";
+import { applyFixturePolicy, seedChangedBaseline } from "./benchmark-web.ts";
 
 const CTX: BenchCtx = {
   supabaseUrl: "https://example.test",
@@ -163,4 +163,16 @@ Deno.test("Page benchmark reports a missing creation baseline", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+Deno.test("synthetic fixtures skip the language check and nothing else", () => {
+  const checks = [
+    { check: "language", status: "FAIL", detail: "1/2 bullets wrong language" },
+    { check: "date_relevance", status: "PASS", detail: "0 stale" },
+  ] as const;
+  const kept = applyFixturePolicy([...checks], {});
+  assertEquals(kept, [...checks]);
+  const skipped = applyFixturePolicy([...checks], { syntheticFixture: true });
+  assertEquals(skipped[0].status, "SKIP");
+  assertEquals(skipped[1], checks[1]);
 });
