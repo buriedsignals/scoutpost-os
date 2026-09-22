@@ -5,10 +5,10 @@ import {
 } from "jsr:@std/assert@1";
 import {
   benchmarkWeeklyCron,
-  calendarSemanticFailure,
   CivicAuditRecordExt,
   civicCriticalFailures,
   classifyCivicQueueRows,
+  minutesSemanticFailure,
   renderCivicAuditReport,
   requireDataApiArray,
   resetCivicDocumentMembership,
@@ -48,38 +48,16 @@ Deno.test("civic benchmark reports the exact non-terminal queue lease", () => {
   );
 });
 
-Deno.test("Zurich calendar is a semantic-zero hard negative", () => {
-  const clean = {
-    promiseCount: 0,
-    unitCount: 0,
-    occurrenceCount: 0,
-    alertItemCount: 0,
-    alertDeliveryCount: 0,
-    notificationStatus: "skipped",
-  };
-  assertEquals(calendarSemanticFailure(clean), null);
+Deno.test("Council minutes must store at least one Civic finding", () => {
+  const empty = { promiseCount: 0, unitCount: 0, occurrenceCount: 0 };
   assertEquals(
-    calendarSemanticFailure({ ...clean, occurrenceCount: 1 }),
-    "calendar hard-negative produced 1 Civic occurrence(s)",
+    minutesSemanticFailure(empty),
+    "council minutes produced zero Civic findings (no occurrence, unit, or promise stored)",
   );
-  assertEquals(
-    calendarSemanticFailure({ ...clean, unitCount: 1 }),
-    "calendar hard-negative produced 1 Civic unit(s)",
-  );
-  assertEquals(
-    calendarSemanticFailure({ ...clean, alertItemCount: 1 }),
-    "calendar hard-negative produced 1 immediate alert item(s)",
-  );
-  assertEquals(
-    calendarSemanticFailure({ ...clean, alertDeliveryCount: 1 }),
-    "calendar hard-negative produced 1 immediate alert delivery record(s)",
-  );
-  assertEquals(
-    calendarSemanticFailure({ ...clean, notificationStatus: "sent" }),
-    "calendar hard-negative sent an immediate notification (sent)",
-  );
+  assertEquals(minutesSemanticFailure({ ...empty, occurrenceCount: 1 }), null);
+  assertEquals(minutesSemanticFailure({ ...empty, unitCount: 1 }), null);
+  assertEquals(minutesSemanticFailure({ ...empty, promiseCount: 1 }), null);
 });
-
 Deno.test("Civic queue classification distinguishes no-op, terminal, and pending rows", () => {
   assertEquals(classifyCivicQueueRows([]), {
     totalRows: 0,
