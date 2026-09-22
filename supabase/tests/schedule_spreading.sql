@@ -1,6 +1,6 @@
 BEGIN;
 SET LOCAL search_path = public, extensions;
-SELECT plan(6);
+SELECT plan(9);
 
 SELECT is(
   public.effective_scout_cron(
@@ -9,6 +9,32 @@ SELECT is(
   ),
   '1 8 * * *',
   'top-of-hour schedule receives deterministic UUID offset'
+);
+
+SELECT is(
+  public.effective_scout_cron(
+    '00000000-0000-0000-0000-00000000001d'::uuid,
+    '0 8 * * *'
+  ),
+  '29 8 * * *',
+  'offsets reach minute 29 of the 30-minute window'
+);
+
+SELECT is(
+  public.effective_scout_cron(
+    '00000000-0000-0000-0000-00000000001e'::uuid,
+    '0 8 * * *'
+  ),
+  '0 8 * * *',
+  'offsets wrap at 30 so no scout is pushed past the window'
+);
+
+SELECT ok(
+  (SELECT bool_and(split_part(public.effective_scout_cron(
+      ('00000000-0000-0000-0000-0000000000' || lpad(to_hex(b), 2, '0'))::uuid,
+      '0 8 * * *'), ' ', 1)::int BETWEEN 0 AND 29)
+     FROM generate_series(0, 255) AS b),
+  'every UUID byte value lands inside minutes 0-29'
 );
 
 SELECT is(
