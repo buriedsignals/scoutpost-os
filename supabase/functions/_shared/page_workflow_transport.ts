@@ -12,7 +12,7 @@ import {
   scrapeFallbackOnce,
 } from "./scrape_fallback.ts";
 import {
-  noteAntiBotRescue,
+  noteFallbackRescue,
   resolveScrapePlan,
   scrapeHost,
   type ScrapePlan,
@@ -55,7 +55,10 @@ export function isHostPolicyRouted(
 
 export interface PageWorkflowTransportDeps {
   resolvePlan: (url: string) => Promise<ScrapePlan>;
-  noteAntiBotRescue: (host: string | null) => Promise<void>;
+  noteFallbackRescue: (
+    host: string | null,
+    reason: "anti_bot" | "timeout_exhausted",
+  ) => Promise<void>;
 }
 
 export class PageWorkflowTransport {
@@ -79,7 +82,7 @@ export class PageWorkflowTransport {
       FALLBACK_ADMISSION_BUDGET_MS;
     this.deps = {
       resolvePlan: (url) => resolveScrapePlan(url),
-      noteAntiBotRescue,
+      noteFallbackRescue,
       ...deps,
     };
   }
@@ -310,9 +313,10 @@ export class PageWorkflowTransport {
         throw new Error("fallback completion rejected");
       }
       // Evidence for host memory: the worker's crawl4ai attempt was blocked
-      // and Firecrawl rescued it. Policy-routed jobs never tried crawl4ai.
-      if (reason === "anti_bot" && !policyRouted) {
-        await this.deps.noteAntiBotRescue(scrapeHost(job.url));
+      // or timed out and Firecrawl rescued it. Policy-routed jobs never tried
+      // crawl4ai.
+      if (!policyRouted) {
+        await this.deps.noteFallbackRescue(scrapeHost(job.url), reason);
       }
       return true;
     } catch (error) {

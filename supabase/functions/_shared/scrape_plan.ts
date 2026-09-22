@@ -16,7 +16,7 @@ export type ScrapePlanProvider = "crawl4ai" | "firecrawl";
 export interface ScrapeHostPolicy {
   host: string;
   primary_provider: "firecrawl";
-  reason: "anti_bot";
+  reason: "anti_bot" | "timeout";
   evidence_count: number;
   expires_at: string | null;
 }
@@ -30,9 +30,11 @@ export interface ScrapePlan {
   skipPrimary: boolean;
 }
 
+export type ScrapeRescueReason = "anti_bot" | "timeout";
+
 export interface ScrapePlanDeps {
   readPolicy: (host: string) => Promise<ScrapeHostPolicy | null>;
-  recordBlock: (host: string) => Promise<void>;
+  recordBlock: (host: string, reason: ScrapeRescueReason) => Promise<void>;
   clearBlock: (host: string) => Promise<void>;
   now: () => number;
   compatibilityMode: () => boolean;
@@ -102,11 +104,14 @@ async function readPolicyFromDb(
   }
 }
 
-async function recordBlockInDb(host: string): Promise<void> {
+async function recordBlockInDb(
+  host: string,
+  reason: ScrapeRescueReason,
+): Promise<void> {
   if (!serviceDatabaseConfigured()) return;
   const { data, error } = await getServiceClient().rpc(
     "record_scrape_host_block",
-    { p_host: host, p_reason: "anti_bot" },
+    { p_host: host, p_reason: reason },
   );
   if (error) throw new Error(error.message);
   const row = data as ScrapeHostPolicy | null;
@@ -115,6 +120,7 @@ async function recordBlockInDb(host: string): Promise<void> {
     fn: "scrape-plan",
     event: row?.expires_at ? "host_block_enforced" : "host_block_evidence",
     host,
+    reason,
     evidence_count: row?.evidence_count ?? null,
     expires_at: row?.expires_at ?? null,
   });
@@ -180,19 +186,21 @@ export async function resolveScrapePlan(
 }
 
 /**
- * Called after Firecrawl rescued an anti-bot block of the primary renderer.
- * Best effort: evidence bookkeeping must never fail the scrape that
+ * Called after Firecrawl rescued the primary renderer, whether it was blocked
+ * by anti-bot protection or timed out. Two rescues within seven days switch
+ * the host to Firecrawl. Best effort: bookkeeping never fails the scrape that
  * succeeded.
  */
-export async function noteAntiBotRescue(
+export async function noteFallbackRescue(
   host: string | null,
+  reason: "anti_bot" | "timeout_exhausted",
   deps: Partial<ScrapePlanDeps> = {},
 ): Promise<void> {
   if (!host) return;
   const d = { ...DEFAULT_SCRAPE_PLAN_DEPS, ...deps };
   memo.delete(host);
   try {
-    await d.recordBlock(host);
+    await d.recordBlock(host, reason === "anti_bot" ? "anti_bot" : "timeout");
   } catch (e) {
     logEvent({
       level: "warn",

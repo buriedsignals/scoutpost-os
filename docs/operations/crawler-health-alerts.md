@@ -47,5 +47,6 @@ recovery action must inspect each scout's current state and avoid duplicate runs
 `crawler_operations_observation().blocked_hosts` counts hosts currently routed
 away from crawl4ai by `scrape_host_policy`. A sudden rise across many hosts
 points at the renderer or the anti-bot detector, not at the sites; inspect the
-table before treating it as many independent blocks. Rows expire after fourteen
-days and are cleared by any crawl4ai success for the host.
+table before treating it as many independent blocks. Two Firecrawl rescues within seven days (anti-bot block or timeout of the
+primary renderer) create a row; rows expire after fourteen days and are cleared
+by any crawl4ai success for the host.

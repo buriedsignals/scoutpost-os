@@ -15,9 +15,10 @@ import {
   scrapeFallbackOnce,
 } from "./scrape_fallback.ts";
 import {
-  noteAntiBotRescue,
+  noteFallbackRescue,
   notePrimarySuccess,
   resolveScrapePlan,
+  scrapeHost,
 } from "./scrape_plan.ts";
 import type {
   PrimaryPageScrapeDeps,
@@ -150,7 +151,7 @@ export async function scrape(
       reason,
       deadlineMs,
     );
-    if (reason === "anti_bot") await noteAntiBotRescue(plan.host);
+    await noteFallbackRescue(plan.host, reason);
     return rescued;
   }
 }
@@ -282,6 +283,7 @@ export async function scrapePrimaryPageResilient(
         "timeout_exhausted",
         deadlineMs,
       );
+      await noteFallbackRescue(scrapeHost(opts.url), "timeout_exhausted");
       return withPrimaryMetadata(
         result,
         "timeout_fallback",

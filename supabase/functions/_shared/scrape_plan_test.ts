@@ -1,6 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
-  noteAntiBotRescue,
+  noteFallbackRescue,
   notePrimarySuccess,
   policyEnforced,
   resetScrapePlanMemo,
@@ -32,8 +32,8 @@ function deps(
       calls.reads++;
       return Promise.resolve(stored);
     },
-    recordBlock: (host) => {
-      calls.records.push(host);
+    recordBlock: (host, reason) => {
+      calls.records.push(`${host}:${reason}`);
       return Promise.resolve();
     },
     clearBlock: (host) => {
@@ -106,10 +106,15 @@ Deno.test("host lookups are memoised for five minutes and invalidated by bookkee
   await resolveScrapePlan("https://example.test/a", d);
   await resolveScrapePlan("https://example.test/b", d);
   assertEquals(calls.reads, 1);
-  await noteAntiBotRescue("example.test", d);
-  assertEquals(calls.records, ["example.test"]);
+  await noteFallbackRescue("example.test", "anti_bot", d);
+  assertEquals(calls.records, ["example.test:anti_bot"]);
   await resolveScrapePlan("https://example.test/c", d);
   assertEquals(calls.reads, 2);
+  await noteFallbackRescue("example.test", "timeout_exhausted", d);
+  assertEquals(calls.records, [
+    "example.test:anti_bot",
+    "example.test:timeout",
+  ]);
   const later = { ...d, now: () => NOW + 6 * 60_000 };
   await resolveScrapePlan("https://example.test/d", later);
   assertEquals(calls.reads, 3);
@@ -142,7 +147,7 @@ Deno.test("primary success clears only hosts that have a stored row, and bookkee
     recordBlock: () => Promise.reject(new Error("db down")),
     clearBlock: () => Promise.reject(new Error("db down")),
   });
-  await noteAntiBotRescue("example.test", failing.d);
+  await noteFallbackRescue("example.test", "anti_bot", failing.d);
   await notePrimarySuccess(
     {
       host: "example.test",
@@ -152,7 +157,7 @@ Deno.test("primary success clears only hosts that have a stored row, and bookkee
     },
     failing.d,
   );
-  await noteAntiBotRescue(null, failing.d);
+  await noteFallbackRescue(null, "timeout_exhausted", failing.d);
 });
 
 Deno.test("concurrent lookups for one host share a single read", async () => {

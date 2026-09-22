@@ -218,8 +218,9 @@ expires_at      TIMESTAMPTZ  -- NOW() + 90 days (TTL)
 
 ### `scrape_host_policy`
 
-Service-only memory of hosts whose anti-bot protection blocks the primary
-renderer (crawl4ai). One row per host: `reason`, `evidence_count`,
+Service-only memory of hosts where the primary renderer (crawl4ai) is blocked
+by anti-bot protection or times out and Firecrawl rescues the fetch; two such
+rescues within seven days enforce Firecrawl-first for fourteen days. One row per host: `reason`, `evidence_count`,
 `first_seen_at`, `last_seen_at`, and `expires_at`. A row is enforced only while
 `expires_at` is in the future; both scrape paths then go straight to Firecrawl.
 Written through `record_scrape_host_block` / `clear_scrape_host_block`; RLS

@@ -12,22 +12,22 @@ SELECT ok(has_function_privilege('service_role', 'public.record_scrape_host_bloc
 SELECT ok(has_function_privilege('service_role', 'public.clear_scrape_host_block(text)', 'EXECUTE'), 'service clears blocks');
 SELECT ok(NOT has_function_privilege('authenticated', 'public.enqueue_crawler_job(text,text,text,text,text,text,text,jsonb,integer,integer,uuid,uuid,uuid,text)', 'EXECUTE'), 'customers cannot enqueue routed crawler jobs');
 
--- Evidence: three rescues within seven days enforce for fourteen.
+-- Evidence: two rescues within seven days enforce for fourteen; timeouts count.
 DELETE FROM public.scrape_host_policy;
 SELECT is((public.record_scrape_host_block('www.mardigras.org.au')).evidence_count, 1, 'first rescue records evidence');
 SELECT is((SELECT expires_at FROM public.scrape_host_policy WHERE host = 'www.mardigras.org.au'), NULL::timestamptz, 'one rescue does not enforce');
-SELECT is((public.record_scrape_host_block('www.mardigras.org.au')).evidence_count, 2, 'second rescue accumulates');
-SELECT is((SELECT expires_at FROM public.scrape_host_policy WHERE host = 'www.mardigras.org.au'), NULL::timestamptz, 'two rescues do not enforce');
-SELECT ok((public.record_scrape_host_block('www.mardigras.org.au')).expires_at BETWEEN now() + interval '13 days 23 hours' AND now() + interval '14 days 1 hour', 'third rescue enforces for fourteen days');
+SELECT ok((public.record_scrape_host_block('www.mardigras.org.au', 'timeout')).expires_at BETWEEN now() + interval '13 days 23 hours' AND now() + interval '14 days 1 hour', 'second rescue, a timeout, enforces for fourteen days');
+SELECT is((SELECT reason FROM public.scrape_host_policy WHERE host = 'www.mardigras.org.au'), 'timeout', 'latest reason is recorded');
 SELECT is((SELECT count(*)::int FROM public.scrape_host_policy WHERE expires_at > now()), 1, 'one enforced host');
+SELECT is((public.record_scrape_host_block('www.npcc.police.uk', 'timeout')).evidence_count, 1, 'a timeout can be the first evidence');
 
 -- Decay: evidence older than seven days restarts the count.
-UPDATE public.scrape_host_policy SET last_seen_at = now() - interval '8 days', expires_at = NULL, evidence_count = 2 WHERE host = 'www.mardigras.org.au';
+UPDATE public.scrape_host_policy SET last_seen_at = now() - interval '8 days', expires_at = NULL, evidence_count = 1 WHERE host = 'www.mardigras.org.au';
 SELECT is((public.record_scrape_host_block('www.mardigras.org.au')).evidence_count, 1, 'stale evidence restarts at one');
 
 -- Validation and clearing.
 SELECT throws_ok($$ SELECT public.record_scrape_host_block('Bad Host') $$, 'invalid scrape host');
-SELECT throws_ok($$ SELECT public.record_scrape_host_block('example.test', 'timeout') $$, 'unsupported scrape host block reason');
+SELECT throws_ok($$ SELECT public.record_scrape_host_block('example.test', 'dns') $$, 'unsupported scrape host block reason');
 SELECT is(public.clear_scrape_host_block('www.mardigras.org.au'), true, 'clear removes the row');
 SELECT is(public.clear_scrape_host_block('www.mardigras.org.au'), false, 'clearing an absent host is a no-op');
 

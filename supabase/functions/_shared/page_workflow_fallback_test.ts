@@ -422,11 +422,11 @@ Deno.test("a blocked host enqueues its durable job already routed to fallback", 
 });
 
 Deno.test(
-  "a worker-reported anti-bot rescue records host evidence; a policy-routed one does not",
+  "worker-reported rescues record host evidence with their reason; a policy-routed one does not",
   withFallbackClock(async (clock) => {
     const url = "https://www.mardigras.org.au/";
     const jobs = fallbackJobs([url]);
-    const rescued: (string | null)[] = [];
+    const rescued: string[] = [];
     const transport = jobs.transportWith({
       resolvePlan: (u) =>
         Promise.resolve({
@@ -435,8 +435,8 @@ Deno.test(
           policy: null,
           skipPrimary: false,
         }),
-      noteAntiBotRescue: (host) => {
-        rescued.push(host);
+      noteFallbackRescue: (host, reason) => {
+        rescued.push(`${host}:${reason}`);
         return Promise.resolve();
       },
     });
@@ -445,7 +445,7 @@ Deno.test(
     await provider.starts[0].promise;
     await clock.tickAsync(1_100);
     await first;
-    assertEquals(rescued, ["www.mardigras.org.au"]);
+    assertEquals(rescued, ["www.mardigras.org.au:anti_bot"]);
 
     jobs.rows[0].status = "fallback_required";
     jobs.rows[0].lease_token = null;
@@ -460,6 +460,25 @@ Deno.test(
     await again.starts[0].promise;
     await clock.tickAsync(1_100);
     await second;
-    assertEquals(rescued, ["www.mardigras.org.au"]);
+    assertEquals(rescued, ["www.mardigras.org.au:anti_bot"]);
+
+    jobs.rows[0].status = "fallback_required";
+    jobs.rows[0].lease_token = null;
+    jobs.rows[0].result_manifest = null;
+    jobs.rows[0].error_class = "timeout";
+    jobs.rows[0].attempts = 3;
+    jobs.rows[0].error_message = "primary failed";
+    const third = renderer(jobs, [1_000]);
+    const timeout = transport.scrape(
+      { url, timeoutMs: 25_000 },
+      childStage(url),
+    );
+    await third.starts[0].promise;
+    await clock.tickAsync(1_100);
+    await timeout;
+    assertEquals(rescued, [
+      "www.mardigras.org.au:anti_bot",
+      "www.mardigras.org.au:timeout_exhausted",
+    ]);
   }),
 );
