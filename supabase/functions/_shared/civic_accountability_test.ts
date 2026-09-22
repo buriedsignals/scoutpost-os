@@ -136,6 +136,84 @@ Deno.test("Civic accountability rejects the Zurich calendar pattern", () => {
   assertEquals(result, { outcome: "rejected", code: "routine_schedule" });
 });
 
+// Live 2026-09-21 weekly benchmark: the Zurich Gemeinderat session-calendar
+// PDF (Sitzungskalender 2026-2027) yielded these verifier "decisions" and the
+// calendar hard-negative stored six Civic occurrences.
+const zurichCalendarBreaks: Array<[string, string]> = [
+  [
+    "The council will not hold meetings from October 5-16, 2026, due to autumn holidays.",
+    "Oktober 2026\n 7./14.          Keine Ratssitzungen                  Herbstferien 05.10.2026–16.10.2026\n 21.             17 bis nach 21.30 Uhr",
+  ],
+  [
+    "The council will not hold meetings from February 15-26, 2027, due to sports holidays.",
+    "Februar 2027\n 3.               17 bis nach 22.30 Uhr\n 17./24.          Keine Ratssitzungen                      Sportferien 15.02.2027–26.02.2027",
+  ],
+  [
+    "The council will not hold a meeting on April 28, 2027, due to spring holidays.",
+    "April 2027\n 21.              17 bis 20 Uhr                            Umtrunk nach Sitzungsschluss zum\n 28.              Keine Ratssitzung                        Frühlingsferien 26.04.2027–07.05.2027",
+  ],
+  [
+    "The council will not hold a meeting on May 5, 2027, due to spring holidays.",
+    "Mai 2027\n 5.               Keine Ratssitzung                        Frühlingsferien 26.04.2027–07.05.2027\n 12.              16 bis nach 17.30 Uhr                    – Konstituierung neues Amtsjahr 2027/2028",
+  ],
+];
+
+Deno.test("Civic accountability rejects cancelled sittings from the Zurich session calendar", () => {
+  for (const [statement, context] of zurichCalendarBreaks) {
+    const result = classifyCivicCandidate({
+      kind: "decision",
+      statement,
+      context,
+      adopting_body: "Gemeinderat Zürich",
+      decision_kind: "meeting schedule",
+      adopted: true,
+      material: true,
+      criteria_match: true,
+      evidence_supported: true,
+      meeting_date: null,
+    }, { today: TODAY, sourceText: context });
+    assertEquals(
+      result,
+      { outcome: "rejected", code: "routine_schedule" },
+      statement,
+    );
+  }
+});
+
+Deno.test("Civic accountability rejects a decision the verifier itself labels a schedule", () => {
+  const result = classifyCivicCandidate({
+    kind: "decision",
+    statement:
+      "The council will convene on Wednesdays at 5 PM during the 2027 term.",
+    context:
+      "The council will convene on Wednesdays at 5 PM during the 2027 term.",
+    adopting_body: "Gemeinderat Zürich",
+    decision_kind: "meeting schedule",
+    adopted: true,
+    material: true,
+    criteria_match: true,
+    evidence_supported: true,
+  }, { today: TODAY });
+  assertEquals(result, { outcome: "rejected", code: "routine_schedule" });
+});
+
+Deno.test("Civic schedule filter keeps German compound deadline words out of the calendar rule", () => {
+  const context =
+    "Der Gemeinderat beauftragt den Stadtrat, den Sanierungsbericht bis zum Abgabetermin 30. November 2026 vorzulegen.";
+  const result = classifyCivicCandidate(
+    promise({
+      statement:
+        "The city council will present the renovation report by the 30 November 2026 submission deadline.",
+      context,
+      actor: "Stadtrat",
+      action: "den Sanierungsbericht vorlegen",
+      due_date_text: "bis zum Abgabetermin 30. November 2026",
+    }),
+    { today: TODAY, sourceText: context },
+  );
+  assertEquals(result.outcome, "eligible");
+});
+
 Deno.test("Civic accountability rejects a named municipal meeting date", () => {
   const result = classifyCivicCandidate({
     kind: "decision",

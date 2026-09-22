@@ -2,11 +2,13 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals
 import { assert } from "https://deno.land/std@0.224.0/assert/assert.ts";
 import {
   buildScenarioErrorResult,
+  type CompletedRun,
   countUndatedSources,
   evaluateAudit,
   evaluatePreview,
   HARD_NEWS_TERMS,
   readPreviewCategory,
+  verifyEmptyExecution,
 } from "./benchmark-beat.ts";
 
 Deno.test("London environment and infrastructure coverage clears the substance gate", () => {
@@ -307,4 +309,143 @@ Deno.test("Beat filtered emptiness cannot mask incorrect positive scope or expli
     }),
     [],
   );
+});
+
+// Live 2026-09-21 weekly run, topic-only:housing-policy: five of six readable
+// sources were stale, the sixth extracted nothing, and the scheduled run found
+// only stale sources. Both runs ended as success with zero units (#480).
+function housingBaselineRun(): CompletedRun {
+  return {
+    id: "3c8edfb4-81e1-49cf-9b1b-642d1e2b2deb",
+    status: "success",
+    articles_count: 0,
+    error_message: null,
+    metadata: {
+      retrieval: "firecrawl",
+      unit_pipeline: {
+        units_merged: 0,
+        units_created: 0,
+        sources_failed: 0,
+        extracted_units: 0,
+        insert_failures: 0,
+        sources_scraped: 1,
+        embedding_failures: 0,
+        extraction_empty_sources: 1,
+        extraction_failed_sources: 0,
+        extraction_filtered_sources: 0,
+      },
+      scrape_provider: "crawl4ai",
+      search_jobs_errored: 0,
+      search_jobs_attempted: 12,
+      scrape_served_crawl4ai: 5,
+      stale_sources_filtered: 5,
+      scrape_served_firecrawl: 1,
+    },
+  };
+}
+
+function housingScheduledRun(): CompletedRun {
+  return {
+    id: "1fac0e2e-f74f-4a13-a86d-7d9611fe7b5c",
+    status: "success",
+    articles_count: 0,
+    error_message: null,
+    metadata: {
+      retrieval: "firecrawl",
+      dispatch_source: "manual",
+      scrape_provider: "crawl4ai",
+      search_jobs_errored: 0,
+      search_jobs_attempted: 12,
+      scrape_served_crawl4ai: 5,
+      stale_sources_filtered: 6,
+      scrape_served_firecrawl: 1,
+    },
+  };
+}
+
+function withMetadata(
+  run: CompletedRun,
+  patch: Record<string, unknown>,
+): CompletedRun {
+  return { ...run, metadata: { ...(run.metadata ?? {}), ...patch } };
+}
+
+Deno.test("Beat execution accepts a verified stale-empty run pair", () => {
+  const result = verifyEmptyExecution([
+    { label: "baseline", run: housingBaselineRun() },
+    { label: "scheduled", run: housingScheduledRun() },
+  ]);
+  assertEquals(result.verified, true, result.reason);
+  assert(result.reason.includes("baseline read 6, stale 5"));
+  assert(result.reason.includes("scheduled read 6, stale 6"));
+});
+
+Deno.test("Beat execution rejects empty runs without proof of a working retrieval path", () => {
+  const baseline = housingBaselineRun();
+  const scheduled = housingScheduledRun();
+  const cases: Array<[string, CompletedRun[]]> = [
+    ["errored run", [{ ...scheduled, status: "error", error_message: "x" }]],
+    ["missing metadata", [{ ...scheduled, metadata: null }]],
+    ["no search jobs", [withMetadata(scheduled, { search_jobs_attempted: 0 })]],
+    ["search errors", [withMetadata(scheduled, { search_jobs_errored: 2 })]],
+    [
+      "nothing read",
+      [withMetadata(scheduled, {
+        scrape_served_crawl4ai: 0,
+        scrape_served_firecrawl: 0,
+        stale_sources_filtered: 0,
+      })],
+    ],
+    [
+      "fresh sources read but never extracted",
+      [withMetadata(scheduled, { stale_sources_filtered: 4 })],
+    ],
+    [
+      "extraction failures",
+      [withMetadata(baseline, {
+        unit_pipeline: {
+          ...(baseline.metadata!.unit_pipeline as Record<string, number>),
+          extraction_failed_sources: 1,
+          extraction_empty_sources: 0,
+        },
+      })],
+    ],
+    [
+      "units extracted but not persisted",
+      [withMetadata(baseline, {
+        unit_pipeline: {
+          ...(baseline.metadata!.unit_pipeline as Record<string, number>),
+          extracted_units: 3,
+        },
+      })],
+    ],
+    [
+      "incomplete pipeline counts",
+      [withMetadata(baseline, { unit_pipeline: { sources_scraped: 1 } })],
+    ],
+    [
+      "scraped and stale counts do not cover sources read",
+      [withMetadata(baseline, { stale_sources_filtered: 3 })],
+    ],
+  ];
+  for (const [name, runs] of cases) {
+    const result = verifyEmptyExecution(
+      runs.map((run) => ({ label: "run", run })),
+    );
+    assertEquals(result.verified, false, name);
+    assert(result.reason.length > 0, name);
+  }
+});
+
+Deno.test("Beat execution reports every unverified run in the reason", () => {
+  const result = verifyEmptyExecution([
+    { label: "baseline", run: { ...housingBaselineRun(), metadata: null } },
+    {
+      label: "scheduled",
+      run: withMetadata(housingScheduledRun(), { search_jobs_errored: 1 }),
+    },
+  ]);
+  assertEquals(result.verified, false);
+  assert(result.reason.includes("baseline: missing run metadata"));
+  assert(result.reason.includes("scheduled: 1 search jobs errored"));
 });

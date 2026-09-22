@@ -165,8 +165,15 @@ export const CIVIC_VERIFIER_SCHEMA: Record<string, unknown> = {
 // A bare reference to a council meeting is legitimate provenance for a real
 // obligation. Reject only calendar/logistics language, not the word
 // "meeting" itself (an action can genuinely be due at a meeting).
+// German compounds (Ratssitzung, Gemeinderatssitzungen, Sitzungskalender) have
+// no word boundary before "sitzung", and a cancelled sitting ("will not hold
+// meetings") is calendar logistics exactly like a scheduled one. Live
+// 2026-09-21: the Zurich session-calendar PDF produced four "decisions" of
+// that shape and became Civic occurrences.
 const SCHEDULE_PATTERN =
-  /\b(calendar|agenda|recess|overflow meeting|public comment|office hours?|workshop|hearing|sessions?)\b|\b(sitzung|sitzungen|termine)\b|\b(?:will|may)\s+hold\s+(?:(?:an?|the|its|their)\s+)?(?:(?:up\s+to\s+)?(?:\d+|one|two|three|four|five)\s+)?(?:(?:\d{4}(?:-\d+)?)\s+)?(?:(?:additional|community|council|committee|board|municipal|special|regular|extraordinary)\s+)*meetings?\b|\bmeetings?\s+(?:starts?|ends?|is scheduled)\b|\bstarts?\s+at\b|\bends?\s+at\b/i;
+  /\b(calendar|agenda|recess|overflow meeting|public comment|office hours?|workshop|hearing|sessions?)\b|\b\w*(?:sitzung(?:en)?|sitzungskalender|termine|terminplan)\b|\b(?:will|may)\s+(?:not\s+)?hold\s+(?:(?:an?|the|its|their)\s+)?(?:(?:up\s+to\s+)?(?:\d+|one|two|three|four|five)\s+)?(?:(?:\d{4}(?:-\d+)?)\s+)?(?:(?:additional|community|council|committee|board|municipal|special|regular|extraordinary)\s+)*meetings?\b|\bmeetings?\s+(?:starts?|ends?|is scheduled)\b|\bstarts?\s+at\b|\bends?\s+at\b/i;
+const SCHEDULE_DECISION_KIND_PATTERN =
+  /\b(schedul(?:e|es|ing)|calendar|kalender|terminplan|meeting dates?|sitting dates?|recess)\b/i;
 const PROCEDURAL_PATTERN =
   /\b(roll call|approval of (?:the )?minutes|approv(?:e[sd]?|ing) (?:the )?minutes|genehmig\w* (?:das |des )?protokoll|approbation du procès-verbal|procedural|adjourn(?:ment)?)\b/i;
 const ASPIRATIONAL_PATTERN =
@@ -210,6 +217,14 @@ export function classifyCivicCandidate(
     return rejected("unsupported_evidence");
   }
   if (SCHEDULE_PATTERN.test(`${statement}\n${context}`)) {
+    return rejected("routine_schedule");
+  }
+  // The verifier labels its own outcome; a decision whose kind is a meeting
+  // schedule or calendar is logistics regardless of statement wording.
+  if (
+    candidate.kind === "decision" &&
+    SCHEDULE_DECISION_KIND_PATTERN.test(clean(candidate.decision_kind))
+  ) {
     return rejected("routine_schedule");
   }
   if (PROCEDURAL_PATTERN.test(`${statement}\n${context}`)) {
