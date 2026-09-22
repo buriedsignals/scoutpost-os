@@ -35,6 +35,7 @@ Source files: `supabase/functions/`
 | `cli-auth` | Short-lived browser approval and one-time CLI API-key redemption. |
 | `mcp-server` | Remote MCP JSON-RPC endpoint for self-hosted deployments. |
 | `scout-health-monitor` | Scheduled scout failure notifications. |
+| `operations-monitor` | Service-only queue, crawler and vessel alerts; separates recognized retrieval failures from workflow health, and fails collection on missing crawler telemetry. Requires migration `20260921131350_crawler_retrieval_health.sql`; see [monitor contract](../supabase/edge-functions.md#operations-monitor--queue-and-vessel-liveness-alerts). |
 | `abuse-risk-audit` | Weekly service-authenticated candidate review and operator-only finding workflow; no automatic action or source fetch. |
 
 ## Docker Self-Hosted

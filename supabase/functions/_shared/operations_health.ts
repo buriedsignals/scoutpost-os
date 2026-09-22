@@ -2,6 +2,7 @@ export type IncidentKind =
   | "dispatch_queue_delay"
   | "civic_queue_delay"
   | "crawler_workflow_health"
+  | "crawler_retrieval_failures"
   | "vessel_sampler_health";
 
 export interface OperationalIncident {
@@ -45,6 +46,19 @@ export interface CrawlerWorkflowObservation {
   taskRetryRate: number | null;
   taskOutboundBytes24h: number;
   estimatedMonthlyComputeDollars: number;
+  // Optional for existing callers; the new monitor validates the complete v1 observation.
+  batchedWaiting?: number;
+  workflowFailedRecent?: number;
+  retrievalFailedRecent?: number;
+  callerAbandonedRecent?: number;
+  observedAt?: string;
+  retrievalGroups?: Array<{
+    category: string;
+    operation: string;
+    hostname: string;
+    jobs: number;
+    latest_terminal_at: string;
+  }>;
 }
 
 export const DEFAULT_QUEUE_DELAY_MS = 10 * 60_000;
@@ -149,15 +163,23 @@ export function evaluateCrawlerWorkflowIncident(
   const oldestWaitMs = observation.oldestWaitSeconds === null
     ? null
     : observation.oldestWaitSeconds * 1000;
-  const delayed = observation.dispatchEligible > 0 && oldestWaitMs !== null &&
+  const waiting = observation.dispatchEligible +
+    (observation.batchedWaiting ?? 0);
+  const delayed = waiting > 0 && oldestWaitMs !== null &&
     oldestWaitMs >= thresholdMs;
-  const terminalWarning = observation.terminalFailedRecent >=
-    TERMINAL_FAILURE_WARNING_COUNT;
-  const terminalCritical = observation.terminalFailedRecent >=
-    TERMINAL_FAILURE_CRITICAL_COUNT;
+  const workflowFailures = observation.workflowFailedRecent ??
+    observation.terminalFailedRecent;
+  // Keep mixed clusters visible: e.g. 2 known retrieval + 2 unknown failures
+  // must not disappear below two independent warning thresholds.
+  const terminalWarning = workflowFailures > 0 &&
+    observation.terminalFailedRecent >=
+      TERMINAL_FAILURE_WARNING_COUNT;
+  const terminalCritical = workflowFailures > 0 &&
+    observation.terminalFailedRecent >=
+      TERMINAL_FAILURE_CRITICAL_COUNT;
   const active = delayed || observation.expiredRunning > 0 || terminalWarning;
   const severity = observation.expiredRunning > 0 || terminalCritical ||
-      (oldestWaitMs !== null && oldestWaitMs >= thresholdMs * 3)
+      (delayed && oldestWaitMs! >= thresholdMs * 3)
     ? "critical"
     : "warning";
   const oldestMinutes = oldestWaitMs === null
@@ -169,13 +191,18 @@ export function evaluateCrawlerWorkflowIncident(
     active,
     severity,
     summary: active
-      ? `Crawler Workflow has ${observation.dispatchEligible} dispatch-eligible item(s); ` +
+      ? `Crawler Workflow has ${waiting} waiting item(s); ` +
         `oldest wait ${oldestMinutes ?? "unknown"} minute(s), ` +
         `${observation.expiredRunning} expired lease(s), ` +
-        `${observation.terminalFailedRecent} recent terminal failure(s)`
-      : "Crawler Workflow queue and leases are healthy",
+        `${workflowFailures} infrastructure or unclassified failure(s) among ${observation.terminalFailedRecent} recent terminal failures`
+      : "Crawler Workflow queue, leases and infrastructure failure count are within thresholds",
     details: {
       dispatch_eligible: observation.dispatchEligible,
+      batched_waiting: observation.batchedWaiting ?? 0,
+      observed_at: observation.observedAt ?? null,
+      workflow_failed_recent: workflowFailures,
+      failure_threshold_basis:
+        "all terminal failures when infrastructure or unclassified failures are present",
       oldest_wait_seconds: observation.oldestWaitSeconds,
       running: observation.running,
       expired_running: observation.expiredRunning,
@@ -193,6 +220,47 @@ export function evaluateCrawlerWorkflowIncident(
       estimated_monthly_compute_dollars:
         observation.estimatedMonthlyComputeDollars,
       threshold_minutes: Math.floor(thresholdMs / 60_000),
+    },
+  };
+}
+
+export function operatorAlertSubject(activeIncidentCount: number): string {
+  return activeIncidentCount > 0
+    ? `⚠️ Scoutpost operations: ${activeIncidentCount} active incident${
+      activeIncidentCount === 1 ? "" : "s"
+    }`
+    : "✅ Scoutpost operations recovered";
+}
+
+export function evaluateCrawlerRetrievalIncident(
+  observation: CrawlerWorkflowObservation,
+): OperationalIncident {
+  if (observation.retrievalFailedRecent === undefined) {
+    throw new Error("crawler retrieval observation missing");
+  }
+  const count = observation.retrievalFailedRecent;
+  const abandoned = observation.callerAbandonedRecent ?? 0;
+  const active = count >= TERMINAL_FAILURE_WARNING_COUNT;
+  return {
+    key: "crawler_retrieval_failures",
+    kind: "crawler_retrieval_failures",
+    active,
+    severity: count >= TERMINAL_FAILURE_CRITICAL_COUNT ? "critical" : "warning",
+    summary: active
+      ? `Crawler recorded ${count} unsuccessful retrieval(s) in the last hour, ` +
+        `including ${abandoned} abandoned caller(s); cause may be target or provider`
+      : "Crawler retrieval failure count is within threshold",
+    details: {
+      observed_at: observation.observedAt,
+      window_seconds: 3600,
+      retrieval_failed_recent: count,
+      caller_abandoned_recent: abandoned,
+      groups: observation.retrievalGroups ?? [],
+      group_limit: 10,
+      timestamp_basis:
+        "terminal transition; abandoned-caller timestamps reflect cleanup, not original retrieval time",
+      terminal_failure_warning_count: TERMINAL_FAILURE_WARNING_COUNT,
+      terminal_failure_critical_count: TERMINAL_FAILURE_CRITICAL_COUNT,
     },
   };
 }

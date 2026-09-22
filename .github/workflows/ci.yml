@@ -82,6 +82,8 @@ jobs:
         run: cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ crawler-worker/ cli-auth/ scout-beat-execute/lifecycle_test.ts scout-transport-execute/ transport-sampler/ transport-test/ crawler-dispatch/_test.ts crawler-proxy/_test.ts resend-webhook/_test.ts mcp-server/oauth/register_test.ts civic/items_test.ts civic-execute/discovery_test.ts scouts/civic_baseline_test.ts
       - name: Crawler worker contract check
         run: cd supabase/functions && deno check --allow-import scout-web-execute/index.ts scouts/index.ts crawler-dispatch/index.ts crawler-proxy/index.ts
+      - name: Crawler health monitor regression tests (no runtime network)
+        run: deno test --allow-env --allow-import supabase/functions/operations-monitor/_test.ts
       - name: Benchmark truth unit tests
         run: deno test --allow-env --allow-import scripts/benchmarks/_bench_shared_test.ts scripts/benchmarks/_bench_truth_test.ts scripts/benchmarks/benchmark-beat_test.ts scripts/benchmarks/benchmark-civic_test.ts scripts/benchmarks/benchmark-transport_test.ts scripts/civic-repair-inventory_test.ts scripts/civic-backfill_test.ts
       - name: Scrape-port coverage gate (100% on new modules)

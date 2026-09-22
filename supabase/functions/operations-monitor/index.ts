@@ -7,14 +7,17 @@ import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { getServiceClient, type SupabaseClient } from "../_shared/supabase.ts";
 import { logEvent } from "../_shared/log.ts";
 import {
-  type CrawlerWorkflowObservation,
   DEFAULT_QUEUE_DELAY_MS,
   DEFAULT_SAMPLER_STALE_MS,
+  evaluateCrawlerRetrievalIncident,
   evaluateCrawlerWorkflowIncident,
   evaluateQueueIncident,
   evaluateVesselSamplerIncident,
   type OperationalIncident,
+  operatorAlertSubject,
 } from "../_shared/operations_health.ts";
+
+import { readCrawlerObservation } from "../_shared/crawler_health_observation.ts";
 
 const DEFAULT_RECIPIENTS = "tom@buriedsignals.com";
 const EMAIL_FROM = "Scoutpost <alerts@scoutpost.ai>";
@@ -25,17 +28,21 @@ interface SamplerRow {
   error_code: string | null;
 }
 
-Deno.serve(async (req: Request): Promise<Response> => {
+export async function handleOperationsMonitor(req: Request, deps = {
+  authorize: requireServiceKey,
+  serviceClient: getServiceClient,
+  send: sendOperatorAlert,
+}): Promise<Response> {
   const cors = handleCors(req);
   if (cors) return cors;
   if (req.method !== "POST") return jsonError("method not allowed", 405);
   try {
-    requireServiceKey(req);
+    deps.authorize(req);
   } catch (error) {
     return jsonFromError(error instanceof AuthError ? error : new AuthError());
   }
 
-  const svc = getServiceClient();
+  const svc = deps.serviceClient();
   try {
     const observations = await collectIncidents(svc);
     const notifications: Array<{
@@ -68,7 +75,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const emailed = notifications.length > 0
-      ? await sendOperatorAlert(notifications)
+      ? await deps.send(
+        notifications,
+        observations.filter((item) => item.active).length,
+      )
       : false;
     if (emailed) {
       const { error: ackError } = await svc.rpc(
@@ -107,7 +117,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
     return jsonFromError(error);
   }
-});
+}
+
+if (import.meta.main) Deno.serve((req) => handleOperationsMonitor(req));
 
 async function collectIncidents(
   svc: SupabaseClient,
@@ -137,7 +149,7 @@ async function collectIncidents(
     queueObservation(svc, "civic_extraction_queue", ["pending"], [
       "processing",
     ]),
-    crawlerObservation(svc),
+    readCrawlerObservation(svc),
     latestSamplerRow(svc, false),
     latestSamplerRow(svc, true),
   ]);
@@ -164,6 +176,7 @@ async function collectIncidents(
       queueThreshold,
     ),
     evaluateCrawlerWorkflowIncident(crawler, queueThreshold),
+    evaluateCrawlerRetrievalIncident(crawler),
     evaluateVesselSamplerIncident(
       {
         latestStartedAt: latestSampler?.started_at ?? null,
@@ -175,42 +188,6 @@ async function collectIncidents(
       samplerThreshold,
     ),
   ];
-}
-
-async function crawlerObservation(
-  svc: SupabaseClient,
-): Promise<CrawlerWorkflowObservation> {
-  const { data, error } = await svc.rpc("crawler_operations_health");
-  if (error) throw new Error(error.message);
-  const row = (Array.isArray(data) ? data[0] : data) ?? {};
-  return {
-    dispatchEligible: Number(row.dispatch_eligible ?? 0),
-    oldestWaitSeconds: row.oldest_wait_seconds === null ||
-        row.oldest_wait_seconds === undefined
-      ? null
-      : Number(row.oldest_wait_seconds),
-    running: Number(row.running ?? 0),
-    expiredRunning: Number(row.expired_running ?? 0),
-    p95TotalSeconds: row.p95_total_seconds === null ||
-        row.p95_total_seconds === undefined
-      ? null
-      : Number(row.p95_total_seconds),
-    fallbackRequired: Number(row.fallback_required ?? 0),
-    terminalFailedRecent: Number(row.terminal_failed_recent ?? 0),
-    taskRuns24h: Number(row.task_runs_24h ?? 0),
-    taskQueueP95Seconds: nullableNumber(row.task_queue_p95_seconds),
-    taskDurationP95Seconds: nullableNumber(row.task_duration_p95_seconds),
-    taskMemoryPeakBytes: nullableNumber(row.task_memory_peak_bytes),
-    taskRetryRate: nullableNumber(row.task_retry_rate),
-    taskOutboundBytes24h: Number(row.task_outbound_bytes_24h ?? 0),
-    estimatedMonthlyComputeDollars: Number(
-      row.estimated_monthly_compute_dollars ?? 0,
-    ),
-  };
-}
-
-function nullableNumber(value: unknown): number | null {
-  return value === null || value === undefined ? null : Number(value);
 }
 
 async function queueObservation(
@@ -269,6 +246,7 @@ async function latestSamplerRow(
 
 async function sendOperatorAlert(
   items: Array<{ incident: OperationalIncident; transition: string }>,
+  activeIncidentCount: number,
 ): Promise<boolean> {
   const key = Deno.env.get("RESEND_API_KEY")?.trim();
   if (!key) {
@@ -282,12 +260,7 @@ async function sendOperatorAlert(
   const recipients = (Deno.env.get("OPERATIONS_ALERT_RECIPIENTS") ??
     Deno.env.get("HEALTH_REPORT_RECIPIENTS") ?? DEFAULT_RECIPIENTS)
     .split(",").map((value) => value.trim()).filter(Boolean);
-  const active = items.filter((item) => item.incident.active).length;
-  const subject = active > 0
-    ? `⚠️ Scoutpost operations: ${active} incident update${
-      active === 1 ? "" : "s"
-    }`
-    : "✅ Scoutpost operations recovered";
+  const subject = operatorAlertSubject(activeIncidentCount);
   const rows = items.map(({ incident, transition }) =>
     `<li><strong>${escapeHtml(transition.toUpperCase())}: ${
       escapeHtml(incident.kind)

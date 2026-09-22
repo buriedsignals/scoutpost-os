@@ -265,6 +265,16 @@ Docker self-hosting keeps the same HTTP contract but calls the local
 `scrape-service` directly, so it does not require these tables for browser
 execution and incurs no Render Workflow cost.
 
+Migration `20260921131350_crawler_retrieval_health.sql` adds the service-role-only
+`crawler_operations_observation()` JSON RPC and
+`crawler_retrieval_failure_category(text,text)` classifier. The legacy
+`crawler_operations_health()` contract remains available. The observation splits
+recognized retrieval failures from infrastructure/unclassified failures and adds
+batched wait counts, a timestamp and bounded hostname diagnostics.
+`operator_incidents` accepts `crawler_retrieval_failures`; existing RLS and writer
+grants remain intact. Only crawler incidents gain immediate warning-to-critical
+notification escalation. See [deployment/rollback](../operations/crawler-health-alerts.md).
+
 ---
 
 ## Indexes
