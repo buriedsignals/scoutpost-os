@@ -449,3 +449,21 @@ Deno.test("Beat execution reports every unverified run in the reason", () => {
   assert(result.reason.includes("baseline: missing run metadata"));
   assert(result.reason.includes("scheduled: 1 search jobs errored"));
 });
+
+Deno.test("Beat preview reader carries the budget fields when present", async () => {
+  const body = {
+    ...filteredEmptyBody(),
+    budget_exhausted: true,
+    sources_skipped: 3,
+  };
+  const read = await readPreviewCategory(Response.json(body), "news", "budget");
+  assertEquals(read.budgetExhausted, true);
+  assertEquals(read.sourcesSkipped, 3);
+  const plain = await readPreviewCategory(
+    Response.json(filteredEmptyBody()),
+    "news",
+    "plain",
+  );
+  assertEquals(plain.budgetExhausted, false);
+  assertEquals(plain.sourcesSkipped, 0);
+});

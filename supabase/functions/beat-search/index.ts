@@ -38,6 +38,11 @@ import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { scrape } from "../_shared/scrape.ts";
 import type { ScrapeResult } from "../_shared/scrape_types.ts";
+import {
+  createRequestBudget,
+  type RequestBudget,
+} from "../_shared/request_budget.ts";
+import { mapLimit, scrapeWithinBudget } from "./budget_stage.ts";
 import { openRouterExtract } from "../_shared/openrouter.ts";
 import {
   type BeatCategory,
@@ -83,6 +88,21 @@ const InputSchema = z.object({
 });
 
 const MAX_SCRAPES = 8;
+// The hosted gateway cuts a request at 150 s idle. Spend at most 120 s:
+// scrapes stop early once fewer than reserve + floor remain, so extraction
+// always runs and the user gets a (possibly partial) preview, never a 504.
+const PREVIEW_BUDGET_MS = envMs("BEAT_PREVIEW_BUDGET_MS", 120_000);
+const PREVIEW_SCRAPE_TIMEOUT_MS = envMs(
+  "BEAT_PREVIEW_SCRAPE_TIMEOUT_MS",
+  45_000,
+);
+const PREVIEW_RESERVE_MS = envMs("BEAT_PREVIEW_RESERVE_MS", 25_000);
+const PREVIEW_SCRAPE_FLOOR_MS = envMs("BEAT_PREVIEW_SCRAPE_FLOOR_MS", 10_000);
+
+function envMs(name: string, fallback: number): number {
+  const raw = Number(Deno.env.get(name));
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
 // Keep preview bursts within the renderer's two ordinary admission slots.
 const SCRAPE_CONCURRENCY = 2;
 const MARKDOWN_PER_HIT = 6_000;
@@ -110,6 +130,8 @@ export interface BeatPreviewDiagnostics {
   location_filtered: number;
   stale_articles: number;
   model_filtered: number;
+  /** Candidates never attempted because the request budget ran out. */
+  sources_skipped: number;
 }
 
 export type BeatPreviewOutcome =
@@ -240,10 +262,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     location_filtered: 0,
     stale_articles: 0,
     model_filtered: 0,
+    sources_skipped: 0,
   };
+  const budget = createRequestBudget({ totalMs: PREVIEW_BUDGET_MS });
 
   try {
-    return await runSearch(input, user, startedAt, diagnostics);
+    return await runSearch(input, user, startedAt, diagnostics, budget);
   } catch (e) {
     logEvent({
       level: "error",
@@ -266,6 +290,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       summary: "",
       response_markdown: "Search failed. Please try again.",
       filteredOutCount: 0,
+      budget_exhausted: budget.exhausted,
+      sources_skipped: diagnostics.sources_skipped,
       error: e instanceof Error ? e.message : String(e),
     });
   }
@@ -278,6 +304,7 @@ async function runSearch(
   user: AuthedUser,
   startedAt: number,
   diagnostics: BeatPreviewDiagnostics,
+  budget: RequestBudget,
 ): Promise<Response> {
   const excluded = new Set(
     (input.excluded_domains ?? []).map((d) => d.toLowerCase()),
@@ -380,35 +407,33 @@ async function runSearch(
     );
   }
 
-  // 4. Scrape with bounded concurrency.
-  const scraped = await mapLimit(
-    filteredHits,
-    SCRAPE_CONCURRENCY,
-    async (h) => {
-      try {
-        return await scrape(h.url, {
-          workloadClass: "utility",
-          tenantKey: user.id,
-        });
-      } catch (e) {
+  // 4. Scrape with bounded concurrency inside the request budget.
+  const budgetedScrape = (hits: BeatHit[], event: string) =>
+    scrapeWithinBudget(hits, {
+      budget,
+      concurrency: SCRAPE_CONCURRENCY,
+      defaultTimeoutMs: PREVIEW_SCRAPE_TIMEOUT_MS,
+      reserveMs: PREVIEW_RESERVE_MS,
+      floorMs: PREVIEW_SCRAPE_FLOOR_MS,
+      scrape,
+      scrapeOptions: { workloadClass: "utility", tenantKey: user.id },
+      onFailure: (url, e) =>
         logEvent({
           level: "warn",
           fn: "beat-search",
-          event: "scrape_failed",
+          event,
           user_id: user.id,
-          url: h.url,
+          url,
           msg: e instanceof Error ? e.message : String(e),
-        });
-        return null;
-      }
-    },
-  );
-
+        }),
+    });
+  const initial = await budgetedScrape(filteredHits, "scrape_failed");
+  const initialAttemptedHits = filteredHits.slice(0, initial.attempted.length);
   const initialScrapedOk: Array<{ hit: BeatHit; scrape: ScrapeResult }> = [];
-  for (let i = 0; i < filteredHits.length; i++) {
-    const s = scraped[i];
+  for (let i = 0; i < initialAttemptedHits.length; i++) {
+    const s = initial.results[i];
     if (s && s.markdown && s.markdown.trim().length > 0) {
-      initialScrapedOk.push({ hit: filteredHits[i], scrape: s });
+      initialScrapedOk.push({ hit: initialAttemptedHits[i], scrape: s });
     }
   }
 
@@ -434,37 +459,23 @@ async function runSearch(
   const followupHits = effectiveHits.filter((hit) =>
     !initialByUrl.has(hit.url)
   );
-  const followupScrapes = await mapLimit(
+  const followup = await budgetedScrape(
     followupHits,
-    SCRAPE_CONCURRENCY,
-    async (hit) => {
-      try {
-        return await scrape(hit.url, {
-          workloadClass: "utility",
-          tenantKey: user.id,
-        });
-      } catch (e) {
-        logEvent({
-          level: "warn",
-          fn: "beat-search",
-          event: "article_followup_scrape_failed",
-          user_id: user.id,
-          url: hit.url,
-          msg: e instanceof Error ? e.message : String(e),
-        });
-        return null;
-      }
-    },
+    "article_followup_scrape_failed",
+  );
+  const followupAttemptedHits = followupHits.slice(
+    0,
+    followup.attempted.length,
   );
   const followupByUrl = new Map<string, {
     hit: BeatHit;
     scrape: ScrapeResult;
   }>();
-  for (let i = 0; i < followupHits.length; i++) {
-    const s = followupScrapes[i];
+  for (let i = 0; i < followupAttemptedHits.length; i++) {
+    const s = followup.results[i];
     if (s?.markdown?.trim()) {
-      followupByUrl.set(followupHits[i].url, {
-        hit: followupHits[i],
+      followupByUrl.set(followupAttemptedHits[i].url, {
+        hit: followupAttemptedHits[i],
         scrape: s,
       });
     }
@@ -479,10 +490,20 @@ async function runSearch(
     )
   );
   const staleFilteredOut = readableScrapes.length - scrapedOk.length;
-  const attemptedScrapeUrls = [
-    ...filteredHits.map((hit) => hit.url),
-    ...followupHits.map((hit) => hit.url),
-  ];
+  const attemptedScrapeUrls = [...initial.attempted, ...followup.attempted];
+  const budgetExhausted = initial.budgetExhausted || followup.budgetExhausted;
+  diagnostics.sources_skipped = initial.skipped + followup.skipped;
+  if (budgetExhausted) {
+    logEvent({
+      level: "warn",
+      fn: "beat-search",
+      event: "preview_budget_exhausted",
+      user_id: user.id,
+      elapsed_ms: budget.elapsedMs(),
+      attempted: attemptedScrapeUrls.length,
+      skipped: diagnostics.sources_skipped,
+    });
+  }
   diagnostics.sources_attempted = attemptedScrapeUrls.length;
   // Count actual successful reads, including section pages used for discovery.
   diagnostics.sources_read = initialScrapedOk.length + followupByUrl.size;
@@ -491,9 +512,11 @@ async function runSearch(
   diagnostics.stale_sources = staleFilteredOut;
 
   if (scrapedOk.length === 0) {
+    // A budget cut leaves candidates unread, so emptiness is unproven.
     const outcome = readableScrapes.length === 0
       ? "unreadable_sources"
-      : diagnostics.sources_failed === 0 && diagnostics.search_failures === 0
+      : !budgetExhausted && diagnostics.sources_failed === 0 &&
+          diagnostics.search_failures === 0
       ? "filtered_empty"
       : "unverified_empty";
     return jsonOk(
@@ -504,11 +527,14 @@ async function runSearch(
           ? "All readable article sources were outside the freshness window"
           : outcome === "unreadable_sources"
           ? "Sources could not be read"
+          : budgetExhausted
+          ? "Preview ran out of time before enough sources were read"
           : "Readable article sources were stale; other retrievals failed",
         outcome,
         diagnostics,
         queries,
         attemptedScrapeUrls,
+        budgetExhausted,
       ),
     );
   }
@@ -667,6 +693,7 @@ async function runSearch(
   }
   // A stale source alone cannot explain why extraction of fresh sources was empty.
   const verifiedFilteredEmpty = Array.isArray(extraction.articles) &&
+    !budgetExhausted &&
     diagnostics.sources_failed === 0 && diagnostics.search_failures === 0 &&
     (diagnostics.criteria_filtered + diagnostics.location_filtered +
         diagnostics.stale_articles + diagnostics.model_filtered > 0);
@@ -689,6 +716,9 @@ async function runSearch(
     scraped: scrapedOk.length,
     articles: articles.length,
     filtered_out: filteredOut,
+    budget_exhausted: budgetExhausted,
+    sources_skipped: diagnostics.sources_skipped,
+    elapsed_ms: budget.elapsedMs(),
   });
 
   return jsonOk({
@@ -709,6 +739,8 @@ async function runSearch(
     summary: finalSummary,
     response_markdown: finalSummary,
     filteredOutCount: filteredOut,
+    budget_exhausted: budgetExhausted,
+    sources_skipped: diagnostics.sources_skipped,
   });
 }
 
@@ -751,6 +783,7 @@ function emptyResponse(
   diagnostics: BeatPreviewDiagnostics,
   queries: string[] = [],
   urls: string[] = [],
+  budgetExhausted = false,
 ) {
   return {
     status: outcome === "unreadable_sources" ? "failed" : "not_found",
@@ -766,32 +799,10 @@ function emptyResponse(
     summary: "",
     response_markdown: reason,
     filteredOutCount: diagnostics.stale_sources,
+    budget_exhausted: budgetExhausted,
+    sources_skipped: diagnostics.sources_skipped,
     ...(outcome === "unreadable_sources" ? { error: reason } : {}),
   };
-}
-
-async function mapLimit<T, R>(
-  items: T[],
-  limit: number,
-  fn: (t: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  const nWorkers = Math.min(limit, items.length);
-  const workers: Promise<void>[] = [];
-  for (let w = 0; w < nWorkers; w++) {
-    workers.push(
-      (async () => {
-        while (true) {
-          const idx = cursor++;
-          if (idx >= items.length) return;
-          results[idx] = await fn(items[idx]);
-        }
-      })(),
-    );
-  }
-  await Promise.all(workers);
-  return results;
 }
 
 function safeDomain(raw: string | null | undefined): string | null {
