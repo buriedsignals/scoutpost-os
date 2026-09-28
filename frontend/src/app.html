@@ -2,7 +2,14 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
+		<!-- Raster icons on a dark tile first: Google Search needs a crawlable
+		     square favicon (48px multiples), and the bare mark is near-white
+		     on transparent. The SVG stays for browsers that prefer it. -->
+		<link rel="icon" href="%sveltekit.assets%/favicon.ico" sizes="48x48" />
+		<link rel="icon" href="%sveltekit.assets%/favicon-96x96.png" type="image/png" sizes="96x96" />
+		<link rel="icon" href="%sveltekit.assets%/favicon-192x192.png" type="image/png" sizes="192x192" />
 		<link rel="icon" href="%sveltekit.assets%/scoutpost-mark.svg" type="image/svg+xml" />
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/apple-touch-icon.png" sizes="180x180" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 
 		<!-- Preconnect to Google Fonts — the @import in app.css would otherwise
