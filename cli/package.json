@@ -30,7 +30,7 @@
     "osint",
     "journalism"
   ],
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-only",
   "author": "Buried Signals",
   "homepage": "https://www.scoutpost.ai",
   "repository": {

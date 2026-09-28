@@ -2,7 +2,7 @@
 
 ## Licensing
 
-Scoutpost is source-available under the Sustainable Use License. Newsrooms can use, modify, and deploy it internally. You cannot resell it, host it as a competing service, or white-label it as your own hosted product.
+Scoutpost is open source under the GNU Affero General Public License v3.0 (AGPL-3.0). Anyone can use, modify, self-host, and redistribute it, including commercially. If you distribute a modified version or run one as a network service for others, you must publish your source code under the same license.
 
 ## Self-hosting
 

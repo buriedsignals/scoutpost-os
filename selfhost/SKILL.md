@@ -41,7 +41,7 @@ Supabase linking, Edge Function deployment, and the frontend build.
 ## Preconditions
 
 No license key is required. The repository is public and self-hosting is free
-under the Sustainable Use License.
+under the AGPL-3.0.
 
 The user needs:
 

@@ -1,3 +1,5 @@
+> **Licence update (2026-09):** Scoutpost is now licensed under the GNU AGPL-3.0. The Sustainable Use License and license-key sections below are historical plan notes.
+
 # Phase 3: Deploy Configs & Mirror Implementation Plan
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -29,7 +31,7 @@ deploy/
 .github/workflows/
 └── mirror-oss.yml               # Auto-mirror to public OSS repo on push to main
 
-LICENSE                          # Sustainable Use License (n8n-style)
+LICENSE                          # GNU AGPL-3.0 (was Sustainable Use License until 2026-09)
 ```
 
 ---

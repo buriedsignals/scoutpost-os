@@ -62,7 +62,7 @@ Frontend is served by the same service in dev; static SPA in production.
 | `onboarding.py` | `/api/onboarding/*` | Onboarding initialize/status/tour-complete | Live |
 | `user.py` | `/api/user/*` | User preferences (mirrors EF; legacy callers); old `DELETE /delete-account` is `410 Gone` | Live |
 | `units.py` | `/api/units/*` | Units helpers (legacy callers) | Live |
-| `license.py` | `/api/license/*` | License key gating (OSS sustainable-use model) | Live |
+| `license.py` | `/api/license/*` | License key gating (legacy; public repo is AGPL-3.0) | Live |
 | `v1.py` | `/api/v1/*` | Public REST API (CLI uses this OR the Supabase EF URL) | Live |
 | `feedback.py` | `/api/feedback` | Linear support widget — POST creates issues | Live (SaaS-only — stripped from OSS) |
 

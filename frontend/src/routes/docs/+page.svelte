@@ -785,9 +785,9 @@ scout units delete <unit-id>`}</code></pre>
 				<section id="selfhost">
 					<h2>Self-hosting</h2>
 					<p>
-						Scoutpost is source-available under the
-						<a href="/faq">Sustainable Use License</a> — use it for your newsroom freely, don't
-						resell it as a service. Self-hosted deployments run on your own Supabase project with
+						Scoutpost is open source under the
+						<a href="/faq">GNU AGPL-3.0</a>: use, modify, and self-host it freely; if you run a
+						modified version as a service for others, publish your changes under the same license. Self-hosted deployments run on your own Supabase project with
 						your Firecrawl, Gemini, Apify, and Resend keys. Same feature set as SaaS. No telemetry.
 					</p>
 					<p>

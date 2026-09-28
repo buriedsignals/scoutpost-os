@@ -8,7 +8,7 @@ Scoutpost is built for local and investigative reporting. The public product sto
 - Turn recurring monitoring into structured information units instead of chat transcripts.
 - Let agents draft, triage, and search while journalists remain the verifier.
 - Work through the web app, MCP, REST API, and the `scout` CLI.
-- Stay portable: hosted at scoutpost.ai, source-available, and self-hostable.
+- Stay portable: hosted at scoutpost.ai, open source (AGPL-3.0), and self-hostable.
 
 ## Core benefits
 

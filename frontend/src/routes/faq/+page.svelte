@@ -4,7 +4,7 @@
 
 <svelte:head>
 	<title>FAQ — Scoutpost</title>
-	<meta name="description" content="Frequently asked questions about Scoutpost — AI scouts, agent integration, the Sustainable Use License, hosted accounts, and self-hosting." />
+	<meta name="description" content="Frequently asked questions about Scoutpost — AI scouts, agent integration, the AGPL-3.0 open-source license, hosted accounts, and self-hosting." />
 	<link rel="alternate" type="text/plain" title="faq.txt" href="/faq.txt" />
 	<link rel="alternate" type="text/markdown" title="Scoutpost skill" href="/skills/scoutpost.md" />
 	<link rel="alternate" type="text/markdown" title="Scoutpost setup skill" href="/skills/scoutpost-setup.md" />
@@ -35,7 +35,7 @@
 				<details class="faq-item">
 					<summary class="faq-question">What license does Scoutpost use?</summary>
 					<div class="faq-answer">
-						<p>Scoutpost uses the <strong>Sustainable Use License</strong>, a fair-code license. It allows free use, modification, and redistribution for internal purposes, with restrictions on reselling or offering the software as a hosted service.</p>
+						<p>Scoutpost is licensed under the <strong><a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener noreferrer">GNU Affero General Public License v3.0</a></strong> (AGPL-3.0). You can use, modify, self-host, and redistribute it, including commercially. If you distribute a modified version, or run one as a network service for others, you must make your source code available under the same license.</p>
 					</div>
 				</details>
 
@@ -68,7 +68,7 @@
 				<details class="faq-item">
 					<summary class="faq-question">Is Scoutpost open source?</summary>
 					<div class="faq-answer">
-						<p>Scoutpost is <strong>source-available</strong> under the Sustainable Use License. All code is public and readable on GitHub. The license is more permissive than proprietary software but more restrictive than MIT or Apache 2.0 — specifically, it prevents using the software to compete with the original product. This is the same model used by <a href="https://n8n.io" target="_blank" rel="noopener noreferrer">n8n</a>, <a href="https://cal.com" target="_blank" rel="noopener noreferrer">Cal.com</a>, and other fair-code projects.</p>
+						<p>Yes. Scoutpost is <strong>open source</strong> under the AGPL-3.0, an OSI-approved license. All code is public on <a href="https://github.com/buriedsignals/scoutpost-os" target="_blank" rel="noopener noreferrer">GitHub</a>. The AGPL keeps improvements open: anyone who offers a modified Scoutpost as a hosted service has to share those modifications with their users.</p>
 					</div>
 				</details>
 			</section>
@@ -109,7 +109,7 @@
 				<details class="faq-item">
 					<summary class="faq-question">Does self-hosting cost anything?</summary>
 					<div class="faq-answer">
-							<p><strong>Nothing to us.</strong> Scoutpost itself is free to self-host under the Sustainable Use License. Your only costs are the third-party services you connect (Supabase, OpenRouter with Google Vertex upstream, Firecrawl, Resend, Apify) and whatever hosting you choose for the frontend.</p>
+							<p><strong>Nothing to us.</strong> Scoutpost itself is free to self-host under the AGPL-3.0. Your only costs are the third-party services you connect (Supabase, OpenRouter with Google Vertex upstream, Firecrawl, Resend, Apify) and whatever hosting you choose for the frontend.</p>
 					</div>
 				</details>
 			</section>

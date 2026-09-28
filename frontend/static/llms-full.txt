@@ -17,7 +17,7 @@ chat transcripts or alerts.
 Scoutpost is for investigative workflows, local reporting, and continuous
 newsroom monitoring. Journalists use the web app; AI assistants can work
 through MCP, REST, or the `scout` CLI. Hosted Scoutpost is available at
-https://www.scoutpost.ai, and the source-available product can be self-hosted.
+https://www.scoutpost.ai, and the open-source (AGPL-3.0) product can be self-hosted.
 
 ### Product principles
 

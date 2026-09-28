@@ -104,7 +104,7 @@ Any feature exposed in the UI should be considered for CLI/MCP parity when it is
 
 ## Licensing Boundary
 
-The Sustainable Use License governs the public repo. License keys, where used, gate self-hosting/support convenience and not application capabilities. See `docs/oss/license-key.md`.
+The GNU AGPL-3.0 governs the public repo (relicensed from the Sustainable Use License in September 2026). License keys, where used, gate self-hosting/support convenience and not application capabilities. See `docs/oss/license-key.md`.
 
 ## Historical Migration Notes
 

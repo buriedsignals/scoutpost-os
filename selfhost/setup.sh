@@ -6,7 +6,7 @@
 # Automated bootstrap for deploying Scoutpost on Supabase plus either
 # static hosting + optional Render FastAPI add-on, or full Docker self-hosting.
 # No license key required — the repository is public and self-hosting is free
-# under the Sustainable Use License.
+# under the AGPL-3.0.
 #
 # Usage:
 #   bash setup.sh
