@@ -84,13 +84,13 @@
 	<div class="tooltip-content">
 		<div class="tooltip-header">
 			<h3 class="tooltip-title">{title}</h3>
-			<span class="step-indicator">{currentStep} of {totalSteps}</span>
+			<span class="step-indicator">{m.tour_stepCount({ current: currentStep, total: totalSteps })}</span>
 		</div>
 		<p class="tooltip-text">{text}</p>
 		<button
 			class="tooltip-btn"
 			on:click={handleClick}
-			aria-label={isLastStep ? 'Complete tour' : 'Go to next step'}
+			aria-label={isLastStep ? m.tour_done() : m.tour_next()}
 		>
 			{isLastStep ? m.tour_done() : m.tour_next()}
 		</button>

@@ -15,18 +15,15 @@ import {
   testScout,
   updateScout,
 } from "./handlers.ts";
-
 Deno.serve(async (req): Promise<Response> => {
   const cors = handleCors(req);
   if (cors) return cors;
-
   let user: AuthedUser;
   try {
     user = await requireUserOrApiKey(req);
   } catch (e) {
     return jsonFromError(e);
   }
-
   const url = new URL(req.url);
   // Trim the "/scouts" prefix Kong leaves on the path. "/scouts" -> "",
   // "/scouts/<id>" -> "/<id>", "/scouts/<id>/run" -> "/<id>/run".
@@ -34,7 +31,6 @@ Deno.serve(async (req): Promise<Response> => {
   const idMatch = path.match(/^\/([0-9a-f-]{36})$/i);
   const idActionMatch = path.match(/^\/([0-9a-f-]{36})\/(run|pause|resume)$/i);
   const isRead = req.method === "GET" || req.method === "HEAD";
-
   try {
     if (path === "/" && isRead) {
       return await listScouts(req, user);

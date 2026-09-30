@@ -4,15 +4,15 @@
 	import * as m from '$lib/paraglide/messages';
 
 	export let progress = 0;
-	export let message = 'Loading...';
+	export let message: string = m.common_loading();
 	export let state: 'loading' | 'success' | 'error' = 'loading';
-	export let successMessage = 'Complete!';
+	export let successMessage: string = m.pulse_progressComplete();
 	export let successDetails = '';
 	export let errorTitle = '';
 	export let errorMessage = '';
 	export let showButton = false;
-	export let buttonText = 'Continue';
-	export let hintText = 'This may take a moment';
+	export let buttonText: string = m.common_continue();
+	export let hintText: string = m.progress_moment();
 	export let onAction: () => void = () => {};
 	export let compact = false;
 

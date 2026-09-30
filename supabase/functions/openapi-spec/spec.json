@@ -211,6 +211,7 @@
           "scouts"
         ],
         "summary": "Create a scout from a named template",
+        "description": "Creates an inactive scout. Read GET /scout-templates for each template's required fields; the merged defaults and supplied fields must satisfy ScoutCreate, including type-specific requirements. Supply profile_handle for the Instagram template, not a profile URL in url.",
         "requestBody": {
           "required": true,
           "content": {
@@ -228,10 +229,12 @@
                   "name": {
                     "type": "string",
                     "minLength": 1,
+                    "pattern": "\\S",
                     "maxLength": 200
                   },
                   "fields": {
                     "type": "object",
+                    "description": "Template inputs. Required keys are listed in the selected template's fields metadata; defaults supply its Project tags and schedule.",
                     "additionalProperties": true
                   },
                   "project_id": {
@@ -2348,10 +2351,46 @@
           "name",
           "type"
         ],
+        "allOf": [
+          {
+            "if": { "properties": { "type": { "enum": ["web", "beat", "social", "civic"] } } },
+            "then": {
+              "anyOf": [
+                { "required": ["topic"], "properties": { "topic": { "pattern": "[^\\s,]" } } },
+                { "required": ["location"] }
+              ]
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "web" } } },
+            "then": { "required": ["url"] }
+          },
+          {
+            "if": { "properties": { "type": { "const": "social" } } },
+            "then": {
+              "required": ["platform", "profile_handle"],
+              "if": { "required": ["monitor_mode"], "properties": { "monitor_mode": { "const": "criteria" } } },
+              "then": { "required": ["criteria"], "properties": { "criteria": { "pattern": "\\S" } } }
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "civic" } } },
+            "then": {
+              "required": ["root_domain", "tracked_urls"],
+              "if": { "required": ["import_current_items"], "properties": { "import_current_items": { "const": true } } },
+              "then": { "required": ["preview_snapshot_token"] }
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "transport" } } },
+            "then": { "required": ["config"] }
+          }
+        ],
         "properties": {
           "name": {
             "type": "string",
             "minLength": 1,
+            "pattern": "\\S",
             "maxLength": 200
           },
           "type": {
@@ -2369,7 +2408,7 @@
           "topic": {
             "type": "string",
             "maxLength": 200,
-            "description": "Required when location is omitted. Use 1-3 short comma-separated tags, e.g. 'housing, council, budget'."
+            "description": "For web, beat, social and civic scouts, required when location is omitted. Use 1-3 short comma-separated tags, each at most 50 characters. Optional for transport scouts. This organizational Project label is distinct from project_id."
           },
           "url": {
             "type": "string",
@@ -2378,6 +2417,12 @@
           },
           "location": {
             "type": "object",
+            "anyOf": [
+              { "required": ["displayName"], "properties": { "displayName": { "type": "string", "pattern": "\\S" } } },
+              { "required": ["city"], "properties": { "city": { "type": "string", "pattern": "\\S" } } },
+              { "required": ["state"], "properties": { "state": { "type": "string", "pattern": "\\S" } } },
+              { "required": ["country"], "properties": { "country": { "type": "string", "pattern": "\\S" } } }
+            ],
             "additionalProperties": true
           },
           "regularity": {
@@ -2414,6 +2459,8 @@
           },
           "profile_handle": {
             "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
             "maxLength": 200,
             "description": "Required for social scouts. For LinkedIn, provide a full personal-profile URL such as https://www.linkedin.com/in/example; other platforms accept the profile username."
           },
@@ -2428,6 +2475,30 @@
             "type": "boolean",
             "default": false,
             "description": "For social scouts, also report posts removed after the saved baseline."
+          },
+          "root_domain": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "pattern": "\\S",
+            "description": "Required for Civic scouts: the municipal website domain."
+          },
+          "tracked_urls": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": { "type": "string", "format": "uri", "maxLength": 2000 },
+            "description": "Required for Civic scouts: official meeting-document listing URLs verified by discovery."
+          },
+          "import_current_items": {
+            "type": "boolean",
+            "default": false,
+            "description": "Import the server-owned Civic preview; requires preview_snapshot_token when true."
+          },
+          "preview_snapshot_token": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Token returned by the Civic preview. Required only when import_current_items is true."
           },
           "archive_enabled": {
             "type": "boolean",

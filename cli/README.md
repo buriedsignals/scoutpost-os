@@ -19,6 +19,10 @@ scout --version
 
 Requires [Deno](https://deno.com) v2.x on `$PATH`.
 
+Connect Agent shows installation and login as separate lines with double-quoted
+arguments, compatible with Bash, zsh, PowerShell, and cmd. Run the login line
+only after installation succeeds.
+
 ```bash
 deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts
 ```
@@ -93,19 +97,22 @@ Public configuration lives at `~/.scoutpost/config.json` on macOS/Linux and
 Credential Manager rather than the JSON file. This path remains for scripts,
 CI, and recovery:
 
+The recovery snippets below use Bash/zsh syntax. In PowerShell or cmd, prefer
+the browser sign-in commands above.
+
 ```bash
 # Hosted Scoutpost — recommended
 scout config set api_url=https://scoutpost.ai/functions/v1
-printf '%s\\n' \"$SCOUTPOST_API_KEY\" | scout config set api_key --stdin
-printf '%s\\n' \"$SUPABASE_ANON_KEY\" | scout config set supabase_anon_key --stdin
+printf '%s\n' "$SCOUTPOST_API_KEY" | scout config set api_key --stdin
+printf '%s\n' "$SUPABASE_ANON_KEY" | scout config set supabase_anon_key --stdin
 
 # Self-hosted Supabase Edge Functions
 scout config set api_url=https://<project-ref>.supabase.co
-printf '%s\\n' \"$SCOUTPOST_API_KEY\" | scout config set api_key --stdin
-printf '%s\\n' \"$SUPABASE_ANON_KEY\" | scout config set supabase_anon_key --stdin
+printf '%s\n' "$SCOUTPOST_API_KEY" | scout config set api_key --stdin
+printf '%s\n' "$SUPABASE_ANON_KEY" | scout config set supabase_anon_key --stdin
 
 # Legacy JWT path
-printf '%s\\n' \"$SCOUTPOST_AUTH_TOKEN\" | scout config set auth_token --stdin
+printf '%s\n' "$SCOUTPOST_AUTH_TOKEN" | scout config set auth_token --stdin
 scout config show
 ```
 

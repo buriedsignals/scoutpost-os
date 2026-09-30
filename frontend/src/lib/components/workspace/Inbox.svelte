@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	import { onDestroy } from 'svelte';
 	import { Search } from 'lucide-svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
@@ -13,7 +14,7 @@
 	export let totalCount = 0;
 	export let needsReviewCount = 0;
 	export let searchQuery = '';
-	export let searchPlaceholder = 'Search all inbox units';
+	export let searchPlaceholder = m.workspace_searchAllInbox();
 	export let isSearching = false;
 	export let unitDeleteCandidateId: string | null = null;
 	export let deletingUnitId: string | null = null;
@@ -28,7 +29,7 @@
 	export let onConfirmDelete: (id: string) => void = () => {};
 	export let onLoadMore: () => void = () => {};
 
-	$: headerTitle = scopedToScout ? `${scopedToScout.name} · Inbox` : 'Inbox';
+	$: headerTitle = scopedToScout ? `${scopedToScout.name} · ${m.workspace_inbox_heading()}` : m.workspace_inbox_heading();
 	$: searchActive = searchQuery.trim().length > 0;
 	$: searchResultCount = units.length;
 
@@ -94,7 +95,7 @@
 	$: showInitialSpinner = loading && units.length === 0;
 </script>
 
-<div class="inbox-wrapper" role="region" aria-label="Information unit inbox">
+<div class="inbox-wrapper" role="region" aria-label={m.workspace_inbox_heading()}>
 	<div class="inbox-header">
 		<div class="inbox-title-row">
 			<h2 class="inbox-title">{headerTitle}</h2>
@@ -115,13 +116,13 @@
 				</label>
 				{#if searchQuery}
 					<button type="button" class="clear-search-action" on:click={clearSearch}>
-						Clear search
+						{m.filterBar_clearSearch()}
 					</button>
 				{/if}
 			</div>
 			{#if searchActive}
 				<div class="search-summary-inline">
-					<span>{searchResultCount} {searchResultCount === 1 ? 'result' : 'results'} for “{searchQuery}”</span>
+					<span>{m.workspace_searchResults({ count: searchResultCount, query: searchQuery })}</span>
 				</div>
 			{/if}
 			<div class="inbox-filter">
@@ -131,7 +132,7 @@
 					class:active={filter === 'needs_review'}
 					on:click={() => handleFilter('needs_review')}
 				>
-					Needs review · {needsReviewCount}
+					{m.workspace_needsReview()} · {needsReviewCount}
 				</button>
 				<button
 					type="button"
@@ -139,7 +140,7 @@
 					class:active={filter === 'all'}
 					on:click={() => handleFilter('all')}
 				>
-					All · {totalCount}
+					{m.workspace_all()} · {totalCount}
 				</button>
 			</div>
 		</div>
@@ -153,18 +154,18 @@
 		{:else if showEmpty}
 			{#if searchActive}
 				<div class="empty-state">
-					<span class="eyebrow eyebrow--primary">Search</span>
-					<h3 class="empty-title">No results for “{searchQuery}”</h3>
+					<span class="eyebrow eyebrow--primary">{m.common_search()}</span>
+					<h3 class="empty-title">{m.workspace_noSearchResults({ query: searchQuery })}</h3>
 					<p class="empty-subtitle">
-						Try a different query or clear search to return to {scopedToScout ? 'this inbox' : 'all inbox units'}.
+						{m.workspace_searchHint()}
 					</p>
 					<button type="button" class="empty-action-btn" on:click={clearSearch}>
-						Clear search
+						{m.filterBar_clearSearch()}
 					</button>
 				</div>
 			{:else}
 				<div class="empty-state">
-					<span class="eyebrow eyebrow--secondary">Inbox</span>
+					<span class="eyebrow eyebrow--secondary">{m.workspace_inbox_heading()}</span>
 					<div class="empty-illustration" aria-hidden="true">
 						<svg class="empty-illustration__svg" width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
 							<rect class="ill-tray" x="10" y="18" width="52" height="40" stroke-width="1.5" />
@@ -174,10 +175,9 @@
 							<path class="ill-badge-hand" d="M54 17v3l2 1.5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
 						</svg>
 					</div>
-					<h3 class="empty-title">Your inbox is quiet</h3>
+					<h3 class="empty-title">{m.workspace_quietInbox()}</h3>
 					<p class="empty-subtitle">
-						Units will land here as your scouts collect them.<br />
-						Kick off a run anytime from the <strong>Scouts</strong> panel.
+						{m.workspace_quietInboxHint()}
 					</p>
 				</div>
 			{/if}
@@ -493,9 +493,5 @@
 		max-width: 28rem;
 	}
 
-	.empty-subtitle strong {
-		color: var(--color-ink);
-		font-weight: 600;
-	}
 
 </style>

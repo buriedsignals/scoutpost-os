@@ -430,7 +430,7 @@ export async function run(argv: string[]): Promise<void> {
       return;
     }
     case "add": {
-      if (typeof flags.name !== "string") {
+      if (typeof flags.name !== "string" || !flags.name.trim()) {
         console.error("--name is required");
         Deno.exit(1);
       }
@@ -441,7 +441,7 @@ export async function run(argv: string[]): Promise<void> {
         Deno.exit(1);
       }
       const body: Record<string, unknown> = {
-        name: flags.name,
+        name: flags.name.trim(),
         type: flags.type,
       };
       const url = stringFlag(flags, "url");
@@ -544,6 +544,10 @@ export async function run(argv: string[]): Promise<void> {
         console.error("--baseline-ids is only supported for transport scouts");
         Deno.exit(1);
       }
+      if (flags.type === "web" && !url?.trim()) {
+        console.error("web scouts require --url");
+        Deno.exit(1);
+      }
       if (flags.type === "civic" && (!rootDomain || !trackedUrls?.length)) {
         console.error(
           "civic scouts require --root-domain and --tracked-urls",
@@ -563,7 +567,13 @@ export async function run(argv: string[]): Promise<void> {
         console.error("social scouts require --platform and --handle");
         Deno.exit(1);
       }
-      if (flags.type !== "transport" && !topic && !location) {
+      if (location && !["displayName", "city", "state", "country"].some(
+        (key) => typeof location[key] === "string" && location[key].trim().length > 0,
+      )) {
+        console.error("--location-json requires a non-empty displayName, city, state, or country");
+        Deno.exit(1);
+      }
+      if (flags.type !== "transport" && !topic?.trim() && !location) {
         console.error(
           "scouts require --topic with 1-3 short tags or --location-json",
         );

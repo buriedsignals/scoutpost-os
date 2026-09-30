@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { ArrowLeft } from 'lucide-svelte';
+	import * as m from '$lib/paraglide/messages';
+	import { getLocale } from '$lib/paraglide/runtime';
 </script>
 
 <svelte:head>
@@ -10,15 +12,16 @@
 	<link rel="alternate" type="text/markdown" title="Scoutpost setup skill" href="/skills/scoutpost-setup.md" />
 </svelte:head>
 
-<div class="faq-page">
+<div class="faq-page" lang="en">
 	<div class="bg-pattern"></div>
 	<div class="bg-gradient"></div>
 
 	<div class="content">
-		<a class="back-button" href="/login">
+		<a class="back-button" href="/login" lang={getLocale()}>
 			<ArrowLeft class="w-4 h-4" />
-			<span>Back</span>
+			<span>{m.common_back()}</span>
 		</a>
+		{#if getLocale() !== 'en'}<p role="note" lang={getLocale()}>{m.docs_englishOriginal()}</p>{/if}
 
 		<header class="header">
 			<div class="badge">FAQ</div>

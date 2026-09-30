@@ -7,7 +7,7 @@
 	import * as m from '$lib/paraglide/messages';
 
 	export let selectedLocation: GeocodedLocation | null = null;
-	export let placeholder: string = 'Search for a city or country...';
+	export let placeholder: string = m.onboarding_locationPlaceholder();
 	export let showGlobalOption: boolean = false;
 	export let isGlobal: boolean = false;
 	export let inputId: string | undefined = undefined;
@@ -283,7 +283,7 @@
 		<!-- Global pill -->
 		<button type="button" class="selected-global" on:click={clearGlobal}>
 			<Globe size={14} />
-			<span class="location-text">Global</span>
+			<span class="location-text">{m.locationAutocomplete_global()}</span>
 			<X size={14} class="remove-icon" />
 		</button>
 	{:else}
@@ -316,7 +316,7 @@
 				{#if showGlobalOption && !isLoading}
 					<button type="button" class="global-btn" on:click={selectGlobal}>
 						<Globe size={12} />
-						Global
+						{m.locationAutocomplete_global()}
 					</button>
 				{/if}
 			</div>

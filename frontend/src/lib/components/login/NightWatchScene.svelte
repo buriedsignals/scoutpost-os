@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	import { onMount } from 'svelte';
 
 	export type SceneRect = { left: number; top: number; right: number; bottom: number };
@@ -17,10 +18,10 @@
 	// duotone. `page` and `profile` are mirrored so their subjects sit away from the auth card.
 	// `lock` is the subject in plate coordinates (0–1).
 	const SHOTS = [
-		{ id: 'page', src: '/login/page.webp', scout: 'Page scout', event: 'Change detected', lock: [0.345, 0.46], anchor: [0.5, 0.56] },
-		{ id: 'vessel', src: '/login/vessel.webp', scout: 'Fleet scout', event: 'Entered watch area', lock: [0.5, 0.49], anchor: [0.4, 0.62] },
-		{ id: 'council', src: '/login/council.webp', scout: 'Civic scout', event: 'Agenda item added', lock: [0.33, 0.46], anchor: [0.56, 0.54] },
-		{ id: 'profile', src: '/login/profile.webp', scout: 'Social scout', event: 'Post deleted', lock: [0.295, 0.47], anchor: [0.44, 0.6] }
+		{ id: 'page', src: '/login/page.webp', scout: m.modal_pageScoutBadge(), event: m.login_changeDetected(), lock: [0.345, 0.46], anchor: [0.5, 0.56] },
+		{ id: 'vessel', src: '/login/vessel.webp', scout: m.modal_transportScoutBadge(), event: m.login_enteredArea(), lock: [0.5, 0.49], anchor: [0.4, 0.62] },
+		{ id: 'council', src: '/login/council.webp', scout: m.scoutType_civicMonitor(), event: m.login_agendaAdded(), lock: [0.33, 0.46], anchor: [0.56, 0.54] },
+		{ id: 'profile', src: '/login/profile.webp', scout: m.socialScout_badge(), event: m.login_postDeleted(), lock: [0.295, 0.47], anchor: [0.44, 0.6] }
 	] as const;
 
 	const PLATE_W = 1600;

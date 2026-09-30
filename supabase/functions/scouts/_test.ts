@@ -979,6 +979,71 @@ Deno.test("scouts: create requires topic tags or location", async () => {
   }
 });
 
+Deno.test("scouts: required values cannot be blank or bypassed with an empty location", async () => {
+  const user = await createTestUser();
+  try {
+    for (const [payload, field] of [
+      [{ name: "   ", type: "beat", topic: "housing" }, "name"],
+      [{ name: "Empty location", type: "beat", location: {} }, "location"],
+      [{ name: "Blank location", type: "beat", location: { displayName: " " } }, "location"],
+    ] as const) {
+      const res = await fetch(functionUrl("scouts"), {
+        method: "POST",
+        headers: headers(user.token),
+        body: JSON.stringify(payload),
+      });
+      assertEquals(res.status, 400);
+      assertMatch((await res.json()).error, new RegExp(field));
+    }
+  } finally {
+    await user.cleanup();
+  }
+});
+
+Deno.test("scouts: templates reject invalid type-specific fields before insertion", async () => {
+  const user = await createTestUser();
+  try {
+    for (const [template_slug, fields, field] of [
+      ["press-release-monitor", { url: "not a URL", criteria: "announcements" }, "url"],
+      ["city-council-minutes", { root_domain: "example.gov", tracked_urls: [""] }, "tracked_urls"],
+      ["city-housing-beat", { location: {} }, "location"],
+    ] as const) {
+      const res = await fetch(functionUrl("scouts", "/from-template"), {
+        method: "POST",
+        headers: headers(user.token),
+        body: JSON.stringify({ template_slug, name: "Invalid template", fields }),
+      });
+      assertEquals(res.status, 400);
+      assertMatch((await res.json()).error, new RegExp(field));
+    }
+  } finally {
+    await user.cleanup();
+  }
+});
+
+Deno.test("scouts: minimal Social template creates a usable inactive profile scout", async () => {
+  const user = await createTestUser();
+  try {
+    const res = await fetch(functionUrl("scouts", "/from-template"), {
+      method: "POST",
+      headers: headers(user.token),
+      body: JSON.stringify({
+        template_slug: "instagram-profile-monitor",
+        name: "Council profile",
+        fields: { profile_handle: "@council" },
+      }),
+    });
+    assertEquals(res.status, 201);
+    const scout = await res.json();
+    assertEquals(scout.platform, "instagram");
+    assertEquals(scout.profile_handle, "council");
+    assertEquals(scout.monitor_mode, "summarize");
+    assertEquals(scout.is_active, false);
+  } finally {
+    await user.cleanup();
+  }
+});
+
 Deno.test("scouts: scheduled create fails closed when schedule RPC fails", async () => {
   const user = await createTestUser();
   try {

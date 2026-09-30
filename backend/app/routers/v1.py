@@ -43,12 +43,7 @@ try:
     from app.services.api_key_service import ApiKeyService
 except ImportError:
     ApiKeyService = None  # OSS mirror: API key management not available
-try:
-    from app.services.cron import CronBuilderError, build_scraper_cron
-except ImportError:
-    # OSS mirror: cron expressions built by SupabaseScheduler adapter
-    def build_scraper_cron(*args, **kwargs): return "0 * * * *"
-    class CronBuilderError(Exception): pass
+from app.services.cron import CronBuilderError, build_scraper_cron
 from app.services.feed_search_service import FeedSearchService
 from app.services.schedule_service import ScheduleService
 from app.services.snapshot_storage_cleanup import sweep_scout_snapshots
@@ -137,6 +132,8 @@ def _scout_to_response(scout: dict) -> ScoutResponse:
         type=scout.get("scout_type", "web"),
         status=scout.get("scraper_status"),
         schedule=schedule,
+        schedule_cron=scout.get("schedule_cron"),
+        schedule_timezone=scout.get("schedule_timezone") or "UTC",
         location=scout.get("location"),
         topic=scout.get("topic"),
         url=scout.get("url"),
@@ -298,14 +295,6 @@ async def create_scout(
     """Create a new scout with schedule."""
     settings = get_settings()
 
-    # 1. Validate timezone
-    user_timezone = user.get("timezone")
-    if not user_timezone:
-        _error(
-            status.HTTP_400_BAD_REQUEST,
-            "Timezone not set. Please set your timezone before creating scouts.",
-            "TIMEZONE_REQUIRED",
-        )
 
     # 2. Apply DEV_ prefix in development
     scraper_name = body.name
@@ -335,7 +324,7 @@ async def create_scout(
     # 5. Build cron schedule
     try:
         cron_schedule = build_scraper_cron(
-            timezone=user_timezone,
+            timezone=body.schedule_timezone,
             regularity=body.schedule.regularity,
             day_number=body.schedule.day_number,
             time_str=body.schedule.time,
@@ -351,17 +340,17 @@ async def create_scout(
         "monitoring": "EMAIL",
         "preferred_language": user.get("preferred_language", "en"),
     }
+    if body.location:
+        scout_body["location"] = body.location.model_dump(exclude_none=True)
+    if body.topic:
+        scout_body["topic"] = body.topic
+    if body.criteria:
+        scout_body["criteria"] = body.criteria
 
     if body.type == "web":
         scout_body["url"] = body.url
         scout_body["criteria"] = body.criteria
     elif body.type == "beat":
-        if body.location:
-            scout_body["location"] = body.location.model_dump(exclude_none=True)
-        if body.topic:
-            scout_body["topic"] = body.topic
-        if body.criteria:
-            scout_body["criteria"] = body.criteria
         if body.excluded_domains:
             scout_body["excluded_domains"] = body.excluded_domains
         if body.priority_sources:
@@ -373,10 +362,6 @@ async def create_scout(
         scout_body["profile_handle"] = body.profile_handle
         scout_body["monitor_mode"] = body.monitor_mode
         scout_body["track_removals"] = body.track_removals
-        if body.criteria:
-            scout_body["criteria"] = body.criteria
-        if body.topic:
-            scout_body["topic"] = body.topic
 
     # 7. Create scout via ScheduleService
     try:
@@ -402,6 +387,8 @@ async def create_scout(
         type=body.type,
         status=None,
         schedule=body.schedule,
+        schedule_cron=cron_schedule.expression,
+        schedule_timezone=cron_schedule.timezone,
         location=body.location,
         topic=body.topic,
         url=body.url,
@@ -456,6 +443,8 @@ async def get_scout_detail(
         type=scout.get("scout_type", "web"),
         status=scout.get("scraper_status"),
         schedule=schedule,
+        schedule_cron=scout.get("schedule_cron"),
+        schedule_timezone=scout.get("schedule_timezone") or "UTC",
         location=scout.get("location"),
         topic=scout.get("topic"),
         url=scout.get("url"),

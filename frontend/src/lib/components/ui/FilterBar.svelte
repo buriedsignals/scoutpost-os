@@ -9,7 +9,7 @@
 	// Search (optional)
 	export let searchEnabled = false;
 	export let searchQuery = '';
-	export let searchPlaceholder = 'Search...';
+	export let searchPlaceholder = m.common_search();
 	export let onSearch: ((query: string) => void) | undefined = undefined;
 	export let isSearching = false;
 

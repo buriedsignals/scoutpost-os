@@ -9,6 +9,7 @@
  * Uses httpOnly session cookies for authentication (credentials: 'include').
  * Also exports the legacy InformationUnit type used by compatibility helpers.
  */
+import * as m from '$lib/paraglide/messages';
 import type {
 	MonitoringSetupRequest,
 	MonitoringSetupResponse,
@@ -23,13 +24,13 @@ function normalizePulseSearchError(response: Response, result: Record<string, un
 		response.status === 401 ||
 		(typeof result?.code === 'string' && result.code.startsWith('UNAUTHORIZED_'))
 	) {
-		return 'Your session is no longer valid for Beat Scout preview. Please sign out and sign in again.';
+		return m.apiErrors_beatSessionInvalid();
 	}
 
 	return (
 		(typeof result?.detail === 'string' && result.detail) ||
 		(typeof result?.response_markdown === 'string' && result.response_markdown) ||
-		'Failed to search pulse'
+		m.apiErrors_beatSearchFailed()
 	);
 }
 import { buildApiUrl, buildFastApiUrl } from '$lib/config/api';
@@ -86,7 +87,7 @@ export async function apiRequest<T>(
 			normalizeErrorDetail(
 				(error as { detail?: unknown; error?: unknown }).detail ??
 					(error as { error?: unknown }).error,
-				`API error: ${response.status}`
+				m.apiErrors_status({ status: response.status })
 			)
 		);
 	}
@@ -124,7 +125,7 @@ export async function fastApiRequest<T>(
 			normalizeErrorDetail(
 				(error as { detail?: unknown; error?: unknown }).detail ??
 					(error as { error?: unknown }).error,
-				`API error: ${response.status}`
+				m.apiErrors_status({ status: response.status })
 			)
 		);
 	}
@@ -327,7 +328,7 @@ async function fetchAllScouts(): Promise<ListedScout[]> {
 			headers: { ...JSON_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }
 		});
 		if (!response.ok) {
-			throw new Error(normalizeErrorDetail(undefined, `API error: ${response.status}`));
+			throw new Error(normalizeErrorDetail(undefined, m.apiErrors_status({ status: response.status })));
 		}
 		const body = (await response.json()) as {
 			items?: ListedScout[];
@@ -349,7 +350,7 @@ async function resolveScoutId(scraperName: string): Promise<string> {
 	for (const item of items) cache.set(item.name, item.id);
 	_scoutNameToIdCache = cache;
 	const id = cache.get(scraperName);
-	if (!id) throw new Error(`Scout "${scraperName}" not found`);
+	if (!id) throw new Error(m.apiErrors_scoutNotFound({ name: scraperName }));
 	return id;
 }
 
@@ -397,7 +398,7 @@ export const apiClient = {
 			headers: { ...JSON_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }
 		});
 		if (!response.ok && response.status !== 204) {
-			let detail = 'Failed to delete monitoring job';
+			let detail = m.scouts_failedToDelete();
 			try {
 				const error = await response.json();
 				detail = error.detail || error.error || detail;
@@ -428,7 +429,7 @@ export const apiClient = {
 			'POST',
 			'/scouts',
 			body as unknown,
-			'Failed to schedule monitoring'
+			m.apiErrors_scheduleMonitoringFailed()
 		);
 		return res as unknown as MonitoringSetupResponse;
 	},
@@ -449,7 +450,7 @@ export const apiClient = {
 			'POST',
 			'/scouts',
 			body as unknown,
-			'Failed to schedule local scout'
+			m.apiErrors_scheduleLocalScoutFailed()
 		);
 		return res as unknown as ScoutSetupResponse;
 	},
@@ -474,12 +475,12 @@ export const apiClient = {
 			'POST',
 			`/scouts/${encodeURIComponent(id)}/run`,
 			{},
-			'Failed to run scout'
+			m.scouts_failedToRun()
 		);
 		return {
 			scraper_status: true,
 			criteria_status: false,
-			summary: 'Scout run queued',
+			summary: m.apiFeedback_scoutRunQueued(),
 			notification_sent: false
 		};
 	},
@@ -527,7 +528,7 @@ export const apiClient = {
 		priority_sources?: string[];
 	}): Promise<import('$lib/types').PulseSearchResponse> {
 		if (!filters.location && !filters.criteria) {
-			throw new Error('Location or criteria is required for pulse search');
+			throw new Error(m.scheduleSearch_locationOrTopicRequired());
 		}
 
 		const body: Record<string, unknown> = {
@@ -553,9 +554,9 @@ export const apiClient = {
 		try {
 			result = await response.json();
 		} catch {
-			const textError = await response.text().catch(() => 'Unknown server error');
+			const textError = await response.text().catch(() => m.apiErrors_unknownServerError());
 			console.error('[API] searchPulse received non-JSON response:', textError);
-			throw new Error(`Server error: ${textError || 'Unknown error'}`);
+			throw new Error(m.apiErrors_serverError({ detail: textError || m.error_generic() }));
 		}
 
 		if (!response.ok || result?.status === 'failed') {
@@ -966,7 +967,7 @@ export function normalizeApiError(
 	return {
 		message: response.statusText
 			? `HTTP ${status} ${response.statusText}`
-			: `HTTP ${status || 'error'}`
+			: `HTTP ${status || m.common_error()}`
 	};
 }
 
@@ -1350,7 +1351,7 @@ export const workspaceApi = {
 	 */
 	async mergeEntities(ids: string[]): Promise<{ keep_id: string; merged: number }> {
 		if (!Array.isArray(ids) || ids.length < 2) {
-			throw new ApiError('mergeEntities requires at least 2 ids (keeper + merges)');
+			throw new ApiError(m.apiErrors_mergeEntitiesRequiresIds());
 		}
 		const [keepId, ...mergeIds] = ids;
 		const res = await workspaceRequest<Record<string, unknown>>('POST', '/entities/merge', {

@@ -218,20 +218,17 @@
       "goose": {
         "mcp": {
           "title": "Goose",
-          "tagline": "Add {{DISPLAY_NAME}} to Goose Desktop with one click, or from the Extensions screen.",
-          "method": "one-click",
+          "tagline": "Connect {{DISPLAY_NAME}} from Goose’s Extensions settings, then sign in securely in your browser.",
+          "method": "ui-steps",
           "command": "{{MCP_URL}}",
           "configPath": null,
-          "oneClick": {
-            "label": "Add to Goose",
-            "url": "goose://extension?type=streamable_http&url={{MCP_URL_ENC}}&id={{SERVER_ID}}&name={{DISPLAY_NAME_ENC}}&description={{DISPLAY_NAME_ENC}}%20MCP%20server"
-          },
+          "oneClick": null,
           "steps": [
-            "Click Add to Goose above and approve the extension when Goose asks. Goose opens your browser to sign in to {{DISPLAY_NAME}}.",
-            "Or add it by hand: open the Goose sidebar → Extensions → Add custom extension.",
-            "Type: Streamable HTTP. Endpoint URL: {{MCP_URL}}. ID: {{SERVER_ID}}. Name: {{DISPLAY_NAME}}. Leave the timeout at its default and click Add.",
-            "Approve the {{DISPLAY_NAME}} sign-in in the browser window Goose opens.",
-            "Using the goose CLI instead? Run goose configure → Add Extension → Remote Extension (Streamable HTTP) and answer the prompts with the same name and URL."
+            "In Goose Desktop, open the sidebar → Extensions → Add custom extension.",
+            "Choose Streamable HTTP. Set ID to {{SERVER_ID}}, name to {{DISPLAY_NAME}}, and endpoint URL to {{MCP_URL}}.",
+            "Leave authentication headers and OAuth client credentials empty. Click Add, then enable the extension.",
+            "Complete {{DISPLAY_NAME}} sign-in and approve access in the browser when Goose requests authorization. Return to Goose and start a new session with the extension enabled.",
+            "Using the Goose CLI instead? Run goose configure → Add Extension → Remote Extension (Streamable HTTP), enter the same name and URL, skip headers, and complete the browser sign-in."
           ],
           "verify": "Ask Goose to use {{DISPLAY_NAME}}.",
           "onboardHint": "Paste this as your first message in Goose once it is connected.",
@@ -510,20 +507,17 @@
       "goose": {
         "mcp": {
           "title": "Goose",
-          "tagline": "Add {{DISPLAY_NAME}} to Goose Desktop with one click, or from the Extensions screen.",
-          "method": "one-click",
+          "tagline": "Connect {{DISPLAY_NAME}} from Goose’s Extensions settings, then sign in securely in your browser.",
+          "method": "ui-steps",
           "command": "{{MCP_URL}}",
           "configPath": null,
-          "oneClick": {
-            "label": "Add to Goose",
-            "url": "goose://extension?type=streamable_http&url={{MCP_URL_ENC}}&id={{SERVER_ID}}&name={{DISPLAY_NAME_ENC}}&description={{DISPLAY_NAME_ENC}}%20MCP%20server"
-          },
+          "oneClick": null,
           "steps": [
-            "Click Add to Goose above and approve the extension when Goose asks. Goose opens your browser to sign in to {{DISPLAY_NAME}}.",
-            "Or add it by hand: open the Goose sidebar → Extensions → Add custom extension.",
-            "Type: Streamable HTTP. Endpoint URL: {{MCP_URL}}. ID: {{SERVER_ID}}. Name: {{DISPLAY_NAME}}. Leave the timeout at its default and click Add.",
-            "Approve the {{DISPLAY_NAME}} sign-in in the browser window Goose opens.",
-            "Using the goose CLI instead? Run goose configure → Add Extension → Remote Extension (Streamable HTTP) and answer the prompts with the same name and URL."
+            "In Goose Desktop, open the sidebar → Extensions → Add custom extension.",
+            "Choose Streamable HTTP. Set ID to {{SERVER_ID}}, name to {{DISPLAY_NAME}}, and endpoint URL to {{MCP_URL}}.",
+            "Leave authentication headers and OAuth client credentials empty. Click Add, then enable the extension.",
+            "Complete {{DISPLAY_NAME}} sign-in and approve access in the browser when Goose requests authorization. Return to Goose and start a new session with the extension enabled.",
+            "Using the Goose CLI instead? Run goose configure → Add Extension → Remote Extension (Streamable HTTP), enter the same name and URL, skip headers, and complete the browser sign-in."
           ],
           "verify": "Ask Goose to use {{DISPLAY_NAME}}.",
           "onboardHint": "Paste this as your first message in Goose once it is connected.",

@@ -6,6 +6,7 @@ import {
   deriveScheduleAnchor,
   resolveScheduleAction,
   schedulePolicyError,
+  scheduleTimezoneError,
   subDailyCronFromParts,
 } from "./schedule_policy.ts";
 
@@ -194,6 +195,29 @@ Deno.test("resolveScheduleAction does not schedule a still-paused scout on cron 
     }),
     "unschedule",
   );
+});
+
+Deno.test("timezone policy rejects invalid zones and unsupported local crons", () => {
+  assertEquals(scheduleTimezoneError("15 8 * * *", "Mars/Olympus")?.includes("IANA"), true);
+  assertEquals(scheduleTimezoneError("15 8 * * *", "+05:45")?.includes("IANA"), true);
+  for (const cron of ["*/15 * * * *", "@daily", "60 8 * * *", "15 24 * * *", "15 8 32 * *"]) {
+    assertEquals(scheduleTimezoneError(cron, "America/New_York")?.includes("non-UTC"), true);
+  }
+  assertEquals(scheduleTimezoneError("*/15 6-18 * * MON-FRI", "UTC"), null);
+  for (const cron of ["15 8 * * *", "15 0 * * 1", "15 0 31 * *", "15 2,8,14,20 * * *"]) {
+    assertEquals(scheduleTimezoneError(cron, "Asia/Kathmandu"), null);
+  }
+});
+
+Deno.test("timezone-only updates reconcile active jobs without activating paused scouts", () => {
+  assertEquals(resolveScheduleAction({
+    activeChanged: false, cronChanged: false, timezoneChanged: true,
+    willBeActive: true, hasSchedule: true,
+  }), "schedule");
+  assertEquals(resolveScheduleAction({
+    activeChanged: false, cronChanged: false, timezoneChanged: true,
+    willBeActive: false, hasSchedule: true,
+  }), "unschedule");
 });
 
 Deno.test("resolveScheduleAction is a no-op when nothing relevant changed", () => {

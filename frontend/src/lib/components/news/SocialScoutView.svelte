@@ -53,6 +53,7 @@
 	}
 
 	async function handleVerifyProfile() {
+		if (!canVerify) return;
 		const requestedPlatform = platform;
 		const requestedHandle = normalizedHandle;
 		const requestedProfileKey = `${requestedPlatform}:${requestedHandle}`;
@@ -66,7 +67,7 @@
 		verifiedProfileKey = '';
 		isVerifying = true;
 		testProgress = 5;
-		testProgressMessage = 'Connecting to platform...';
+		testProgressMessage = m.socialScout_connecting();
 
 		if (testProgressTimer) {
 			clearInterval(testProgressTimer);
@@ -77,13 +78,13 @@
 			if (testProgress < 85) {
 				testProgress += Math.round(Math.random() * 5 + 2);
 				if (testProgress < 20) {
-					testProgressMessage = 'Connecting to platform...';
+					testProgressMessage = m.socialScout_connecting();
 				} else if (testProgress < 40) {
-					testProgressMessage = 'Looking up profile...';
+					testProgressMessage = m.socialScout_lookingUp();
 				} else if (testProgress < 65) {
-					testProgressMessage = 'Scanning recent posts...';
+					testProgressMessage = m.socialScout_scanning();
 				} else {
-					testProgressMessage = 'Building baseline...';
+					testProgressMessage = m.socialScout_buildingBaseline();
 				}
 			}
 		}, 800);
@@ -206,12 +207,13 @@
 						id="social-platform"
 						bind:value={platform}
 						class="form-input w-full text-sm"
+						required
 					>
 						<option value="instagram">Instagram</option>
 						<option value="x">X</option>
-						<option value="facebook">Facebook Profile</option>
+						<option value="facebook">{m.dataExtract_facebook()}</option>
 						<option value="tiktok">TikTok</option>
-						<option value="linkedin">LinkedIn Profile</option>
+						<option value="linkedin">{m.socialScout_linkedinProfileLabel()}</option>
 					</select>
 				</div>
 
@@ -219,6 +221,7 @@
 				<div class="field-group">
 					<label for="social-handle" class="field-label">
 						{platform === 'linkedin' ? m.socialScout_linkedinUrlLabel() : m.socialScout_handleLabel()}
+						<span aria-hidden="true">*</span>
 					</label>
 					<input
 						id="social-handle"
@@ -226,8 +229,10 @@
 						bind:value={handle}
 						placeholder={platform === 'linkedin' ? m.socialScout_linkedinUrlPlaceholder() : m.socialScout_handlePlaceholder()}
 						class="form-input"
+						required
+						maxlength="200"
 					/>
-					<p class="policy-guidance">Monitor only public profiles for a legitimate public-interest purpose. See the <a href="/terms#acceptable-use">acceptable-use policy</a>.</p>
+					<p class="policy-guidance">{m.socialScout_publicInterest()} <a href="/terms#acceptable-use">{m.socialScout_acceptableUse()}</a>.</p>
 				</div>
 
 				<!-- Monitor Mode Picker -->
@@ -243,13 +248,15 @@
 
 					{#if monitorMode === 'criteria'}
 						<div class="criteria-detail" transition:slide={{ duration: 200 }}>
-							<label for="social-criteria" class="field-label">{m.socialScout_criteriaLabel()}</label>
+							<label for="social-criteria" class="field-label">{m.socialScout_criteriaLabel()} <span aria-hidden="true">*</span></label>
 							<textarea
 								id="social-criteria"
 								bind:value={criteria}
 								rows="3"
 								placeholder={m.webScout_criteriaPlaceholder()}
 								class="form-textarea"
+								required
+								maxlength="4000"
 							></textarea>
 						</div>
 					{/if}
@@ -296,7 +303,7 @@
 					message={testProgressMessage}
 					state={progressState}
 					successMessage={m.socialScout_verifySuccess({ count: String(baselinePostIds.length) })}
-					successDetails={(platform === 'linkedin' ? verifiedHandle : '@' + verifiedHandle) + ' on ' + platform}
+					successDetails={m.socialScout_profileOnPlatform({ profile: platform === 'linkedin' ? verifiedHandle : '@' + verifiedHandle, platform })}
 					errorTitle={m.socialScout_verifyFailed()}
 					errorMessage={verifyError}
 					showButton={false}
@@ -310,10 +317,10 @@
 
 				{#if verifySuccess && previewPosts.length > 0}
 					<div class="baseline-preview">
-						<p class="preview-label">Recent posts (baseline)</p>
+						<p class="preview-label">{m.socialScout_baselinePosts()}</p>
 						{#each previewPosts.slice(0, 3) as post}
 							<div class="preview-post">
-								<span class="preview-text">{post.text || '(no caption)'}</span>
+								<span class="preview-text">{post.text || m.socialScout_noCaption()}</span>
 								{#if post.timestamp}
 									<span class="preview-ts">{post.timestamp}</span>
 								{/if}

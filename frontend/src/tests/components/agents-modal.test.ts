@@ -112,7 +112,7 @@ describe('Connect Agent modal', () => {
 		}
 	});
 
-	it('leads desktop apps with in-app steps or a one-click link, never a terminal command', () => {
+	it('leads desktop apps with in-app steps or a one-click link, never a terminal command', async () => {
 		const chatgpt = getAgentRecipes('chatgpt-desktop').recipes.mcp!;
 		const { container } = render(AgentSetup, { props: { recipe: chatgpt } });
 		expect(container.textContent).toContain('Settings → MCP servers → Add server');
@@ -121,10 +121,15 @@ describe('Connect Agent modal', () => {
 		cleanup();
 
 		const goose = getAgentRecipes('goose').recipes.mcp!;
-		render(AgentSetup, { props: { recipe: goose } });
-		const link = screen.getByRole('link', { name: 'Add to Goose' }) as HTMLAnchorElement;
-		expect(link.href).toBe(oneClickFixture.scoutpost.goose);
-		expect(screen.getByText(/Extensions → Add custom extension/)).toBeInTheDocument();
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, 'clipboard', {
+			configurable: true,
+			value: { writeText }
+		});
+		const { container: gooseSetup } = render(AgentSetup, { props: { recipe: goose } });
+		expect(gooseSetup.querySelector('a[href^="goose:"]')).toBeNull();
+		await fireEvent.click(screen.getByRole('button', { name: 'Copy URL' }));
+		expect(writeText).toHaveBeenCalledWith('https://scoutpost.ai/mcp');
 		cleanup();
 
 		const cursor = getAgentRecipes('cursor').recipes.mcp!;

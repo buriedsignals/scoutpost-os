@@ -152,19 +152,25 @@ and opens your browser on first use. Reference:
 
 ## Goose
 
-One click: the modal's **Add to Goose** link opens
-`goose://extension?type=streamable_http&url=https%3A%2F%2Fscoutpost.ai%2Fmcp&id=scoutpost&name=Scoutpost&description=Scoutpost%20MCP%20server`;
-approve the extension when Goose asks, then approve the sign-in in the browser.
+The modal shows instructions and a copyable MCP URL, **not** an “Open Goose”
+or `goose://` launch link.
 
-By hand in Goose Desktop: open the sidebar → **Extensions** → **Add custom
-extension**. Type: **Streamable HTTP**. Endpoint URL: `https://scoutpost.ai/mcp`.
-ID: `scoutpost`. Name: `Scoutpost`. Leave the timeout at its default and click
-**Add**.
+1. In Goose Desktop, open the sidebar → **Extensions** → **Add custom extension**.
+2. Choose **Streamable HTTP**. Set ID to `scoutpost`, name to `Scoutpost`, and
+   paste the MCP URL copied from Scoutpost's **Connect Agent → Goose** panel.
+3. Leave authentication headers and OAuth client credentials empty. Click
+   **Add**, then enable the extension.
+4. Complete Scoutpost sign-in and approve access in the browser when Goose
+   requests authorization. Return to Goose and start a new session with the
+   extension enabled.
 
-Goose CLI: run `goose configure` → **Add Extension** → **Remote Extension
-(Streamable HTTP)** and answer the prompts with the same name and URL. Desktop
-and CLI share `~/.config/goose/config.yaml`. Reference:
-<https://goose-docs.ai/docs/getting-started/using-extensions>.
+For Goose CLI, run `goose configure` → **Add Extension** → **Remote Extension
+(Streamable HTTP)**; use the same name and URL, skip headers, and complete the
+browser sign-in. Reference:
+<https://goose-docs.ai/docs/getting-started/using-extensions/>.
+
+UI instructions and URL copying have been checked locally. That does not prove
+a native Goose OAuth handshake or tool call on every platform.
 
 ## OpenCode (terminal)
 

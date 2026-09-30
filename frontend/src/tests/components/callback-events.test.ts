@@ -1,10 +1,8 @@
-import { render, fireEvent, screen, waitFor, cleanup } from '@testing-library/svelte';
+import { render, fireEvent, screen, cleanup } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import NewScoutDropdown from '$lib/components/workspace/NewScoutDropdown.svelte';
 import ScoutCard from '$lib/components/workspace/ScoutCard.svelte';
 import UnitRow from '$lib/components/workspace/UnitRow.svelte';
-import ScoutScheduleModal from '$lib/components/modals/ScoutScheduleModal.svelte';
-import { apiClient } from '$lib/api-client';
 import type { Scout, Unit } from '$lib/types/workspace';
 
 type AuthVal = {
@@ -44,13 +42,6 @@ vi.mock('$lib/utils/agent-targets', async (importOriginal) => {
 	};
 });
 
-vi.mock('$lib/api-client', () => ({
-	apiClient: {
-		getActiveJobs: vi.fn().mockResolvedValue({ scrapers: [] }),
-		scheduleMonitoring: vi.fn().mockResolvedValue({ ok: true }),
-		scheduleLocalScout: vi.fn().mockResolvedValue({ ok: true })
-	}
-}));
 
 function setTier(tier: 'free' | 'pro' | 'team') {
 	mockAuth.store.set({
@@ -207,54 +198,3 @@ describe('callback props for workspace components', () => {
 	});
 });
 
-describe('callback props for scout scheduling', () => {
-	it('calls ScoutScheduleModal close and success callbacks', async () => {
-		const onClose = vi.fn();
-		const onSuccess = vi.fn();
-
-		render(ScoutScheduleModal, {
-			props: {
-				open: true,
-				scoutType: 'web',
-				scoutName: 'Example page scout',
-				url: 'https://example.com/news',
-				topic: 'housing',
-				onClose,
-				onSuccess
-			}
-		});
-
-		await fireEvent.click(screen.getByRole('button', { name: /close modal/i }));
-		expect(onClose).toHaveBeenCalledTimes(1);
-
-		cleanup();
-
-		render(ScoutScheduleModal, {
-			props: {
-				open: true,
-				scoutType: 'web',
-				scoutName: 'Example page scout',
-				url: 'https://example.com/news',
-				topic: 'housing',
-				onClose,
-				onSuccess
-			}
-		});
-
-		await fireEvent.click(screen.getByRole('button', { name: /schedule scout/i }));
-
-		await waitFor(() => {
-			expect(apiClient.scheduleMonitoring).toHaveBeenCalledWith(
-				expect.objectContaining({
-					name: 'Example page scout',
-					url: 'https://example.com/news',
-					topic: 'housing'
-				})
-			);
-			expect(onSuccess).toHaveBeenCalledWith({
-				name: 'Example page scout',
-				scoutType: 'web'
-			});
-		});
-	});
-});

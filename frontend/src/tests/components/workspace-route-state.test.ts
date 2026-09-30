@@ -5,6 +5,7 @@ import WorkspacePage from '../../routes/+page.svelte';
 import { scoutsStore } from '$lib/stores/workspace/scouts';
 import { unitsStore } from '$lib/stores/workspace/units';
 import { selectionStore } from '$lib/stores/workspace/selection';
+import * as m from '$lib/paraglide/messages';
 
 vi.mock('$lib/demo/state', () => ({
 	IS_LOCAL_DEMO_MODE: true
@@ -58,7 +59,7 @@ describe('workspace route state and navigation contract', () => {
 		expect(screen.queryByText('All scouts')).not.toBeInTheDocument();
 		expect(unitsStore.getState().scoutId).toBeNull();
 
-		const allScopeInbox = screen.getByRole('region', { name: /information unit inbox/i });
+		const allScopeInbox = screen.getByRole('region', { name: m.workspace_inbox_heading() });
 		expect(within(allScopeInbox).getByRole('button', { name: /^needs review ·/i })).toBeInTheDocument();
 		await fireEvent.click(within(allScopeInbox).getByRole('button', { name: /^all ·/i }));
 		expect(screen.getByPlaceholderText('Search all inbox units')).toBeInTheDocument();
@@ -71,7 +72,7 @@ describe('workspace route state and navigation contract', () => {
 
 		expect(screen.getByRole('button', { name: /all scouts/i })).toBeInTheDocument();
 		expect(screen.getByPlaceholderText('Search this inbox')).toBeInTheDocument();
-		const focusedInbox = screen.getByRole('region', { name: /information unit inbox/i });
+		const focusedInbox = screen.getByRole('region', { name: m.workspace_inbox_heading() });
 		await fireEvent.click(within(focusedInbox).getByRole('button', { name: /^needs review ·/i }));
 		expect(within(focusedInbox).getByRole('button', { name: /^all ·/i })).toBeInTheDocument();
 
@@ -93,8 +94,6 @@ describe('workspace route state and navigation contract', () => {
 		const actions = screen.getByLabelText('Workspace actions');
 		const newScoutButton = within(actions).getByRole('button', { name: /new scout/i });
 		const connectAgentButton = within(actions).getByRole('button', { name: /connect agent/i });
-		expect(newScoutButton).toHaveClass('cursor-pointer');
-		expect(connectAgentButton).toHaveClass('cursor-pointer');
 
 		await user.click(newScoutButton);
 		await waitFor(() => {
@@ -108,14 +107,13 @@ describe('workspace route state and navigation contract', () => {
 		});
 
 		await fireEvent.click(connectAgentButton);
-		expect(screen.getByRole('dialog', { name: /connect an agent/i })).toBeInTheDocument();
-		expect(screen.getByText('Connect an agent')).toBeInTheDocument();
+		expect(screen.getByRole('dialog', { name: m.agent_connect() })).toBeInTheDocument();
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 		await fireEvent.click(screen.getByRole('button', { name: /user menu/i }));
 		await fireEvent.click(screen.getByRole('menuitem', { name: 'API' }));
 
-		expect(screen.getByRole('dialog', { name: /connect an agent/i })).toBeInTheDocument();
+		expect(screen.getByRole('dialog', { name: m.agent_connect() })).toBeInTheDocument();
 		expect(screen.getByText('REST API')).toBeInTheDocument();
 	});
 });

@@ -10,6 +10,8 @@
  * — calling `reset()` or `load()` returns to paginated mode.
  */
 import { writable, type Writable } from 'svelte/store';
+import * as m from '$lib/paraglide/messages';
+import { getLocale } from '$lib/paraglide/runtime';
 import {
 	workspaceApi as defaultApi,
 	ApiError,
@@ -74,19 +76,17 @@ function includesQuery(value: string | null | undefined, query: string): boolean
 
 function demoSearchReason(fields: SearchKeywordField[]): string {
 	const labels: Record<SearchKeywordField, string> = {
-		statement: 'statement',
-		context_excerpt: 'context',
-		source: 'source metadata',
-		entities: 'entities',
-		scout_name: 'scout name',
-		linked_scouts: 'linked scouts',
-		tags: 'tags'
+		statement: m.unit_statement(),
+		context_excerpt: m.unit_context(),
+		source: m.unit_sourceMetadata(),
+		entities: m.workspace_unitDrawer_tabEntities(),
+		scout_name: m.scout_name(),
+		linked_scouts: m.unit_linkedScouts(),
+		tags: m.unit_tags()
 	};
 	const present = [...new Set(fields)].map((field) => labels[field]);
-	if (present.length === 0) return 'Direct text match.';
-	if (present.length === 1) return `Direct text match in ${present[0]}.`;
-	if (present.length === 2) return `Direct text match in ${present[0]} and ${present[1]}.`;
-	return `Direct text match in ${present.slice(0, -1).join(', ')}, and ${present[present.length - 1]}.`;
+	if (present.length === 0) return m.unit_directMatch();
+	return m.unit_directMatchFields({ fields: new Intl.ListFormat(getLocale(), { type: 'conjunction' }).format(present) });
 }
 
 function annotateDemoSearchMatch(unit: WorkspaceUnit, loweredQuery: string): WorkspaceUnit {

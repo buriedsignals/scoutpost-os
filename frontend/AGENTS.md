@@ -121,10 +121,19 @@ Internationalization uses [Paraglide JS](https://inlang.com/m/gerre34r) with inl
 **Adding a new i18n key:**
 
 1. Add the key to `messages/en.json` (camelCase after prefix, e.g. `"feed_noLocations": "No locations")`)
-2. **Add the same key to ALL 12 language files** — `da.json`, `de.json`, `es.json`, `fi.json`, `fr.json`, `it.json`, `nl.json`, `no.json`, `pl.json`, `pt.json`, `sv.json` (use English as fallback)
+2. **Add genuinely translated values to ALL 12 language files** — English plus `da.json`, `de.json`, `es.json`, `fi.json`, `fr.json`, `it.json`, `nl.json`, `no.json`, `pl.json`, `pt.json`, `sv.json`. Do not copy English as a completed fallback. Preserve interpolation names, URLs, commands, product names, and exact external application menu names.
 3. Recompile paraglide: `npm run paraglide:compile`
 4. Import and use: `import * as m from '$lib/paraglide/messages'` → `m.feed_noLocations()`
-5. **Verify:** Run `npm run check` — it will fail with "Property does not exist" if any key is missing
+5. **Verify:** Run `npm run check`, compare catalog key sets and interpolation placeholders, then inspect the actual UI in the selected language. Compilation alone does not detect English fallbacks. Include labels, placeholders, validation messages, example prompts, accessibility text, dates, schedules, and connection instructions.
+
+Original legal and reference prose may remain English only when explicitly
+marked `lang="en"` with a translated notice; application controls still use the
+selected locale. User-authored and source-returned content is not silently
+rewritten when the interface language changes.
+
+For real-account browser QA, use `http://localhost:5173`: the hosted Edge CORS
+allowlist does not permit arbitrary dev ports. A different origin can load the
+UI and Auth session while blocking profile and language-save requests.
 
 **CRITICAL: Always use `npm run paraglide:compile` (or the full command below).** Do NOT run the bare `npx @inlang/paraglide-js compile --project ./project.inlang` — it omits the `--outdir` and `--strategy` flags, compiling to the wrong directory (`src/paraglide/` instead of `src/lib/paraglide/`).
 

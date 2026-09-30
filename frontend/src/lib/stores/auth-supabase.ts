@@ -7,6 +7,7 @@
  * USED BY: auth.ts (conditional loader)
  * DEPENDS ON: @supabase/supabase-js, $lib/config/api (buildApiUrl)
  */
+import * as m from '$lib/paraglide/messages';
 import { browser } from '$app/environment';
 import { writable, derived } from 'svelte/store';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -294,7 +295,7 @@ export function createAuthStore(
 			preferredLanguage?: string
 		) {
 			if (!timezone) {
-				throw new Error('Please choose a timezone to finish onboarding.');
+				throw new Error(m.authErrors_onboardingTimezoneRequired());
 			}
 
 			const sb = getSupabase();
@@ -303,7 +304,7 @@ export function createAuthStore(
 			} = await sb.auth.getSession();
 
 			if (!session) {
-				throw new Error('Not authenticated');
+				throw new Error(m.authErrors_notAuthenticated());
 			}
 
 			const response = await fetch(buildApiUrl('/user/preferences'), {
@@ -323,7 +324,7 @@ export function createAuthStore(
 			const payload = await response.json();
 
 			if (!response.ok) {
-				throw new Error(payload?.detail || payload?.error || 'Failed to initialize user');
+				throw new Error(payload?.detail || payload?.error || m.authErrors_initializeUserFailed());
 			}
 
 			const meResponse = await fetch(buildApiUrl('/user/me'), {
@@ -332,7 +333,7 @@ export function createAuthStore(
 				}
 			});
 			if (!meResponse.ok) {
-				throw new Error('Failed to refresh user after initialization');
+				throw new Error(m.authErrors_refreshAfterInitializationFailed());
 			}
 
 			const currentUser = (await meResponse.json()) as User;
@@ -352,7 +353,7 @@ export function createAuthStore(
 			const result = await apiClient.updateUserPreferences(params);
 
 			if (!result.success) {
-				throw new Error('Failed to update preferences');
+				throw new Error(m.preferences_failedToSave());
 			}
 
 			update((state) => {

@@ -7,8 +7,8 @@
     "defaults": {
       "topic": "civic, council",
       "criteria": "Track new resolutions, ordinances, and votes.",
-      "regularity": "weekly",
-      "schedule_cron": "0 9 * * 1"
+      "regularity": "monthly",
+      "schedule_cron": "0 9 1 * *"
     },
     "fields": [
       { "key": "root_domain", "label": "Council website domain (e.g. example.gov)", "required": true },
@@ -28,8 +28,8 @@
     "defaults": {
       "topic": "civic, county",
       "criteria": "Surface budget votes, zoning rulings, and contract awards.",
-      "regularity": "weekly",
-      "schedule_cron": "0 10 * * 2"
+      "regularity": "monthly",
+      "schedule_cron": "0 10 1 * *"
     },
     "fields": [
       { "key": "root_domain", "label": "County website domain", "required": true },
@@ -50,8 +50,8 @@
     "defaults": {
       "topic": "civic, legislature",
       "criteria": "Track new bills, committee reports, and recorded votes.",
-      "regularity": "daily",
-      "schedule_cron": "0 8 * * *"
+      "regularity": "monthly",
+      "schedule_cron": "0 8 1 * *"
     },
     "fields": [
       { "key": "root_domain", "label": "Legislature website domain", "required": true },
@@ -71,8 +71,8 @@
     "defaults": {
       "topic": "civic, regulation",
       "criteria": "Surface new filings, orders, and enforcement actions.",
-      "regularity": "daily",
-      "schedule_cron": "0 12 * * *"
+      "regularity": "monthly",
+      "schedule_cron": "0 12 1 * *"
     },
     "fields": [
       { "key": "root_domain", "label": "Regulator website domain", "required": true },
@@ -93,8 +93,8 @@
     "defaults": {
       "topic": "civic, courts",
       "criteria": "Track upcoming hearings, motions, and rulings.",
-      "regularity": "daily",
-      "schedule_cron": "30 7 * * *"
+      "regularity": "monthly",
+      "schedule_cron": "30 7 1 * *"
     },
     "fields": [
       { "key": "root_domain", "label": "Court website domain", "required": true },
@@ -153,18 +153,18 @@
     "description": "Beat search focused on housing news in a given city, prioritising trusted local sources.",
     "defaults": {
       "topic": "housing, local news",
-      "regularity": "daily",
-      "schedule_cron": "0 8 * * *",
+      "regularity": "weekly",
+      "schedule_cron": "0 8 * * 1",
       "criteria": "Evictions, zoning decisions, affordable housing funding, rent changes."
     },
     "fields": [
-      { "key": "location", "label": "City (JSON object with city/country)", "required": true },
+      { "key": "location", "label": "City (JSON object with displayName, city and country)", "required": true },
       { "key": "priority_sources", "label": "Preferred sources (one per line)", "required": false, "multiline": true },
       { "key": "criteria", "label": "Criteria (optional override)", "required": false, "multiline": true }
     ],
     "example_fill": {
       "name": "Zurich housing beat",
-      "location": { "city": "Zurich", "country": "Switzerland" },
+      "location": { "displayName": "Zurich, Switzerland", "city": "Zurich", "country": "Switzerland" },
       "priority_sources": ["tagesanzeiger.ch", "nzz.ch"]
     }
   },
@@ -175,18 +175,18 @@
     "description": "Beat search focused on K-12 and higher-ed policy changes in a given region.",
     "defaults": {
       "topic": "education, policy",
-      "regularity": "daily",
-      "schedule_cron": "15 9 * * *",
+      "regularity": "weekly",
+      "schedule_cron": "15 9 * * 1",
       "criteria": "School board decisions, funding changes, curriculum debates, university policy."
     },
     "fields": [
-      { "key": "location", "label": "Region (JSON object with state/country)", "required": true },
+      { "key": "location", "label": "Region (JSON object with displayName, state and country)", "required": true },
       { "key": "criteria", "label": "Criteria (optional override)", "required": false, "multiline": true },
       { "key": "priority_sources", "label": "Preferred sources (one per line)", "required": false, "multiline": true }
     ],
     "example_fill": {
       "name": "California education policy",
-      "location": { "state": "California", "country": "United States" },
+      "location": { "displayName": "California, United States", "state": "California", "country": "United States" },
       "priority_sources": ["edsource.org", "latimes.com"]
     }
   },
@@ -197,16 +197,18 @@
     "description": "Monitor an Instagram profile for new posts and alert when content matches criteria.",
     "defaults": {
       "topic": "social, Instagram",
-      "regularity": "daily",
-      "schedule_cron": "0 14 * * *"
+      "regularity": "weekly",
+      "schedule_cron": "0 14 * * 1",
+      "platform": "instagram",
+      "monitor_mode": "summarize"
     },
     "fields": [
-      { "key": "url", "label": "Instagram profile URL (e.g. https://instagram.com/handle)", "required": true },
+      { "key": "profile_handle", "label": "Instagram profile handle (e.g. whitehouse)", "required": true },
       { "key": "criteria", "label": "What should trigger an alert? (optional)", "required": false, "multiline": true }
     ],
     "example_fill": {
       "name": "@whitehouse monitor",
-      "url": "https://instagram.com/whitehouse"
+      "profile_handle": "whitehouse"
     }
   }
 ]

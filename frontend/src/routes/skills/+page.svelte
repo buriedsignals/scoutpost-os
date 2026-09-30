@@ -2,6 +2,8 @@
 	import { ArrowLeft, Bot, FileText, Terminal, Wrench } from 'lucide-svelte';
 	import SharpAction from '$lib/components/docs/SharpAction.svelte';
 	import SharpPanel from '$lib/components/docs/SharpPanel.svelte';
+	import * as m from '$lib/paraglide/messages';
+	import { getLocale } from '$lib/paraglide/runtime';
 
 	const skills = [
 		{
@@ -32,13 +34,14 @@
 	<link rel="alternate" type="text/markdown" title="Scoutpost setup skill" href="/skills/scoutpost-setup.md" />
 </svelte:head>
 
-<div class="skills-page">
+<div class="skills-page" lang="en">
 	<div class="bg-pattern"></div>
 
 	<main class="content">
+		{#if getLocale() !== 'en'}<p role="note" lang={getLocale()}>{m.docs_englishOriginal()}</p>{/if}
 		<SharpAction href="/login" variant="ghost" size="sm" className="back-link">
 			<ArrowLeft size={14} />
-			<span>Back</span>
+			<span lang={getLocale()}>{m.common_back()}</span>
 		</SharpAction>
 
 		<header class="hero">

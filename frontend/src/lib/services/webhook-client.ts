@@ -9,6 +9,7 @@
  * Exported as singleton: webhookClient.
  */
 
+import * as m from '$lib/paraglide/messages';
 import { buildApiUrl } from '$lib/config/api';
 
 interface ScraperTestRequest {
@@ -65,7 +66,7 @@ class WebhookClient {
 			clearTimeout(timeoutId);
 
 			if (!response.ok) {
-				throw new Error(`Scout test failed: ${response.status} ${response.statusText}`);
+				throw new Error(m.apiErrors_scoutTestStatus({ status: response.status, statusText: response.statusText }));
 			}
 
 			const data = await response.json();
@@ -85,9 +86,9 @@ class WebhookClient {
 
 			if (error instanceof Error) {
 				if (error.name === 'AbortError') {
-					throw new Error(`Scout test timed out after ${this.timeout}ms`);
+					throw new Error(m.apiErrors_scoutTestTimeout({ timeout: this.timeout }));
 				}
-				throw new Error(`Scout test failed: ${error.message}`);
+				throw new Error(m.apiErrors_scoutTestFailed({ detail: error.message }));
 			}
 			throw error;
 		}

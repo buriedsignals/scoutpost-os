@@ -243,6 +243,14 @@ units, alert links, and archive evidence retain the exact effective child URL.
 A child linked during initial index establishment is a silent baseline; a child
 first linked later is evaluated as an addition.
 
+In the browser, a successful probe belongs to the tested URL and criteria.
+Changing either clears its result, baseline hash, and progress feedback; a
+response arriving for earlier inputs is discarded, including failures.
+Scheduling remains disabled until the current inputs pass a fresh probe.
+After creation, the standalone Page view can create another scout: its
+scheduling modal resets the previous success state, name, project, location,
+and archive consent rather than carrying them into the next scout.
+
 ## Source Dates
 
 Page Scout uses the shared `_shared/atomic_extract.ts::sourcePublishedDate` helper before extracting and inserting information units. The helper tries renderer metadata first, then a visible publication date near the top of markdown, then returns `null`. Extracted facts still prefer the LLM-provided event date, but `information_units.occurred_at` falls back to this source publication date when the fact has no more specific date.

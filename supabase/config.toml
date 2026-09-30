@@ -457,6 +457,10 @@ verify_jwt = false
 [functions.civic-extract-worker]
 verify_jwt = false
 
+[functions.promise-digest]
+# pg_cron authenticates with X-Service-Key; the handler verifies that secret.
+verify_jwt = false
+
 [functions.social-kickoff]
 verify_jwt = false
 

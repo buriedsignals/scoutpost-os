@@ -9,12 +9,9 @@ import {
 	EXTRACT_COSTS,
 	getScoutCost,
 	normalizeScoutType,
-	getScoutTypeDisplay,
-	formatRegularity,
 	truncateUrl,
 	stripMarkdown,
 	getScoutStatus,
-	getScoutStatusLabel,
 	type ScoutStatusInput
 } from '$lib/utils/scouts';
 
@@ -59,7 +56,6 @@ describe('getScoutCost', () => {
 	it('accepts legacy beat aliases from live data', () => {
 		expect(normalizeScoutType('beat')).toBe('pulse');
 		expect(getScoutCost('beat')).toBe(7);
-		expect(getScoutTypeDisplay('beat').label).toBe('Beat Monitor');
 	});
 
 	it('returns platform-specific cost for social scouts', () => {
@@ -91,48 +87,6 @@ describe('EXTRACT_COSTS', () => {
 	it('instagram costs 2', () => expect(EXTRACT_COSTS.instagram).toBe(2));
 	it('facebook costs 15', () => expect(EXTRACT_COSTS.facebook).toBe(15));
 	it('instagram_comments costs 15', () => expect(EXTRACT_COSTS.instagram_comments).toBe(15));
-});
-
-// ===========================================================================
-// formatRegularity
-// ===========================================================================
-
-describe('formatRegularity', () => {
-	it('weekly returns "Weekly"', () => {
-		expect(formatRegularity('weekly')).toBe('Weekly');
-	});
-
-	it('monthly returns "Monthly"', () => {
-		expect(formatRegularity('monthly')).toBe('Monthly');
-	});
-
-	it('daily with morning time', () => {
-		expect(formatRegularity('daily', '09:00')).toBe('Daily at 9AM');
-	});
-
-	it('daily with afternoon time', () => {
-		expect(formatRegularity('daily', '14:30')).toBe('Daily at 2:30PM');
-	});
-
-	it('daily with midnight', () => {
-		expect(formatRegularity('daily', '00:00')).toBe('Daily at 12AM');
-	});
-
-	it('daily with noon', () => {
-		expect(formatRegularity('daily', '12:00')).toBe('Daily at 12PM');
-	});
-
-	it('daily with minutes shows full time', () => {
-		expect(formatRegularity('daily', '08:15')).toBe('Daily at 8:15AM');
-	});
-
-	it('daily without time falls through to capitalize', () => {
-		expect(formatRegularity('daily')).toBe('Daily');
-	});
-
-	it('unknown regularity gets capitalized', () => {
-		expect(formatRegularity('biweekly')).toBe('Biweekly');
-	});
 });
 
 // ===========================================================================
@@ -339,12 +293,3 @@ describe('getScoutStatus', () => {
 
 });
 
-describe('getScoutStatusLabel', () => {
-	it('maps status keys to user-facing labels', () => {
-		expect(getScoutStatusLabel('awaitingFirstRun')).toBe('Baseline ready');
-		expect(getScoutStatusLabel('alreadyKnown')).toBe('Already known');
-		expect(getScoutStatusLabel({ variant: 'neutral', key: 'noSavedFindings' })).toBe(
-			'No findings saved'
-		);
-	});
-});

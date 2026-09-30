@@ -83,18 +83,11 @@ export type CivicClassification =
  * delivery path. */
 export function shouldAlertForNewCivicItem(
   item: CivicEligibleItem,
-  createdCanonical: boolean,
+  createdTracker: boolean,
 ): boolean {
-  return createdCanonical && item.kind === "promise";
+  return createdTracker && item.kind === "promise";
 }
 
-export function retainCivicPromiseAlertItems<T extends { unit_id: string }>(
-  items: T[],
-  promiseUnitIds: Iterable<string>,
-): T[] {
-  const allowed = new Set(promiseUnitIds);
-  return items.filter((item) => allowed.has(item.unit_id));
-}
 
 /**
  * Stable model schema shared by preview and the worker. `additionalProperties`

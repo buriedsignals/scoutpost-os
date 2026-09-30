@@ -7,15 +7,16 @@
 	import PageScoutView from '$lib/components/news/PageScoutView.svelte';
 	import SocialScoutView from '$lib/components/news/SocialScoutView.svelte';
 	import CivicScoutView from '$lib/components/news/CivicScoutView.svelte';
+	import * as m from '$lib/paraglide/messages';
 
 	const VALID = ['pulse', 'web', 'social', 'civic'] as const;
 	type ValidType = (typeof VALID)[number];
 
 	const LABELS: Record<ValidType, string> = {
-		pulse: 'Beat Monitor',
-		web: 'Page Monitor',
-		social: 'Social Monitor',
-		civic: 'Civic Monitor'
+		pulse: m.newScout_beatTitle(),
+		web: m.newScout_pageTitle(),
+		social: m.newScout_socialTitle(),
+		civic: m.newScout_civicTitle()
 	};
 
 	function isValid(value: string | undefined): value is ValidType {
@@ -36,10 +37,10 @@
 	<div class="topbar">
 		<a class="back" href="/">
 			<ChevronLeft size={14} />
-			<span>Back</span>
+			<span>{m.common_back()}</span>
 		</a>
 		{#if type}
-			<h1 class="title">New {LABELS[type]} scout</h1>
+			<h1 class="title">{LABELS[type]}</h1>
 		{/if}
 	</div>
 

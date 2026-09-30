@@ -9,6 +9,7 @@
 	import OnboardingModal from '$lib/components/modals/OnboardingModal.svelte';
 	import OnboardingVideoModal from '$lib/components/modals/OnboardingVideoModal.svelte';
 	import type { GeocodedLocation } from '$lib/types';
+	import * as m from '$lib/paraglide/messages';
 
 	import '../app.css';
 
@@ -148,13 +149,13 @@ async function handleOnboardingSave(detail: { timezone: string; location: Geocod
 		if (currentUser?.timezone === timezone) {
 			timezoneModalOpen = false;
 		} else {
-			timezoneError = 'Timezone was saved but could not be verified. Please refresh the page.';
+			timezoneError = m.onboarding_timezoneUnverified();
 		}
 	} catch (error) {
 		if (error instanceof Error) {
 			timezoneError = error.message;
 		} else {
-			timezoneError = 'Unable to save timezone. Please try again.';
+			timezoneError = m.onboarding_timezoneFailed();
 		}
 	} finally {
 		timezoneSaving = false;

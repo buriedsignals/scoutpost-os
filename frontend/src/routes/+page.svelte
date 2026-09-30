@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { browser } from '$app/environment';
 	import { MapPin, Tag, FileText } from 'lucide-svelte';
@@ -193,18 +194,18 @@
 			if (name) counts[name] = (counts[name] || 0) + 1;
 		}
 		const entries = Object.entries(counts).sort(([a], [b]) => a.localeCompare(b));
-		if (entries.length === 0) return [{ value: '', label: 'No locations' }];
+		if (entries.length === 0) return [{ value: '', label: m.feed_noLocations() }];
 		return [
-			{ value: '', label: 'All locations' },
+			{ value: '', label: m.scouts_allLocations() },
 			...entries.map(([loc, count]) => ({ value: loc, label: loc, count }))
 		];
 	})();
 
 	$: topicOptions = (() => {
 		const entries = collectTopicCounts(scoutsState.scouts);
-		if (entries.length === 0) return [{ value: '', label: 'No projects' }];
+		if (entries.length === 0) return [{ value: '', label: m.feed_noTopics() }];
 		return [
-			{ value: '', label: 'All projects' },
+			{ value: '', label: m.feed_allTopics() },
 			...entries.map(({ topic, count }) => ({ value: topic, label: topic, count }))
 		];
 	})();
@@ -434,7 +435,7 @@
 			unitsStore.patchUnit(id, updated);
 			closeActiveUnit();
 		} catch (err) {
-			unitActionError = err instanceof Error ? err.message : 'Failed to verify unit';
+			unitActionError = err instanceof Error ? err.message : m.unit_verifyFailed();
 		} finally {
 			drawerActionLoading = null;
 			unitActionLoadingId = null;
@@ -456,7 +457,7 @@
 			unitsStore.patchUnit(id, updated);
 			closeActiveUnit();
 		} catch (err) {
-			unitActionError = err instanceof Error ? err.message : 'Failed to update unit';
+			unitActionError = err instanceof Error ? err.message : m.unit_updateFailed();
 		} finally {
 			drawerActionLoading = null;
 			unitActionLoadingId = null;
@@ -495,7 +496,7 @@
 			closeActiveUnitIfMatch(id);
 			unitDeleteCandidateId = null;
 		} catch (err) {
-			unitActionError = err instanceof Error ? err.message : 'Failed to delete unit';
+			unitActionError = err instanceof Error ? err.message : m.unit_deleteFailed();
 		} finally {
 			deletingUnitId = null;
 		}
@@ -528,7 +529,7 @@
 				<span class="logo-text">Scoutpost</span>
 			</div>
 		</div>
-		<div class="topnav-center" aria-label="Workspace actions">
+		<div class="topnav-center" aria-label={m.workspace_actions()}>
 			<div class="new-scout-wrap">
 				<NewScoutDropdown onSelect={openPanel} />
 			</div>
@@ -541,10 +542,10 @@
 					agentsOpen = true;
 				}}
 				aria-haspopup="dialog"
-				aria-label="Connect Agent"
+				aria-label={m.agent_connect()}
 			>
 				<Bot size={14} />
-				<span>Connect Agent</span>
+				<span>{m.agent_connect()}</span>
 			</Button>
 		</div>
 		<div class="topnav-right">
@@ -554,7 +555,7 @@
 					on:click|stopPropagation={() => (userMenuOpen = !userMenuOpen)}
 					aria-haspopup="menu"
 					aria-expanded={userMenuOpen}
-					aria-label="User menu"
+					aria-label={m.workspace_userMenu()}
 				>
 					{($authStore.user?.email ?? 'U').slice(0, 2).toUpperCase()}
 				</button>
@@ -564,16 +565,17 @@
 							<p class="user-menu-email">{$authStore.user.email}</p>
 						{/if}
 						<button class="user-menu-item" role="menuitem" on:click={() => { userMenuOpen = false; preferencesOpen = true; }}>
-							Preferences
+							{m.preferences_title()}
 						</button>
 						<button class="user-menu-item" role="menuitem" on:click={() => { userMenuOpen = false; agentsApiOnly = true; agentsOpen = true; }}>
 							API
 						</button>
-						<a href="/docs" class="user-menu-item" role="menuitem" on:click={() => (userMenuOpen = false)}>Docs</a>
-						<a href="/terms" class="user-menu-item" role="menuitem" on:click={() => (userMenuOpen = false)}>Terms</a>
-						<a href="/acknowledgements" class="user-menu-item" role="menuitem" on:click={() => (userMenuOpen = false)}>Acknowledgements</a>
+						<a href="/docs" class="user-menu-item" role="menuitem" on:click={() => (userMenuOpen = false)}>{m.nav_docs()}</a>
+						<a href="/" class="user-menu-item" role="menuitem" on:click={() => (userMenuOpen = false)}>{m.nav_pricing()}</a>
+						<a href="/terms" class="user-menu-item" role="menuitem" on:click={() => (userMenuOpen = false)}>{m.nav_terms()}</a>
+						<a href="/acknowledgements" class="user-menu-item" role="menuitem" on:click={() => (userMenuOpen = false)}>{m.nav_acknowledgements()}</a>
 						<button class="user-menu-item user-menu-danger" role="menuitem" on:click={handleSignOut}>
-							Sign out
+							{m.nav_signOut()}
 						</button>
 					</div>
 				{/if}
@@ -605,7 +607,7 @@
 			<!-- Scout creation panel (inline, reactive) -->
 			<div class="panel-content">
 				<div class="creation-back">
-					<WorkspaceBackButton label="Back" onClick={closePanel} />
+					<WorkspaceBackButton label={m.common_back()} onClick={closePanel} />
 				</div>
 				{#if activePanel === 'pulse'}
 					<BeatScoutView initialMode="beat" onScheduled={handleScheduled} />
@@ -643,12 +645,12 @@
 			<!-- FIRST-SCOUT LOADING — empty array but we know one is on its way -->
 			<div class="scouts-section">
 				<div class="section-heading">
-					<h2>Scouts</h2>
+					<h2>{m.sidebar_scouts()}</h2>
 				</div>
 				<div class="scouts-grid">
 					<div class="scout-card-pending" role="status" aria-live="polite">
 						<Spinner size="sm" />
-						<span>Creating your new scout…</span>
+						<span>{m.workspace_creatingScout()}</span>
 					</div>
 				</div>
 			</div>
@@ -656,44 +658,43 @@
 			<!-- RETURNING-USER EMPTY: single centered card, not two stacked placeholders -->
 			<div class="workspace-empty">
 				<div class="workspace-empty-card">
-					<h2 class="workspace-empty-title">Your workspace is empty</h2>
+					<h2 class="workspace-empty-title">{m.workspace_emptyTitle()}</h2>
 					<p class="workspace-empty-body">
-						Create a scout to start monitoring a page, a beat, a social profile, or a council website.
+						{m.workspace_emptyBody()}
 					</p>
-					<p class="workspace-empty-hint">Click <strong>+ New Scout</strong> above to begin.</p>
+					<p class="workspace-empty-hint">{m.workspace_emptyHint()}</p>
 				</div>
 			</div>
 		{:else}
 			<!-- SCOUTS GRID -->
 			<div class="scouts-section">
 				<div class="section-heading">
-					<h2>Scouts · {scoutsState.total}</h2>
-					<span class="hint">Click a scout to scope the feed.</span>
+					<h2>{m.sidebar_scouts()} · {scoutsState.total}</h2>
+					<span class="hint">{m.workspace_scopeFeed()}</span>
 				</div>
 				{#if demoActive}
 					<div class="demo-banner" role="note">
-						<span class="demo-banner-label">Example data</span>
+						<span class="demo-banner-label">{m.workspace_exampleData()}</span>
 						<span class="demo-banner-text">
 							{#if IS_LOCAL_DEMO_MODE}
-								Local Supabase demo mode keeps example scouts and inbox actions local. No hosted auth, scheduling, or billing.
+								{m.workspace_localDemo()}
 							{:else}
-							These 4 scouts are a preview — not running, not billed. Click them to explore.
-							They'll vanish the moment you create your first real scout.
+							{m.workspace_demoDescription()}
 							{/if}
 						</span>
 					</div>
 				{/if}
 				{#if dimensionFiltered.length === 0}
 					<PanelPlaceholder
-						title="No scouts match your filters"
-						subtitle="Adjust the filters above or clear them to see all scouts."
+						title={m.workspace_noMatchingScouts()}
+						subtitle={m.workspace_adjustFilters()}
 					/>
 				{:else}
 					<div class="scouts-grid">
 						{#if pendingNewScoutType}
 							<div class="scout-card-pending" role="status" aria-live="polite">
 								<Spinner size="sm" />
-								<span>Creating your new scout…</span>
+								<span>{m.workspace_creatingScout()}</span>
 							</div>
 						{/if}
 						{#each dimensionFiltered as scout (scout.id)}
@@ -714,7 +715,7 @@
 					{#if scoutsState.hasMore}
 						<div class="scouts-load-more">
 							<Button variant="outline" onclick={handleLoadMoreScouts} disabled={scoutsState.loadingMore}>
-								{scoutsState.loadingMore ? 'Loading scouts…' : 'Load more scouts'}
+								{scoutsState.loadingMore ? m.scouts_loadingScouts() : m.workspace_loadMoreScouts()}
 							</Button>
 						</div>
 					{/if}
@@ -738,7 +739,7 @@
 				totalCount={unitsState.units.length}
 				{needsReviewCount}
 				searchQuery={unitsState.searchQuery}
-				searchPlaceholder={focusedScout ? 'Search this inbox' : 'Search all inbox units'}
+				searchPlaceholder={focusedScout ? m.workspace_searchInbox() : m.workspace_searchAllInbox()}
 				isSearching={unitsState.loading && unitsState.searchQuery.length > 0}
 				onFilterChange={(next) => (feedFilter = next)}
 				onSearch={handleSearch}
@@ -995,11 +996,6 @@
 		margin: 0;
 	}
 
-	.workspace-empty-hint strong {
-		font-weight: 500;
-		color: var(--color-primary);
-		text-transform: uppercase;
-	}
 
 	.scouts-section {
 		padding: 1.5rem 2rem 0.5rem;

@@ -121,7 +121,7 @@ export interface BeatAlertParams extends BaseAlertParams {
 }
 
 export interface CivicAlertParams extends BaseAlertParams {
-  summary: string;
+  items: PromiseDigestItem[];
   /** Durable run-alert outbox key. */
   providerIdempotencyKey?: string;
 }
@@ -167,6 +167,7 @@ interface UserContext {
   email: string | null;
   language: string;
   healthNotificationsEnabled: boolean;
+  emailNotificationsEnabled: boolean;
 }
 
 export interface NotificationSendResult {
@@ -526,6 +527,7 @@ export async function sendCivicAlert(
   svc: SupabaseClient,
   params: CivicAlertParams,
 ): Promise<NotificationSendResult> {
+  if (params.items.length === 0) return { ok: false, reason: "no_new_promises" };
   return guarded(svc, "civic", params.userId, params.runId, async (ctx) => {
     const language = params.language ?? ctx.language;
     const headerTitle = getString("civic_scout", language);
@@ -536,7 +538,9 @@ export async function sendCivicAlert(
       contextLabel: getString("key_findings", language),
       headerTitle,
       headerSubtitle: params.scoutName,
-      summary: civicPromisesSavedSummary(params.summary),
+      summary: `${getString("civic_promises_saved_intro", language)}\n\n${
+        formatPromiseItems(params.items, language)
+      }`,
       articles: [],
       articlesSectionTitle: "",
       cueText: getString("civic_scout_cue", language),
@@ -544,16 +548,14 @@ export async function sendCivicAlert(
     });
 
     return {
-      subject:
-        `\uD83C\uDFDB\uFE0F Civic Scout: New promises saved \u2014 ${params.scoutName}`,
+      subject: `${headerTitle}: ${
+        getString("civic_promises_saved", language)
+      } — ${params.scoutName}`,
       html,
     };
   }, params.providerIdempotencyKey);
 }
 
-export function civicPromisesSavedSummary(summary: string): string {
-  return `These promises were saved for future deadline reminders:\n\n${summary}`;
-}
 
 export async function sendSocialAlert(
   svc: SupabaseClient,
@@ -627,6 +629,7 @@ export async function sendCivicPromiseDigest(
   svc: SupabaseClient,
   params: PromiseDigestParams,
 ): Promise<NotificationSendResult> {
+  if (params.items.length === 0) return { ok: false, reason: "no_due_promises" };
   const resendKey = Deno.env.get("RESEND_API_KEY") ?? "";
   if (!resendKey) {
     logEvent({
@@ -639,6 +642,9 @@ export async function sendCivicPromiseDigest(
     return { ok: false, reason: "missing_api_key" };
   }
   const ctx = await resolveUserContext(svc, params.userId);
+  if (!ctx.emailNotificationsEnabled) {
+    return { ok: false, reason: "email_disabled" };
+  }
   if (!ctx.email) {
     logEvent({
       level: "info",
@@ -650,26 +656,7 @@ export async function sendCivicPromiseDigest(
     return { ok: false, reason: "missing_email" };
   }
   const language = params.language ?? ctx.language;
-  const summary = params.items
-    .slice(0, 20)
-    .map((item) => {
-      const escapedText = escapeMarkdown(item.promiseText);
-      const due = item.dueDate
-        ? ` _(${getString("due_label", language)} ${item.dueDate})_`
-        : "";
-      if (!item.sourceUrl) return `- **${escapedText}**${due}`;
-      let label = item.sourceTitle?.trim() || "";
-      if (!label) {
-        try {
-          label = new URL(item.sourceUrl).hostname;
-        } catch {
-          label = item.sourceUrl;
-        }
-      }
-      const escapedLabel = escapeMarkdown(label).replace(/\]/g, "\\]");
-      return `- **${escapedText}**${due} ([${escapedLabel}](${item.sourceUrl}))`;
-    })
-    .join("\n");
+  const summary = formatPromiseItems(params.items, language);
 
   const n = params.items.length;
   const digestSubtitle = getPromiseDueLabel(language, n);
@@ -714,14 +701,26 @@ export async function sendCivicPromiseDigest(
   }
 }
 
+function formatPromiseItems(items: PromiseDigestItem[], language: string): string {
+  return items.map((item) => {
+    const text = escapeMarkdown(item.promiseText);
+    const due = item.dueDate
+      ? ` (${getString("due_label", language)} ${item.dueDate})`
+      : "";
+    if (!item.sourceUrl) return `- **${text}**${due}`;
+    const label = escapeMarkdown(item.sourceTitle?.trim() || item.sourceUrl);
+    return `- **${text}**${due} ([${label}](<${item.sourceUrl}>))`;
+  }).join("\n");
+}
+
 function escapeMarkdown(s: string): string {
   return s.replace(/[\[\]()*_]/g, (c) => `\\${c}`);
 }
 
 function getPromiseDueLabel(language: string, count: number): string {
   return count === 1
-    ? getString("promise_due_today_singular", language, { count })
-    : getString("promise_due_today_plural", language, { count });
+    ? getString("promise_due_singular", language, { count })
+    : getString("promise_due_plural", language, { count });
 }
 
 function getScoutTypeLabel(
@@ -883,6 +882,9 @@ async function guarded(
     }
 
     const ctx = await resolveUserContext(svc, userId);
+    if (scoutType === "civic" && !ctx.emailNotificationsEnabled) {
+      return { ok: false, reason: "email_disabled" };
+    }
     if (!ctx.email) {
       logEvent({
         level: "info",
@@ -976,10 +978,11 @@ export async function resolveUserContext(
 
   let language = "en";
   let healthNotificationsEnabled = true;
+  let emailNotificationsEnabled = true;
   try {
     const { data } = await svc
       .from("user_preferences")
-      .select("preferred_language, health_notifications_enabled")
+      .select("preferred_language, health_notifications_enabled, preferences")
       .eq("user_id", userId)
       .maybeSingle();
     if (data) {
@@ -991,12 +994,13 @@ export async function resolveUserContext(
       if (typeof data.health_notifications_enabled === "boolean") {
         healthNotificationsEnabled = data.health_notifications_enabled;
       }
+      emailNotificationsEnabled = data.preferences?.email_notifications !== false;
     }
   } catch {
     // Missing column (pre-migration) or row — defaults stand.
   }
 
-  return { email, language, healthNotificationsEnabled };
+  return { email, language, healthNotificationsEnabled, emailNotificationsEnabled };
 }
 
 // ---------------------------------------------------------------------------

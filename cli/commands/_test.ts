@@ -1722,6 +1722,34 @@ function stubExit(): { calls: number[]; restore: () => void } {
   }) as typeof Deno.exit;
   return { calls, restore: () => (Deno.exit = originalExit) };
 }
+Deno.test("scouts add rejects missing required values before HTTP", async () => {
+  const exit = stubExit();
+  const originalError = console.error;
+  const originalFetch = globalThis.fetch;
+  const errors: string[] = [];
+  let requests = 0;
+  console.error = (...args) => errors.push(args.join(" "));
+  globalThis.fetch = (() => {
+    requests++;
+    throw new Error("Unexpected HTTP request");
+  }) as typeof fetch;
+  try {
+    for (const [args, error] of [
+      [["--name", " ", "--type", "beat", "--topic", "housing"], "--name is required"],
+      [["--name", "Page", "--type", "web", "--topic", "housing"], "web scouts require --url"],
+      [["--name", "Beat", "--type", "beat", "--location-json", "{}"], "--location-json requires a non-empty displayName"],
+    ] as const) {
+      await assertRejects(() => runScouts(["add", ...args]), Error, "__exit__1");
+      assertStringIncludes(errors.at(-1) ?? "", error);
+    }
+    assertEquals(requests, 0);
+  } finally {
+    exit.restore();
+    console.error = originalError;
+    globalThis.fetch = originalFetch;
+  }
+});
+
 
 Deno.test("scouts test --type civic posts tracked_urls to civic/discover and exits 1 on no_meetings_detected", async () => {
   await withTempHome(async () => {

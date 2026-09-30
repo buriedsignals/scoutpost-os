@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	import ScoutRunDetails from "./ScoutRunDetails.svelte";
 	import { MapPin, Tag, Calendar, Play, Trash2, X, Check, Globe, AtSign } from 'lucide-svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
@@ -47,7 +48,7 @@
 		if (normalizedType === 'web' && scout.url) {
 			return {
 				kind: 'url' as const,
-				label: 'Target URL',
+				label: m.dataExtract_targetUrl(),
 				value: truncateUrl(scout.url, 84),
 				title: scout.url,
 				extra: null
@@ -59,16 +60,16 @@
 			if (primaryUrl) {
 				return {
 					kind: 'url' as const,
-					label: trackedUrls.length > 1 ? 'Target URLs' : 'Target URL',
+					label: m.dataExtract_targetUrl(),
 					value: truncateUrl(primaryUrl, 84),
 					title: trackedUrls.length > 1 ? trackedUrls.join('\n') : primaryUrl,
-					extra: trackedUrls.length > 1 ? `${trackedUrls.length} URLs total` : scout.root_domain ?? null
+					extra: trackedUrls.length > 1 ? m.workspace_urlCount({ count: trackedUrls.length }) : scout.root_domain ?? null
 				};
 			}
 			if (scout.root_domain) {
 				return {
 					kind: 'url' as const,
-					label: 'Target domain',
+					label: m.workspace_targetDomain(),
 					value: scout.root_domain,
 					title: scout.root_domain,
 					extra: null
@@ -83,7 +84,7 @@
 			if (handle) {
 				return {
 					kind: 'profile' as const,
-					label: 'Target profile',
+					label: m.workspace_targetProfile(),
 					value: `@${handle}`,
 					title: scout.url ?? `@${handle}`,
 					extra: scout.platform ?? null
@@ -92,7 +93,7 @@
 			if (scout.url) {
 				return {
 					kind: 'profile' as const,
-					label: 'Target profile',
+					label: m.workspace_targetProfile(),
 					value: truncateUrl(scout.url, 84),
 					title: scout.url,
 					extra: scout.platform ?? null
@@ -108,23 +109,22 @@
 		const then = new Date(iso).getTime();
 		if (!Number.isFinite(then)) return null;
 		const seconds = Math.floor((Date.now() - then) / 1000);
-		if (seconds < 60) return `${seconds}s ago`;
-		if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-		if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-		const days = Math.floor(seconds / 86400);
-		return days === 1 ? '1d ago' : `${days}d ago`;
+		if (seconds < 60) return m.newsCard_justNow();
+		if (seconds < 3600) return m.feed_timeMinutesAgo({ count: Math.floor(seconds / 60) });
+		if (seconds < 86400) return m.feed_timeHoursAgo({ count: Math.floor(seconds / 3600) });
+		return m.feed_timeDaysAgo({ count: Math.floor(seconds / 86400) });
 	}
 
-	$: lastRunLabel = scout.last_run?.started_at ? `Last run ${timeSince(scout.last_run.started_at)}` : 'Baseline ready';
+	$: lastRunLabel = scout.last_run?.started_at ? m.scouts_lastRun({ time: timeSince(scout.last_run.started_at) ?? '' }) : m.transport_baselineReady();
 	$: articleCount = scout.last_run?.articles_count ?? null;
 	$: knownCount = scout.last_run?.merged_existing_count ?? 0;
 
 	$: scheduleLabel = (() => {
 		if (!scout.regularity) return null;
 		const r = scout.regularity.toLowerCase();
-		if (r === 'daily') return 'Daily';
-		if (r === 'weekly') return 'Weekly';
-		if (r === 'monthly') return 'Monthly';
+		if (r === 'daily') return m.schedule_daily();
+		if (r === 'weekly') return m.schedule_weekly();
+		if (r === 'monthly') return m.schedule_monthly();
 		return r.charAt(0).toUpperCase() + r.slice(1);
 	})();
 
@@ -139,7 +139,7 @@
 
 <div class="scout-focus-wrapper">
 	<div class="focus-back">
-		<WorkspaceBackButton label="All scouts" count={totalScouts} onClick={handleBack} />
+		<WorkspaceBackButton label={m.feed_allScouts()} count={totalScouts} onClick={handleBack} />
 	</div>
 
 	<div class="scout-shell scout-focus {cfg.className}">
@@ -152,7 +152,7 @@
 			</span>
 			{#if demo}
 				<div class="scout-shell-actions">
-					<DemoBadge label="EXAMPLE · READ-ONLY" />
+					<DemoBadge label={m.workspace_readOnlyExample()} />
 				</div>
 			{:else}
 			<div class="scout-shell-actions">
@@ -163,8 +163,8 @@
 						class="scout-shell-icon-btn run-btn"
 						on:click={() => onRun(scout.id)}
 						disabled={!canRun}
-						aria-label="Run now"
-						title={canRun ? 'Run now' : 'Resume scout to run'}
+						aria-label={m.scouts_runNow()}
+						title={canRun ? m.scouts_runNow() : m.scouts_resumeToRun()}
 					>
 						<Play size={14} />
 					</button>
@@ -174,11 +174,11 @@
 						{#if deleting}
 							<Spinner size="sm" />
 						{:else}
-							<button class="scout-shell-confirm-btn cancel" on:click={() => onCancelDelete(scout.id)} aria-label="Cancel">
+							<button class="scout-shell-confirm-btn cancel" on:click={() => onCancelDelete(scout.id)} aria-label={m.common_cancel()}>
 								<X size={12} />
 							</button>
-							<span class="scout-shell-confirm-label">Delete?</span>
-							<button class="scout-shell-confirm-btn confirm" on:click={() => onConfirmDelete(scout.id)} aria-label="Yes">
+							<span class="scout-shell-confirm-label">{m.scouts_deleteConfirm()}</span>
+							<button class="scout-shell-confirm-btn confirm" on:click={() => onConfirmDelete(scout.id)} aria-label={m.common_yes()}>
 								<Check size={12} />
 							</button>
 						{/if}
@@ -187,7 +187,7 @@
 					<button
 						class="scout-shell-icon-btn trash-btn"
 						on:click={() => onRequestDelete(scout.id)}
-						aria-label="Delete"
+						aria-label={m.common_delete()}
 					>
 						<Trash2 size={14} />
 					</button>
@@ -250,19 +250,19 @@
 
 		{#if scout.last_run?.started_at}
 			<div class="summary-strip">
-				<p class="summary-label">Last run summary</p>
+				<p class="summary-label">{m.workspace_lastRunSummary()}</p>
 				{#if scout.last_run.status === 'failed' || scout.last_run.status === 'error'}
-					<p class="summary-body error">The last run encountered an error. Check logs or retry.</p>
+					<p class="summary-body error">{m.scouts_errorDuringExec()}</p>
 				{:else if scout.last_run.status === 'running' || scout.last_run.status === 'queued'}
-					<p class="summary-body neutral">Run in progress.</p>
+					<p class="summary-body neutral">{m.activeJobs_running()}</p>
 				{:else if articleCount !== null && articleCount > 0}
 					<p class="summary-body">
-						Found <strong>{articleCount}</strong> new {articleCount === 1 ? 'finding' : 'findings'}{knownCount > 0 ? ` and ${knownCount} already known` : ''} in the most recent run.
+						{m.workspace_runFindings({ count: articleCount, known: knownCount })}
 					</p>
 				{:else if knownCount > 0}
-					<p class="summary-body neutral">The most recent run only found findings already in your inbox.</p>
+					<p class="summary-body neutral">{m.workspace_knownFindings()}</p>
 				{:else}
-					<p class="summary-body neutral">No findings were saved in the most recent run.</p>
+					<p class="summary-body neutral">{m.workspace_noSavedFindings()}</p>
 				{/if}
 			</div>
 		{/if}
@@ -282,7 +282,7 @@
 				{statusLabel}
 			</span>
 			{#if scout.consecutive_failures && scout.consecutive_failures > 0}
-				<span class="failure-note">{scout.consecutive_failures} consecutive failure{scout.consecutive_failures === 1 ? '' : 's'}</span>
+				<span class="failure-note">{m.scouts_consecutiveFailures({ count: scout.consecutive_failures })}</span>
 			{/if}
 		</div>
 	</div>

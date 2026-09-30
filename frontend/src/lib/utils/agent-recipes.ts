@@ -5,9 +5,11 @@
  * presentation shape and the Scoutpost onboarding prompt only.
  */
 
-import { type AgentSlug } from "./agent-icons";
+import { getAgent, type AgentSlug } from "./agent-icons";
 import { type AgentTargetContext, HOSTED_AGENT_TARGET } from "./agent-targets";
 import catalog from "../vendor/agent-connect/catalog.json";
+import * as m from "$lib/paraglide/messages";
+import { recipeMessages } from "./agent-recipe-messages";
 
 export type InstallPath = "cli" | "mcp";
 type CatalogMethod = "command" | "ui-steps" | "config-file" | "one-click";
@@ -76,7 +78,7 @@ export const SKILL_URL = HOSTED_AGENT_TARGET.skillUrl;
 
 const CLAUDE_CONNECTOR_VIDEO = {
   src: "/videos/claude-cowork-connect.mp4",
-  title: "Claude connector walkthrough",
+  get title() { return m.agent_claudeWalkthrough(); },
 } as const;
 
 function base64Url(value: string): string {
@@ -117,20 +119,11 @@ export function getOnboardPrompt(
   path: InstallPath,
   target: AgentTargetContext = HOSTED_AGENT_TARGET,
 ): string {
-  const raw = agentCatalog[slug][path] ?? agentCatalog[slug].mcp ?? agentCatalog[slug].cli;
-  const title = raw ? fill(raw.title, target) : slug;
+  const title = getAgent(slug).name;
   if (path === "cli") {
-    return [
-      "Use the scout CLI, already installed and signed in on this computer, whenever I ask about my scouts, monitoring, or alerts.",
-      `Run scout --help once and read the Scoutpost skill at ${target.skillUrl} before your first answer.`,
-      `Agent: ${title}.`,
-    ].join("\n");
+    return m.agent_cliOnboardPrompt({ skillUrl: target.skillUrl, title });
   }
-  return [
-    "Use the scoutpost MCP server whenever I ask about my scouts, monitoring, or alerts.",
-    `Read the Scoutpost skill at ${target.skillUrl} before your first answer.`,
-    `Agent: ${title}.`,
-  ].join("\n");
+  return m.agent_mcpOnboardPrompt({ skillUrl: target.skillUrl, title });
 }
 
 function catalogRecipe(
@@ -142,12 +135,14 @@ function catalogRecipe(
   if (!raw) throw new Error(`${slug} catalog ${path} recipe is missing`);
 
   const command = fill(raw.command, target);
-  const steps = raw.steps.map((step) => fill(step, target));
+  const messages = recipeMessages[`${slug}:${path}`];
+  const inputs = { DISPLAY_NAME: "Scoutpost", CLI_BINARY: "scout", SERVER_ID: "scoutpost", MCP_URL: target.mcpUrl };
+  const steps = messages.steps.map((message) => message(inputs));
   const mode = MODE_BY_METHOD[raw.method] ?? "generic";
   const isJson = command.trimStart().startsWith("{");
 
   return {
-    tagline: fill(raw.tagline, target),
+    tagline: messages.tagline(inputs),
     setupKind: path === "cli" ? "automated-cli" : "manual",
     mode,
     command: mode === "cli-command" ? command : undefined,
@@ -155,16 +150,16 @@ function catalogRecipe(
     configLang: isJson ? "json" : undefined,
     configPath: raw.configPath ? fill(raw.configPath, target) : undefined,
     oneClick: raw.oneClick
-      ? { label: raw.oneClick.label, url: fill(raw.oneClick.url, target) }
+      ? { label: messages.oneClickLabel!(inputs), url: fill(raw.oneClick.url, target) }
       : undefined,
     uiSteps: steps,
-    onboardHint: fill(raw.onboardHint, target),
+    onboardHint: messages.onboardHint(inputs),
     onboardPrompt: getOnboardPrompt(slug, path, target),
     docsUrl: fill(raw.docsUrl, target),
-    docsLabel: `${fill(raw.title, target)} docs`,
-    verifyPrompt: fill(raw.verify, target),
-    warning: raw.caveat
-      ? { title: "Connection availability", body: fill(raw.caveat, target) }
+    docsLabel: m.agent_namedDocs({ name: getAgent(slug).name }),
+    verifyPrompt: messages.verify(inputs),
+    warning: messages.caveat
+      ? { title: m.agent_connectionAvailability(), body: messages.caveat(inputs) }
       : undefined,
     video: slug === "claude-desktop" ? CLAUDE_CONNECTOR_VIDEO : undefined,
   };

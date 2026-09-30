@@ -27,6 +27,8 @@ export interface MonitoringSetupRequest {
 	regularity: RegularityType;
 	day_number: number;
 	time: string;
+	/** IANA timezone for the wall-clock schedule; omitted means UTC. */
+	schedule_timezone?: string;
 	monitoring: MonitoringType;
 	url?: string;
 	criteria?: string;
@@ -112,6 +114,8 @@ export interface ScoutSetupRequest {
 	regularity: ScheduleRegularity;
 	day_number: number;
 	time: string;
+	/** IANA timezone for the wall-clock schedule; omitted means UTC. */
+	schedule_timezone?: string;
 	monitoring: MonitoringType;
 	// Type-specific fields
 	url?: string;  // web

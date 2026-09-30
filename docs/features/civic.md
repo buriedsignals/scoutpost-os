@@ -141,16 +141,21 @@ judgment; Civic never infers it automatically.
 
 ## Notification Contract
 
-- A scheduled run may send one immediate email only when it creates at least
-  one new canonical promise. The email lists those promises and says they were
-  saved for future deadline reminders.
+- Initial imports, manual runs, and scheduled runs send one saved-promises email
+  after all documents settle when at least one new promise tracker was stored.
+  The email lists the persisted promises, expected deadlines, and source links.
+  Preview candidates and extraction retries do not generate alerts.
 - Material decisions remain visible as fact leads but never trigger an
   immediate Civic email.
 - Calendars, meeting dates, and meeting archive/listing updates create no Civic
   units and no email.
-- `promise-digest` is the separate deadline path. It emails an open promise
-  when its supported fulfilment date arrives and does not resend the same due
-  reminder.
+- `promise-digest` is the separate deadline path. At **08:00 UTC daily**, it
+  emails each open promise due that day, with catch-up for overdue unnotified
+  promises. Each stored deadline has its own durable delivery key; closed,
+  undated, and already-notified promises are excluded. This is not an exact
+  time-of-day or user-timezone alarm.
+- Both paths honor the user's email-notification preference. Empty runs send no
+  promise email; operator historical backfills remain silent.
 
 ## Data Model
 

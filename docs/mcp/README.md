@@ -59,6 +59,6 @@ or chat.
 - **codex-cli** — `codex mcp login scoutpost` after a `[mcp_servers.scoutpost]` block in `~/.codex/config.toml`.
 - **Antigravity CLI on macOS** — remote MCP through the shared Antigravity configuration has been verified separately.
 - **Antigravity 2.0/IDE on Windows** — the documented DCR Authenticate/code flow is supported, but QA did not establish a working authenticated MCP connection: `initialize` arrived without a bearer. Treat this as unresolved client/server interoperability until client logs and Scoutpost OAuth traces isolate the boundary. Use the Scoutpost Product CLI as the default path meanwhile.
-- **Cursor / Goose** — one-click install links plus config-file paths are described in [`clients.md`](clients.md); **Windsurf / Hermes / Langdock** live in [`other-clients.md`](other-clients.md). A recipe listing is not evidence that every client/platform combination has passed QA.
+- **Cursor** retains its one-click install link. **Goose** uses native Streamable HTTP extension instructions and a copyable MCP URL, with browser OAuth rather than a launch link. See [`clients.md`](clients.md); **Windsurf / Hermes / Langdock** live in [`other-clients.md`](other-clients.md). A recipe listing is not evidence that every client/platform combination has passed QA.
 
 ChatGPT is **not** supported as a self-serve target — OpenAI gates custom MCP to Business/Enterprise/Edu plans, useless for individual journalists.

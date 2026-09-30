@@ -10,6 +10,7 @@
 	import TopicChips from '$lib/components/ui/TopicChips.svelte';
 	import { getScoutCost, getRegularityMultiplier, validateScheduleCredits } from '$lib/utils/scouts';
 	import { collectTopicCounts } from '$lib/utils/topics';
+	import { getTransportCategoryLabel } from '$lib/utils/transport';
 	import * as m from '$lib/paraglide/messages';
 
 	export let open = false;
@@ -90,17 +91,19 @@
 	export let prioritySources: string[] = [];
 
 	// Web scout: location/topic added at schedule time
-	let selectedLocation: GeocodedLocation | null = null;
+	let selectedLocation: GeocodedLocation | null = location;
 	let topicInput = topic;
 	let existingTopics: string[] = [];
+	$: scopeLocation = scoutType === 'pulse' ? location : selectedLocation;
+	$: projectRequired = scoutType !== 'transport' && !scopeLocation;
 
-	// Timezone label
-	let userTimezoneLabel =
-		typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'Local time';
+	// Submit the same timezone shown by the picker, not a one-time UTC offset.
+	const browserTimezone =
+		typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
+	$: scheduleTimezone = $authStore.user?.timezone || browserTimezone || 'UTC';
 
-	$: userTimezoneLabel =
-		$authStore.user?.timezone ||
-		(typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : userTimezoneLabel);
+	// Success callbacks can hide this persistent modal without handleClose.
+	$: if (!open && scheduleSuccess) resetForm();
 
 	// Load existing topics for web scout scope dropdown
 	onMount(async () => {
@@ -188,7 +191,7 @@
 	$: preFormDisclaimers = scoutType === 'web'
 		? [
 			{ icon: Mail, text: webCriteria ? m.schedule_emailDisclaimer_webCriteria() : m.schedule_emailDisclaimer_webAny() },
-			{ icon: ScanSearch, text: 'Scheduling saves the current page as a baseline. Inbox units appear only after later changes.' }
+			{ icon: ScanSearch, text: m.schedule_baselineHint() }
 		]
 		: [];
 
@@ -198,18 +201,21 @@
 		[];
 
 	function getScheduleSummary(): string {
+		if (regularity === '3h') return m.transport_every3h();
+		if (regularity === '6h') return m.transport_every6h();
+		if (regularity === '12h') return m.transport_every12h();
 		let h = hour;
 		if (period === 'AM' && h === 12) h = 0;
 		else if (period === 'PM' && h !== 12) h += 12;
 		const time24h = `${h.toString().padStart(2, '0')}:${(minute ?? 0).toString().padStart(2, '0')}`;
 
 		if (regularity === 'daily') {
-			return `Daily at ${time24h}`;
+			return m.scouts_scheduleDaily({ time: time24h });
 		} else if (regularity === 'weekly') {
-			const dayName = daysOfWeek.find(d => d.value === dayNumber)?.label || 'Monday';
-			return `Every ${dayName} at ${time24h}`;
+			const dayName = daysOfWeek.find(d => d.value === dayNumber)?.label || m.schedule_monday();
+			return m.schedule_weeklySummary({ day: dayName, time: time24h });
 		} else {
-			return `Monthly on day ${dayNumber} at ${time24h}`;
+			return m.schedule_monthlySummary({ day: dayNumber, time: time24h });
 		}
 	}
 
@@ -227,39 +233,33 @@
 			return;
 		}
 
-		// Transport scouts are scoped by config (geofence / watch_ids), not by a
-		// topic tag or location, so the shared topic-or-location gate doesn't apply.
-		const hasTopic = !!topicInput.trim();
-		const hasLocation = !!(selectedLocation || location);
-		if (scoutType !== 'transport' && !hasTopic && !hasLocation) {
-			errorMessage = 'Add at least one project or location before scheduling.';
-			return;
-		}
-
-		// Validation for pulse: need location or criteria
-		if (scoutType === 'pulse' && !location && !criteria) {
-			errorMessage = m.scheduleSearch_locationOrTopicRequired();
+		if (projectRequired && !topicInput.trim()) {
+			errorMessage = m.scout_scopeRequired();
 			return;
 		}
 
 		// Validation for social: need profile handle
 		if (scoutType === 'social' && !profile_handle.trim()) {
-			errorMessage = 'Profile handle is required';
+			errorMessage = m.socialScout_handleRequired();
 			return;
 		}
 		if (scoutType === 'social' && monitor_mode === 'criteria' && !criteria.trim()) {
-			errorMessage = 'Add criteria before scheduling this scout';
+			errorMessage = m.scout_criteriaRequired();
 			return;
 		}
 
 		// Validation for civic: need council domain + selected listing pages
 		if (scoutType === 'civic') {
 			if (!root_domain.trim()) {
-				errorMessage = 'Council website is required';
+				errorMessage = m.civic_domainRequired();
 				return;
 			}
 			if (!tracked_urls.length) {
-				errorMessage = 'Select at least one page to monitor before scheduling';
+				errorMessage = m.civic_pageRequired();
+				return;
+			}
+			if (importCurrentItems && !previewSnapshotToken) {
+				errorMessage = m.scout_civicPreviewRequired();
 				return;
 			}
 		}
@@ -286,8 +286,9 @@
 				regularity: regularity as RegularityType,
 				day_number: regularity === 'daily' ? 1 : dayNumber,
 				time: computedTime,
+				schedule_timezone: scheduleTimezone,
 				monitoring: 'EMAIL',
-				location: selectedLocation || undefined,
+				location: scopeLocation || undefined,
 				topic: topicInput.trim() || undefined,
 				content_hash: contentHash,
 				archive_enabled: archiveEnabled,
@@ -300,6 +301,7 @@
 				regularity,
 				day_number: dayNumber,
 				time: computedTime,
+				schedule_timezone: scheduleTimezone,
 				monitoring: 'EMAIL',
 				criteria: criteria || undefined,
 				platform,
@@ -307,6 +309,7 @@
 				monitor_mode,
 				track_removals: trackRemovals,
 				baseline_posts: baselinePosts.length ? baselinePosts : undefined,
+				location: scopeLocation || undefined,
 				topic: topicInput.trim() || undefined
 			});
 		} else if (scoutType === 'civic') {
@@ -316,8 +319,9 @@
 				regularity,
 				day_number: dayNumber,
 				time: computedTime,
+				schedule_timezone: scheduleTimezone,
 				monitoring: 'EMAIL',
-				location: selectedLocation || undefined,
+				location: scopeLocation || undefined,
 				root_domain: root_domain || undefined,
 				tracked_urls: tracked_urls.length ? tracked_urls : undefined,
 				topic: topicInput.trim() || undefined,
@@ -334,6 +338,7 @@
 				regularity,
 				day_number: 1,
 				time: computedTime,
+				schedule_timezone: scheduleTimezone,
 				monitoring: 'EMAIL',
 				config: transportConfig,
 				transport_baseline_ids: transportBaselineIds
@@ -345,8 +350,9 @@
 				regularity,
 				day_number: dayNumber,
 				time: computedTime,
+				schedule_timezone: scheduleTimezone,
 				monitoring: 'EMAIL',
-				location: location || undefined,
+				location: scopeLocation || undefined,
 				topic: topicInput.trim() || undefined,
 				criteria: criteria || undefined,
 				source_mode: sourceMode,
@@ -362,12 +368,11 @@
 			authStore.refreshUser();
 		}).catch((error) => {
 			isSubmitting = false;
-			errorMessage = error instanceof Error ? error.message : 'Failed to schedule scout';
+			errorMessage = error instanceof Error ? error.message : m.scout_scheduleFailed();
 		});
 	}
 
-	function handleClose() {
-		onClose();
+	function resetForm() {
 		scoutName = '';
 		errorMessage = '';
 		scheduleSuccess = false;
@@ -378,6 +383,11 @@
 		// Wayback) the next scout's URL without the user asking.
 		archiveEnabled = false;
 		waybackEnabled = true;
+	}
+
+	function handleClose() {
+		onClose();
+		resetForm();
 	}
 
 	function handleBackdropClick(event: MouseEvent) {
@@ -437,7 +447,7 @@
 						<h2 id="scout-schedule-title" class="modal-title">{info.scheduleTitle}</h2>
 						<p class="modal-subtitle">{info.description}</p>
 					</div>
-					<button type="button" class="modal-close" on:click={handleClose} aria-label="Close modal">
+					<button type="button" class="modal-close" on:click={handleClose} aria-label={m.common_close()}>
 						<X size={16} />
 					</button>
 				</header>
@@ -532,7 +542,7 @@
 									<div class="context-row">
 										<Filter size={14} class="context-icon" />
 										<span class="context-key">{m.transport_categoriesLabel()}:</span>
-										<span class="context-value">{(transportConfig.categories as string[]).join(', ')}</span>
+										<span class="context-value">{(transportConfig.categories as string[]).map(getTransportCategoryLabel).join(', ')}</span>
 									</div>
 								{/if}
 								{#if typeof transportConfig.criteria === 'string' && transportConfig.criteria.trim()}
@@ -553,11 +563,12 @@
 						</p>
 					{/each}
 
-					{#if scoutType === 'web' || scoutType === 'civic'}
+					{#if scoutType === 'web' || scoutType === 'social' || scoutType === 'civic'}
 						<div class="form-field">
-							<span class="form-label">{m.filter_locationLabel()}</span>
+							<label for="scout-location" class="form-label">{m.filter_locationLabel()} <span>{m.common_optional()}</span></label>
 							<LocationAutocomplete
-								selectedLocation={selectedLocation}
+								inputId="scout-location"
+								selectedLocation={scopeLocation}
 								onSelect={handleLocationSelect}
 								onClear={handleLocationClear}
 							/>
@@ -566,12 +577,19 @@
 
 					{#if scoutType !== 'transport'}
 						<div class="form-field">
-							<span class="form-label">{m.schedule_categoryLabel()}</span>
+							<label for="scout-project" class="form-label">
+								{m.schedule_categoryLabel()}
+								{#if projectRequired}<span class="required-star" aria-hidden="true">*</span>{:else}<span>{m.common_optional()}</span>{/if}
+							</label>
 							<TopicChips
+								inputId="scout-project"
+								required={projectRequired}
+								describedBy="scout-project-hint"
 								bind:topic={topicInput}
 								{existingTopics}
 								placeholder={m.schedule_categoryPlaceholder()}
 							/>
+							<p id="scout-project-hint" class="form-helper">{m.scout_projectRequiredWithoutLocation()}</p>
 						</div>
 					{/if}
 
@@ -698,7 +716,7 @@
 						bind:hour
 						bind:minute
 						bind:period
-						timezoneLabel={userTimezoneLabel}
+						timezoneLabel={scheduleTimezone}
 					/>
 
 					{#each postFormDisclaimers as d}

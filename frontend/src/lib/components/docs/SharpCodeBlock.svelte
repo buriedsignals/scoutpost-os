@@ -1,9 +1,10 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	import { Check, Copy } from 'lucide-svelte';
 
 	export let code = '';
 	export let copyValue: string | undefined = undefined;
-	export let ariaLabel = 'Copy code';
+	export let ariaLabel: string = m.agent_copyCode();
 
 	let copied = false;
 

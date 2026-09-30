@@ -1,269 +1,138 @@
-/**
- * manage-schedule Edge Function
- *
- * Replaces create-eventbridge-schedule and delete-schedule Lambdas.
- * Creates/deletes pg_cron jobs and manages scout records via the FastAPI backend.
- *
- * Actions:
- *   create -> Create scout record + pg_cron schedule
- *   delete -> Delete scout record + pg_cron schedule
- *   update -> Update scout record + pg_cron schedule
- */
+/** Service-only scout scheduling. All jobs use the shared schedule_scout RPC,
+ * including per-scout timezone dispatch and deterministic spreading. */
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { z } from "https://esm.sh/zod@3";
 import { requireServiceKey } from "../_shared/auth.ts";
+import { scheduleTimezoneError } from "../_shared/schedule_policy.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-
-function sqlLiteral(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
-/**
- * Build the pg_cron command that fires pg_net.http_post to the execute-scout
- * Edge Function. It reads project_url and internal_service_key from Vault at
- * execution time so the generated cron job never embeds service credentials.
- */
-function buildCronCommand(
-  scoutId: string,
-  userId: string,
-  scoutType: string,
-  scoutName: string,
-): string {
-  // The body is a JSON literal embedded in the SQL command string.
-  // This is safe because the RPC wrapper passes it as a parameter to cron.schedule().
-  const body = JSON.stringify({
-    scout_id: scoutId,
-    user_id: userId,
-    scout_type: scoutType,
-    scraper_name: scoutName,
-  });
-  return `
-SELECT net.http_post(
-  url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url') || '/functions/v1/execute-scout',
-  headers := jsonb_build_object(
-    'X-Service-Key', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'internal_service_key'),
-    'Content-Type', 'application/json'
-  ),
-  body := ${sqlLiteral(body)}::jsonb,
-  timeout_milliseconds := 60000
-)
-WHERE EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name = 'project_url')
-  AND EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name = 'internal_service_key')`;
-}
+const RequestSchema = z.object({
+  action: z.enum(["create", "update", "delete"]),
+  scout_id: z.string().uuid().optional(),
+  user_id: z.string().uuid().optional(),
+  scout_name: z.string().min(1).optional(),
+  scout_type: z.string().min(1).optional(),
+  cron_expression: z.string().min(1).max(200).nullable().optional(),
+  schedule_timezone: z.string().min(1).max(100).optional(),
+  scout_config: z.record(z.unknown()).optional(),
+});
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
   }
-
   try {
-    try {
-      requireServiceKey(req);
-    } catch {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
+    requireServiceKey(req);
+  } catch {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!SUPABASE_SERVICE_KEY) {
+    return Response.json({ error: "Server misconfigured: missing service key" }, { status: 500 });
+  }
+  let raw: unknown;
+  try {
+    raw = await req.json();
+  } catch {
+    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+  const parsed = RequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return Response.json({ error: parsed.error.message }, { status: 400 });
+  }
+  const body = parsed.data;
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+    auth: { persistSession: false },
+  });
+  try {
+    if (body.action === "delete") {
+      if (!body.scout_id) {
+        return Response.json({ error: "scout_id is required" }, { status: 400 });
+      }
+      const { error: unscheduleError } = await supabase.rpc("unschedule_scout", {
+        p_scout_id: body.scout_id,
       });
+      if (unscheduleError) throw new Error(unscheduleError.message);
+      const { error } = await supabase.from("scouts").delete().eq("id", body.scout_id);
+      if (error) throw new Error(error.message);
+      return Response.json({ deleted: `scout-${body.scout_id}` });
     }
 
-    if (!SUPABASE_SERVICE_KEY) {
-      return new Response(
-        JSON.stringify({ error: "Server misconfigured: missing service key" }),
-        { status: 500, headers: { "Content-Type": "application/json" } },
-      );
+    let current: Record<string, unknown> = {};
+    if (body.action === "update") {
+      if (!body.scout_id) {
+        return Response.json({ error: "scout_id is required" }, { status: 400 });
+      }
+      const { data, error } = await supabase.from("scouts").select("*")
+        .eq("id", body.scout_id).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) return Response.json({ error: "Scout not found" }, { status: 404 });
+      current = data;
+    } else if (!body.user_id || !body.scout_name || !body.scout_type) {
+      return Response.json({ error: "user_id, scout_name, and scout_type are required" }, { status: 400 });
     }
 
-    const body = await req.json();
-    const action: string = body.action ?? "";
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-      auth: { persistSession: false },
+    const update = { ...body.scout_config };
+    // Scheduling identity cannot be overwritten through the overflow config.
+    delete update.id;
+    delete update.user_id;
+    delete update.schedule_last_dispatched_at;
+    const scheduleCron = body.cron_expression !== undefined
+      ? body.cron_expression
+      : update.schedule_cron !== undefined
+      ? update.schedule_cron
+      : current.schedule_cron ?? null;
+    const scheduleTimezone = body.schedule_timezone !== undefined
+      ? body.schedule_timezone
+      : update.schedule_timezone !== undefined
+      ? update.schedule_timezone
+      : current.schedule_timezone ?? "UTC";
+    if ((scheduleCron !== null && typeof scheduleCron !== "string") || typeof scheduleTimezone !== "string") {
+      return Response.json({ error: "schedule_cron and schedule_timezone must be strings" }, { status: 400 });
+    }
+    const timezoneError = scheduleTimezoneError(scheduleCron, scheduleTimezone);
+    if (timezoneError) return Response.json({ error: timezoneError }, { status: 400 });
+    // PostgreSQL's tzdata is authoritative; validate before any row/job mutation.
+    const { error: validationError } = await supabase.rpc("validate_scout_schedule", {
+      p_cron_expr: scheduleCron, p_timezone: scheduleTimezone,
     });
-
-    switch (action) {
-      case "create": {
-        const {
-          user_id,
-          scout_name,
-          scout_type,
-          schedule_name,
-          cron_expression,
-          scout_config,
-        } = body;
-
-        // 1. Create scout record in the database
-        const { data: scout, error: scoutError } = await supabase
-          .from("scouts")
-          .insert({
-            user_id,
-            name: scout_name,
-            type: scout_type,
-            schedule_cron: cron_expression,
-            is_active: true,
-            ...scout_config,
-          })
-          .select()
-          .single();
-
-        if (scoutError) {
-          console.error("Failed to create scout:", scoutError);
-          return new Response(
-            JSON.stringify({
-              error: "Failed to create scout",
-              detail: scoutError.message,
-            }),
-            { status: 500, headers: { "Content-Type": "application/json" } },
-          );
-        }
-
-        // 2. Create pg_cron job via RPC wrapper (avoids direct SQL injection)
-        const cronCommand = buildCronCommand(
-          scout.id,
-          user_id,
-          scout_type,
-          scout_name,
-        );
-
-        const { error: cronError } = await supabase.rpc("schedule_cron_job", {
-          job_name: schedule_name,
-          cron_expr: cron_expression,
-          command: cronCommand,
-        });
-
-        if (cronError) {
-          console.error("Failed to create cron job:", cronError);
-          // Clean up the scout record
-          await supabase.from("scouts").delete().eq("id", scout.id);
-          return new Response(
-            JSON.stringify({
-              error: "Failed to create schedule",
-              detail: cronError.message,
-            }),
-            { status: 500, headers: { "Content-Type": "application/json" } },
-          );
-        }
-
-        console.log(`Created schedule: ${schedule_name} for scout ${scout.id}`);
-        return new Response(
-          JSON.stringify({ scout_id: scout.id, schedule_name }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-
-      case "delete": {
-        const { schedule_name: deleteName, scout_id } = body;
-
-        // 1. Delete pg_cron job
-        const { error: unscheduleError } = await supabase.rpc(
-          "unschedule_cron_job",
-          {
-            job_name: deleteName,
-          },
-        );
-
-        if (unscheduleError) {
-          console.error("Failed to delete cron job:", unscheduleError);
-          // Continue to delete scout record even if cron deletion fails
-        }
-
-        // 2. Delete scout record (CASCADE handles related records)
-        if (scout_id) {
-          const { error: deleteError } = await supabase
-            .from("scouts")
-            .delete()
-            .eq("id", scout_id);
-
-          if (deleteError) {
-            console.error("Failed to delete scout:", deleteError);
-          }
-        }
-
-        console.log(`Deleted schedule: ${deleteName}`);
-        return new Response(
-          JSON.stringify({ deleted: deleteName }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-
-      case "update": {
-        const {
-          schedule_name: updateName,
-          scout_id: updateScoutId,
-          cron_expression: newCron,
-          scout_config: updateConfig,
-        } = body;
-
-        // Update scout record
-        if (updateScoutId && updateConfig) {
-          const { error: updateError } = await supabase
-            .from("scouts")
-            .update(updateConfig)
-            .eq("id", updateScoutId);
-
-          if (updateError) {
-            console.error("Failed to update scout:", updateError);
-            // Do not reschedule cron against a scout row that failed to
-            // update — that leaves cron and the DB row inconsistent.
-            return new Response(
-              JSON.stringify({
-                error: "Failed to update scout",
-                detail: updateError.message,
-              }),
-              { status: 500, headers: { "Content-Type": "application/json" } },
-            );
-          }
-        }
-
-        // If cron changed, delete and recreate the cron job via RPC wrapper
-        if (newCron && updateName) {
-          await supabase.rpc("unschedule_cron_job", { job_name: updateName });
-
-          const cronCommand = buildCronCommand(
-            updateScoutId,
-            body.user_id,
-            body.scout_type,
-            body.scout_name ?? "",
-          );
-
-          const { error: rescheduleError } = await supabase.rpc(
-            "schedule_cron_job",
-            {
-              job_name: updateName,
-              cron_expr: newCron,
-              command: cronCommand,
-            },
-          );
-
-          if (rescheduleError) {
-            console.error("Failed to reschedule:", rescheduleError);
-          }
-        }
-
-        console.log(`Updated schedule: ${updateName}`);
-        return new Response(
-          JSON.stringify({ updated: updateName }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-
-      default:
-        return new Response(
-          JSON.stringify({ error: `Unknown action: ${action}` }),
-          { status: 400, headers: { "Content-Type": "application/json" } },
-        );
+    if (validationError) return Response.json({ error: validationError.message }, { status: 400 });
+    update.schedule_cron = scheduleCron;
+    update.schedule_timezone = scheduleTimezone;
+    update.is_active = update.is_active ?? current.is_active ?? Boolean(scheduleCron);
+    if (typeof update.is_active !== "boolean") {
+      return Response.json({ error: "is_active must be a boolean" }, { status: 400 });
     }
+    if (update.is_active && !scheduleCron) {
+      return Response.json({ error: "active scouts require a schedule" }, { status: 400 });
+    }
+    const result = body.action === "create"
+      ? await supabase.from("scouts").insert({
+        ...update, user_id: body.user_id, name: body.scout_name, type: body.scout_type,
+      }).select("*").single()
+      : await supabase.from("scouts").update(update).eq("id", body.scout_id!).select("*").single();
+    if (result.error) throw new Error(result.error.message);
+    const scout = result.data;
+    const { error: scheduleError } = scout.is_active && scheduleCron
+      ? await supabase.rpc("schedule_scout", { p_scout_id: scout.id, p_cron_expr: scheduleCron })
+      : await supabase.rpc("unschedule_scout", { p_scout_id: scout.id });
+    if (scheduleError) {
+      const rollback = body.action === "create"
+        ? await supabase.from("scouts").delete().eq("id", scout.id)
+        : await supabase.from("scouts").update(
+          Object.fromEntries(Object.keys(update).map((key) => [key, current[key] ?? null])),
+        ).eq("id", scout.id);
+      if (rollback.error) throw new Error(`Schedule failed: ${scheduleError.message}; rollback failed: ${rollback.error.message}`);
+      throw new Error(scheduleError.message);
+    }
+    return Response.json({
+      scout_id: scout.id,
+      schedule_name: `scout-${scout.id}`,
+      schedule_timezone: scout.schedule_timezone,
+      ...(body.action === "update" ? { updated: `scout-${scout.id}` } : {}),
+    });
   } catch (error) {
     console.error("Error in manage-schedule:", error);
-    return new Response(
-      JSON.stringify({
-        error: "Internal server error",
-        detail: error instanceof Error ? error.message : String(error),
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 });

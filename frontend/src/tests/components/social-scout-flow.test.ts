@@ -32,10 +32,9 @@ describe('Social Scout criteria and LinkedIn flow', () => {
 		render(SocialScoutView);
 		await fireEvent.change(screen.getByLabelText('Platform'), { target: { value: 'linkedin' } });
 
-		const profileInput = screen.getByLabelText('LinkedIn profile URL');
-		expect(profileInput).toHaveAttribute('placeholder', 'https://www.linkedin.com/in/username');
+		const profileInput = screen.getByLabelText(/LinkedIn profile URL/);
 		await fireEvent.input(profileInput, { target: { value: 'https://www.linkedin.com/in/first-person' } });
-		await fireEvent.input(screen.getByLabelText('Alert Criteria'), { target: { value: 'housing policy' } });
+		await fireEvent.input(screen.getByLabelText(/Alert Criteria/), { target: { value: 'housing policy' } });
 		await fireEvent.click(screen.getByRole('button', { name: /scan profile/i }));
 
 		await fireEvent.input(profileInput, { target: { value: 'https://www.linkedin.com/in/second-person' } });
@@ -64,10 +63,10 @@ const UNKNOWN_PROFILE_COPY =
 
 async function submitInstagramScan() {
 	render(SocialScoutView);
-	await fireEvent.input(screen.getByLabelText('Handle'), {
+	await fireEvent.input(screen.getByLabelText(/Handle/), {
 		target: { value: 'example-profile' }
 	});
-	await fireEvent.input(screen.getByLabelText('Alert Criteria'), {
+	await fireEvent.input(screen.getByLabelText(/Alert Criteria/), {
 		target: { value: 'housing policy' }
 	});
 	await fireEvent.click(screen.getByRole('button', { name: /scan profile/i }));

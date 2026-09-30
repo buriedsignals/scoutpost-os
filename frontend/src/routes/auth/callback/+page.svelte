@@ -4,6 +4,7 @@
 	import { browser } from '$app/environment';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import { consumeAuthReturn } from '$lib/utils/auth-return';
+	import * as m from '$lib/paraglide/messages';
 
 	let status: 'loading' | 'error' = 'loading';
 	let errorMessage = '';
@@ -18,7 +19,7 @@
 
 		if (!access_token || !refresh_token) {
 			status = 'error';
-			errorMessage = 'Missing session tokens. Please try signing in again.';
+			errorMessage = m.auth_missingTokens();
 			return;
 		}
 
@@ -31,12 +32,12 @@
 			const { error } = await supabase.auth.setSession({ access_token, refresh_token });
 			if (error) {
 				status = 'error';
-				errorMessage = error.message || 'Could not establish session.';
+				errorMessage = error.message || m.auth_sessionFailed();
 				return;
 			}
 		} catch (e: any) {
 			status = 'error';
-			errorMessage = e?.message || 'Could not establish session.';
+			errorMessage = e?.message || m.auth_sessionFailed();
 			return;
 		}
 
@@ -49,14 +50,14 @@
 
 <div class="callback-container">
 	{#if status === 'loading'}
-		<div class="callback-card callback-card--loading" aria-label="Signing in">
+		<div class="callback-card callback-card--loading" aria-label={m.auth_signingIn()}>
 			<Spinner size="lg" />
 		</div>
 	{:else}
 		<div class="callback-card callback-card--error">
-			<h1 class="callback-heading">Login failed</h1>
+			<h1 class="callback-heading">{m.auth_loginFailed()}</h1>
 			<p class="callback-message">{errorMessage}</p>
-			<a href="/login" class="callback-link">Try again</a>
+			<a href="/login" class="callback-link">{m.common_tryAgain()}</a>
 		</div>
 	{/if}
 </div>

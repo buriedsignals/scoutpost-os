@@ -1,7 +1,8 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	import { ArrowLeft } from 'lucide-svelte';
 
-	export let label = 'Back';
+	export let label = m.common_back();
 	export let count: number | null = null;
 	export let onClick: () => void = () => {};
 </script>

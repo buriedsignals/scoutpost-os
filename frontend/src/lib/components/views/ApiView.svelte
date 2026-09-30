@@ -8,6 +8,7 @@
 		isHostedScoutpostHost
 	} from '$lib/utils/agent-targets';
 	import * as m from '$lib/paraglide/messages';
+	import { getLocale } from '$lib/paraglide/runtime';
 
 	// --- State ---
 	type ApiKey = {
@@ -49,9 +50,9 @@
 	const targetLabel = hostedBroker
 		? 'scoutpost.ai'
 		: projectRef
-			? `Supabase project ${projectRef}`
+			? m.api_supabaseProject({ ref: projectRef })
 			: isSupabase
-				? 'Supabase project not configured'
+				? m.api_projectNotConfigured()
 				: origin;
 	// Swagger UI: Supabase has no auto-generated /api/docs, so we serve our own
 	// SvelteKit route (/swagger) that loads swagger-ui-dist from CDN and points at specUrl.
@@ -59,10 +60,7 @@
 	// catch it and forward to the FastAPI backend.
 	const swaggerUrl = hostedBroker || isSupabase ? '/swagger' : '/api/docs';
 
-	const AGENT_INSTRUCTIONS = `Active target: ${targetLabel}
-Base URL: ${apiBase}
-API Spec: ${specUrl}
-Auth: Bearer <your-api-key>`;
+	const AGENT_INSTRUCTIONS = m.api_connectionInstructions({ target: targetLabel, base: apiBase, spec: specUrl });
 
 	// --- Lifecycle ---
 	onMount(loadKeys);
@@ -96,7 +94,7 @@ Auth: Bearer <your-api-key>`;
 			newKeyName = '';
 			await loadKeys();
 		} catch (err: any) {
-			alert(err.message || 'Failed to create key');
+			alert(err.message || m.api_createFailed());
 		} finally {
 			creatingKey = false;
 		}
@@ -114,7 +112,7 @@ Auth: Bearer <your-api-key>`;
 			newlyCreatedKey = null;
 			await loadKeys();
 		} catch (err: any) {
-			alert(err.message || 'Failed to revoke key');
+			alert(err.message || m.api_revokeFailed());
 		}
 	}
 
@@ -131,7 +129,7 @@ Auth: Bearer <your-api-key>`;
 	}
 
 	function formatDate(iso: string): string {
-		return new Date(iso).toLocaleDateString(undefined, {
+		return new Date(iso).toLocaleDateString(getLocale(), {
 			year: 'numeric', month: 'short', day: 'numeric'
 		});
 	}
@@ -140,11 +138,11 @@ Auth: Bearer <your-api-key>`;
 		if (!iso) return m.api_neverUsed();
 		const diff = Date.now() - new Date(iso).getTime();
 		const mins = Math.floor(diff / 60000);
-		if (mins < 60) return m.api_lastUsed({ time: `${mins}m ago` });
+		if (mins < 60) return m.api_lastUsed({ time: m.feed_timeMinutesAgo({ count: mins }) });
 		const hours = Math.floor(mins / 60);
-		if (hours < 24) return m.api_lastUsed({ time: `${hours}h ago` });
+		if (hours < 24) return m.api_lastUsed({ time: m.feed_timeHoursAgo({ count: hours }) });
 		const days = Math.floor(hours / 24);
-		return m.api_lastUsed({ time: `${days}d ago` });
+		return m.api_lastUsed({ time: m.feed_timeDaysAgo({ count: days }) });
 	}
 </script>
 
@@ -167,10 +165,10 @@ Auth: Bearer <your-api-key>`;
 					</button>
 				</div>
 				<div class="target-summary">
-					<span>Active API target</span>
+					<span>{m.api_activeTarget()}</span>
 					<code>{apiBase}</code>
 					{#if projectRef && !hostedBroker}
-						<small>Project ref: {projectRef}</small>
+						<small>{m.api_projectRef({ ref: projectRef })}</small>
 					{/if}
 				</div>
 				<pre class="agent-code">{AGENT_INSTRUCTIONS}</pre>
@@ -246,7 +244,7 @@ Auth: Bearer <your-api-key>`;
 			<!-- Key list -->
 			{#if loading}
 				<div class="keys-empty">
-					<span class="loading-text">Loading...</span>
+					<span class="loading-text">{m.common_loading()}</span>
 				</div>
 			{:else if keys.length === 0}
 				<div class="keys-empty">
@@ -271,7 +269,7 @@ Auth: Bearer <your-api-key>`;
 										{m.api_revoke()}?
 									</button>
 									<button class="cancel-btn" on:click={() => revokeConfirmId = null}>
-										Cancel
+										{m.common_cancel()}
 									</button>
 								{:else}
 									<button
@@ -297,14 +295,14 @@ Auth: Bearer <your-api-key>`;
 					<ExternalLink size={16} />
 					<div>
 						<span class="ref-link-title">{m.api_reference()}</span>
-						<span class="ref-link-desc">Interactive Swagger UI</span>
+						<span class="ref-link-desc">{m.api_interactiveSwagger()}</span>
 					</div>
 				</a>
 				<a href={specUrl} target="_blank" rel="noopener noreferrer" class="ref-link">
 					<ExternalLink size={16} />
 					<div>
 						<span class="ref-link-title">{m.api_openApiSpec()}</span>
-						<span class="ref-link-desc">JSON spec for AI agents</span>
+						<span class="ref-link-desc">{m.api_jsonSpec()}</span>
 					</div>
 				</a>
 			</div>

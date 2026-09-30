@@ -1,9 +1,10 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	export let variant: 'ribbon' | 'pill' = 'pill';
-	export let label = 'DEMO';
+	export let label = m.tour_demoBadge();
 </script>
 
-<span class="demo-badge {variant}" aria-label="Example data — read-only">{label}</span>
+<span class="demo-badge {variant}" aria-label={m.workspace_readOnlyExample()}>{label}</span>
 
 <style>
 	.demo-badge {

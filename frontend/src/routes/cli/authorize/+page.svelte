@@ -3,6 +3,7 @@
 	import { auth, authStore } from '$lib/stores/auth';
 	import { apiClient, type CliAuthorizationRequest } from '$lib/api-client';
 	import { rememberAuthReturn } from '$lib/utils/auth-return';
+	import * as m from '$lib/paraglide/messages';
 
 	let request: CliAuthorizationRequest | null = null;
 	let loading = false;
@@ -39,13 +40,13 @@
 			if (version !== lookupVersion || code !== userCode) return;
 			if (loaded.user_code !== code) {
 				request = null;
-				error = 'This authorization request does not match the code in this page.';
+				error = m.cliAuth_codeMismatch();
 				return;
 			}
 			request = loaded;
 		} catch (caught) {
 			if (version !== lookupVersion || code !== userCode) return;
-			error = caught instanceof Error ? caught.message : 'Could not load this request.';
+			error = caught instanceof Error ? caught.message : m.cliAuth_loadFailed();
 		} finally {
 			if (version === lookupVersion && code === userCode) loading = false;
 		}
@@ -53,7 +54,7 @@
 
 	function signIn() {
 		if (!rememberAuthReturn(`/cli/authorize?user_code=${encodeURIComponent(userCode)}`)) {
-			error = 'Your browser could not preserve this request. Enable session storage and try again.';
+			error = m.cliAuth_storageFailed();
 			return;
 		}
 		auth.login();
@@ -62,7 +63,7 @@
 	async function decide(decision: 'approve' | 'deny') {
 		if (!request || request.status !== 'pending' || request.user_code !== userCode) {
 			if (request && request.user_code !== userCode) {
-				error = 'This authorization request does not match the code in this page.';
+				error = m.cliAuth_codeMismatch();
 			}
 			return;
 		}
@@ -76,62 +77,62 @@
 			completed = decision === 'approve' ? 'approved' : 'denied';
 		} catch (caught) {
 			if (version !== lookupVersion || requestCode !== userCode) return;
-			error = caught instanceof Error ? caught.message : 'Could not update this request.';
+			error = caught instanceof Error ? caught.message : m.cliAuth_updateFailed();
 		} finally {
 			if (version === lookupVersion && requestCode === userCode) action = null;
 		}
 	}
 </script>
 
-<svelte:head><title>Authorize Scout CLI · Scoutpost</title></svelte:head>
+<svelte:head><title>{m.cliAuth_pageTitle()} · Scoutpost</title></svelte:head>
 
 <main class="authorization-shell">
 	<section class="authorization-card" aria-labelledby="authorization-title">
 		<span class="eyebrow">Scoutpost</span>
-		<h1 id="authorization-title">Connect Scout CLI</h1>
+		<h1 id="authorization-title">{m.cliAuth_connect()}</h1>
 
 		{#if !validCode}
-			<p class="error" role="alert">This authorization code is malformed. Return to the terminal and start again.</p>
+			<p class="error" role="alert">{m.cliAuth_malformed()}</p>
 		{:else if !$authStore.authenticated}
-			<p>Sign in to review this terminal connection. Signing in does not approve it.</p>
-			<p class="code">Code <strong>{userCode}</strong></p>
-			<button class="primary" type="button" on:click={signIn}>Sign in to review</button>
+			<p>{m.cliAuth_signInDescription()}</p>
+			<p class="code">{m.cliAuth_code()} <strong>{userCode}</strong></p>
+			<button class="primary" type="button" on:click={signIn}>{m.cliAuth_signIn()}</button>
 		{:else if loading}
-			<p>Loading authorization request…</p>
+			<p>{m.cliAuth_loading()}</p>
 		{:else if completed === 'approved'}
-			<p class="success">Connection approved. You can close this window and return to the terminal.</p>
+			<p class="success">{m.cliAuth_approved()}</p>
 		{:else if completed === 'denied'}
-			<p>Connection denied. You can close this window.</p>
+			<p>{m.cliAuth_denied()}</p>
 		{:else if request}
 			<div class="request-details">
-				<div><span>Application</span><strong>{request.client_name}</strong></div>
-				<div><span>Agent</span><strong>{request.agent_label ?? 'Scout CLI'}</strong></div>
-				{#if request.device_label}<div><span>Device</span><strong>{request.device_label}</strong></div>{/if}
-				<div><span>Site</span><strong>{request.site_origin}</strong></div>
-				<div><span>Code</span><strong>{request.user_code}</strong></div>
+				<div><span>{m.cliAuth_application()}</span><strong>{request.client_name}</strong></div>
+				<div><span>{m.cliAuth_agent()}</span><strong>{request.agent_label ?? 'Scout CLI'}</strong></div>
+				{#if request.device_label}<div><span>{m.cliAuth_device()}</span><strong>{request.device_label}</strong></div>{/if}
+				<div><span>{m.cliAuth_site()}</span><strong>{request.site_origin}</strong></div>
+				<div><span>{m.cliAuth_code()}</span><strong>{request.user_code}</strong></div>
 			</div>
-			<p class="access">{request.access}.</p>
+			<p class="access">{request.access === 'Read and manage your Scoutpost scouts and reporting data' ? m.cliAuth_access() : request.access}.</p>
 
 			{#if request.status === 'pending'}
 				<div class="actions">
 					<button class="secondary" type="button" disabled={action !== null} on:click={() => decide('deny')}>
-						{action === 'deny' ? 'Denying…' : 'Deny'}
+						{action === 'deny' ? m.cliAuth_denying() : m.cliAuth_deny()}
 					</button>
 					<button class="primary" type="button" disabled={action !== null} on:click={() => decide('approve')}>
-						{action === 'approve' ? 'Approving…' : 'Allow connection'}
+						{action === 'approve' ? m.cliAuth_approving() : m.cliAuth_allow()}
 					</button>
 				</div>
 			{:else if request.status === 'expired'}
-				<p>This request expired. Return to the terminal and start again.</p>
+				<p>{m.cliAuth_expired()}</p>
 			{:else}
-				<p>This request is already {request.status} and cannot be changed.</p>
+				<p>{request.status === 'approved' ? m.cliAuth_alreadyApproved() : request.status === 'denied' ? m.cliAuth_alreadyDenied() : m.cliAuth_consumed()}</p>
 			{/if}
 		{/if}
 
 		{#if error}
 			<p class="error" role="alert">{error}</p>
 			{#if error.toLowerCase().includes('five') || error.toLowerCase().includes('maximum') || error.toLowerCase().includes('revoke')}
-				<a href="/?connect=api">Manage API keys</a>
+				<a href="/?connect=api">{m.cliAuth_manageKeys()}</a>
 			{/if}
 		{/if}
 	</section>

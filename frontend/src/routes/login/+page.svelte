@@ -6,6 +6,7 @@
 	import { onMount } from 'svelte';
 	import { consumeAuthReturn } from '$lib/utils/auth-return';
 	import NightWatchScene, { type SceneRect } from '$lib/components/login/NightWatchScene.svelte';
+	import * as m from '$lib/paraglide/messages';
 
 	let mounted = false;
 	let featureListEl: HTMLElement;
@@ -46,7 +47,7 @@
 	let selectedNewsletters: NewsletterId[] = ['buried_signals', 'indicator_media'];
 	let subscribing = false;
 	let subscribed = false;
-	let subscribedMessage = "You're subscribed.";
+	let subscribedMessage = m.login_subscribed();
 	let subscribeError = '';
 
 	function toggleNewsletter(newsletter: NewsletterId) {
@@ -84,14 +85,14 @@
 					: newsletters;
 				const firstCompleted = completed[0] ?? newsletters[0] ?? 'buried_signals';
 				subscribedMessage = completed.length === 2
-					? "You're subscribed to both newsletters."
-					: `You're subscribed to ${newsletterLabels[firstCompleted]}.`;
+					? m.login_subscribedBoth()
+					: m.login_subscribedTo({ newsletter: newsletterLabels[firstCompleted] });
 				subscribed = true;
 			} else {
-				subscribeError = data.error || data.detail || 'Something went wrong. Please try again.';
+				subscribeError = data.error || data.detail || m.login_retryError();
 			}
 		} catch {
-			subscribeError = 'Something went wrong. Please try again.';
+			subscribeError = m.login_retryError();
 		} finally {
 			subscribing = false;
 		}
@@ -112,7 +113,7 @@
 				if (data?.session) {
 					await navigateAfterLogin();
 				} else {
-					authError = 'Check your email to confirm your account.';
+					authError = m.login_confirmEmail();
 				}
 			} else {
 				const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -120,7 +121,7 @@
 				await navigateAfterLogin();
 			}
 		} catch (e: any) {
-			authError = e.message || 'Authentication failed';
+			authError = e.message || m.auth_loginFailed();
 		} finally {
 			authLoading = false;
 		}
@@ -207,21 +208,19 @@
 				<img src="/logo-scoutpost.svg" alt="Scoutpost" class="headline-logo" />
 
 				<p class="tagline">
-					Monitor the
-					<span class="highlight-muted">sources that matter</span>
-					and
-					<span class="highlight-accent">surface leads</span>.
+					{m.login_monitor()} <span class="highlight-muted">{m.login_sourcesMatter()}</span>
+					{m.common_and()} <span class="highlight-accent">{m.login_surfaceLeads()}</span>.
 				</p>
 
 				<h2 class="subheadline">
-					Connect your agent to scouts that monitor pages, social profiles, city councils, vessels, and your beat — while you <span class="highlight-accent">focus on reporting</span>.
+					{m.login_connectDescription()} <span class="highlight-accent">{m.login_focusReporting()}</span>.
 				</h2>
 
 				<button
 					type="button"
 					class="scroll-cue"
 					class:scroll-cue--gone={scrolled}
-					aria-label="Scroll to learn more"
+					aria-label={m.login_scrollLearn()}
 					onclick={() => storyEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
 				>
 					<span class="scroll-cue-ring">
@@ -239,25 +238,25 @@
 					<div class="auth-card">
 						{#if notAvailable}
 							<img src="/logo-scoutpost.svg" alt="Scoutpost" class="auth-logo" />
-							<p class="coming-soon-title">Access not available</p>
+							<p class="coming-soon-title">{m.login_accessUnavailable()}</p>
 							<p class="coming-soon-text">
-								Scoutpost hosted accounts are in limited access. This hosted account is not enabled yet; if you expected access, contact the Scoutpost team.
+								{m.login_limitedAccess()}
 							</p>
 						{:else}
 							{#if showSupabaseAuth()}
 								{@render authMark()}
-								<p class="auth-title">{isSignup ? 'Create Account' : 'Welcome Back'}</p>
+								<p class="auth-title">{isSignup ? m.login_createAccount() : m.login_welcomeBack()}</p>
 								<p class="auth-subtitle">
 									{#if IS_LOCAL_DEMO_MODE}
-										{isSignup ? 'Create a local demo account' : 'Sign in to the local demo workspace'}
+										{isSignup ? m.login_createDemo() : m.login_signInDemo()}
 									{:else}
-										{isSignup ? 'Set up your admin account' : 'Sign in to your account'}
+										{isSignup ? m.login_setupAdmin() : m.login_signInAccount()}
 									{/if}
 								</p>
 								{#if selfHostLoginNote}
 									<p class="auth-mode-note">{selfHostLoginNote}</p>
 								{:else if IS_LOCAL_DEMO_MODE}
-									<p class="auth-mode-note">Local demo workspace. Example scouts stay local and never hit hosted auth.</p>
+									<p class="auth-mode-note">{m.login_demoNote()}</p>
 								{/if}
 
 								{#if authError}
@@ -265,54 +264,54 @@
 								{/if}
 
 								<form onsubmit={(e) => { e.preventDefault(); handleSupabaseAuth(); }}>
-									<input type="email" bind:value={email} placeholder="Email" required class="auth-input" />
-									<input type="password" bind:value={password} placeholder="Password" required minlength="6" class="auth-input" />
+									<input type="email" bind:value={email} placeholder={m.login_email()} required class="auth-input" />
+									<input type="password" bind:value={password} placeholder={m.login_password()} required minlength="6" class="auth-input" />
 									<button type="submit" class="sign-in-button" disabled={authLoading}>
-										{authLoading ? 'Please wait...' : isSignup ? 'Create Account' : 'Sign In'}
+										{authLoading ? m.login_pleaseWait() : isSignup ? m.login_createAccount() : m.login_signIn()}
 									</button>
 								</form>
 
 								<button class="auth-toggle" onclick={() => { isSignup = !isSignup; authError = ''; }}>
-									{isSignup ? 'Already have an account? Sign in' : 'Create a new account'}
+									{isSignup ? m.login_existingAccount() : m.login_newAccount()}
 								</button>
 
 								<div class="auth-cta-row">
 									
 									<span class="auth-cta-sep">·</span>
-									<a href="/docs" class="auth-cta-link">See docs</a>
+									<a href="/docs" class="auth-cta-link">{m.login_seeDocs()}</a>
 									<span class="auth-cta-sep">·</span>
-									<a href="/skills" class="auth-cta-link">See skills</a>
+									<a href="/skills" class="auth-cta-link">{m.login_seeSkills()}</a>
 								</div>
 							{:else}
 								{@render authMark()}
-								<p class="auth-prompt">Sign in</p>
+								<p class="auth-prompt">{m.login_signIn()}</p>
 								<button class="sign-in-button" onclick={() => auth.login()}>
-									Sign in
+									{m.login_signIn()}
 								</button>
 								<div class="auth-account-options">
 								</div>
 								<div class="auth-cta-row">
 									
 									<span class="auth-cta-sep">·</span>
-									<a href="/docs" class="auth-cta-link">See docs</a>
+									<a href="/docs" class="auth-cta-link">{m.login_seeDocs()}</a>
 									<span class="auth-cta-sep">·</span>
-									<a href="/skills" class="auth-cta-link">See skills</a>
+									<a href="/skills" class="auth-cta-link">{m.login_seeSkills()}</a>
 								</div>
 							{/if}
 
 
 							<div class="auth-oss-badge">
 								<p class="auth-oss-text">
-									Open source under the
+									{m.login_openSource()}
 									<a href="/faq" class="auth-oss-link">AGPL-3.0</a>
 								</p>
 								<a href="https://github.com/buriedsignals/scoutpost-os" target="_blank" rel="noopener noreferrer" class="auth-github-link">
 									<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align: -2px; margin-right: 4px;"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-									View on GitHub
+									{m.pricing_viewGithub()}
 								</a>
 							</div>
 							<div class="terms-footer">
-								<a href="/terms">Terms & Privacy</a>
+								<a href="/terms">{m.login_termsPrivacy()}</a>
 							</div>
 						{/if}
 					</div>
@@ -329,12 +328,12 @@
 					rel="noopener noreferrer"
 					class="built-by-link"
 				>
-					Built by <strong>Buried Signals</strong> ↗
+					{m.login_builtBy()} <strong>Buried Signals</strong> ↗
 				</a>
 
 				<hr class="works-with-divider" />
 				<div class="works-with">
-					<span class="works-with-label">Works with</span>
+					<span class="works-with-label">{m.login_worksWith()}</span>
 					<!-- Marketing surface names; setup recipes retain client-specific labels. -->
 					<span class="agent-pill">
 						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
@@ -367,12 +366,12 @@
 				</div>
 
 				<section class="demo-section" aria-labelledby="product-demo-heading">
-					<p id="product-demo-heading" class="section-eyebrow">See Scoutpost in action</p>
+					<p id="product-demo-heading" class="section-eyebrow">{m.login_seeAction()}</p>
 					<!-- YouTube requires a 200px-tall player; 16:9 falls below that on common iPhone widths. -->
 					<div class="demo-video-frame" style="min-height: 200px">
 						<iframe
 							src="https://www.youtube-nocookie.com/embed/SzRd9R4_fs8?rel=0"
-							title="Scoutpost product demo"
+							title={m.login_productDemo()}
 							loading="lazy"
 							referrerpolicy="strict-origin-when-cross-origin"
 							allow="encrypted-media; picture-in-picture"
@@ -381,7 +380,7 @@
 					</div>
 				</section>
 
-				<div class="section-eyebrow section-eyebrow-first">How it works</div>
+				<div class="section-eyebrow section-eyebrow-first">{m.login_howWorks()}</div>
 				<div class="feature-list">
 					<div class="feature-item">
 						<div class="feature-icon">
@@ -392,8 +391,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Create scouts in the app or from chat</p>
-							<p class="feature-desc">Choose a page, profile, council, beat, or fleet. Run it on a schedule or on demand.</p>
+							<p class="feature-title">{m.login_createScouts()}</p>
+							<p class="feature-desc">{m.login_createScoutsDescription()}</p>
 						</div>
 					</div>
 
@@ -405,8 +404,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Source-linked, deduplicated findings</p>
-							<p class="feature-desc">Scouts extract atomic facts with timestamps and original URLs, then merge repeated coverage into one information unit.</p>
+							<p class="feature-title">{m.login_linkedFindings()}</p>
+							<p class="feature-desc">{m.login_linkedFindingsDescription()}</p>
 						</div>
 					</div>
 
@@ -419,8 +418,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">A searchable editorial inbox</p>
-							<p class="feature-desc">Review and search information units by scout, place, person, topic, date, or verification state.</p>
+							<p class="feature-title">{m.login_editorialInbox()}</p>
+							<p class="feature-desc">{m.login_editorialInboxDescription()}</p>
 						</div>
 					</div>
 
@@ -435,8 +434,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Works across your workflow</p>
-							<p class="feature-desc">Use the web app, MCP, REST API, or CLI to organize, export, and draft from the same monitored material.</p>
+							<p class="feature-title">{m.login_workflow()}</p>
+							<p class="feature-desc">{m.login_workflowDescription()}</p>
 						</div>
 					</div>
 
@@ -449,8 +448,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Preserve page evidence</p>
-							<p class="feature-desc">Optional evidence snapshots retain the page, screenshot, hashes, and trusted timestamp behind an important change.</p>
+							<p class="feature-title">{m.login_preserveEvidence()}</p>
+							<p class="feature-desc">{m.login_preserveEvidenceDescription()}</p>
 						</div>
 					</div>
 
@@ -463,13 +462,13 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Human verification stays in control</p>
-							<p class="feature-desc">Unverified units remain leads. You verify or reject them before they are treated as editor-approved facts.</p>
+							<p class="feature-title">{m.login_humanVerification()}</p>
+							<p class="feature-desc">{m.login_humanVerificationDescription()}</p>
 						</div>
 					</div>
 				</div>
 
-				<div class="section-eyebrow section-eyebrow-spaced">What can you track?</div>
+				<div class="section-eyebrow section-eyebrow-spaced">{m.login_whatTrack()}</div>
 				<div class="feature-list" bind:this={featureListEl}>
 					<div class="feature-item">
 						<div class="feature-icon">
@@ -482,8 +481,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Pages</p>
-							<p class="feature-desc">Watch any public URL for meaningful changes — meeting agendas, press rooms, FOIA portals, and filings — with optional criteria.</p>
+							<p class="feature-title">{m.login_pages()}</p>
+							<p class="feature-desc">{m.login_pagesDescription()}</p>
 						</div>
 					</div>
 					<div class="feature-item">
@@ -496,8 +495,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Social profiles</p>
-							<p class="feature-desc">Track new and deleted posts from Instagram, X, Facebook, TikTok, and LinkedIn profiles, including text and images.</p>
+							<p class="feature-title">{m.login_socialProfiles()}</p>
+							<p class="feature-desc">{m.login_socialProfilesDescription()}</p>
 						</div>
 					</div>
 					<div class="feature-item">
@@ -513,8 +512,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">City councils</p>
-							<p class="feature-desc">Follow council pages, agendas, minutes, and PDFs. Extract commitments and deadlines with meeting-date context.</p>
+							<p class="feature-title">{m.login_councils()}</p>
+							<p class="feature-desc">{m.login_councilsDescription()}</p>
 						</div>
 					</div>
 					<div class="feature-item">
@@ -531,8 +530,8 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Your beat</p>
-							<p class="feature-desc">Monitor a location, topic, or both across niche and established sources to surface under-reported leads.</p>
+							<p class="feature-title">{m.login_yourBeat()}</p>
+							<p class="feature-desc">{m.login_yourBeatDescription()}</p>
 						</div>
 					</div>
 					<div class="feature-item">
@@ -542,30 +541,30 @@
 							</svg>
 						</div>
 						<div>
-							<p class="feature-title">Fleet movements</p>
-							<p class="feature-desc">Monitor watched vessels and aircraft entering a selected area. Optional criteria filter entry alerts.</p>
+							<p class="feature-title">{m.login_fleets()}</p>
+							<p class="feature-desc">{m.login_fleetsDescription()}</p>
 						</div>
 					</div>
 				</div>
 
-				<div class="section-eyebrow section-eyebrow-spaced">More from Buried Signals</div>
+				<div class="section-eyebrow section-eyebrow-spaced">{m.login_moreTools()}</div>
 				<div class="promo-grid">
 					<div class="promo-card">
 						<div class="promo-kicker">
 							<span>Indicator Lab</span>
-							<span class="promo-launch">Launching September 2026</span>
+							<span class="promo-launch">{m.login_launchDate()}</span>
 						</div>
-						<h3 class="promo-title">Investigations with AI. The tools to run your own.</h3>
-						<p class="promo-subtitle">Indicator Lab combines the Buried Signals tool suite with a monthly investigation debrief, a practical Case Note, and office hours every two weeks.</p>
-						<a class="indicator-lab-link" href="https://buriedsignals.com/join">Explore Indicator Lab <span aria-hidden="true">→</span></a>
+						<h3 class="promo-title">{m.login_labTitle()}</h3>
+						<p class="promo-subtitle">{m.login_labDescription()}</p>
+						<a class="indicator-lab-link" href="https://buriedsignals.com/join">{m.login_exploreLab()} <span aria-hidden="true">→</span></a>
 
 						<div class="promo-newsletter-block">
 							{#if subscribeError}
 								<p class="promo-signup-error" role="alert">{subscribeError}</p>
 							{/if}
 							{#if !subscribed}
-								<p class="promo-newsletter-heading">Newsletters</p>
-								<div class="promo-newsletter-options" aria-label="Newsletter choices">
+								<p class="promo-newsletter-heading">{m.login_newsletters()}</p>
+								<div class="promo-newsletter-options" aria-label={m.login_newsletterChoices()}>
 									<button
 										type="button"
 										class="promo-newsletter-toggle"
@@ -576,7 +575,7 @@
 										<span class="promo-newsletter-check" aria-hidden="true">{selectedNewsletters.includes('buried_signals') ? '✓' : ''}</span>
 										<span class="promo-newsletter-copy">
 											<span class="promo-newsletter-title">Buried Signals</span>
-											<span class="promo-newsletter-description">Monthly dispatches on investigations and the changing practice of journalism with AI in the loop.</span>
+											<span class="promo-newsletter-description">{m.login_buriedNewsletter()}</span>
 										</span>
 									</button>
 									<button
@@ -589,22 +588,22 @@
 										<span class="promo-newsletter-check" aria-hidden="true">{selectedNewsletters.includes('indicator_media') ? '✓' : ''}</span>
 										<span class="promo-newsletter-copy">
 											<span class="promo-newsletter-title">Indicator Briefing</span>
-											<span class="promo-newsletter-description">Weekly news, research, OSINT tools, and techniques for investigating digital deception.</span>
+											<span class="promo-newsletter-description">{m.login_indicatorNewsletter()}</span>
 										</span>
 									</button>
 								</div>
-								<p class="promo-disclaimer">1,000+ journalists already reading.</p>
+								<p class="promo-disclaimer">{m.login_readers()}</p>
 								<form class="promo-signup-form" onsubmit={(e) => { e.preventDefault(); handleSubscribe(); }}>
 									<input
 										type="email"
 										bind:value={subscribeEmail}
-										placeholder="you@example.com"
+										placeholder={m.login_emailExample()}
 										required
 										autocomplete="email"
 										disabled={subscribing}
 									/>
 									<button type="submit" class="promo-btn-primary" disabled={subscribing}>
-										{subscribing ? 'Subscribing…' : 'Subscribe →'}
+										{subscribing ? m.login_subscribing() : m.login_subscribe()}
 									</button>
 								</form>
 							{:else}
@@ -620,12 +619,12 @@
 
 					<div class="promo-card">
 						<div class="promo-kicker">
-							<span>Hire me</span>
+							<span>{m.login_hireMe()}</span>
 						</div>
-						<h3 class="promo-title">I train newsrooms to investigate with AI</h3>
-						<p class="promo-subtitle">Talks, workshops, custom tooling, and investigation collaborations.</p>
+						<h3 class="promo-title">{m.login_trainingTitle()}</h3>
+						<p class="promo-subtitle">{m.login_trainingDescription()}</p>
 						<div class="promo-section-label-wrap">
-							<span class="promo-section-label">Past clients</span>
+							<span class="promo-section-label">{m.login_pastClients()}</span>
 						</div>
 						<ul class="promo-features">
 							<li>Le Temps</li>
@@ -642,7 +641,7 @@
 								href="mailto:tom@buriedsignals.com?subject=Consulting%20inquiry"
 								class="promo-btn-primary"
 							>
-								Get in touch →
+								{m.login_contact()}
 							</a>
 							<a
 								href="https://buriedsignals.com/consulting"
@@ -650,7 +649,7 @@
 								rel="noopener noreferrer"
 								class="promo-link"
 							>
-								See case studies →
+								{m.login_caseStudies()}
 							</a>
 						</div>
 					</div>
@@ -659,7 +658,7 @@
 
 			<div class="footer-badges-container">
 				<div class="footer-group">
-					<p class="footer-label">Supported by</p>
+					<p class="footer-label">{m.login_supportedBy()}</p>
 					<a href="https://www.imj.ch" target="_blank" rel="noopener noreferrer">
 						<img src="/logos/logo_imj_schwarz.svg" alt="IMJ" class="footer-logo footer-logo-imj footer-logo-desaturated" />
 					</a>

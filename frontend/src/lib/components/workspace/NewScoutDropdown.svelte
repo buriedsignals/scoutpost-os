@@ -45,10 +45,10 @@
 			<Button
 				{...props}
 				class="new-scout-trigger h-8 cursor-pointer rounded-xl bg-primary px-3.5 font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-primary-foreground shadow-[0_8px_22px_oklch(0.1_0.02_75/0.2)] transition-[transform,background-color,box-shadow] duration-200 hover:-translate-y-px hover:bg-primary/90 hover:shadow-[0_11px_26px_oklch(0.1_0.02_75/0.27)]"
-				aria-label="New Scout"
+				aria-label={m.sidebar_newScout()}
 			>
 				<Plus size={14} strokeWidth={2.5} />
-				<span>New Scout</span>
+				<span>{m.sidebar_newScout()}</span>
 				<ChevronDown size={11} strokeWidth={2.5} />
 			</Button>
 		{/snippet}

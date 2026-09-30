@@ -292,6 +292,7 @@ export interface ScoutResponse {
   project_id: string | null;
   regularity: string | null;
   schedule_cron: string | null;
+  schedule_timezone: string;
   is_active: boolean;
   consecutive_failures: number;
   archive_enabled: boolean;
@@ -337,6 +338,7 @@ interface RawScoutRow {
   project_id?: string | null;
   regularity?: string | null;
   schedule_cron?: string | null;
+  schedule_timezone?: string | null;
   is_active?: boolean | null;
   consecutive_failures?: number | null;
   archive_enabled?: boolean | null;
@@ -380,6 +382,7 @@ export async function shapeScoutResponse(
     project_id: row.project_id ?? null,
     regularity: row.regularity ?? null,
     schedule_cron: row.schedule_cron ?? null,
+    schedule_timezone: row.schedule_timezone ?? "UTC",
     is_active: row.is_active ?? true,
     consecutive_failures: row.consecutive_failures ?? 0,
     archive_enabled: row.archive_enabled ?? false,

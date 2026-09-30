@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	import { AlertCircle, Copy, Check, ExternalLink } from 'lucide-svelte';
 	import AgentOnboard from '$lib/components/ui/AgentOnboard.svelte';
 	import type { Recipe } from '$lib/utils/agent-recipes';
@@ -47,17 +48,17 @@
 	{#if recipe.mode === 'cli-command' && recipe.command}
 		<div class="block">
 			<div class="block-head">
-				<span class="block-label">Install</span>
+				<span class="block-label">{m.agent_install()}</span>
 				<button class="copy-btn" on:click={() => copy('cmd', recipe.command ?? '')}>
 					{#if copied === 'cmd'}
-						<Check size={13} /><span>Copied</span>
+						<Check size={13} /><span>{m.api_copied()}</span>
 					{:else}
-						<Copy size={13} /><span>Copy</span>
+						<Copy size={13} /><span>{m.api_copy()}</span>
 					{/if}
 				</button>
 			</div>
 			<pre><code>{recipe.command}</code></pre>
-			<p class="block-note">Run this in your terminal, not in the agent chat.</p>
+			<p class="block-note">{m.agent_runInTerminal()}</p>
 		</div>
 
 		{#if recipe.uiSteps}
@@ -72,13 +73,13 @@
 			<div class="block">
 				<div class="block-head">
 					<span class="block-label">
-						{recipe.configLang ? 'Reference config' : 'MCP server URL'}
+						{recipe.configLang ? m.agent_referenceConfig() : m.agent_mcpUrl()}
 					</span>
 					<button class="copy-btn" on:click={() => copy('snippet', recipe.configSnippet ?? '')}>
 						{#if copied === 'snippet'}
-							<Check size={13} /><span>Copied</span>
+							<Check size={13} /><span>{m.api_copied()}</span>
 						{:else}
-							<Copy size={13} /><span>Copy</span>
+							<Copy size={13} /><span>{m.api_copy()}</span>
 						{/if}
 					</button>
 				</div>
@@ -89,40 +90,38 @@
 		<div class="block">
 			<div class="block-head">
 				<span class="block-label">
-					Install <code class="path">scout</code>
+					{m.agent_install()} <code class="path">scout</code>
 				</span>
 				<button class="copy-btn" on:click={() => copy('install', recipe.installCommand ?? '')}>
 					{#if copied === 'install'}
-						<Check size={13} /><span>Copied</span>
+						<Check size={13} /><span>{m.api_copied()}</span>
 					{:else}
-						<Copy size={13} /><span>Copy</span>
+						<Copy size={13} /><span>{m.api_copy()}</span>
 					{/if}
 				</button>
 			</div>
 			<pre><code>{recipe.installCommand}</code></pre>
-			<p class="block-note">Requires Deno 2.x. The command installs from source and works across supported platforms.</p>
+			<p class="block-note">{m.agent_requiresDeno()}</p>
 		</div>
 
 		{#if recipe.configCommands?.length}
 			<div class="block">
 				<div class="block-head">
-					<span class="block-label">Configure</span>
+					<span class="block-label">{m.workspace_addScout_step2()}</span>
 					<button
 						class="copy-btn"
 						on:click={() => copy('config', (recipe.configCommands ?? []).join('\n'))}
 					>
 						{#if copied === 'config'}
-							<Check size={13} /><span>Copied</span>
+							<Check size={13} /><span>{m.api_copied()}</span>
 						{:else}
-							<Copy size={13} /><span>Copy</span>
+							<Copy size={13} /><span>{m.api_copy()}</span>
 						{/if}
 					</button>
 				</div>
 				<pre><code>{recipe.configCommands.join('\n')}</code></pre>
 				<p class="block-note">
-					Need a key? Open <strong>Connect Agent → API keys &amp; REST</strong>, then
-					<strong>Create key</strong> — you&rsquo;ll get a <code>cj_…</code> value to paste in place of
-					the placeholder. Revoke or rotate from the same panel anytime.
+					{m.agent_keyInstructions()}
 				</p>
 			</div>
 		{/if}
@@ -130,13 +129,13 @@
 		<div class="block">
 			<div class="block-head">
 				<span class="block-label">
-					Install: add to <code class="path">{recipe.configPath}</code>
+					{m.agent_installAddTo()} <code class="path">{recipe.configPath}</code>
 				</span>
 				<button class="copy-btn" on:click={() => copy('cfg', recipe.configSnippet ?? '')}>
 					{#if copied === 'cfg'}
-						<Check size={13} /><span>Copied</span>
+						<Check size={13} /><span>{m.api_copied()}</span>
 					{:else}
-						<Copy size={13} /><span>Copy</span>
+						<Copy size={13} /><span>{m.api_copy()}</span>
 					{/if}
 				</button>
 			</div>
@@ -158,12 +157,12 @@
 		</ol>
 		<div class="block">
 			<div class="block-head">
-				<span class="block-label">{recipe.configLang ? 'Configuration' : 'MCP server URL'}</span>
+				<span class="block-label">{recipe.configLang ? m.agent_configuration() : m.agent_mcpUrl()}</span>
 				<button class="copy-btn" on:click={() => copy('setup', recipe.configSnippet ?? '')}>
 					{#if copied === 'setup'}
-						<Check size={13} /><span>Copied</span>
+						<Check size={13} /><span>{m.api_copied()}</span>
 					{:else}
-						<Copy size={13} /><span>{recipe.configLang ? 'Copy config' : 'Copy URL'}</span>
+						<Copy size={13} /><span>{recipe.configLang ? m.agent_copyConfig() : m.agent_copyUrl()}</span>
 					{/if}
 				</button>
 			</div>
@@ -172,10 +171,10 @@
 	{:else if recipe.mode === 'one-click' && recipe.oneClick}
 		<div class="block">
 			<div class="block-head">
-				<span class="block-label">Install</span>
+				<span class="block-label">{m.agent_install()}</span>
 			</div>
 			<a class="oneclick-btn" href={recipe.oneClick.url}>{recipe.oneClick.label}</a>
-			<p class="block-note">Opens the app if it is installed. Or follow the steps below.</p>
+			<p class="block-note">{m.agent_opensApp()}</p>
 		</div>
 		{#if recipe.uiSteps}
 			<ol class="steps">
@@ -187,12 +186,12 @@
 		{#if recipe.configSnippet}
 			<div class="block">
 				<div class="block-head">
-					<span class="block-label">{recipe.configLang ? `Or add to ${recipe.configPath ?? 'mcp.json'}` : 'MCP server URL'}</span>
+					<span class="block-label">{recipe.configLang ? m.agent_orAddTo({ path: recipe.configPath ?? 'mcp.json' }) : m.agent_mcpUrl()}</span>
 					<button class="copy-btn" on:click={() => copy('oneclick', recipe.configSnippet ?? '')}>
 						{#if copied === 'oneclick'}
-							<Check size={13} /><span>Copied</span>
+							<Check size={13} /><span>{m.api_copied()}</span>
 						{:else}
-							<Copy size={13} /><span>{recipe.configLang ? 'Copy config' : 'Copy URL'}</span>
+							<Copy size={13} /><span>{recipe.configLang ? m.agent_copyConfig() : m.agent_copyUrl()}</span>
 						{/if}
 					</button>
 				</div>
@@ -202,12 +201,12 @@
 	{:else if recipe.mode === 'generic' && recipe.configSnippet}
 		<div class="block">
 			<div class="block-head">
-				<span class="block-label">MCP server URL</span>
+				<span class="block-label">{m.agent_mcpUrl()}</span>
 				<button class="copy-btn" on:click={() => copy('url', recipe.configSnippet ?? '')}>
 					{#if copied === 'url'}
-						<Check size={13} /><span>Copied</span>
+						<Check size={13} /><span>{m.api_copied()}</span>
 					{:else}
-						<Copy size={13} /><span>Copy URL</span>
+						<Copy size={13} /><span>{m.agent_copyUrl()}</span>
 					{/if}
 				</button>
 			</div>
@@ -221,7 +220,7 @@
 
 	{#if copyFallback}
 		<div class="copy-fallback" role="alert">
-			<p>Clipboard access is blocked. Select and copy this value:</p>
+			<p>{m.agent_clipboardBlocked()}</p>
 			<textarea
 				readonly
 				value={copyFallback}
@@ -231,7 +230,7 @@
 	{/if}
 
 	<div class="verify">
-		<span class="verify-label">Verify it works</span>
+		<span class="verify-label">{m.agent_verifyWorks()}</span>
 		{#if recipe.verifySteps?.length}
 			<ol class="verify-steps">
 				{#each recipe.verifySteps as step}
@@ -240,9 +239,9 @@
 			</ol>
 		{:else}
 			<p>
-				Ask your AI:
-				<em>&ldquo;{recipe.verifyPrompt ?? 'List my Scoutpost scouts'}&rdquo;</em>
-				&mdash; if it returns your scouts, you&rsquo;re connected.
+				{m.agent_askAi()}
+				<em>&ldquo;{recipe.verifyPrompt ?? m.agent_listScouts()}&rdquo;</em>
+				&mdash; {m.agent_verifySuccessHint()}
 			</p>
 		{/if}
 	</div>
@@ -250,7 +249,7 @@
 	{#if recipe.docsUrl}
 		<a class="docs-link" href={recipe.docsUrl} target="_blank" rel="noopener">
 			<ExternalLink size={12} />
-			<span>{recipe.docsLabel ?? 'Official docs'}</span>
+			<span>{recipe.docsLabel ?? m.agent_officialDocs()}</span>
 		</a>
 	{/if}
 </div>

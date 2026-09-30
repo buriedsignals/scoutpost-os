@@ -64,7 +64,8 @@ def _override_api_key_user():
 
 @pytest.fixture(autouse=True)
 def reset_singletons():
-    """Reset lazy service singletons between tests."""
+    """Isolate lazy services and request quotas between tests."""
+    v1_module.limiter.reset()
     v1_module._api_key_service = None
     v1_module._schedule_service = None
     v1_module._feed_search_service = None
@@ -72,6 +73,7 @@ def reset_singletons():
     v1_module._api_key_service = None
     v1_module._schedule_service = None
     v1_module._feed_search_service = None
+    v1_module.limiter.reset()
 
 
 @pytest.fixture
@@ -258,7 +260,12 @@ class TestListScouts:
 
 
 class TestCreateScout:
-    def test_create_beat_scout_success(self, api_client):
+    @pytest.mark.parametrize("schedule_fields,expected_zone", [
+        ({}, "UTC"),
+        ({"schedule_timezone": "America/New_York"}, "America/New_York"),
+        ({"schedule_timezone": "Asia/Kathmandu"}, "Asia/Kathmandu"),
+    ])
+    def test_create_beat_scout_success(self, api_client, schedule_fields, expected_zone):
         mock_svc = AsyncMock()
         mock_svc.get_scout.return_value = None  # No duplicate
         mock_svc.create_scout.return_value = {
@@ -278,7 +285,8 @@ class TestCreateScout:
             response = api_client.post("/api/v1/scouts", json={
                 "name": "My Scout",
                 "type": "beat",
-                "schedule": {"regularity": "daily", "time": "08:00"},
+                "schedule": {"regularity": "weekly", "day_number": 1, "time": "08:15"},
+                **schedule_fields,
                 "location": {"displayName": "Vienna, Austria", "country": "AT", "city": "Vienna"},
             })
 
@@ -286,7 +294,8 @@ class TestCreateScout:
         data = response.json()
         assert data["name"] == "My Scout"
         assert data["type"] == "beat"
-        mock_svc.create_scout.assert_called_once()
+        assert data["schedule_cron"] == "15 8 * * 1"
+        assert data["schedule_timezone"] == expected_zone
 
     def test_create_web_scout_success(self, api_client):
         mock_svc = AsyncMock()
@@ -310,6 +319,7 @@ class TestCreateScout:
                 "type": "web",
                 "schedule": {"regularity": "weekly", "time": "10:00", "day_number": 1},
                 "url": "https://example.com/news",
+                "topic": "company news",
                 # Deprecated v1 input remains accept-and-ignore during the
                 # compatibility window.
                 "provider": "firecrawl_plain",
@@ -458,25 +468,21 @@ class TestCreateScout:
         data = response.json()["detail"]
         assert data["code"] == "DUPLICATE_NAME"
 
-    def test_create_scout_no_timezone_returns_400(self, api_client):
-        user_no_tz = {**MOCK_API_KEY_USER, "timezone": None}
-        _test_app.dependency_overrides[verify_api_key] = lambda: user_no_tz
-
+    def test_create_scout_invalid_timezone_is_rejected_before_storage(self, api_client):
         mock_svc = AsyncMock()
         mock_svc.get_scout.return_value = None
-
-        with patch.object(v1_module, "_get_schedule_service", return_value=mock_svc):
-            response = TestClient(_test_app).post("/api/v1/scouts", json={
-                "name": "Test",
+        with patch.object(v1_module, "_get_schedule_service", return_value=mock_svc), \
+             patch("app.routers.v1.validate_credits", new_callable=AsyncMock):
+            response = api_client.post("/api/v1/scouts", json={
+                "name": "Timezone guard",
                 "type": "beat",
-                "schedule": {"regularity": "daily", "time": "08:00"},
+                "schedule": {"regularity": "weekly", "time": "08:15"},
+                "schedule_timezone": "Mars/Olympus",
                 "topic": "news",
             })
-
         assert response.status_code == 400
-        data = response.json()["detail"]
-        assert data["code"] == "TIMEZONE_REQUIRED"
-        _test_app.dependency_overrides[verify_api_key] = _override_api_key_user
+        assert response.json()["detail"]["code"] == "INVALID_SCHEDULE"
+        mock_svc.create_scout.assert_not_called()
 
     def test_create_scout_dev_prefix_in_development(self, api_client):
         mock_svc = AsyncMock()
@@ -552,6 +558,31 @@ class TestCreateScout:
         })
 
         assert response.status_code == 422  # Pydantic model_validator
+
+    @pytest.mark.parametrize("payload,field", [
+        ({"name": "   ", "type": "beat", "topic": "housing"}, "name"),
+        ({"name": "Page", "type": "web", "url": "https://example.com"}, "location or topic"),
+        ({"name": "Beat", "type": "beat", "topic": " , "}, "location or topic"),
+        ({"name": "Social", "type": "social", "platform": "instagram",
+          "profile_handle": "council", "monitor_mode": "summarize"}, "location or topic"),
+        ({"name": "Unsupported Civic", "type": "civic", "topic": "council"}, "type"),
+    ])
+    def test_create_rejects_missing_required_values(self, api_client, payload, field):
+        mock_svc = AsyncMock()
+        mock_svc.get_scout.return_value = None
+        mock_svc.create_scout.return_value = {
+            "message": "created", "schedule_name": "validation", "scraper_name": payload["name"],
+        }
+        mock_settings = MagicMock()
+        mock_settings.environment = "production"
+        with patch.object(v1_module, "_get_schedule_service", return_value=mock_svc), \
+             patch("app.routers.v1.get_settings", return_value=mock_settings), \
+             patch("app.routers.v1.validate_credits", new_callable=AsyncMock):
+            response = api_client.post("/api/v1/scouts", json={
+                **payload, "schedule": {"regularity": "weekly", "time": "08:00"},
+            })
+        assert response.status_code == 422
+        assert field in response.text
 
     def test_create_scout_insufficient_credits_returns_402(self, api_client):
         from fastapi import HTTPException

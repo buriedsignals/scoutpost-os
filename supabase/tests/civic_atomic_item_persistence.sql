@@ -25,7 +25,7 @@ DO $$
 DECLARE
  uid uuid := gen_random_uuid(); sid uuid := gen_random_uuid(); rid uuid := gen_random_uuid();
  qid uuid := gen_random_uuid(); item jsonb; result record; retried record;
- phase text; pid uuid; revision uuid; original_status text;
+ phase text; pid uuid; revision uuid; original_status text; claim record;
 BEGIN
  INSERT INTO auth.users(id) VALUES(uid);
  INSERT INTO public.scouts(id,user_id,name,type,is_active) VALUES(sid,uid,'Atomic persistence QA','civic',false);
@@ -99,8 +99,23 @@ BEGIN
    PERFORM public.persist_civic_item(qid,'qa-worker',item || jsonb_build_object('p_user_id',gen_random_uuid()));
    RAISE EXCEPTION 'foreign owner accepted';
  EXCEPTION WHEN OTHERS THEN IF SQLERRM <> 'Civic item provenance does not match queue' THEN RAISE; END IF; END;
+ UPDATE public.scout_runs SET civic_dispatch_complete=false WHERE id=rid;
  PERFORM pg_temp.assert_true(public.finalize_civic_run_doc(qid,'qa-worker',rid,
    (SELECT count(*)::int FROM public.civic_queue_item_results WHERE queue_id=qid AND created_canonical),0,NULL), 'document finalizes');
+ PERFORM pg_temp.assert_true((SELECT status='running' FROM public.scout_runs WHERE id=rid),'worker cannot settle while discovery can still enqueue siblings');
+ PERFORM pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM public.civic_run_alert_deliveries WHERE scout_run_id=rid),'no alert before dispatch completion');
+ PERFORM public.complete_civic_dispatch(rid);
+ PERFORM pg_temp.assert_true((SELECT status='success' FROM public.scout_runs WHERE id=rid),'dispatcher settles a run whose worker already finished');
+ SELECT * INTO claim FROM public.claim_civic_run_alert_delivery(rid,'delivery-worker',60);
+ PERFORM pg_temp.assert_true(claim.needs_provider_submission,'new settled alert needs delivery');
+ PERFORM pg_temp.assert_true(public.mark_civic_run_alert_provider_accepted(claim.delivery_id,'delivery-worker',claim.fencing_token,'offline-provider'),'record provider acceptance');
+ SELECT * INTO claim FROM public.claim_civic_run_alert_delivery(rid,'recovery-worker',60);
+ PERFORM pg_temp.assert_true(NOT claim.needs_provider_submission,'accepted delivery is reconciliation only');
+ SELECT * INTO claim FROM public.claim_civic_run_alert_delivery(rid,'recovery-worker-two',60);
+ PERFORM pg_temp.assert_true(NOT claim.needs_provider_submission,'a second reconciliation crash must not forget acceptance');
+ PERFORM pg_temp.assert_true(public.finalize_civic_run_alert_delivery(claim.delivery_id,'recovery-worker-two',claim.fencing_token,'sent'),'current fence consumes alert');
+ PERFORM pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM public.civic_run_alert_items WHERE scout_run_id=rid AND delivered_at IS NULL),'reconciliation consumes alert items atomically');
+ PERFORM pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM public.claim_civic_run_alert_delivery(rid,'late-worker',60)),'sent run cannot be reclaimed');
  PERFORM pg_temp.assert_true(NOT public.finalize_civic_run_doc(qid,'qa-worker',rid,1,0,NULL),'document finalizes once');
  PERFORM pg_temp.assert_true((SELECT units_created_count=1 FROM public.scout_runs WHERE id=rid),'ledger drives one final count');
  PERFORM pg_temp.assert_true(NOT has_function_privilege('anon','public.persist_civic_item(uuid,text,jsonb)','EXECUTE'),'anon denied');
@@ -142,7 +157,9 @@ BEGIN
    PERFORM pg_temp.assert_true((SELECT scout_type=source_kind AND scout_id=origin AND type='promise' FROM public.information_units WHERE id=result.unit_id),'original provenance preserved during promotion');
    SELECT id INTO pid FROM public.promises WHERE unit_id=result.unit_id AND user_id=uid;
    PERFORM pg_temp.assert_true((SELECT active_revision_id IS NOT NULL AND scout_id=sid FROM public.promises WHERE id=pid),'promotion creates linked tracker');
-   PERFORM pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM public.civic_run_alert_items WHERE unit_id=result.unit_id),'merge never sends new-canonical alert');
+   PERFORM pg_temp.assert_true((SELECT count(*)=1 FROM public.civic_run_alert_items WHERE unit_id=result.unit_id),'newly stored promoted promise creates one alert');
+   PERFORM public.persist_civic_item(qid,'qa-worker',item);
+   PERFORM pg_temp.assert_true((SELECT count(*)=1 FROM public.civic_run_alert_items WHERE unit_id=result.unit_id),'promotion retry does not duplicate alert');
    -- A missing tracker after prior Civic evidence is ambiguous, even though
    -- the canonical row still retains its original Page/Beat provenance.
    DELETE FROM public.promises WHERE id=pid;
@@ -154,7 +171,7 @@ BEGIN
      IF SQLERRM <> 'Existing Civic canonical item needs an explicit tracker repair' THEN RAISE; END IF;
    END;
  END LOOP;
- RAISE NOTICE 'PASS: Page/Beat promotion preserves identity, links tracker, suppresses new alert, retains removed-tracker boundary';
+ RAISE NOTICE 'PASS: Page/Beat promotion preserves identity, links tracker, alerts once, retains removed-tracker boundary';
 END $$;
 RESET ROLE;
 $promotion_test$, 'Page/Beat promotion preserves identity and does not restore removed trackers');

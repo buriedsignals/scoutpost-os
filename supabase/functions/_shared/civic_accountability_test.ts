@@ -6,7 +6,6 @@ import {
   type CivicRejectionCode,
   classifyCivicCandidate,
   classifyCivicCandidates,
-  retainCivicPromiseAlertItems,
   shouldAlertForNewCivicItem,
 } from "./civic_accountability.ts";
 
@@ -100,21 +99,6 @@ Deno.test("Civic immediate alerts announce only newly stored promises", () => {
   assertEquals(shouldAlertForNewCivicItem(decisionResult.item, true), false);
 });
 
-Deno.test("Civic delivery drops legacy decision alert rows", () => {
-  const promiseItem = { id: "alert-promise", unit_id: "promise-unit" };
-  const decisionItem = { id: "alert-decision", unit_id: "decision-unit" };
-  assertEquals(
-    retainCivicPromiseAlertItems(
-      [promiseItem, decisionItem],
-      ["promise-unit"],
-    ),
-    [promiseItem],
-  );
-  assertEquals(
-    retainCivicPromiseAlertItems([decisionItem], []),
-    [],
-  );
-});
 
 Deno.test("Civic accountability rejects the Zurich calendar pattern", () => {
   const result = classifyCivicCandidate(

@@ -24,6 +24,9 @@ export function initLocaleFromCache(): void {
 		// Don't reload - this is called on page load to restore the cached locale
 		setLocale(cached as SupportedLanguageCode, { reload: false });
 	}
+	if (typeof document !== 'undefined') {
+		document.documentElement.lang = getCurrentLocale();
+	}
 }
 
 /**

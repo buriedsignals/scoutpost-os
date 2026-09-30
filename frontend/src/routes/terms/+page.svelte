@@ -1,5 +1,7 @@
 <script>
 	// Public page — no auth required
+	import * as m from '$lib/paraglide/messages';
+	import { getLocale } from '$lib/paraglide/runtime';
 </script>
 
 <svelte:head>
@@ -7,9 +9,10 @@
 	<meta name="description" content="Scoutpost terms of use and privacy policy for hosted and self-hosted newsroom deployments." />
 </svelte:head>
 
-<div class="terms-page">
+<div class="terms-page" lang="en">
 	<div class="terms-content">
-		<a href="/" class="back-link">&larr; Back to Scoutpost</a>
+		<a href="/" class="back-link" lang={getLocale()}>&larr; {m.docs_backToScoutpost()}</a>
+		{#if getLocale() !== 'en'}<p role="note" lang={getLocale()}>{m.docs_englishOriginal()}</p>{/if}
 
 		<h1>Terms of Use & Privacy Policy</h1>
 		<p class="updated">Last updated: September 30, 2026</p>

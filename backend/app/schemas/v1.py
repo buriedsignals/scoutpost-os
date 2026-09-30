@@ -126,7 +126,7 @@ class ScheduleConfig(BaseModel):
     time: str = Field(
         ...,
         pattern=r"^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$",
-        description="Run time in HH:MM format (UTC)",
+        description="Wall-clock run time in HH:MM, in schedule_timezone (UTC by default)",
     )
     day_number: int = Field(
         default=1,
@@ -163,8 +163,12 @@ class CreateScoutRequest(BaseModel):
     )
 
     name: str = Field(..., min_length=1, max_length=120, description="Display name for the scout")
-    type: ScoutType = Field(default="beat", description="Scout type: 'web' (Page Scout) or 'beat' (Beat Scout)")
+    type: Literal["web", "beat", "social"] = Field(
+        default="beat",
+        description="Scout type: web, beat, or social. Civic and Fleet creation use /functions/v1/scouts.",
+    )
     schedule: ScheduleConfig
+    schedule_timezone: str = Field(default="UTC", min_length=1, max_length=100, description="IANA schedule timezone")
 
     # Web scout fields
     url: Optional[str] = Field(None, description="URL to monitor (required for web scouts)")
@@ -192,8 +196,8 @@ class CreateScoutRequest(BaseModel):
     )
 
     # Beat scout fields
-    location: Optional[GeocodedLocation] = Field(None, description="Geo-targeted location (beat scouts)")
-    topic: Optional[str] = Field(None, max_length=200, description="Topic keyword (beat scouts)")
+    location: Optional[GeocodedLocation] = Field(None, description="Geographic scope; optional when Project tags are provided")
+    topic: Optional[str] = Field(None, max_length=200, description="Organizational Project tags; required when location is omitted")
     source_mode: Literal["reliable", "niche"] = Field(
         default="niche",
         description="Source mode: 'reliable' for established outlets, 'niche' for community/underreported content",
@@ -206,6 +210,21 @@ class CreateScoutRequest(BaseModel):
         None,
         description="Domains to boost in AI filter ranking (beat scouts)",
     )
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def trim_name(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("topic")
+    @classmethod
+    def normalize_topic(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        tags = [tag.strip() for tag in value.split(",") if tag.strip()]
+        if len(tags) > 3 or any(len(tag) > 50 for tag in tags):
+            raise ValueError("Use at most 3 project tags, each at most 50 characters")
+        return ", ".join(tags) or None
 
     @field_validator('priority_sources')
     @classmethod
@@ -231,10 +250,11 @@ class CreateScoutRequest(BaseModel):
         if self.type == "web":
             if not (self.url and self.url.strip()):
                 raise ValueError("url is required for web scouts")
-        elif self.type == "beat":
-            if not self.location and not self.topic:
-                raise ValueError("At least one of location or topic is required for beat scouts")
-        elif self.type == "social":
+        if not self.location and not self.topic:
+            raise ValueError("At least one of location or topic is required")
+        if self.location and not self.location.displayName.strip():
+            raise ValueError("location.displayName is required")
+        if self.type == "social":
             if not self.platform:
                 raise ValueError("platform is required for social scouts")
             if not (self.profile_handle and self.profile_handle.strip()):
@@ -266,6 +286,8 @@ class ScoutResponse(BaseModel):
     type: str = Field(..., description="Scout type: 'web' or 'beat'")
     status: Optional[bool] = Field(None, description="Last run scraper status (True = success)")
     schedule: Optional[ScheduleConfig] = Field(None, description="Schedule configuration")
+    schedule_cron: Optional[str] = None
+    schedule_timezone: str = "UTC"
     location: Optional[GeocodedLocation] = Field(None, description="Geo-targeted location (beat scouts)")
     topic: Optional[str] = Field(None, description="Topic keyword (beat scouts)")
     url: Optional[str] = Field(None, description="Monitored URL (web scouts)")
@@ -301,6 +323,8 @@ class ScoutDetailResponse(BaseModel):
     type: str
     status: Optional[bool] = None
     schedule: Optional[ScheduleConfig] = None
+    schedule_cron: Optional[str] = None
+    schedule_timezone: str = "UTC"
     location: Optional[GeocodedLocation] = None
     topic: Optional[str] = None
     url: Optional[str] = None

@@ -1,6 +1,27 @@
 /**
  * Utilities for rendering unit (information unit) fields in the UI.
  */
+import * as m from '$lib/paraglide/messages';
+
+export function getUnitTypeLabel(unitType: string | null | undefined): string {
+	switch (unitType?.toLowerCase()) {
+		case 'promise': return m.unit_typePromise();
+		case 'fact': return m.unit_typeFact();
+		case 'event': return m.unit_typeEvent();
+		case 'quote': return m.unit_typeQuote();
+		case 'announcement': return m.unit_typeAnnouncement();
+		case 'claim': return m.unit_typeClaim();
+		case 'decision': return m.civic_materialDecision();
+		case 'location': return m.filter_location();
+		case 'civic': return m.scoutType_civicMonitor();
+		case 'beat':
+		case 'pulse': return m.scoutType_smartMonitor();
+		case 'page':
+		case 'web': return m.scoutType_pageMonitor();
+		case 'social': return m.scoutType_socialMonitor();
+		default: return unitType || m.unit_typeUnit();
+	}
+}
 
 /**
  * Strip redundant "X extracted: " prefixes from a unit's statement so the

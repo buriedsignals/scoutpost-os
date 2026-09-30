@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	import { onMount, tick } from 'svelte';
 	import { ChevronDown } from 'lucide-svelte';
 	import { AGENTS, type AgentSlug } from '$lib/utils/agent-icons';
@@ -73,7 +74,7 @@
 		aria-haspopup="listbox"
 		aria-expanded={open}
 	>
-		<span class="label">Agent</span>
+		<span class="label">{m.agent_label()}</span>
 		<span class="current">
 			<svg
 				class="icon"

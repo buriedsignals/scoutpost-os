@@ -6,6 +6,9 @@
 	export let topic: string = '';
 	export let existingTopics: string[] = [];
 	export let placeholder: string = '';
+	export let inputId: string | undefined = undefined;
+	export let required = false;
+	export let describedBy: string | undefined = undefined;
 
 	const MAX_TOPICS = 3;
 
@@ -62,14 +65,10 @@
 	}
 
 	function handleTopicBlur() {
-		// Delay to allow click on suggestion
-		setTimeout(() => {
-			showSuggestions = false;
-			// Add current input as chip if not empty
-			if (currentInput.trim()) {
-				addTopic(currentInput);
-			}
-		}, 150);
+		showSuggestions = false;
+		// Commit before a click on Submit; a delayed blur left the first tag
+		// missing when the form's scope validation ran.
+		if (currentInput.trim()) addTopic(currentInput);
 	}
 
 	function handleTopicInput() {
@@ -112,6 +111,10 @@
 	{#if topicChips.length < MAX_TOPICS}
 		<div class="topic-input-wrapper">
 			<input
+				id={inputId}
+				required={required && topicChips.length === 0}
+				aria-required={required}
+				aria-describedby={describedBy}
 				type="text"
 				bind:this={topicInputEl}
 				bind:value={currentInput}
@@ -119,7 +122,7 @@
 				on:blur={handleTopicBlur}
 				on:input={handleTopicInput}
 				on:keydown={handleTopicKeydown}
-				placeholder={topicChips.length === 0 ? (placeholder || m.filter_topicPlaceholder()) : 'Add another...'}
+				placeholder={topicChips.length === 0 ? (placeholder || m.filter_topicPlaceholder()) : m.filter_addAnother()}
 				maxlength="50"
 				class="topic-chip-input"
 				autocomplete="off"
@@ -140,7 +143,7 @@
 			{/if}
 		</div>
 	{:else}
-		<span class="max-topics-hint">Max {MAX_TOPICS} projects</span>
+		<span class="max-topics-hint">{m.filter_maxProjects({ count: MAX_TOPICS })}</span>
 	{/if}
 </div>
 

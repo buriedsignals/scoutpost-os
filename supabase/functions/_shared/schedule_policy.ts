@@ -19,6 +19,37 @@ export const SUB_DAILY_REGULARITIES = new Set(["3h", "6h", "12h"]);
 /** The approved transport schedule window: 3h floor, daily ceiling. */
 export const TRANSPORT_REGULARITIES = new Set(["3h", "6h", "12h", "daily"]);
 
+/** Wall-clock timezone validation shared by scout CRUD and manage-schedule.
+ * UTC keeps pg_cron's full grammar. Non-UTC supports product-generated
+ * daily/weekly/monthly schedules and anchored transport hour lists. */
+export function scheduleTimezoneError(
+  cron: string | null | undefined,
+  timezone: string,
+): string | null {
+  if (timezone !== "UTC" && !timezone.includes("/")) {
+    return "schedule_timezone must be a valid IANA timezone (or UTC)";
+  }
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: timezone });
+  } catch {
+    return "schedule_timezone must be a valid IANA timezone (or UTC)";
+  }
+  if (!cron || timezone === "UTC") return null;
+  const parts = cron.trim().split(/\s+/);
+  if (
+    parts.length !== 5 ||
+    !/^[0-5]?[0-9]$/.test(parts[0]) ||
+    !/^([01]?[0-9]|2[0-3])(,([01]?[0-9]|2[0-3]))*$/.test(parts[1]) ||
+    !/^(\*|[1-9]|[12][0-9]|3[01])$/.test(parts[2]) ||
+    parts[3] !== "*" ||
+    !/^(\*|[0-7])$/.test(parts[4]) ||
+    (parts[2] !== "*" && parts[4] !== "*")
+  ) {
+    return "non-UTC schedules require fixed minute, fixed/list hours, and daily, weekly, or monthly day fields; use UTC for arbitrary cron";
+  }
+  return null;
+}
+
 function isSingleCronField(field: string): boolean {
   const normalized = field.trim();
   return Boolean(normalized) &&
@@ -185,11 +216,12 @@ export function resolveScheduleAction(args: {
   activeChanged: boolean;
   cronChanged: boolean;
   willBeActive: boolean;
+  timezoneChanged?: boolean;
   hasSchedule: boolean;
 }): ScheduleAction {
-  const { activeChanged, cronChanged, willBeActive, hasSchedule } = args;
+  const { activeChanged, cronChanged, timezoneChanged, willBeActive, hasSchedule } = args;
   if (activeChanged && !willBeActive) return "unschedule";
-  if ((activeChanged && willBeActive) || cronChanged) {
+  if ((activeChanged && willBeActive) || cronChanged || timezoneChanged) {
     return willBeActive && hasSchedule ? "schedule" : "unschedule";
   }
   return "none";

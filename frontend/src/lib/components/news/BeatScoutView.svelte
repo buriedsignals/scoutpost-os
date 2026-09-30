@@ -120,56 +120,13 @@
 	$: isTopicOnly = mode === 'beat';
 
 	// Default prompts based on scope
-	const DEFAULT_NEWS_PROMPT = `Surface niche content a local journalist wouldn't find on their own. AIM FOR 5-6 ARTICLES.
+	const DEFAULT_NEWS_PROMPT = m.pulse_defaultNewsPrompt();
 
-PRIORITY ORDER:
-1. Community blogs and neighborhood sites
-2. Cultural organizations, local associations, civic groups
-3. Specialized or independent local publications (not mainstream outlets)
-4. News stories covered by only 1-2 outlets (underreported)
+	const DEFAULT_GOV_PROMPT = m.pulse_defaultGovPrompt();
 
-SOURCE DIVERSITY:
-- AVOID mainstream national/international news outlets
-- AVOID selecting more than 2 articles from the same domain
-- PREFER sources with local country domains in the local language
+	const DEFAULT_TOPIC_NEWS_PROMPT = m.pulse_defaultTopicNewsPrompt();
 
-EXCLUDE: Companies named after the city, different places with same name, press releases, paywalled content.`;
-
-	const DEFAULT_GOV_PROMPT = `Select GOVERNMENT and MUNICIPAL articles. AIM FOR 5-6 ARTICLES.
-
-PRIORITY ORDER:
-1. City council meetings and decisions
-2. Municipal services and public works announcements
-3. Local elections and officials news
-4. Permits, zoning, and regulations
-5. Mayor/city official statements
-
-EXCLUDE: National politics unless directly affecting the city.`;
-
-	const DEFAULT_TOPIC_NEWS_PROMPT = `Surface niche content a journalist wouldn't find on their own. AIM FOR 5-6 ARTICLES.
-
-PRIORITY ORDER:
-1. Specialized blogs and independent publications
-2. Community organizations, advocacy groups, and civic initiatives
-3. Underreported stories covered by only 1-2 outlets
-4. Analysis or investigative pieces from non-mainstream sources
-
-SOURCE DIVERSITY:
-- AVOID mainstream national/international news outlets
-- AVOID selecting more than 2 articles from the same domain
-- PREFER niche publications, expert sources, and independent analysis
-
-EXCLUDE: Articles that merely mention the topic in passing, press releases, paywalled content.`;
-
-	const DEFAULT_TOPIC_ANALYSIS_PROMPT = `Select ANALYSIS and INSIGHT articles. AIM FOR 5-6 ARTICLES.
-
-PRIORITY ORDER:
-1. Blog posts and long-form analysis
-2. Research papers and reports
-3. Expert opinion and commentary
-4. Deep-dive investigative pieces
-
-EXCLUDE: Breaking news already covered in the news section, press releases without analysis.`;
+	const DEFAULT_TOPIC_ANALYSIS_PROMPT = m.pulse_defaultTopicAnalysisPrompt();
 
 	$: activeNewsPlaceholder = isTopicOnly ? DEFAULT_TOPIC_NEWS_PROMPT : DEFAULT_NEWS_PROMPT;
 	$: activeGovPlaceholder = isTopicOnly ? DEFAULT_TOPIC_ANALYSIS_PROMPT : DEFAULT_GOV_PROMPT;
@@ -277,7 +234,7 @@ EXCLUDE: Breaking news already covered in the news section, press releases witho
 			searchCompleted = true;
 		} catch (error) {
 			console.error('[BeatScoutView] Search error:', error);
-			searchError = error instanceof Error ? error.message : 'Search failed. Please try again.';
+			searchError = error instanceof Error ? error.message : m.feed_searchFailed();
 			stopProgress(false);
 			searchCompleted = false;
 		}
@@ -325,8 +282,10 @@ EXCLUDE: Breaking news already covered in the news section, press releases witho
 				{#if mode === 'location'}
 					<!-- Location (required) -->
 					<div class="field-group">
-						<div class="field-label">{m.filter_locationLabel()}</div>
+						<label for="beat-location" class="field-label">{m.filter_locationLabel()} <span aria-hidden="true">*</span></label>
 						<LocationAutocomplete
+							inputId="beat-location"
+							required
 							selectedLocation={selectedLocation}
 							onSelect={handleLocationSelect}
 							onClear={handleLocationClear}
@@ -336,16 +295,18 @@ EXCLUDE: Breaking news already covered in the news section, press releases witho
 					<!-- Criteria (required for beat mode) -->
 					<div class="field-group">
 						<label for="smart-criteria" class="field-label">
-							{m.beatScout_criteriaLabel()}
+							{m.beatScout_criteriaLabel()} <span aria-hidden="true">*</span>
 						</label>
 						<CriteriaInput
+							inputId="smart-criteria"
+							required
 							bind:value={topicInput}
 							placeholder={m.webScout_criteriaPlaceholder()}
 							rows={2}
 							examples={[
-								{ label: 'housing policy', value: 'housing policy' },
-								{ label: 'renewable energy', value: 'renewable energy' },
-								{ label: 'local elections', value: 'local elections' },
+								{ label: m.criteria_exampleHousing(), value: m.criteria_exampleHousing() },
+								{ label: m.criteria_exampleEnergy(), value: m.criteria_exampleEnergy() },
+								{ label: m.criteria_exampleElections(), value: m.criteria_exampleElections() },
 							]}
 						/>
 						{#if topicInput.trim() && topicInput.trim().split(/\s+/).length <= 2}
@@ -390,13 +351,14 @@ EXCLUDE: Breaking news already covered in the news section, press releases witho
 							<span class="field-subtitle">{m.beatScout_criteriaOptionalHint()}</span>
 						</label>
 						<CriteriaInput
+							inputId="smart-criteria"
 							bind:value={topicInput}
 							placeholder={m.webScout_criteriaPlaceholder()}
 							rows={2}
 							examples={[
-								{ label: 'housing policy', value: 'housing policy' },
-								{ label: 'renewable energy', value: 'renewable energy' },
-								{ label: 'local elections', value: 'local elections' },
+								{ label: m.criteria_exampleHousing(), value: m.criteria_exampleHousing() },
+								{ label: m.criteria_exampleEnergy(), value: m.criteria_exampleEnergy() },
+								{ label: m.criteria_exampleElections(), value: m.criteria_exampleElections() },
 							]}
 						/>
 					</div>
@@ -544,9 +506,9 @@ EXCLUDE: Breaking news already covered in the news section, press releases witho
 					<!-- Structured Summary -->
 					{#if $pulseStore.structuredSummary.news_summary || $pulseStore.structuredSummary.gov_summary}
 						<div class="structured-summary">
-							<p class="summary-eyebrow">{m.pulse_latestIn({ location: isTopicOnly ? topicInput : (selectedLocation?.displayName || 'Your Area') })}</p>
+							<p class="summary-eyebrow">{m.pulse_latestIn({ location: isTopicOnly ? topicInput : (selectedLocation?.displayName || m.pulse_yourArea()) })}</p>
 							<h3 class="summary-title">
-								Editor Brief
+								{m.pulse_editorBrief()}
 							</h3>
 							<div class="summary-stack">
 							{#if $pulseStore.structuredSummary.news_summary}

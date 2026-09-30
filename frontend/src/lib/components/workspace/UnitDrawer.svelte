@@ -1,10 +1,12 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
+	import { getLocale } from '$lib/paraglide/runtime';
 	import { X, ExternalLink, Trash2 } from 'lucide-svelte';
 	import { marked } from 'marked';
 	import DOMPurify from 'dompurify';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import { DRAWER_TABS, DEFAULT_TAB, type DrawerTab } from '$lib/utils/workspace-tabs';
-	import { cleanUnitStatement, getUnitTypeStyle } from '$lib/utils/units';
+	import { cleanUnitStatement, getUnitTypeStyle, getUnitTypeLabel } from '$lib/utils/units';
 	import type { Unit } from '$lib/types/workspace';
 
 	export let unit: Unit | null;
@@ -41,7 +43,7 @@
 		if (!iso) return null;
 		const d = new Date(iso);
 		if (!Number.isFinite(d.getTime())) return null;
-		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+		return d.toLocaleDateString(getLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 	}
 
 	function formatExtractedRel(iso: string | null | undefined): string | null {
@@ -49,11 +51,10 @@
 		const then = new Date(iso).getTime();
 		if (!Number.isFinite(then)) return null;
 		const seconds = Math.floor((Date.now() - then) / 1000);
-		if (seconds < 60) return `${Math.max(seconds, 0)}s ago`;
-		if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-		if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-		const days = Math.floor(seconds / 86400);
-		return days === 1 ? '1d ago' : `${days}d ago`;
+		if (seconds < 60) return m.newsCard_justNow();
+		if (seconds < 3600) return m.feed_timeMinutesAgo({ count: Math.floor(seconds / 60) });
+		if (seconds < 86400) return m.feed_timeHoursAgo({ count: Math.floor(seconds / 3600) });
+		return m.feed_timeDaysAgo({ count: Math.floor(seconds / 86400) });
 	}
 
 	$: occurredLabel = formatOccurred(unit?.occurred_at);
@@ -89,9 +90,9 @@
 	$: contextHtml = renderMarkdown(unit?.context_excerpt);
 
 	const TAB_LABELS: Record<DrawerTab, string> = {
-		content: 'Content',
-		entities: 'Entities',
-		reflections: 'Reflections'
+		content: m.workspace_unitDrawer_tabContent(),
+		entities: m.workspace_unitDrawer_tabEntities(),
+		reflections: m.workspace_unitDrawer_tabReflections()
 	};
 
 	function pickTab(tab: DrawerTab) {
@@ -132,7 +133,7 @@
 	class="drawer"
 	class:open
 	aria-hidden={!open}
-	aria-label="Unit details"
+	aria-label={m.unit_details()}
 >
 	{#if unit}
 		<div class="drawer-header">
@@ -142,15 +143,15 @@
 						class="unit-type-badge"
 						style="background:{typeStyle.background};color:{typeStyle.color}"
 					>
-						{typeKey || 'UNIT'}
+						{getUnitTypeLabel(unit.unit_type)}
 					</span>
 					{#if unit.scout_name}
 						<span class="scout-name">{unit.scout_name}</span>
 					{/if}
 					{#if verified}
-						<span class="review-pill verified">✓ Verified</span>
+						<span class="review-pill verified">✓ {m.newsCard_verified()}</span>
 					{:else}
-						<span class="review-pill">⚠ Needs review</span>
+						<span class="review-pill">⚠ {m.workspace_needsReview()}</span>
 					{/if}
 				</div>
 				{#if titleText}
@@ -177,7 +178,7 @@
 						rel="noopener noreferrer"
 					>
 						<ExternalLink size={12} />
-						Open original{sourceDomain ? ` (${sourceDomain})` : ''}
+						{m.unit_openSource()}{sourceDomain ? ` (${sourceDomain})` : ''}
 					</a>
 				{/if}
 			</div>
@@ -185,7 +186,7 @@
 				type="button"
 				class="close-btn"
 				on:click={handleClose}
-				aria-label="Close drawer"
+				aria-label={m.workspace_unitDrawer_closeLabel()}
 			>
 				<X size={18} />
 			</button>
@@ -220,7 +221,7 @@
 				{/if}
 				{#if sourceUrl || sourceDomain}
 					<div class="source-block">
-						<p class="source-label">Source</p>
+						<p class="source-label">{m.unit_source()}</p>
 						<div class="source-body">
 							{#if sourceUrl}
 								<a
@@ -236,7 +237,7 @@
 							{/if}
 							{#if occurredLabel || extractedLabel}
 								<p class="source-sub">
-									{#if occurredLabel}Published {occurredLabel}{/if}{#if occurredLabel && extractedLabel} · {/if}{#if extractedLabel}extracted {extractedLabel}{/if}
+									{#if occurredLabel}{m.unit_published({ time: occurredLabel })}{/if}{#if occurredLabel && extractedLabel} · {/if}{#if extractedLabel}{m.unit_extracted({ time: extractedLabel })}{/if}
 								</p>
 							{/if}
 						</div>
@@ -244,7 +245,7 @@
 				{/if}
 			{:else if activeTab === 'entities'}
 				{#if entityCount === 0}
-					<p class="empty-tab">No entities linked to this unit.</p>
+					<p class="empty-tab">{m.unit_noEntities()}</p>
 				{:else}
 					<div class="entity-grid">
 						{#each unit.entities as entity (entity.mention_text + (entity.entity_id ?? ''))}
@@ -253,7 +254,7 @@
 					</div>
 				{/if}
 			{:else if activeTab === 'reflections'}
-				<p class="empty-tab">No reflections available yet.</p>
+				<p class="empty-tab">{m.unit_noReflections()}</p>
 			{/if}
 		</div>
 
@@ -265,7 +266,7 @@
 					on:click={handleCancelDelete}
 					disabled={deleting}
 				>
-					Cancel
+					{m.common_cancel()}
 				</button>
 				<button
 					type="button"
@@ -277,7 +278,7 @@
 						<Spinner size="sm" />
 					{:else}
 						<Trash2 size={14} />
-						<span>Delete permanently</span>
+						<span>{m.unit_deletePermanently()}</span>
 					{/if}
 				</button>
 			{:else}
@@ -291,7 +292,7 @@
 						{#if actionLoading === 'verify'}
 							<Spinner size="sm" variant="white" />
 						{:else}
-							<span>✓ Mark verified</span>
+							<span>✓ {m.unit_markVerified()}</span>
 						{/if}
 					</button>
 				{/if}
@@ -302,7 +303,7 @@
 					disabled={actionLoading !== null}
 				>
 					<Trash2 size={14} />
-					<span>Delete</span>
+					<span>{m.common_delete()}</span>
 				</button>
 			{/if}
 		</div>

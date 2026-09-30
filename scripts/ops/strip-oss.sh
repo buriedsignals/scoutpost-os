@@ -103,7 +103,6 @@ sed -i '/app\.include_router(auth\.router/d' backend/app/main.py
 
 # Backend: remove SaaS-only billing and credit management
 rm -f backend/app/utils/credits.py
-rm -f backend/app/services/cron.py
 rm -f backend/scripts/grant_pro.py
 rm -f backend/tests/unit/scripts/test_grant_pro.py
 
@@ -743,11 +742,8 @@ src = re.sub(
     src,
     flags=re.DOTALL,
 )
-# Strip the MuckRock preview text comment lines
-src = re.sub(r'<p class="auth-subtitle">Sign in via MuckRock</p>', '<p class="auth-subtitle">Sign in</p>', src)
-src = src.replace("Sign in with MuckRock", "Sign in")
-# Collapse the MuckRock-authenticate prompt + signup link (post-2026-04-22 copy)
-src = re.sub(r'<p class="auth-prompt">Authenticate with MuckRock to continue</p>', '<p class="auth-prompt">Sign in</p>', src)
+# Keep the exported login prompt localized without hosted account instructions.
+src = src.replace("m.login_muckrockPrompt()", "m.login_signIn()")
 src = re.sub(r'<a\s+class="auth-signup-link"[^>]*>.*?</a>', '', src, flags=re.DOTALL)
 # Indicator membership help belongs to the hosted OAuth branch. Remove the
 # toggle and its conditional copy together so the shared login source remains

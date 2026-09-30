@@ -1,11 +1,13 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
+	import { getLocale } from '$lib/paraglide/runtime';
 	import { ExternalLink, Check, Trash2, X } from 'lucide-svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import type { Unit } from '$lib/types/workspace';
 	import { isDemoUnit } from '$lib/demo/seed';
 	import DemoBadge from '$lib/components/ui/DemoBadge.svelte';
 	import * as HoverCard from '$lib/components/ui/hover-card/index.js';
-	import { cleanUnitStatement, getUnitTypeStyle } from '$lib/utils/units';
+	import { cleanUnitStatement, getUnitTypeStyle, getUnitTypeLabel } from '$lib/utils/units';
 	import { searchMatchClass, searchMatchLabel } from '$lib/utils/unit-search';
 
 	export let unit: Unit;
@@ -35,7 +37,7 @@
 		if (!iso) return null;
 		const d = new Date(iso);
 		if (!Number.isFinite(d.getTime())) return null;
-		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+		return d.toLocaleDateString(getLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 	}
 
 	function formatExtractedRel(iso: string | null | undefined): string | null {
@@ -43,11 +45,10 @@
 		const then = new Date(iso).getTime();
 		if (!Number.isFinite(then)) return null;
 		const seconds = Math.floor((Date.now() - then) / 1000);
-		if (seconds < 60) return `${Math.max(seconds, 0)}s ago`;
-		if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-		if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-		const days = Math.floor(seconds / 86400);
-		return days === 1 ? '1d ago' : `${days}d ago`;
+		if (seconds < 60) return m.newsCard_justNow();
+		if (seconds < 3600) return m.feed_timeMinutesAgo({ count: Math.floor(seconds / 60) });
+		if (seconds < 86400) return m.feed_timeHoursAgo({ count: Math.floor(seconds / 3600) });
+		return m.feed_timeDaysAgo({ count: Math.floor(seconds / 86400) });
 	}
 
 	$: occurredLabel = formatOccurred(unit.occurred_at);
@@ -114,7 +115,7 @@
 >
 	<div class="unit-meta">
 		<span class="unit-type-badge" style="background:{typeStyle.background};color:{typeStyle.color}">
-			{typeKey || 'UNIT'}
+			{getUnitTypeLabel(unit.unit_type)}
 		</span>
 		{#if scoutName}
 			<span class="unit-scout-name">{scoutName}</span>
@@ -131,10 +132,10 @@
 							onclick={(event) => event.stopPropagation()}
 						>· {sourceDomain}</HoverCard.Trigger>
 						<HoverCard.Content align="start" sideOffset={8} class="w-72 rounded-xl bg-popover/95 p-3.5 text-popover-foreground shadow-[0_18px_48px_oklch(0.06_0.015_210/0.5)] backdrop-blur-xl">
-							<span class="source-preview-label">Source capture</span>
+							<span class="source-preview-label">{m.unit_sourceCapture()}</span>
 							<strong>{unit.source?.title || sourceDomain}</strong>
-							<span>{sourceDomain}{#if extractedLabel} · captured {extractedLabel}{/if}</span>
-							<small>Source and capture metadata remain attached through editorial review.</small>
+							<span>{sourceDomain}{#if extractedLabel} · {m.unit_extracted({ time: extractedLabel })}{/if}</span>
+							<small>{m.unit_captureMetadata()}</small>
 						</HoverCard.Content>
 					</HoverCard.Root>
 				{:else if sourceDomain}
@@ -149,9 +150,9 @@
 			</span>
 		{/if}
 		{#if verified}
-			<span class="review-pill verified">✓ Verified</span>
+			<span class="review-pill verified">✓ {m.newsCard_verified()}</span>
 		{:else}
-			<span class="review-pill">⚠ Needs review</span>
+			<span class="review-pill">⚠ {m.workspace_needsReview()}</span>
 		{/if}
 		{#if searchMatch && searchPillLabel && searchPillClass}
 			<span class="search-pill {searchPillClass}" title={searchMatch.reason}>
@@ -188,16 +189,16 @@
 					<button
 						class="unit-confirm-btn cancel"
 						on:click={handleCancelDelete}
-						aria-label="Cancel"
+						aria-label={m.common_cancel()}
 						type="button"
 					>
 						<X size={12} />
 					</button>
-					<span class="unit-delete-label">Delete?</span>
+					<span class="unit-delete-label">{m.scouts_deleteConfirm()}</span>
 					<button
 						class="unit-confirm-btn confirm"
 						on:click={handleConfirmDelete}
-						aria-label="Confirm delete"
+						aria-label={m.unit_confirmDelete()}
 						type="button"
 					>
 						<Check size={12} />
@@ -211,8 +212,8 @@
 					href={sourceUrl}
 					target="_blank"
 					rel="noopener noreferrer"
-					aria-label="Open source"
-					title="Open source"
+					aria-label={m.unit_openSource()}
+					title={m.unit_openSource()}
 				>
 					<ExternalLink size={14} />
 				</a>
@@ -221,8 +222,8 @@
 				<button
 					class="unit-action-btn verify"
 					on:click={handleVerify}
-					aria-label="Mark verified"
-					title="Mark verified"
+					aria-label={m.unit_markVerified()}
+					title={m.unit_markVerified()}
 					type="button"
 					disabled={verifying || deleting}
 				>
@@ -236,8 +237,8 @@
 			<button
 				class="unit-action-btn delete"
 				on:click={handleRequestDelete}
-				aria-label="Delete unit"
-				title="Delete unit"
+				aria-label={m.unit_delete()}
+				title={m.unit_delete()}
 				type="button"
 				disabled={verifying || deleting}
 			>

@@ -40,7 +40,7 @@
 		class="modal-backdrop"
 		role="dialog"
 		aria-modal="true"
-		aria-label="Introduction video"
+		aria-label={m.tour_videoTitle()}
 		tabindex="-1"
 		on:keydown={handleKeydown}
 	>
@@ -51,7 +51,7 @@
 				{#if !videoLoaded}
 					<div class="video-loading">
 						<div class="loading-spinner"></div>
-						<span>Loading video...</span>
+						<span>{m.tour_loadingVideo()}</span>
 					</div>
 				{/if}
 				<iframe
@@ -59,7 +59,7 @@
 					frameborder="0"
 					allow="fullscreen"
 					allowfullscreen
-					title="Scoutpost Introduction"
+					title={m.tour_videoTitle()}
 					class:loaded={videoLoaded}
 					on:load={handleVideoLoad}
 				></iframe>
@@ -76,7 +76,7 @@
 				<button
 					on:click={handleSkip}
 					class="skip-btn"
-					aria-label="Skip video and continue"
+					aria-label={m.tour_skipVideo()}
 				>
 					{m.tour_skip()}
 				</button>

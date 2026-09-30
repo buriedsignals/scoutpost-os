@@ -74,6 +74,7 @@ import {
   shouldQueueCivicDocument,
   upsertCivicDocumentMembership,
 } from "../_shared/civic_document_membership.ts";
+import { drainCivicRunAlerts } from "../_shared/civic_run_notifications.ts";
 
 const InputSchema = z.object({
   scout_id: z.string().uuid(),
@@ -646,6 +647,21 @@ async function execute(scoutId: string, runIdIn?: string): Promise<Response> {
       await markRunStage(db, runId, "extract");
     }
     await persistCivicRunMetadata(db, runId, trackedUrlStatus);
+    if (queuedCount > 0) {
+      const { error: settleError } = await db.rpc("complete_civic_dispatch", {
+        p_run_id: runId,
+      });
+      if (settleError) throw new Error(settleError.message);
+      await drainCivicRunAlerts(db, crypto.randomUUID(), runId).catch((error) =>
+        logEvent({
+          level: "warn",
+          fn: "civic-execute",
+          event: "alert_drain_failed",
+          run_id: runId,
+          msg: error instanceof Error ? error.message : String(error),
+        })
+      );
+    }
 
     logEvent({
       level: "info",
@@ -793,10 +809,15 @@ async function resolveRun(
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (data?.id) {
-      await db
+      const { error: restartError } = await db
         .from("scout_runs")
-        .update({ status: "running", started_at: new Date().toISOString() })
+        .update({
+          status: "running",
+          started_at: new Date().toISOString(),
+          civic_dispatch_complete: false,
+        })
         .eq("id", runIdIn);
+      if (restartError) throw new Error(restartError.message);
       return runIdIn;
     }
   }
@@ -806,6 +827,7 @@ async function resolveRun(
       scout_id: scout.id as string,
       user_id: scout.user_id as string,
       status: "running",
+      civic_dispatch_complete: false,
     })
     .select("id")
     .single();

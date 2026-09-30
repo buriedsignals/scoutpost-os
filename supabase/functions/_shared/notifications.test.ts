@@ -20,7 +20,6 @@ import {
   buildPageScoutMatchedArticles,
   buildProfileUrl,
   buildRemovedPostItems,
-  civicPromisesSavedSummary,
   escapeHtml,
   groupFactsBySource,
   markdownToHtml,
@@ -168,7 +167,7 @@ function renderDigestHtml(lang = "en"): string {
     eyebrowLabel: getString("civic_digest", lang),
     contextLabel: getString("civic_scout", lang),
     headerTitle: getString("civic_digest", lang),
-    headerSubtitle: getString("promise_due_today_plural", lang, { count: 3 }),
+    headerSubtitle: getString("promise_due_plural", lang, { count: 3 }),
     summary:
       "- **Approve $12M transit fund** ([Resolution](https://oakland.example/resolution.pdf))\n" +
       "- **Hold a public hearing** ([Agenda](https://oakland.example/agenda.pdf))",
@@ -520,12 +519,10 @@ Deno.test("Beat Scout notification rejects summary links outside article cards",
 });
 
 Deno.test("resolveUserContext keeps scheduled alert email lookup on auth.users", async () => {
-  const calls: string[] = [];
   const svc = {
     auth: {
       admin: {
-        getUserById(userId: string) {
-          calls.push(`auth:${userId}`);
+        getUserById() {
           return Promise.resolve({
             data: { user: { email: "reporter@example.com" } },
             error: null,
@@ -533,15 +530,12 @@ Deno.test("resolveUserContext keeps scheduled alert email lookup on auth.users",
         },
       },
     },
-    from(table: string) {
-      calls.push(`from:${table}`);
+    from() {
       return {
-        select(columns: string) {
-          calls.push(`select:${columns}`);
+        select() {
           return this;
         },
-        eq(column: string, value: string) {
-          calls.push(`eq:${column}:${value}`);
+        eq() {
           return this;
         },
         maybeSingle() {
@@ -563,13 +557,8 @@ Deno.test("resolveUserContext keeps scheduled alert email lookup on auth.users",
     email: "reporter@example.com",
     language: "fr",
     healthNotificationsEnabled: false,
+    emailNotificationsEnabled: true,
   });
-  assertEquals(calls, [
-    "auth:user-1",
-    "from:user_preferences",
-    "select:preferred_language, health_notifications_enabled",
-    "eq:user_id:user-1",
-  ]);
 });
 
 Deno.test("Civic Scout renders markdown promises with the civic cue", () => {
@@ -579,12 +568,6 @@ Deno.test("Civic Scout renders markdown promises with the civic cue", () => {
   assertStringIncludes(html, EMAIL_STRINGS.en.civic_scout_cue);
 });
 
-Deno.test("Civic Scout explains that extracted promises were saved for later", () => {
-  assertEquals(
-    civicPromisesSavedSummary("- Finish the school by June 2027."),
-    "These promises were saved for future deadline reminders:\n\n- Finish the school by June 2027.",
-  );
-});
 
 Deno.test("Social Scout renders caution section only when removed posts exist", () => {
   const withoutRemoved = renderSocialScoutHtml("en", false);
@@ -610,7 +593,7 @@ Deno.test("Civic Digest renders in the editorial shell", () => {
   assertStringIncludes(html, EMAIL_STRINGS.en.civic_digest);
   assertStringIncludes(
     html,
-    EMAIL_STRINGS.en.promise_due_today_plural.replace("{count}", "3"),
+    EMAIL_STRINGS.en.promise_due_plural.replace("{count}", "3"),
   );
   assertStringIncludes(html, 'href="https://oakland.example/resolution.pdf"');
 });

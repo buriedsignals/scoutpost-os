@@ -5,10 +5,15 @@
 	export let placeholder = '';
 	export let rows = 2;
 	export let examples: { label: string; value: string }[] = [];
+	export let inputId: string | undefined = undefined;
+	export let required = false;
 </script>
 
 <div class="criteria-field">
 	<textarea
+		id={inputId}
+		{required}
+		maxlength="4000"
 		bind:value
 		{placeholder}
 		{rows}

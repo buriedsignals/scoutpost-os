@@ -12,6 +12,7 @@
 	} from 'lucide-svelte';
 	import SharpAction from '$lib/components/docs/SharpAction.svelte';
 	import SharpCodeBlock from '$lib/components/docs/SharpCodeBlock.svelte';
+	import * as m from '$lib/paraglide/messages';
 	import { DOCKER_INSTALLER_IMAGE } from '$lib/setup/setup-generator';
 
 	const installCommand = `mkdir -p scoutpost-install
@@ -46,40 +47,40 @@ docker run --rm -it \\
 
 	const requiredKeys: RequiredKey[] = [
 		{
-			name: 'OpenRouter API key',
+			name: m.setup_openRouterKey(),
 			purpose:
-				'Google Vertex extraction, summaries, classification, scanned-PDF fallback, and 768-dimensional Gemini embeddings.',
+				m.setup_openRouterPurpose(),
 			signup: 'https://openrouter.ai/keys',
 			signupLabel: 'openrouter.ai'
 		},
 		{
-			name: 'Firecrawl API key',
+			name: m.setup_firecrawlKey(),
 			purpose:
-				'Beat Scout search and the managed anti-bot scrape fallback for Page, Civic, and Beat Scouts.',
+				m.setup_firecrawlPurpose(),
 			signup: 'https://www.firecrawl.dev/',
 			signupLabel: 'firecrawl.dev'
 		},
 		{
-			name: 'Apify API token',
-			purpose: 'Social Scout actor runs.',
+			name: m.setup_apifyToken(),
+			purpose: m.setup_apifyPurpose(),
 			signup: 'https://console.apify.com/account/integrations',
 			signupLabel: 'apify.com'
 		},
 		{
-			name: 'Resend API key',
-			purpose: 'Scout notification email delivery.',
+			name: m.setup_resendKey(),
+			purpose: m.setup_resendPurpose(),
 			signup: 'https://resend.com/api-keys',
 			signupLabel: 'resend.com'
 		},
 		{
-			name: 'MapTiler API key',
-			purpose: 'Location autocomplete and geocoding for Location Scout.',
+			name: m.setup_mapTilerKey(),
+			purpose: m.setup_mapTilerPurpose(),
 			signup: 'https://cloud.maptiler.com/account/keys/',
 			signupLabel: 'maptiler.com'
 		},
 		{
-			name: 'Supabase access token',
-			purpose: 'Non-interactive Supabase CLI auth for project create / migration push / Edge Functions deploy.',
+			name: m.setup_supabaseToken(),
+			purpose: m.setup_supabasePurpose(),
 			signup: 'https://supabase.com/dashboard/account/tokens',
 			signupLabel: 'supabase.com'
 		}
@@ -87,10 +88,10 @@ docker run --rm -it \\
 </script>
 
 <svelte:head>
-	<title>Self-host setup - Scoutpost</title>
+	<title>{m.setup_pageTitle()}</title>
 	<meta
 		name="description"
-		content="Docker-only self-host setup for Scoutpost. Keep deployment secrets local and mount the manifest read-only into the installer container."
+		content={m.setup_pageDescription()}
 	/>
 </svelte:head>
 
@@ -98,65 +99,61 @@ docker run --rm -it \\
 	<div class="content">
 		<SharpAction className="back-button" href="/docs" size="sm" variant="ghost">
 			<ArrowLeft class="w-4 h-4" />
-			<span>Back to docs</span>
+			<span>{m.setup_backToDocs()}</span>
 		</SharpAction>
 
 		<header class="header">
-			<div class="eyebrow">SELF-HOST SETUP</div>
-			<h1>Install Scoutpost with Docker</h1>
+			<div class="eyebrow">{m.setup_eyebrow()}</div>
+			<h1>{m.setup_title()}</h1>
 			<p>
-				The supported self-host path is a local Docker operator container. Create the setup
-				manifest on your machine, keep it out of Git, and mount it read-only when you run the
-				installer.
+				{m.setup_introduction()}
 			</p>
 		</header>
 
-		<section class="trust-panel" aria-label="Setup safety">
+		<section class="trust-panel" aria-label={m.setup_safetyLabel()}>
 			<div>
 				<ShieldCheck size={22} />
-				<strong>No browser secret collection</strong>
+				<strong>{m.setup_noSecretCollection()}</strong>
 				<span
-					>API keys, service-role keys, JWT secrets, and deploy hooks stay in a local file.</span
+					>{m.setup_localSecretsDescription()}</span
 				>
 			</div>
 			<div>
 				<LockKeyhole size={22} />
-				<strong>Read-only secret mount</strong>
-				<span>The installer reads <code>scoutpost-setup.json</code> from <code>/config</code>.</span>
+				<strong>{m.setup_readOnlyMount()}</strong>
+				<span>{m.setup_manifestReadBefore()} <code>scoutpost-setup.json</code> {m.setup_manifestReadBetween()} <code>/config</code>.</span>
 			</div>
 			<div>
 				<CheckCircle2 size={22} />
-				<strong>Repeatable operator image</strong>
-				<span>Git, Deno, Node, Supabase CLI, GitHub CLI, jq, and OpenSSL live in the container.</span>
+				<strong>{m.setup_repeatableImage()}</strong>
+				<span>{m.setup_containerToolsDescription()}</span>
 			</div>
 		</section>
 
 		<section class="section">
 			<div class="section-heading">
-				<div class="eyebrow eyebrow--secondary">PREREQUISITES</div>
-				<h2>What you need first</h2>
+				<div class="eyebrow eyebrow--secondary">{m.setup_prerequisitesEyebrow()}</div>
+				<h2>{m.setup_prerequisitesTitle()}</h2>
 				<p class="section-lede">
-					Install <a href="https://www.docker.com/products/docker-desktop/">Docker Desktop</a>
-					(or Docker Engine on Linux) and authenticate Supabase. The installer container ships
-					the rest: Git, Deno, Node 22, Supabase CLI, GitHub CLI, jq, and OpenSSL.
+					{m.setup_prerequisitesBeforeLink()} <a href="https://www.docker.com/products/docker-desktop/">Docker Desktop</a>
+					{m.setup_prerequisitesAfterLink()}
 				</p>
 			</div>
 			<ul class="check-list">
-				<li><CheckCircle2 size={16} /> Docker 24+ running locally</li>
-				<li><CheckCircle2 size={16} /> A Supabase access token (Cloud) or a self-hosted Supabase project</li>
-				<li><CheckCircle2 size={16} /> A frontend host (Netlify, Vercel, Cloudflare, Render, or manual)</li>
-				<li><CheckCircle2 size={16} /> GitHub CLI auth at <code>~/.config/gh</code> if you want update PRs</li>
+				<li><CheckCircle2 size={16} /> {m.setup_dockerRequirement()}</li>
+				<li><CheckCircle2 size={16} /> {m.setup_supabaseRequirement()}</li>
+				<li><CheckCircle2 size={16} /> {m.setup_frontendRequirement()}</li>
+				<li><CheckCircle2 size={16} /> {m.setup_githubAuthBeforePath()} <code>~/.config/gh</code> {m.setup_githubAuthAfterPath()}</li>
 			</ul>
 		</section>
 
 		<section class="section">
 			<div class="section-heading">
-				<div class="eyebrow eyebrow--secondary">REQUIRED ACCOUNTS &amp; KEYS</div>
-				<h2>Collect API keys before you fill the manifest</h2>
+				<div class="eyebrow eyebrow--secondary">{m.setup_accountsEyebrow()}</div>
+				<h2>{m.setup_accountsTitle()}</h2>
 				<p class="section-lede">
-					Every value sits in <code>scoutpost-setup.json</code> on your machine. The Docker
-					installer never opens a browser login for these — paste them into the manifest,
-					not into chat.
+					{m.setup_accountsBeforeManifest()} <code>scoutpost-setup.json</code>
+					{m.setup_accountsAfterManifest()}
 				</p>
 			</div>
 			<ul class="key-list">
@@ -166,9 +163,9 @@ docker run --rm -it \\
 							<Key size={16} />
 							<span class="key-row__name">{key.name}</span>
 							{#if key.optional}
-								<span class="badge">RECOMMENDED</span>
+								<span class="badge">{m.civic_recommended()}</span>
 							{:else}
-								<span class="badge badge--primary">REQUIRED</span>
+								<span class="badge badge--primary">{m.setup_required()}</span>
 							{/if}
 						</div>
 						<p class="key-row__purpose">{key.purpose}</p>
@@ -183,11 +180,10 @@ docker run --rm -it \\
 
 		<section class="section">
 			<div class="section-heading">
-				<div class="eyebrow eyebrow--secondary">STEP 1</div>
-				<h2>Create the local manifest</h2>
+				<div class="eyebrow eyebrow--secondary">{m.setup_step({ number: 1 })}</div>
+				<h2>{m.setup_manifestTitle()}</h2>
 				<p class="section-lede">
-					Download the example manifest, copy it to <code>scoutpost-setup.json</code>, and fill
-					it in locally. The filled manifest contains secrets and must not be committed.
+					{m.setup_manifestBeforeFilename()} <code>scoutpost-setup.json</code>{m.setup_manifestAfterFilename()}
 				</p>
 			</div>
 			<div class="actions">
@@ -195,71 +191,67 @@ docker run --rm -it \\
 					class="primary-link"
 					href="https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/deploy/installer/scoutpost-setup.example.json"
 				>
-					<FileJson size={16} /> Download example manifest
+					<FileJson size={16} /> {m.setup_downloadManifest()}
 				</a>
 				<a
 					class="secondary-link"
 					href="https://github.com/buriedsignals/scoutpost-os/blob/master/docs/oss/newsroom-docker-install.md"
 				>
-					<ExternalLink size={16} /> Read Docker install guide
+					<ExternalLink size={16} /> {m.setup_installGuide()}
 				</a>
 			</div>
 		</section>
 
 		<section class="section">
 			<div class="section-heading">
-				<div class="eyebrow eyebrow--secondary">STEP 2</div>
-				<h2>Run the installer</h2>
+				<div class="eyebrow eyebrow--secondary">{m.setup_step({ number: 2 })}</div>
+				<h2>{m.setup_installTitle()}</h2>
 				<p class="section-lede">
-					The container clones <code>scoutpost-os</code> if <code>/workspace</code> is not
-					already a checkout. The manifest is mounted read-only — secrets never enter the
-					image.
+					{m.setup_installBeforeRepository()} <code>scoutpost-os</code> {m.setup_installBetweenPaths()} <code>/workspace</code>
+					{m.setup_installAfterWorkspace()}
 				</p>
 			</div>
-			<SharpCodeBlock code={installCommand} ariaLabel="Copy Docker install command" />
+			<SharpCodeBlock code={installCommand} ariaLabel={m.setup_copyInstallCommand()} />
 		</section>
 
 		<section class="section">
 			<div class="section-heading">
-				<div class="eyebrow eyebrow--secondary">STEP 3</div>
-				<h2>Validate the deployment</h2>
+				<div class="eyebrow eyebrow--secondary">{m.setup_step({ number: 3 })}</div>
+				<h2>{m.setup_validateTitle()}</h2>
 				<p class="section-lede">
-					<code>doctor</code> checks for unresolved conflicts, dirty deploy files, Supabase URL
-					drift, and Edge Function readiness. Run it before and after every change.
+					<code>doctor</code> {m.setup_doctorDescription()}
 				</p>
 			</div>
-			<SharpCodeBlock code={doctorCommand} ariaLabel="Copy Docker doctor command" />
+			<SharpCodeBlock code={doctorCommand} ariaLabel={m.setup_copyDoctorCommand()} />
 		</section>
 
 		<section class="section">
 			<div class="section-heading">
-				<div class="eyebrow eyebrow--secondary">MAINTENANCE</div>
-				<h2>Prepare update PRs from the same container</h2>
+				<div class="eyebrow eyebrow--secondary">{m.setup_maintenanceEyebrow()}</div>
+				<h2>{m.setup_maintenanceTitle()}</h2>
 				<p class="section-lede">
-					Run updates from a newsroom fork checkout. Mounting GitHub CLI auth lets the installer
-					open a reviewable pull request instead of pushing directly.
+					{m.setup_maintenanceDescription()}
 				</p>
 			</div>
-			<SharpCodeBlock code={updateCommand} ariaLabel="Copy Docker update command" />
+			<SharpCodeBlock code={updateCommand} ariaLabel={m.setup_copyUpdateCommand()} />
 		</section>
 
 		<section class="section">
 			<div class="section-heading">
-				<div class="eyebrow eyebrow--secondary">BEST PRACTICES</div>
-				<h2>Operator rules</h2>
+				<div class="eyebrow eyebrow--secondary">{m.setup_bestPracticesEyebrow()}</div>
+				<h2>{m.setup_rulesTitle()}</h2>
 				<p class="section-lede">
-					Treat the Docker installer like a CI runner: ephemeral, reproducible, and never
-					trusted with secrets that live anywhere but the mounted manifest.
+					{m.setup_rulesDescription()}
 				</p>
 			</div>
 			<ul class="rules">
-				<li><Terminal size={16} /> Run Docker locally; do not paste the manifest into chat.</li>
-				<li><LockKeyhole size={16} /> Keep <code>scoutpost-setup.json</code> mode <code>0600</code>.</li>
+				<li><Terminal size={16} /> {m.setup_runLocallyRule()}</li>
+				<li><LockKeyhole size={16} /> {m.setup_permissionsBeforeManifest()} <code>scoutpost-setup.json</code> {m.setup_permissionsBeforeMode()} <code>0600</code>.</li>
 				<li>
-					<Download size={16} /> Pull the published image or build
-					<code>deploy/installer/Dockerfile</code> from source.
+					<Download size={16} /> {m.setup_imageBeforeDockerfile()}
+					<code>deploy/installer/Dockerfile</code> {m.setup_imageAfterDockerfile()}
 				</li>
-				<li><ShieldCheck size={16} /> Run <code>doctor</code> before and after updates.</li>
+				<li><ShieldCheck size={16} /> {m.setup_doctorRuleBeforeCommand()} <code>doctor</code> {m.setup_doctorRuleAfterCommand()}</li>
 			</ul>
 		</section>
 	</div>

@@ -4,6 +4,7 @@
  */
 
 import catalog from '../vendor/agent-connect/catalog.json';
+import * as m from '$lib/paraglide/messages';
 
 export type AgentSlug = keyof typeof catalog.products.scoutpost;
 type AgentCatalogEntry = {
@@ -39,7 +40,7 @@ function catalogTitle(slug: AgentSlug): string {
 
 export const AGENTS: AgentMeta[] = (Object.keys(catalog.products.scoutpost) as AgentSlug[]).map((slug) => ({
   slug,
-  name: catalogTitle(slug),
+  get name() { return slug === 'generic-mcp' ? m.agent_otherClient() : catalogTitle(slug); },
   iconInner: AGENT_ICONS[slug],
 }));
 

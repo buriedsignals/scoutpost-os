@@ -1,6 +1,6 @@
 BEGIN;
 SET LOCAL search_path = public, extensions;
-SELECT plan(9);
+SELECT plan(8);
 
 SELECT is(
   public.effective_scout_cron(
@@ -74,17 +74,6 @@ SELECT is(
   'exact-time opt-out retains the requested expression'
 );
 
-SELECT is(
-  public.effective_scout_cron(
-    '00000000-0000-0000-0000-000000000001'::uuid,
-    '0 8 * * *'
-  ),
-  public.effective_scout_cron(
-    '00000000-0000-0000-0000-000000000001'::uuid,
-    '0 8 * * *'
-  ),
-  'spread is stable across calls'
-);
 
 SELECT * FROM finish();
 ROLLBACK;

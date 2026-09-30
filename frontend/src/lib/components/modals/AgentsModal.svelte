@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { X, Eye, Copy, Check, Code2 } from 'lucide-svelte';
 	import AgentSelect from '$lib/components/ui/AgentSelect.svelte';
@@ -159,7 +160,7 @@
 			class="agents-modal"
 			role="dialog"
 			aria-modal="true"
-			aria-label="Connect an agent"
+			aria-label={m.agent_connect()}
 			tabindex="-1"
 			bind:this={dialogEl}
 		>
@@ -169,19 +170,18 @@
 						{#if view === 'api'}
 							REST API
 						{:else}
-							Connect an agent
+							{m.agent_connect()}
 						{/if}
 					</h2>
 					<p>
 						{#if view === 'api'}
-							Bearer-token REST endpoints for custom scripts, ChatGPT Actions, or any non-MCP
-							client.
+							{m.agent_restDescription()}
 						{:else}
-							Choose your assistant. We&rsquo;ll show the fastest supported setup.
+							{m.agent_chooseAssistant()}
 						{/if}
 					</p>
 				</div>
-				<button class="icon-btn" on:click={close} aria-label="Close">
+				<button class="icon-btn" on:click={close} aria-label={m.common_close()}>
 					<X size={16} />
 				</button>
 			</div>
@@ -197,7 +197,7 @@
 								class="toolbar-btn back"
 								on:click={() => (view = 'agents')}
 							>
-								&larr; Back to agents
+								&larr; {m.agent_backToAgents()}
 							</button>
 						{/if}
 					</div>
@@ -211,27 +211,26 @@
 					{#if showCliCommand}
 						<section class="skill">
 							<div class="skill-head">
-								<span class="skill-eyebrow">Recommended</span>
-								<h3>Connect {selectedAgent.name}</h3>
+								<span class="skill-eyebrow">{m.civic_recommended()}</span>
+								<h3>{m.agent_connectNamed({ name: selectedAgent.name })}</h3>
 								<p>
-									Run this in your terminal—not in the agent chat. It installs <code>scout</code>,
-									opens a browser for approval, and stores the credential on this computer.
+									{m.agent_terminalDescription()}
 								</p>
 								{#if agentTarget.deploymentKind === 'supabase'}
-									<p class="target-note">Connecting to <code>{agentTarget.appUrl}</code></p>
+									<p class="target-note">{m.agent_connectingTo()} <code>{agentTarget.appUrl}</code></p>
 								{/if}
 							</div>
 							<pre class="terminal-command"><code>{terminalCommand}</code></pre>
 							<button type="button" class="primary-copy" on:click={copySkillPrompt}>
 								{#if skillCopied}
-									<Check size={15} /><span>Terminal command copied</span>
+									<Check size={15} /><span>{m.agent_terminalCopied()}</span>
 								{:else}
-									<Copy size={15} /><span>Copy terminal command</span>
+									<Copy size={15} /><span>{m.agent_copyTerminal()}</span>
 								{/if}
 							</button>
 							{#if copyError}
 								<div class="copy-fallback" role="alert">
-									<p>Clipboard access is blocked. Select and copy this command:</p>
+									<p>{m.agent_clipboardBlocked()}</p>
 									<textarea readonly value={terminalCommand} on:focus={(event) => event.currentTarget.select()}></textarea>
 								</div>
 							{/if}
@@ -239,21 +238,20 @@
 								<AgentOnboard prompt={recipe.onboardPrompt} hint={recipe.onboardHint ?? ''} />
 							{/if}
 							<p class="verification-line">
-								Test it: ask
-								<q>Run <code>scout scouts list</code> and tell me what I&rsquo;m monitoring.</q>
+								{m.agent_testPrompt()}
 							</p>
 						</section>
 
 						<details class="manual-details">
-							<summary>Other install methods</summary>
+							<summary>{m.agent_otherInstallMethods()}</summary>
 							<div class="manual-content">
-								<p>With Deno 2.x:</p>
-								<pre class="terminal-command"><code>deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts &amp;&amp; scout auth login --site '{agentTarget.appUrl}' --label '{selectedAgent.name}'</code></pre>
+								<p>{m.agent_withDeno()}</p>
+								<pre class="terminal-command"><code>{`deno install -A -g -n scout https://raw.githubusercontent.com/buriedsignals/scoutpost-os/master/cli/scout.ts\nscout auth login --site "${agentTarget.appUrl}" --label "${selectedAgent.name}"`}</code></pre>
 							</div>
 						</details>
 					{:else}
 						<section class="fallback">
-							<span class="skill-eyebrow">Connect with {path.toUpperCase()}</span>
+							<span class="skill-eyebrow">{m.agent_connectWith({ path: path.toUpperCase() })}</span>
 							<AgentSetup {recipe} />
 						</section>
 					{/if}
@@ -264,16 +262,16 @@
 							class="path-alternative"
 							on:click={() => handlePathChange(path === 'cli' ? 'mcp' : 'cli')}
 						>
-							{path === 'cli' ? 'Use MCP instead' : 'Use Scout CLI instead'}
+							{path === 'cli' ? m.agent_useMcp() : m.agent_useCli()}
 						</button>
 					{/if}
 
 					<div class="agents-footer">
 						<a href={path === 'cli' ? '/docs#cli' : '/docs#mcp'} target="_blank" rel="noopener" class="footer-link">
-							<Eye size={13} /><span>Full connection guide</span>
+							<Eye size={13} /><span>{m.agent_connectionGuide()}</span>
 						</a>
 						<button type="button" class="footer-link api-task" on:click={() => (view = 'api')}>
-							<Code2 size={13} /><span>API keys &amp; REST</span><span aria-hidden="true">&rarr;</span>
+							<Code2 size={13} /><span>{m.agent_apiKeysRest()}</span><span aria-hidden="true">&rarr;</span>
 						</button>
 					</div>
 				{/if}
@@ -524,11 +522,6 @@
 		font-weight: 500;
 		line-height: 1.55;
 		color: var(--color-ink-muted);
-	}
-	.verification-line code {
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		color: var(--color-ink);
 	}
 
 	.manual-details {

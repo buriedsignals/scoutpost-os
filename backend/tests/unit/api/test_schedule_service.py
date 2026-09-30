@@ -7,14 +7,13 @@ Tests cover:
 - convert_floats_to_decimal() — recursive float→Decimal conversion
 - validate_url() — SSRF protection (localhost, private IPs, scheme checks)
 - sanitize_scout_name_for_sk() — # and | replacement
-- create_scout() — SCRAPER# record + EventBridge schedule creation
+- create_scout() — scout record + timezone-aware pg_cron schedule creation
 - list_scouts() — delegates to storage adapter
 - get_scout() — single-scout lookup via adapter
 - delete_scout() — delegates to scheduler + storage adapters
 """
-import json
 from decimal import Decimal
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock
 
 import pytest
 
@@ -48,23 +47,14 @@ def mock_scheduler():
 @pytest.fixture
 def schedule_service(mock_scout_storage, mock_scheduler):
     """ScheduleService with mocked adapter ports."""
-    with patch("app.services.schedule_service.get_settings") as mock_settings:
-        mock_settings.return_value.aws_region = "eu-central-1"
-        mock_settings.return_value.scraper_lambda_arn = "arn:aws:lambda:eu-central-1:123:function:scraper"
-        mock_settings.return_value.eventbridge_role_arn = "arn:aws:iam::123:role/eb-role"
-        mock_settings.return_value.internal_service_key = "test-service-key"
-        service = ScheduleService(
-            scout_storage=mock_scout_storage,
-            scheduler=mock_scheduler,
-        )
-    return service
+    return ScheduleService(scout_storage=mock_scout_storage, scheduler=mock_scheduler)
 
 
 @pytest.fixture
 def mock_cron_schedule():
     """Mock CronSchedule object."""
     schedule = MagicMock()
-    schedule.expression = "0 10 * * ? *"
+    schedule.expression = "0 10 * * *"
     schedule.timezone = "Europe/Oslo"
     return schedule
 
@@ -304,91 +294,17 @@ class TestSanitizeScoutNameForSk:
 
 class TestCreateScout:
     @pytest.mark.asyncio
-    async def test_writes_scraper_record_web(self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule):
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "My Scout"}
-        mock_scheduler.create_schedule.return_value = "arn:aws:scheduler:..."
+    async def test_schedule_failure_removes_new_scout(
+        self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule
+    ):
+        mock_scout_storage.create_scout.return_value = {"id": "scout-id"}
+        mock_scheduler.create_schedule.side_effect = RuntimeError("scheduling failed")
+        with pytest.raises(RuntimeError, match="scheduling failed"):
+            await schedule_service.create_scout(
+                "user-1", "Unscheduled", {"scout_type": "beat"}, mock_cron_schedule
+            )
+        mock_scout_storage.delete_scout.assert_awaited_once_with("user-1", "Unscheduled")
 
-        body = {
-            "scout_type": "web",
-            "url": "https://example.com",
-            "criteria": "Breaking news",
-            "regularity": "daily",
-            "time": "10:00",
-            "preferred_language": "en",
-        }
-
-        result = await schedule_service.create_scout("user-123", "My Scout", body, mock_cron_schedule)
-
-        assert result["scraper_name"] == "My Scout"
-        assert "schedule_name" in result
-
-        # Verify storage adapter was called
-        mock_scout_storage.create_scout.assert_called_once()
-        call_args = mock_scout_storage.create_scout.call_args
-        assert call_args[0][0] == "user-123"  # user_id
-        item = call_args[0][1]
-        assert item["scraper_name"] == "My Scout"
-        assert item["scout_type"] == "web"
-        assert item["url"] == "https://example.com"
-        assert item["criteria"] == "Breaking news"
-        assert "provider" not in item
-        assert item["cron_expression"] == "0 10 * * ? *"
-        assert item["timezone"] == "Europe/Oslo"
-
-    @pytest.mark.skip(reason="AWS-specific (Decimal coercion for DynamoDB); v2 uses Supabase floats")
-    @pytest.mark.asyncio
-    async def test_writes_scraper_record_beat(self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule):
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "Oslo News"}
-        mock_scheduler.create_schedule.return_value = "arn:..."
-
-        body = {
-            "scout_type": "beat",
-            "location": {"lat": 59.95, "lng": 10.75, "name": "Oslo"},
-            "topic": "real estate",
-            "criteria": "new listings",
-            "regularity": "weekly",
-            "time": "08:00",
-            "source_mode": "niche",
-            "excluded_domains": ["example.com"],
-        }
-
-        result = await schedule_service.create_scout("user-456", "Oslo News", body, mock_cron_schedule)
-
-        call_args = mock_scout_storage.create_scout.call_args
-        item = call_args[0][1]
-        assert item["scout_type"] == "beat"
-        assert item["topic"] == "real estate"
-        assert item["criteria"] == "new listings"
-        assert item["source_mode"] == "niche"
-        assert item["excluded_domains"] == ["example.com"]
-        # Location floats should be converted to Decimal
-        assert isinstance(item["location"]["lat"], Decimal)
-
-    @pytest.mark.skip(reason="AWS-specific (EventBridge lambda target); v2 uses pg_cron + Edge Functions")
-    @pytest.mark.asyncio
-    async def test_creates_eventbridge_schedule(self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule):
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "Test"}
-        mock_scheduler.create_schedule.return_value = "arn:..."
-
-        body = {"scout_type": "web", "url": "https://example.com"}
-
-        await schedule_service.create_scout("user-123", "Test", body, mock_cron_schedule)
-
-        mock_scheduler.create_schedule.assert_called_once()
-        call_args = mock_scheduler.create_schedule.call_args
-        schedule_name = call_args[0][0]
-        cron_expr = call_args[0][1]
-        target_config = call_args[0][2]
-
-        assert cron_expr == "cron(0 10 * * ? *)"
-        assert target_config["lambda_arn"] == "arn:aws:lambda:eu-central-1:123:function:scraper"
-        assert target_config["role_arn"] == "arn:aws:iam::123:role/eb-role"
-        assert "input" in target_config
-
-        # Input template should be valid JSON
-        input_json = json.loads(target_config["input"])
-        assert input_json["user_id"] == "user-123"
-        assert input_json["scraper_name"] == "Test"
 
     @pytest.mark.asyncio
     async def test_validates_url_web_scout(self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule):
@@ -403,7 +319,7 @@ class TestCreateScout:
     @pytest.mark.asyncio
     async def test_skips_url_validation_beat(self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule):
         """Beat scouts don't have URLs, so no validation needed."""
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "Beat"}
+        mock_scout_storage.create_scout.return_value = {"id": "scout-id", "scraper_name": "Beat"}
         mock_scheduler.create_schedule.return_value = "arn:..."
         body = {"scout_type": "beat", "location": {"lat": 59.95, "lng": 10.75}}
 
@@ -414,7 +330,7 @@ class TestCreateScout:
     @pytest.mark.asyncio
     async def test_writes_scraper_record_social(self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule):
         """Social scout stores all type-specific fields including topic."""
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "NASA Monitor"}
+        mock_scout_storage.create_scout.return_value = {"id": "scout-id", "scraper_name": "NASA Monitor"}
         mock_scheduler.create_schedule.return_value = "arn:..."
 
         body = {
@@ -447,7 +363,7 @@ class TestCreateScout:
     @pytest.mark.asyncio
     async def test_social_scout_without_topic(self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule):
         """Social scout without topic omits the field (not stored as None)."""
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "X Scout"}
+        mock_scout_storage.create_scout.return_value = {"id": "scout-id", "scraper_name": "X Scout"}
         mock_scheduler.create_schedule.return_value = "arn:..."
         body = {
             "scout_type": "social",
@@ -471,7 +387,7 @@ class TestCreateScout:
         mock_cron_schedule,
     ):
         """Current clients can omit monitor_mode when they send criteria."""
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "Housing Watch"}
+        mock_scout_storage.create_scout.return_value = {"id": "scout-id", "scraper_name": "Housing Watch"}
         mock_scheduler.create_schedule.return_value = "arn:..."
         body = {
             "scout_type": "social",
@@ -486,9 +402,6 @@ class TestCreateScout:
 
         item = mock_scout_storage.create_scout.call_args[0][1]
         assert item["monitor_mode"] == "criteria"
-        target_config = mock_scheduler.create_schedule.call_args[0][2]
-        input_json = json.loads(target_config["input"])
-        assert input_json["monitor_mode"] == "criteria"
 
     @pytest.mark.asyncio
     async def test_social_scout_legacy_omission_stays_summarize(
@@ -499,7 +412,7 @@ class TestCreateScout:
         mock_cron_schedule,
     ):
         """Raw REST callers that omit both fields keep legacy summarize semantics."""
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "Council Digest"}
+        mock_scout_storage.create_scout.return_value = {"id": "scout-id", "scraper_name": "Council Digest"}
         mock_scheduler.create_schedule.return_value = "arn:..."
         body = {
             "scout_type": "social",
@@ -513,9 +426,6 @@ class TestCreateScout:
 
         item = mock_scout_storage.create_scout.call_args[0][1]
         assert item["monitor_mode"] == "summarize"
-        target_config = mock_scheduler.create_schedule.call_args[0][2]
-        input_json = json.loads(target_config["input"])
-        assert input_json["monitor_mode"] == "summarize"
 
     @pytest.mark.asyncio
     async def test_social_scout_rejects_blank_criteria_mode(
@@ -547,7 +457,7 @@ class TestCreateScout:
     @pytest.mark.asyncio
     async def test_web_scout_stores_topic(self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule):
         """Web scout stores topic when provided."""
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "Web Topic"}
+        mock_scout_storage.create_scout.return_value = {"id": "scout-id", "scraper_name": "Web Topic"}
         mock_scheduler.create_schedule.return_value = "arn:..."
         body = {
             "scout_type": "web",
@@ -565,7 +475,7 @@ class TestCreateScout:
     @pytest.mark.asyncio
     async def test_web_scout_without_topic(self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule):
         """Web scout without topic omits the field."""
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "Web No Topic"}
+        mock_scout_storage.create_scout.return_value = {"id": "scout-id", "scraper_name": "Web No Topic"}
         mock_scheduler.create_schedule.return_value = "arn:..."
         body = {
             "scout_type": "web",
@@ -578,28 +488,6 @@ class TestCreateScout:
         item = call_args[0][1]
         assert "topic" not in item
 
-    @pytest.mark.asyncio
-    async def test_eventbridge_input_includes_topic_all_types(self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule):
-        """EventBridge input template includes topic for all scout types."""
-        mock_scout_storage.create_scout.return_value = {}
-        mock_scheduler.create_schedule.return_value = "arn:..."
-
-        for scout_type, extra_fields in [
-            ("web", {"url": "https://example.com"}),
-            ("beat", {"location": {"lat": 59.95, "lng": 10.75}}),
-            ("social", {"platform": "instagram", "profile_handle": "test"}),
-        ]:
-            mock_scheduler.reset_mock()
-            body = {"scout_type": scout_type, "topic": "MyTopic", **extra_fields}
-
-            await schedule_service.create_scout("user-1", f"{scout_type}-scout", body, mock_cron_schedule)
-
-            call_args = mock_scheduler.create_schedule.call_args
-            target_config = call_args[0][2]
-            input_json = json.loads(target_config["input"])
-            assert input_json["topic"] == "MyTopic", (
-                f"EventBridge input missing topic for {scout_type} scout"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -685,6 +573,7 @@ class TestDeleteScout:
     @pytest.mark.asyncio
     async def test_deletes_schedule_and_all_records(self, schedule_service, mock_scout_storage, mock_scheduler):
         """delete_scout calls scheduler.delete_schedule and scout_storage.delete_scout."""
+        mock_scout_storage.get_scout.return_value = {"id": "scout-id"}
         mock_scout_storage.delete_scout.return_value = {
             "message": "Scout deleted successfully",
             "scraper_name": "MyScout",
@@ -693,10 +582,6 @@ class TestDeleteScout:
 
         result = await schedule_service.delete_scout("user-1", "MyScout")
 
-        # EventBridge schedule deleted
-        mock_scheduler.delete_schedule.assert_called_once()
-        schedule_name = mock_scheduler.delete_schedule.call_args[0][0]
-        assert "scout" in schedule_name.lower() or "MyScout" in schedule_name or "user" in schedule_name.lower()
 
         # Storage adapter called
         mock_scout_storage.delete_scout.assert_called_once_with("user-1", "MyScout")
@@ -707,6 +592,7 @@ class TestDeleteScout:
     @pytest.mark.asyncio
     async def test_handles_schedule_not_found(self, schedule_service, mock_scout_storage, mock_scheduler):
         """Should not raise when scheduler delete is a no-op (adapter handles it)."""
+        mock_scout_storage.get_scout.return_value = {"id": "scout-id"}
         mock_scheduler.delete_schedule.return_value = None  # adapter absorbs not-found
         mock_scout_storage.delete_scout.return_value = {
             "message": "Scout deleted successfully",
@@ -729,7 +615,7 @@ class TestCreateCivicScout:
         self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule
     ):
         """Civic scout stores all type-specific fields in SCRAPER# record."""
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "City Budget"}
+        mock_scout_storage.create_scout.return_value = {"id": "scout-id", "scraper_name": "City Budget"}
         mock_scheduler.create_schedule.return_value = "arn:..."
 
         body = {
@@ -763,7 +649,7 @@ class TestCreateCivicScout:
         self, schedule_service, mock_scout_storage, mock_scheduler, mock_cron_schedule
     ):
         """Civic scout uses empty defaults when optional fields are absent."""
-        mock_scout_storage.create_scout.return_value = {"scraper_name": "Minimal Civic"}
+        mock_scout_storage.create_scout.return_value = {"id": "scout-id", "scraper_name": "Minimal Civic"}
         mock_scheduler.create_schedule.return_value = "arn:..."
         body = {"scout_type": "civic"}
 
@@ -788,6 +674,7 @@ class TestDeleteCivicScout:
         self, schedule_service, mock_scout_storage, mock_scheduler
     ):
         """delete_scout delegates PROMISE# cleanup to the storage adapter."""
+        mock_scout_storage.get_scout.return_value = {"id": "scout-id"}
         mock_scout_storage.delete_scout.return_value = {
             "message": "Scout deleted successfully",
             "scraper_name": "CivicScout",

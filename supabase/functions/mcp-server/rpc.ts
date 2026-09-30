@@ -302,8 +302,41 @@ export const TOOLS: ToolDef[] = [
     inputSchema: {
       type: "object",
       required: ["name", "type"],
+      allOf: [
+        {
+          if: { properties: { type: { enum: ["web", "beat", "social", "civic"] } } },
+          then: { anyOf: [
+            { required: ["topic"], properties: { topic: { pattern: "[^\\s,]" } } },
+            { required: ["location"] },
+          ] },
+        },
+        {
+          if: { properties: { type: { const: "web" } } },
+          then: { required: ["url"] },
+        },
+        {
+          if: { properties: { type: { const: "social" } } },
+          then: {
+            required: ["platform", "profile_handle"],
+            if: { properties: { monitor_mode: { const: "criteria" } } },
+            then: { required: ["criteria"], properties: { criteria: { pattern: "\\S" } } },
+          },
+        },
+        {
+          if: { properties: { type: { const: "civic" } } },
+          then: {
+            required: ["root_domain", "tracked_urls"],
+            if: { required: ["import_current_items"], properties: { import_current_items: { const: true } } },
+            then: { required: ["preview_snapshot_token"] },
+          },
+        },
+        {
+          if: { properties: { type: { const: "transport" } } },
+          then: { required: ["config"] },
+        },
+      ],
       properties: {
-        name: { type: "string", minLength: 1, maxLength: 200 },
+        name: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S" },
         type: {
           type: "string",
           enum: ["web", "beat", "social", "civic", "transport"],
@@ -324,11 +357,14 @@ export const TOOLS: ToolDef[] = [
           type: "string",
           maxLength: 200,
           description:
-            "The organizational Project label shown in the UI, stored in the legacy topic field. Required when location is omitted. Use 1-3 short comma-separated tags, e.g. 'housing, council, budget'. This is distinct from project_id and investigation Project tools.",
+            "The organizational Project label shown in the UI, stored in the legacy topic field. Required for non-transport scouts when location is omitted. Use 1-3 short comma-separated tags, each at most 50 characters, e.g. 'housing, council, budget'. This is distinct from project_id and investigation Project tools.",
         },
         url: { type: "string", format: "uri" },
         location: {
           type: "object",
+          anyOf: ["displayName", "city", "state", "country"].map((key) => ({
+            required: [key], properties: { [key]: { type: "string", pattern: "\\S" } },
+          })),
           additionalProperties: true,
           description:
             "GeocodedLocation: { displayName, latitude, longitude, ... }",
@@ -417,6 +453,9 @@ export const TOOLS: ToolDef[] = [
         },
         profile_handle: {
           type: "string",
+          minLength: 1,
+          maxLength: 200,
+          pattern: "\\S",
           description:
             "Required for social scouts. Monitor only public personal profiles for a legitimate public-interest purpose; see https://www.scoutpost.ai/terms#acceptable-use. Use a full personal linkedin.com/in/... URL for LinkedIn; other platforms accept the account handle.",
         },
@@ -433,6 +472,9 @@ export const TOOLS: ToolDef[] = [
         },
         root_domain: {
           type: "string",
+          minLength: 1,
+          maxLength: 300,
+          pattern: "\\S",
           description:
             "Required for civic scouts. Root municipal domain, e.g. 'example.gov'.",
         },

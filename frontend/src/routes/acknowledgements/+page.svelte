@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { ArrowLeft } from 'lucide-svelte';
+	import * as m from '$lib/paraglide/messages';
+	import { getLocale } from '$lib/paraglide/runtime';
 </script>
 
 <svelte:head>
@@ -7,14 +9,15 @@
 	<meta name="description" content="The open-source projects Scoutpost is built on — scraping, evidence archiving, search, and monitoring tools we're grateful to." />
 </svelte:head>
 
-<div class="ack-page">
+<div class="ack-page" lang="en">
 	<div class="bg-pattern"></div>
 
 	<div class="content">
-		<a class="back-button" href="/">
+		<a class="back-button" href="/" lang={getLocale()}>
 			<ArrowLeft class="w-4 h-4" />
-			<span>Back</span>
+			<span>{m.common_back()}</span>
 		</a>
+		{#if getLocale() !== 'en'}<p role="note" lang={getLocale()}>{m.docs_englishOriginal()}</p>{/if}
 
 		<header class="header">
 			<div class="badge">Acknowledgements</div>

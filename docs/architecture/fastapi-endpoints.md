@@ -28,6 +28,62 @@ def verify_service_key(x_service_key: str) -> None:
         raise HTTPException(status_code=401, detail="Invalid service key")
 ```
 
+### Legacy scout creation
+
+The still-mounted `POST /api/v1/scouts` endpoint accepts `web`, `beat`, and
+`social`, with its existing required nested `schedule` object. It requires a
+nonblank name and Project tags (`topic`) or a meaningful location, and preserves
+that scope for all three types. Page requires URL; Social requires platform and
+profile handle, plus criteria when criteria mode is selected. Civic and Fleet
+creation use the canonical `/functions/v1/scouts` contract, not this legacy
+endpoint. See [creation requirements](../supabase/scouts-runs.md#creation-requirements).
+
+### Current scout schedule contract
+
+`POST /functions/v1/scouts` and `PATCH /functions/v1/scouts/:id` accept optional
+`schedule_timezone` (IANA name such as `America/New_York`; defaults to `UTC`
+on creation, remains unchanged when omitted on update). GET/list/create/update
+responses include `schedule_timezone` and the requested `schedule_cron`.
+
+```json
+{
+  "name": "Morning council page",
+  "type": "web",
+  "url": "https://example.org/council",
+  "topic": "council",
+  "regularity": "daily",
+  "time": "08:15",
+  "schedule_timezone": "America/New_York"
+}
+```
+
+This stores `15 8 * * *`, fires at 08:15 New York in winter and summer, and
+never stores a one-time UTC offset. Weekly `day_number` uses 1=Monday through
+7=Sunday; monthly uses 1–31, interpreted in the same local timezone. Existing
+UTC schedules and clients that omit the timezone retain UTC semantics.
+Timezone-only PATCH, pause/resume, and partial time/day edits retain the
+wall-clock schedule. Invalid zones and unsupported non-UTC cron shapes fail
+with a validation error, not silent UTC fallback.
+
+Non-UTC cron accepts fixed minute, fixed/comma-list hours, month `*`, and
+daily, one weekday, or one day-of-month. Arbitrary pg_cron syntax remains
+available with `schedule_timezone: "UTC"`. Existing scout-type frequency
+policies still apply. Missing DST times are skipped; repeated times run once
+using PostgreSQL's standard-time preference (later occurrence in New York).
+Top-of-hour jobs retain the 0–29 minute spreading policy. See
+[cron scheduling](../supabase/cron-jobs.md#scheduled-scouts-per-scout) for
+dispatch, claiming, deployment order, and local SQL verification.
+
+The residual Python `POST /api/v1/scouts` accepts the same top-level
+`schedule_timezone` alongside its nested `schedule` object, now produces
+five-field pg_cron expressions, and returns raw `schedule_cron` plus
+`schedule_timezone` in list/detail/create responses. It does not infer a
+timezone from mutable user preferences. The service-only `manage-schedule`
+endpoint accepts `schedule_timezone` with `cron_expression`; update/delete
+require `scout_id`. All entry points use canonical `scout-<uuid>` job names
+and the same SQL scheduler rather than building independent cron commands.
+
+
 ---
 
 ## Historical Scout Endpoint Sections

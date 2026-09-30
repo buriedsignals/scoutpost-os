@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	import ScoutRunDetails from "./ScoutRunDetails.svelte";
 	import { Globe, MapPin, Tag, Calendar, Play, Trash2, X, Check } from 'lucide-svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
@@ -45,17 +46,16 @@
 		const then = new Date(iso).getTime();
 		if (!Number.isFinite(then)) return null;
 		const seconds = Math.floor((Date.now() - then) / 1000);
-		if (seconds < 60) return `${seconds}s ago`;
-		if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-		if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-		const days = Math.floor(seconds / 86400);
-		return days === 1 ? '1d ago' : `${days}d ago`;
+		if (seconds < 60) return m.newsCard_justNow();
+		if (seconds < 3600) return m.feed_timeMinutesAgo({ count: Math.floor(seconds / 60) });
+		if (seconds < 86400) return m.feed_timeHoursAgo({ count: Math.floor(seconds / 3600) });
+		return m.feed_timeDaysAgo({ count: Math.floor(seconds / 86400) });
 	}
 
 	$: lastRunText = (() => {
-		if (!scout.last_run?.started_at) return 'Baseline ready';
+		if (!scout.last_run?.started_at) return m.transport_baselineReady();
 		const rel = timeSince(scout.last_run.started_at);
-		return rel ? `Last run ${rel}` : 'Baseline ready';
+		return rel ? m.scouts_lastRun({ time: rel }) : m.transport_baselineReady();
 	})();
 
 	$: status = getScoutStatus({ type: normalizedType, last_run: scout.last_run });
@@ -67,9 +67,9 @@
 	$: scheduleLabel = (() => {
 		if (!scout.regularity) return null;
 		const r = scout.regularity.toLowerCase();
-		if (r === 'daily') return 'Daily';
-		if (r === 'weekly') return 'Weekly';
-		if (r === 'monthly') return 'Monthly';
+		if (r === 'daily') return m.schedule_daily();
+		if (r === 'weekly') return m.schedule_weekly();
+		if (r === 'monthly') return m.schedule_monthly();
 		return r.charAt(0).toUpperCase() + r.slice(1);
 	})();
 
@@ -118,8 +118,8 @@
 					on:click|stopPropagation={() => onRun(scout.id)}
 					class="scout-shell-icon-btn run-btn"
 					disabled={!canRun}
-					aria-label="Run now"
-					use:tooltip={canRun ? 'Run now' : 'Resume scout to run'}
+					aria-label={m.scouts_runNow()}
+					use:tooltip={canRun ? m.scouts_runNow() : m.scouts_resumeToRun()}
 				>
 					<Play size={14} />
 				</button>
@@ -132,15 +132,15 @@
 						<button
 							on:click|stopPropagation={() => onCancelDelete(scout.id)}
 							class="scout-shell-confirm-btn cancel"
-							aria-label="Cancel"
+							aria-label={m.common_cancel()}
 						>
 							<X size={12} />
 						</button>
-						<span class="scout-shell-confirm-label">Delete?</span>
+						<span class="scout-shell-confirm-label">{m.scouts_deleteConfirm()}</span>
 						<button
 							on:click|stopPropagation={() => onConfirmDelete(scout.id)}
 							class="scout-shell-confirm-btn confirm"
-							aria-label="Yes"
+							aria-label={m.common_yes()}
 						>
 							<Check size={12} />
 						</button>
@@ -150,7 +150,7 @@
 				<button
 					on:click|stopPropagation={() => onRequestDelete(scout.id)}
 					class="scout-shell-icon-btn trash-btn"
-					aria-label="Delete scout"
+					aria-label={m.scouts_deleteScout()}
 				>
 					<Trash2 size={14} />
 				</button>

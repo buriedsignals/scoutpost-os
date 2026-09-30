@@ -5,6 +5,8 @@
 	import SharpAction from '$lib/components/docs/SharpAction.svelte';
 	import SharpCodeBlock from '$lib/components/docs/SharpCodeBlock.svelte';
 	import SharpPanel from '$lib/components/docs/SharpPanel.svelte';
+	import * as m from '$lib/paraglide/messages';
+	import { getLocale } from '$lib/paraglide/runtime';
 
 	$: backHref = $authStore.authenticated ? '/' : '/login';
 
@@ -126,23 +128,23 @@
 
 <div class="docs">
 	<div class="mobile-back-wrap">
-		<SharpAction href={backHref} ariaLabel="Back">
+		<SharpAction href={backHref} ariaLabel={m.common_back()}>
 			<ArrowLeft size={14} />
-			<span>Back</span>
+			<span>{m.common_back()}</span>
 		</SharpAction>
 	</div>
 
 	<div class="layout">
-		<aside class="sidebar" aria-label="Documentation table of contents">
+		<aside class="sidebar" aria-label={m.docs_tableOfContents()}>
 			<div class="sidebar-inner">
 				<SharpAction href={backHref} variant="ghost" size="sm" className="sidebar-back">
 					<ArrowLeft size={13} />
-					<span>Back</span>
+					<span>{m.common_back()}</span>
 				</SharpAction>
 				<div class="sidebar-head">
-					<span class="eyebrow">Docs · v2</span>
+					<span class="eyebrow">{m.docs_navigationTitle()} · v2</span>
 				</div>
-				<ul class="toc">
+				<ul class="toc" lang="en">
 					{#each toc as section (section.id)}
 						<li>
 							<a
@@ -167,10 +169,10 @@
 					{/each}
 				</ul>
 				<div class="sidebar-foot">
-					<a href="/swagger">API reference</a>
-					<a href="/">Pricing</a>
-					<a href="/faq">FAQ</a>
-					<a href="/skills">Skills</a>
+					<a href="/swagger">{m.docs_apiReference()}</a>
+					<a href="/">{m.pricing_pageTitle()}</a>
+					<a href="/faq">{m.docs_faq()}</a>
+					<a href="/skills">{m.docs_skills()}</a>
 					<a href="/docs.txt">docs.txt</a>
 					<a href="https://github.com/buriedsignals/scoutpost-os" target="_blank" rel="noopener noreferrer">
 						GitHub
@@ -183,7 +185,8 @@
 		</aside>
 
 		<main class="content">
-			<article>
+			{#if getLocale() !== 'en'}<p role="note">{m.docs_englishOriginal()}</p>{/if}
+			<article lang="en">
 				<header class="hero">
 					<span class="eyebrow">Documentation</span>
 					<h1>Scoutpost for humans and AI assistants</h1>
@@ -525,11 +528,11 @@
 						OAuth dance — you never paste tokens. The endpoint is:
 					</p>
 
-					<SharpCodeBlock code={`${mcpOrigin}/mcp`} ariaLabel="Copy MCP URL" />
+					<SharpCodeBlock code={`${mcpOrigin}/mcp`} ariaLabel={m.agent_copyUrl()} />
 
 					<p>Drop this into your MCP client config (example: <code>claude_desktop_config.json</code>):</p>
 
-					<SharpCodeBlock code={mcpConfig} ariaLabel="Copy MCP config" />
+					<SharpCodeBlock code={mcpConfig} ariaLabel={m.agent_copyConfig()} />
 
 					<p>Tools exposed over MCP (non-exhaustive):</p>
 					<div class="table-wrap">
@@ -563,7 +566,6 @@
 					</p>
 
 					<SharpCodeBlock
-						ariaLabel="Copy curl example"
 						code={`curl https://scoutpost.ai/functions/v1/scouts \\
   -H "Authorization: Bearer $COJO_TOKEN"
 
@@ -586,7 +588,6 @@ curl "https://scoutpost.ai/functions/v1/units?verified=false&limit=20" \\
 					</p>
 
 					<SharpCodeBlock
-						ariaLabel="Copy CLI install"
 						copyValue={`npm install --global scoutpost-cli
 scout auth login --site https://scoutpost.ai
 scout scouts list`}

@@ -28,7 +28,7 @@ import {
   compressContext,
   logCompressionStats,
 } from "../_shared/taco_compress.ts";
-import { sendCivicAlert } from "../_shared/notifications.ts";
+import { drainCivicRunAlerts } from "../_shared/civic_run_notifications.ts";
 import {
   deriveSourceDomain,
   sha256Hex,
@@ -36,8 +36,6 @@ import {
 } from "../_shared/unit_dedup.ts";
 import {
   classifyRunError,
-  markNotificationAttempted,
-  markNotificationResult,
   markRunError,
   markRunStage,
 } from "../_shared/run_lifecycle.ts";
@@ -51,7 +49,6 @@ import {
   type CivicCandidate,
   type CivicEligibleItem,
   classifyCivicCandidates,
-  retainCivicPromiseAlertItems,
 } from "../_shared/civic_accountability.ts";
 import { loadCivicBackfillSnapshot } from "../_shared/civic_backfill_snapshot.ts";
 import { persistCivicDocumentItems } from "../_shared/civic_document_persistence.ts";
@@ -131,6 +128,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
     DEFAULT_MAX_ATTEMPTS,
     1,
     10,
+  );
+
+  // Delivery work survives extraction completion and is also drained on idle
+  // cron ticks. A failed mail must never force document re-extraction.
+  await drainCivicRunAlerts(svc, workerId, requestedRunId).catch((error) =>
+    logEvent({
+      level: "warn",
+      fn: "civic-extract-worker",
+      event: "alert_drain_failed",
+      msg: error instanceof Error ? error.message : String(error),
+    })
   );
 
   // Claim one queue row (SKIP LOCKED; expired-lease recovery built in).
@@ -656,236 +664,16 @@ async function processItem(
     });
   }
 
-  // 7. Notify (fire-and-forget — a mail failure does not abort the queue row,
-  //    which is already marked done by the finalize RPC above).
-  // A document cannot alert until the fenced run-settlement RPC has observed
-  // every sibling queue row. This prevents first-document notification from
-  // falsely presenting a partial run as complete.
-  const { data: settledRun, error: settledRunError } = row.scout_run_id
-    ? await svc.from("scout_runs").select("status").eq("id", row.scout_run_id)
-      .maybeSingle()
-    : { data: null, error: null };
-  if (settledRunError) throw new Error(settledRunError.message);
-  if (
-    row.scout_run_id && ingestionMode === "scheduled" &&
-    settledRun?.status === "success"
-  ) {
-    try {
-      const { data: claims, error: claimError } = await svc.rpc(
-        "claim_civic_run_alert_delivery",
-        {
-          p_run_id: row.scout_run_id,
-          p_worker_id: workerId,
-          p_lease_seconds: leaseSeconds,
-        },
-      );
-      if (claimError) throw new Error(claimError.message);
-      const claim = claims?.[0] as {
-        delivery_id: string;
-        fencing_token: number;
-        provider_idempotency_key: string;
-        needs_provider_submission: boolean;
-      } | undefined;
-      if (!claim) {
-        // Another worker owns (or has finished) the delivery. Continue with
-        // this document's normal post-processing below.
-      } else {
-        const { data: pendingAlertItems, error: pendingAlertItemsError } =
-          await svc
-            .from("civic_run_alert_items")
-            .select("id, unit_id, statement, source_url, source_title")
-            .eq("scout_run_id", row.scout_run_id)
-            .is("delivered_at", null);
-        if (pendingAlertItemsError) {
-          throw new Error(pendingAlertItemsError.message);
-        }
-        const candidateUnitIds = (pendingAlertItems ?? []).map((item) =>
-          item.unit_id
-        );
-        const { data: promiseRows, error: promiseRowsError } = candidateUnitIds
-            .length > 0
-          ? await svc.from("promises").select(
-            "unit_id, information_units!inner(id)",
-          )
-            .eq("user_id", userId)
-            .in("unit_id", candidateUnitIds)
-            .eq("information_units.user_id", userId)
-            .is("information_units.deleted_at", null)
-          : { data: [], error: null };
-        if (promiseRowsError) throw new Error(promiseRowsError.message);
-        const promiseAlertItems = retainCivicPromiseAlertItems(
-          pendingAlertItems ?? [],
-          (promiseRows ?? []).map((promise) => promise.unit_id),
-        );
-
-        if (promiseAlertItems.length === 0) {
-          // Neutralize empty or legacy decision-only deliveries without ever
-          // reaching the provider. The delivery schema predates a `skipped`
-          // terminal state, so `sent` here means terminal/consumed; the run
-          // keeps the accurate user-facing `skipped` notification status.
-          if (pendingAlertItems?.length) {
-            const { error: neutralizeError } = await svc.from(
-              "civic_run_alert_items",
-            )
-              .update({ delivered_at: new Date().toISOString() })
-              .in("id", pendingAlertItems.map((item) => item.id))
-              .is("delivered_at", null);
-            if (neutralizeError) throw new Error(neutralizeError.message);
-          }
-          await markNotificationResult(svc, row.scout_run_id, "skipped", {
-            reason: "no_new_promises",
-          });
-          const { error: skippedFinalizeError } = await svc.rpc(
-            "finalize_civic_run_alert_delivery",
-            {
-              p_delivery_id: claim.delivery_id,
-              p_worker_id: workerId,
-              p_fencing_token: claim.fencing_token,
-              p_state: "sent",
-              p_error: "skipped_no_new_promises",
-            },
-          );
-          if (skippedFinalizeError) {
-            throw new Error(skippedFinalizeError.message);
-          }
-        } else {
-          if (!claim.needs_provider_submission) {
-            const { error: reconciledError } = await svc.rpc(
-              "finalize_civic_run_alert_delivery",
-              {
-                p_delivery_id: claim.delivery_id,
-                p_worker_id: workerId,
-                p_fencing_token: claim.fencing_token,
-                p_state: "sent",
-              },
-            );
-            if (reconciledError) throw new Error(reconciledError.message);
-            return {
-              raw_capture_id: rawCaptureId,
-              promises_extracted: inserted,
-              merged_existing_count: mergedExisting,
-            };
-          }
-          await markNotificationAttempted(svc, row.scout_run_id).catch((e) =>
-            logEvent({
-              level: "warn",
-              fn: "civic-extract-worker",
-              event: "notification_status_failed",
-              queue_id: row.id,
-              scout_id: row.scout_id,
-              run_id: row.scout_run_id,
-              msg: e instanceof Error ? e.message : String(e),
-            })
-          );
-          const summary = promiseAlertItems
-            .slice(0, 10)
-            .map((item) => {
-              const title = (item.source_title ?? item.source_url).replace(
-                /\]/g,
-                "\\]",
-              );
-              return `- **${item.statement}** ([${title}](${item.source_url}))`;
-            })
-            .join("\n");
-          const notification = await sendCivicAlert(svc, {
-            userId,
-            scoutId: row.scout_id,
-            runId: row.scout_run_id,
-            scoutName: (scout.name as string | null) ?? "Civic Scout",
-            summary,
-            providerIdempotencyKey: claim.provider_idempotency_key,
-          });
-          if (notification.ok) {
-            const { error: acceptedError } = await svc.rpc(
-              "mark_civic_run_alert_provider_accepted",
-              {
-                p_delivery_id: claim.delivery_id,
-                p_worker_id: workerId,
-                p_fencing_token: claim.fencing_token,
-                p_provider_id: notification.providerId ?? null,
-              },
-            );
-            if (acceptedError) throw new Error(acceptedError.message);
-          }
-          await markNotificationResult(
-            svc,
-            row.scout_run_id,
-            notification.ok
-              ? "sent"
-              : notification.reason === "missing_email"
-              ? "skipped"
-              : "failed",
-            notification.ok
-              ? { providerId: notification.providerId ?? null }
-              : {
-                message: notification.error ?? notification.reason ??
-                  "notification not sent",
-                reason: notification.reason ?? "unknown",
-              },
-          ).catch((e) =>
-            logEvent({
-              level: "warn",
-              fn: "civic-extract-worker",
-              event: "notification_status_failed",
-              queue_id: row.id,
-              scout_id: row.scout_id,
-              run_id: row.scout_run_id,
-              msg: e instanceof Error ? e.message : String(e),
-            })
-          );
-          if (notification.ok) {
-            const { error: deliveredError } = await svc.from(
-              "civic_run_alert_items",
-            )
-              .update({ delivered_at: new Date().toISOString() })
-              .in("id", (pendingAlertItems ?? []).map((item) => item.id))
-              .is("delivered_at", null);
-            if (deliveredError) throw new Error(deliveredError.message);
-          }
-          const { error: deliveryFinalizeError } = await svc.rpc(
-            "finalize_civic_run_alert_delivery",
-            {
-              p_delivery_id: claim.delivery_id,
-              p_worker_id: workerId,
-              p_fencing_token: claim.fencing_token,
-              p_state: notification.ok ? "sent" : "failed",
-              p_error: notification.ok
-                ? null
-                : notification.error ?? notification.reason ?? "send failed",
-            },
-          );
-          if (deliveryFinalizeError) {
-            throw new Error(deliveryFinalizeError.message);
-          }
-        }
-      }
-    } catch (e) {
-      await markNotificationResult(
-        svc,
-        row.scout_run_id,
-        "failed",
-        e instanceof Error ? e.message : String(e),
-      ).catch((markErr) =>
-        logEvent({
-          level: "warn",
-          fn: "civic-extract-worker",
-          event: "notification_status_failed",
-          queue_id: row.id,
-          scout_id: row.scout_id,
-          run_id: row.scout_run_id,
-          msg: markErr instanceof Error ? markErr.message : String(markErr),
-        })
-      );
+  if (row.scout_run_id && (ingestionMode === "initial" || ingestionMode === "scheduled")) {
+    await drainCivicRunAlerts(svc, workerId, row.scout_run_id).catch((error) =>
       logEvent({
         level: "warn",
         fn: "civic-extract-worker",
-        event: "notify_failed",
-        queue_id: row.id,
-        scout_id: row.scout_id,
+        event: "alert_drain_failed",
         run_id: row.scout_run_id,
-        msg: e instanceof Error ? e.message : String(e),
-      });
-    }
+        msg: error instanceof Error ? error.message : String(error),
+      })
+    );
   }
 
   // 8. Mark the source URL as processed on the scout ONLY after the full

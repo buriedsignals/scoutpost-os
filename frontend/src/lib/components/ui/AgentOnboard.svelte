@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages';
 	import { Copy, Check } from 'lucide-svelte';
 
 	/** The "Onboard your agent" block: the first message to paste once connected. */
@@ -25,12 +26,12 @@
 
 <div class="block onboard">
 	<div class="block-head">
-		<span class="block-label">Onboard your agent</span>
+		<span class="block-label">{m.agent_onboard()}</span>
 		<button class="copy-btn" on:click={copy}>
 			{#if copied}
-				<Check size={13} /><span>Copied</span>
+				<Check size={13} /><span>{m.api_copied()}</span>
 			{:else}
-				<Copy size={13} /><span>Copy</span>
+				<Copy size={13} /><span>{m.api_copy()}</span>
 			{/if}
 		</button>
 	</div>
@@ -40,7 +41,7 @@
 	<pre><code>{prompt}</code></pre>
 	{#if copyFallback}
 		<div class="copy-fallback" role="alert">
-			<p>Clipboard access is blocked. Select and copy this text:</p>
+			<p>{m.agent_clipboardBlocked()}</p>
 			<textarea readonly value={copyFallback} on:focus={(event) => event.currentTarget.select()}></textarea>
 		</div>
 	{/if}

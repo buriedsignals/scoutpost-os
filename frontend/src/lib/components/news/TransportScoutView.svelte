@@ -14,6 +14,7 @@
 		TRANSPORT_ID_SOURCES,
 		TRANSPORT_MAX_WATCH_IDS,
 		transportModeCategories,
+		getTransportCategoryLabel,
 		transportParseNum,
 		transportWatchIdValid
 	} from '$lib/utils/transport';
@@ -228,13 +229,14 @@
 						}}
 					/>
 					<div class="radius-row">
-						<label for="transport-radius" class="field-label radius-label">{m.transport_radiusKm()}</label>
+						<label for="transport-radius" class="field-label radius-label">{m.transport_radiusKm()} <span aria-hidden="true">*</span></label>
 						<input
 							id="transport-radius"
 							class="form-input"
 							bind:value={radiusKm}
 							inputmode="decimal"
 							aria-describedby="transport-area-hint"
+							required
 						/>
 					</div>
 					<p id="transport-area-hint" class="field-hint">{m.transport_areaHint()}</p>
@@ -266,7 +268,7 @@
 						<div class="field-label">{m.transport_categoriesLabel()}</div>
 						<div class="chips">
 							{#each availableCategories as cat}
-								<button type="button" class="chip" class:selected={selectedCategories.includes(cat)} on:click={() => toggleCategory(cat)}>{cat}</button>
+								<button type="button" class="chip" class:selected={selectedCategories.includes(cat)} on:click={() => toggleCategory(cat)}>{getTransportCategoryLabel(cat)}</button>
 							{/each}
 						</div>
 					</div>

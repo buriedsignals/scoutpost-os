@@ -63,7 +63,7 @@
 	let scheduledRootDomain = '';
 
 	$: canDiscover = domain.trim().length > 0;
-	$: canSchedule = selectedUrls.size > 0 && selectedUrls.size <= 2;
+	$: canSchedule = canDiscover && selectedUrls.size > 0 && selectedUrls.size <= 2;
 	$: testInputKey = JSON.stringify({
 		domain: domain.trim().toLowerCase(),
 		urls: [...selectedUrls].sort(),
@@ -188,7 +188,7 @@
 			hasResults = true;
 			stopDiscoverProgress(true);
 		} catch (err) {
-			discoverError = err instanceof Error ? err.message : 'Discovery failed';
+			discoverError = err instanceof Error ? err.message : m.civic_discoveryFailed();
 			stopDiscoverProgress(false);
 		} finally {
 			isDiscovering = false;
@@ -196,6 +196,7 @@
 	}
 
 	async function handleTestAndSchedule() {
+		if (!canDiscover || !canSchedule) return;
 		const requestedUrls = [...selectedUrls];
 		const requestedCriteria = criteria.trim();
 		const requestedInputKey = JSON.stringify({
@@ -262,6 +263,7 @@
 	}
 
 	function handleOpenSchedule() {
+		if (!canDiscover || !canSchedule || !testSuccess || testedInputKey !== testInputKey) return;
 		scheduledTrackedUrls = [...selectedUrls];
 		scheduledRootDomain = domain.trim();
 		showScheduleModal = true;
@@ -280,7 +282,7 @@
 			>
 				<!-- Domain input — always editable -->
 				<div class="field-group">
-					<label for="civic-domain" class="field-label">{m.civic_enterDomain()}</label>
+					<label for="civic-domain" class="field-label">{m.civic_enterDomain()} <span aria-hidden="true">*</span></label>
 					<input
 						id="civic-domain"
 						type="text"
@@ -288,6 +290,8 @@
 						placeholder="https://gemeinde.zermatt.ch/"
 						class="form-input"
 						disabled={isDiscovering}
+						required
+						maxlength="300"
 					/>
 				</div>
 
@@ -324,9 +328,9 @@
 											placeholder={m.webScout_criteriaPlaceholder()}
 											rows={2}
 											examples={[
-												{ label: 'housing policy', value: 'housing policy' },
-												{ label: 'budget', value: 'budget' },
-												{ label: 'infrastructure', value: 'infrastructure' },
+												{ label: m.criteria_exampleHousing(), value: m.criteria_exampleHousing() },
+												{ label: m.criteria_exampleBudget(), value: m.criteria_exampleBudget() },
+												{ label: m.criteria_exampleInfrastructure(), value: m.criteria_exampleInfrastructure() },
 											]}
 										/>
 									</div>
@@ -349,7 +353,7 @@
 					errorTitle={m.civic_noResults()}
 					errorMessage={discoverError}
 					showButton={false}
-					hintText={isDiscovering ? 'This may take up to 30 seconds' : ''}
+					hintText={isDiscovering ? m.civic_discoveryTimeHint() : ''}
 				/>
 			{:else if showTestResults}
 				<!-- Test/extraction results (replaces URL list) -->
@@ -358,21 +362,21 @@
 					message={testProgressMessage || m.civic_testing()}
 					state={testProgressState}
 					successMessage={m.civic_testSuccess()}
-					successDetails={testResult ? `${testResult.documents_found} documents analyzed, ${testResult.sample_items.length} accountability leads found` : ''}
+					successDetails={testResult ? m.civic_testDetails({ documents: testResult.documents_found, leads: testResult.sample_items.length }) : ''}
 					errorTitle={m.civic_testFailed()}
 					errorMessage={testError}
 					showButton={false}
-					hintText={isTesting ? 'Parsing documents and extracting promises...' : ''}
+					hintText={isTesting ? m.civic_parsing() : ''}
 					compact={testSuccess}
 				/>
 
 				{#if testSuccess && testResult && testResult.sample_items.length > 0}
 					<div class="promises-preview">
-						<p class="preview-label">AI-extracted accountability leads (preview only — verify cited official evidence)</p>
+						<p class="preview-label">{m.civic_previewWarning()}</p>
 						{#each testResult.sample_items.slice(0, 3) as item}
 							<div class="promise-item">
 								<p class="promise-text">{item.statement}</p>
-								<span class="promise-due">{item.kind === 'promise' ? `Promise — due ${item.due_date}` : 'Material decision'}</span>
+								<span class="promise-due">{item.kind === 'promise' ? m.civic_promiseDue({ date: item.due_date }) : m.civic_materialDecision()}</span>
 								{#if item.kind === 'promise'}
 									<span class="promise-source">{item.actor}</span>
 								{/if}
@@ -434,7 +438,7 @@
 						</div>
 					</div>
 					<p class="results-hint">{m.civic_selectHint()}</p>
-					<p class="results-selection-count">{selectedUrls.size}/2 selected</p>
+					<p class="results-selection-count">{m.feed_selectedCount({ count: `${selectedUrls.size}/2` })}</p>
 				</div>
 
 				<div class="url-list">

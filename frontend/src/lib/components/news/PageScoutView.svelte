@@ -26,17 +26,25 @@
 	let showScheduleModal = false;
 
 	let contentHash: string | undefined;
+	let testedInputKey = '';
 
 	// Computed progress state for ProgressIndicator
 	$: progressState = (testResult ? 'success' : testError ? 'error' : 'loading') as 'loading' | 'success' | 'error';
 	$: effectiveCriteria = criteriaMode === 'any' ? '' : criteria;
+	$: canTest = !!url.trim() && (criteriaMode === 'any' || !!criteria.trim());
+	$: inputKey = JSON.stringify([url.trim(), effectiveCriteria.trim()]);
+	$: if ((testResult || testError) && testedInputKey !== inputKey) handleReset();
 
 	async function handleTestScraper() {
+		if (!canTest) return;
+		const requestedInputKey = inputKey;
+		testedInputKey = requestedInputKey;
+		contentHash = undefined;
 		testError = '';
 		testResult = null;
 		isTestingScraper = true;
 		testProgress = 5;
-		testProgressMessage = 'Starting scraper test...';
+		testProgressMessage = m.pageScout_startingTest();
 
 		if (testProgressTimer) {
 			clearInterval(testProgressTimer);
@@ -47,42 +55,45 @@
 			if (testProgress < 85) {
 				testProgress += Math.round(Math.random() * 8 + 2);
 				if (testProgress < 25) {
-					testProgressMessage = 'Connecting to website...';
+					testProgressMessage = m.pageScout_connecting();
 				} else if (testProgress < 50) {
-					testProgressMessage = 'Fetching page content...';
+					testProgressMessage = m.pageScout_fetching();
 				} else if (testProgress < 75) {
-					testProgressMessage = 'Extracting data...';
+					testProgressMessage = m.scrape_extracting();
 				} else {
-					testProgressMessage = 'Processing response...';
+					testProgressMessage = m.pageScout_processing();
 				}
 			}
 		}, 800);
 
 		try {
 			const response = await webhookClient.testScraper({ url, criteria: effectiveCriteria || undefined });
+			if (inputKey !== requestedInputKey) return;
 
 			if (!response.scraper_status) {
 				// The probe envelope's `error` is the server's human sentence for
 				// `error_code` (unreachable / blocked / empty_content). The
 				// hardcoded text is only a fallback for a pre-envelope server.
-				testError = response.error || response.summary || 'This website appears to block automated access.';
+				testError = response.error || response.summary || m.pageScout_blocked();
 				testProgress = 100;
 				testProgressMessage = '';
 				return;
 			}
 
-			testProgressMessage = 'Checking criteria...';
+			testProgressMessage = m.pageScout_checkingCriteria();
 			contentHash = response.content_hash;
 			testResult = {
 				summary: response.summary,
 				criteriaMet: response.criteria_status
 			};
 			testProgress = 100;
-			testProgressMessage = 'Scraper tested successfully';
+			testProgressMessage = m.webScout_scraperTestSuccess();
 		} catch (err: unknown) {
-			testError = err instanceof Error ? err.message : 'Unable to connect. Please check the URL.';
+			if (inputKey !== requestedInputKey) return;
+			testError = err instanceof Error ? err.message : m.pageScout_connectionFailed();
 			testProgress = 100;
 		} finally {
+			if (inputKey !== requestedInputKey) handleReset();
 			isTestingScraper = false;
 			if (testProgressTimer) {
 				clearInterval(testProgressTimer);
@@ -103,6 +114,7 @@
 		testResult = null;
 		testProgress = 0;
 		testProgressMessage = '';
+		contentHash = undefined;
 	}
 </script>
 
@@ -118,7 +130,7 @@
 			>
 				<!-- URL Input -->
 				<div class="field-group">
-					<label for="url" class="field-label">{m.webScout_websiteUrl()}</label>
+					<label for="url" class="field-label">{m.webScout_websiteUrl()} <span aria-hidden="true">*</span></label>
 					<input
 						id="url"
 						type="url"
@@ -145,14 +157,17 @@
 
 					{#if criteriaMode === 'specific'}
 						<div class="criteria-detail" transition:slide={{ duration: 200 }}>
+							<label for="page-criteria" class="field-label">{m.beatScout_criteriaLabel()} <span aria-hidden="true">*</span></label>
 							<CriteriaInput
+								inputId="page-criteria"
+								required
 								bind:value={criteria}
 								placeholder={m.webScout_criteriaPlaceholder()}
 								rows={3}
 								examples={[
-									{ label: m.webScout_criteriaExample1(), value: 'New job postings' },
-									{ label: m.webScout_criteriaExample2(), value: 'Price changes' },
-									{ label: m.webScout_criteriaExample3(), value: 'New events listed' },
+									{ label: m.webScout_criteriaExample1(), value: m.webScout_criteriaExample1() },
+									{ label: m.webScout_criteriaExample2(), value: m.webScout_criteriaExample2() },
+									{ label: m.webScout_criteriaExample3(), value: m.webScout_criteriaExample3() },
 								]}
 							/>
 						</div>
@@ -166,11 +181,11 @@
 				<!-- Step Buttons -->
 				{#if !testError}
 					<StepButtons
-						step1Disabled={isTestingScraper || !url.trim() || (criteriaMode === 'specific' && !criteria.trim())}
+						step1Disabled={isTestingScraper || !canTest}
 						step1Loading={isTestingScraper}
 						step1Label={m.webScout_runScraper()}
 						step1LoadingLabel={m.common_testing()}
-						step2Enabled={!!testResult}
+						step2Enabled={!!testResult && canTest && testedInputKey === inputKey}
 						onStep1={handleTestScraper}
 						onStep2={() => showScheduleModal = true}
 					/>
@@ -216,9 +231,7 @@
 		url = '';
 		criteria = '';
 		criteriaMode = 'specific';
-		testResult = null;
-		testProgress = 0;
-		contentHash = undefined;
+		handleReset();
 		showScheduleModal = false;
 		onScheduled({ scoutType: 'web' });
 	}}

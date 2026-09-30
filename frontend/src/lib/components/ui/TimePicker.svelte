@@ -5,7 +5,7 @@
 	export let hour = 12;
 	export let minute = 0;
 	export let period: 'AM' | 'PM' = 'PM';
-	export let timezoneLabel = 'your timezone';
+	export let timezoneLabel: string = m.schedule_localTime();
 	export let showLabel = true;
 
 </script>
@@ -39,8 +39,8 @@
 
 		<!-- Period Select -->
 		<select bind:value={period} class="form-select time-slot">
-			<option value="AM">AM</option>
-			<option value="PM">PM</option>
+			<option value="AM">{m.timePicker_am()}</option>
+			<option value="PM">{m.timePicker_pm()}</option>
 		</select>
 	</div>
 </div>

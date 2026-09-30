@@ -14,6 +14,7 @@ import type { ComponentType } from 'svelte';
 import { Globe, Radar, Users, Landmark, Navigation } from 'lucide-svelte';
 import type { ScoutType } from '$lib/types';
 import * as m from '$lib/paraglide/messages';
+import { getLocale } from '$lib/paraglide/runtime';
 
 export type ScoutTypeLike = ScoutType | 'beat' | 'page' | 'location' | string;
 
@@ -31,15 +32,15 @@ export interface ScoutTypeDisplay {
 }
 
 export const SCOUT_TYPE_CONFIG: Record<ScoutType, ScoutTypeDisplay> = {
-	web:    { icon: Globe,    className: 'web',    label: 'Page Monitor' },
-	pulse:  { icon: Radar,    className: 'pulse',  label: 'Beat Monitor' },
-	social: { icon: Users,    className: 'social', label: 'Social Monitor' },
-	civic:  { icon: Landmark, className: 'civic',  label: 'Civic Monitor' },
+	web:    { icon: Globe,    className: 'web',    get label() { return m.scoutType_pageMonitor(); } },
+	pulse:  { icon: Radar,    className: 'pulse',  get label() { return m.scoutType_smartMonitor(); } },
+	social: { icon: Users,    className: 'social', get label() { return m.scoutType_socialMonitor(); } },
+	civic:  { icon: Landmark, className: 'civic',  get label() { return m.scoutType_civicMonitor(); } },
 	// Registered ahead of the full Transport panel so API-created transport
 	// scouts render with the right identity instead of falling back to the
 	// Page Monitor display + editor. Borrows the 'web' identity class until
 	// the dedicated panel ships.
-	transport: { icon: Navigation, className: 'web', label: 'Fleet Monitor' }
+	transport: { icon: Navigation, className: 'web', get label() { return m.modal_transportScoutBadge(); } }
 };
 
 const DEFAULT_SCOUT_DISPLAY: ScoutTypeDisplay = {
@@ -173,19 +174,21 @@ export const EXTRACT_COSTS: Record<string, number> = {
 
 /** Format a regularity + time into a human-readable schedule string. */
 export function formatRegularity(regularity: string, time?: string): string {
-	if (regularity === 'weekly') return 'Weekly';
-	if (regularity === 'monthly') return 'Monthly';
+	if (regularity === 'weekly') return m.schedule_weekly();
+	if (regularity === 'monthly') return m.schedule_monthly();
+	if (regularity === '3h') return m.transport_every3h();
+	if (regularity === '6h') return m.transport_every6h();
+	if (regularity === '12h') return m.transport_every12h();
 
 	if (regularity === 'daily' && time) {
 		const [hourStr, minuteStr] = time.split(':');
 		const hour = parseInt(hourStr, 10);
 		const minute = parseInt(minuteStr, 10);
-		const period = hour >= 12 ? 'PM' : 'AM';
-		const displayHour = hour % 12 || 12;
-		const displayTime =
-			minute === 0 ? `${displayHour}${period}` : `${displayHour}:${minuteStr}${period}`;
-		return `Daily at ${displayTime}`;
+		const displayTime = new Intl.DateTimeFormat(getLocale(), { hour: 'numeric', minute: '2-digit' })
+			.format(new Date(2000, 0, 1, hour, minute));
+		return m.scouts_scheduleDaily({ time: displayTime });
 	}
+	if (regularity === 'daily') return m.schedule_daily();
 
 	return regularity.charAt(0).toUpperCase() + regularity.slice(1);
 }
@@ -261,16 +264,16 @@ export interface ScoutStatusResult {
 }
 
 export const SCOUT_STATUS_LABELS: Record<StatusKey, string> = {
-	awaitingFirstRun: 'Baseline ready',
-	running: 'Running',
-	skipped: 'Skipped',
-	runFailed: 'Run failed',
-	newFindings: 'New findings',
-	alreadyKnown: 'Already known',
-	match: 'Criteria matched',
-	noChanges: 'No changes',
-	noMatch: 'No criteria match',
-	noSavedFindings: 'No findings saved'
+	get awaitingFirstRun() { return m.transport_baselineReady(); },
+	get running() { return m.activeJobs_running(); },
+	get skipped() { return m.scouts_skipped(); },
+	get runFailed() { return m.scouts_runFailed(); },
+	get newFindings() { return m.scouts_newFindings(); },
+	get alreadyKnown() { return m.scouts_alreadyKnown(); },
+	get match() { return m.scouts_match(); },
+	get noChanges() { return m.scouts_noChanges(); },
+	get noMatch() { return m.scouts_noMatch(); },
+	get noSavedFindings() { return m.scouts_noSavedFindings(); }
 };
 
 export function getScoutStatusLabel(status: ScoutStatusResult | StatusKey): string {

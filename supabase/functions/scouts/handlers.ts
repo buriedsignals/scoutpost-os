@@ -36,6 +36,7 @@ import {
   deriveScheduleAnchor,
   resolveScheduleAction,
   schedulePolicyError,
+  scheduleTimezoneError,
   subDailyCronFromParts,
 } from "../_shared/schedule_policy.ts";
 import {
@@ -118,7 +119,7 @@ const ARRAY_FIELDS = new Set(["tracked_urls", "priority_sources"]);
 
 const FromTemplateSchema = z.object({
   template_slug: z.string(),
-  name: z.string().min(1).max(200),
+  name: z.string().trim().min(1).max(200),
   fields: z.record(z.unknown()).default({}),
   project_id: z.string().uuid().nullable().optional(),
 });
@@ -165,19 +166,26 @@ const TopicSchema = z.string().max(200).superRefine((value, ctx) => {
     }
   }
 });
+const LocationSchema = z.record(z.unknown()).refine(
+  (location) => ["displayName", "city", "state", "country"].some(
+    (key) => typeof location[key] === "string" && location[key].trim().length > 0,
+  ),
+  { message: "provide a non-empty displayName, city, state, or country" },
+);
 const CreateSchema = z
   .object({
-    name: z.string().min(1).max(200),
+    name: z.string().trim().min(1).max(200),
     type: ScoutType,
     description: z.string().max(2000).optional(),
     criteria: z.string().max(4000).optional(),
     topic: TopicSchema.optional(),
     url: z.string().url().max(2000).optional(),
-    location: z.record(z.unknown()).optional(),
+    location: LocationSchema.optional(),
     source_mode: z.enum(["reliable", "niche"]).optional(),
     excluded_domains: z.array(z.string().max(253)).max(100).optional(),
     regularity: Regularity.optional(),
     schedule_cron: z.string().min(1).max(200).optional(),
+    schedule_timezone: z.string().min(1).max(100).optional(),
     // Legacy schedule fields — server synthesises schedule_cron from these
     // when schedule_cron isn't provided.
     day_number: z.number().int().min(0).max(31).optional(),
@@ -359,18 +367,19 @@ const CreateSchema = z
 
 const UpdateSchema = z
   .object({
-    name: z.string().min(1).max(200).optional(),
+    name: z.string().trim().min(1).max(200).optional(),
     type: ScoutType.optional(),
     description: z.string().max(2000).nullable().optional(),
     criteria: z.string().max(4000).nullable().optional(),
     topic: TopicSchema.nullable().optional(),
     url: z.string().url().max(2000).nullable().optional(),
-    location: z.record(z.unknown()).nullable().optional(),
+    location: LocationSchema.nullable().optional(),
     source_mode: z.enum(["reliable", "niche"]).nullable().optional(),
     excluded_domains: z.array(z.string().max(253)).max(100).nullable()
       .optional(),
     regularity: Regularity.nullable().optional(),
     schedule_cron: z.string().min(1).max(200).nullable().optional(),
+    schedule_timezone: z.string().min(1).max(100).optional(),
     day_number: z.number().int().min(0).max(31).optional(),
     time: TimeStr.optional(),
     project_id: z.string().uuid().nullable().optional(),
@@ -651,23 +660,6 @@ async function ensureTransportPresetValid(
         `preset ${presetId} is too large for aircraft mode (ADS-B query tiling cap)`,
       );
     }
-  }
-}
-
-function validateTopicAndScope(payload: Record<string, unknown>): void {
-  const topic = typeof payload.topic === "string" ? payload.topic : "";
-  if (topic) {
-    const topicResult = TopicSchema.safeParse(topic);
-    if (!topicResult.success) {
-      throw new ValidationError(
-        topicResult.error.issues.map((i) => i.message).join("; "),
-      );
-    }
-  }
-  if (!topic.trim() && !payload.location) {
-    throw new ValidationError(
-      "scouts require either location or 1-3 short topic tags",
-    );
   }
 }
 
@@ -1186,42 +1178,14 @@ async function enqueueInitialCivicDocuments(
     ),
   ];
   if (sourceUrls.length === 0) return 0;
-  const rows = sourceUrls.map((sourceUrl) => ({
-    scout_id: scoutId,
-    user_id: userId,
-    source_url: sourceUrl,
-    doc_kind: /\.pdf(?:$|[?#])/i.test(sourceUrl) ? "pdf" : "html",
-    ingestion_mode: "initial",
-    civic_policy_version: "civic-accountability-v2",
-    preview_snapshot_id: snapshot.id,
-    semantics_snapshot: {
-      criteria: snapshot.criteria ?? null,
-      preview_snapshot_id: snapshot.id,
-    },
-  }));
-  // Claim the single-use snapshot before enqueueing. A concurrent create with
-  // the same token must fail rather than creating a second initial import.
-  const { data: claimedSnapshot, error: claimError } = await svc
-    .from("civic_preview_snapshots")
-    .update({ consumed_by_scout_id: scoutId })
-    .eq("id", snapshot.id)
-    .eq("user_id", userId)
-    .is("consumed_by_scout_id", null)
-    .select("id")
-    .maybeSingle();
-  if (claimError) throw new Error(claimError.message);
-  if (!claimedSnapshot) {
-    throw new ValidationError("Civic preview has already been used");
-  }
-  const { error } = await svc.from("civic_extraction_queue").insert(rows);
-  if (error) {
-    await svc.from("civic_preview_snapshots")
-      .update({ consumed_by_scout_id: null })
-      .eq("id", snapshot.id)
-      .eq("consumed_by_scout_id", scoutId);
-    throw new Error(error.message);
-  }
-  return rows.length;
+  const { data: queued, error } = await svc.rpc("enqueue_initial_civic_run", {
+    p_scout_id: scoutId,
+    p_user_id: userId,
+    p_snapshot_id: snapshot.id,
+    p_source_urls: sourceUrls,
+  });
+  if (error) throw new Error(error.message);
+  return Number(queued ?? 0);
 }
 
 function canonicalCivicUrl(value: string): string {
@@ -1387,6 +1351,11 @@ async function createScout(
     typeof rest.config?.mode === "string" ? rest.config.mode : undefined,
   );
   if (scheduleError) throw new ValidationError(scheduleError);
+  const timezoneError = scheduleTimezoneError(
+    schedule_cron,
+    rest.schedule_timezone ?? "UTC",
+  );
+  if (timezoneError) throw new ValidationError(timezoneError);
 
   // Persist the NORMALIZED transport config (lowercased watch ids, trimmed
   // criteria, unknown keys stripped), not the raw request record, and verify
@@ -1437,6 +1406,7 @@ async function createScout(
     if (error.code === "23505") {
       throw new ConflictError("scout name already exists");
     }
+    if (error.code === "22023") throw new ValidationError(error.message);
     throw new Error(error.message);
   }
 
@@ -1606,21 +1576,6 @@ async function updateScout(
       ),
     );
   }
-  // Synthesize schedule_cron from legacy fields if explicit one not given.
-  const { time, day_number, ...rest } = parsed.data;
-  if (
-    rest.schedule_cron === undefined &&
-    (time !== undefined || day_number !== undefined)
-  ) {
-    const synth = cronFromParts(rest.regularity ?? undefined, day_number, time);
-    if (synth) rest.schedule_cron = synth;
-  }
-  if (Object.keys(rest).length === 0) {
-    throw new ValidationError("no updatable fields provided");
-  }
-  // Replace parsed.data so the rest of the function sees the cleaned shape.
-  (parsed as { data: typeof rest }).data = rest;
-
   const { db } = getCallerClient(user);
   // Fetch current row so we can diff schedule / is_active
   const { data: current, error: readErr } = await db
@@ -1631,6 +1586,27 @@ async function updateScout(
     .maybeSingle();
   if (readErr) throw new Error(readErr.message);
   if (!current) throw new NotFoundError("scout");
+  // Merge partial wall-clock edits with the stored anchor before synthesizing.
+  const { time, day_number, ...rest } = parsed.data;
+  if (
+    rest.schedule_cron === undefined &&
+    (time !== undefined || day_number !== undefined)
+  ) {
+    const anchor = deriveScheduleAnchor(current.schedule_cron);
+    const synth = cronFromParts(
+      rest.regularity ?? current.regularity,
+      day_number ?? anchor?.day,
+      time ?? anchor?.time,
+    );
+    if (!synth) {
+      throw new ValidationError("schedule changes require regularity and time");
+    }
+    rest.schedule_cron = synth;
+  }
+  if (Object.keys(rest).length === 0) {
+    throw new ValidationError("no updatable fields provided");
+  }
+  parsed.data = rest;
 
   // Transport criteria live in config so the executor can apply them only to
   // newly claimed entrants. Preserve generic clients' existing --criteria
@@ -1667,6 +1643,7 @@ async function updateScout(
 
   const nextScout = { ...current, ...parsed.data } as BaselineableScout & {
     schedule_cron?: string | null;
+    schedule_timezone?: string | null;
     regularity?: string | null;
     is_active?: boolean | null;
     topic?: string | null;
@@ -1798,6 +1775,11 @@ async function updateScout(
     nextTransportMode,
   );
   if (scheduleError) throw new ValidationError(scheduleError);
+  const timezoneError = scheduleTimezoneError(
+    nextScout.schedule_cron,
+    nextScout.schedule_timezone ?? "UTC",
+  );
+  if (timezoneError) throw new ValidationError(timezoneError);
   const willBeActive = nextScout.is_active === true;
   const willHaveSchedule = typeof nextScout.schedule_cron === "string" &&
     nextScout.schedule_cron.length > 0;
@@ -1832,6 +1814,7 @@ async function updateScout(
     if (error.code === "23505") {
       throw new ConflictError("scout name already exists");
     }
+    if (error.code === "22023") throw new ValidationError(error.message);
     throw new Error(error.message);
   }
   if (!data) throw new NotFoundError("scout");
@@ -1863,12 +1846,16 @@ async function updateScout(
   const activeChanged =
     Object.prototype.hasOwnProperty.call(parsed.data, "is_active") &&
     parsed.data.is_active !== current.is_active;
+  const timezoneChanged =
+    Object.prototype.hasOwnProperty.call(parsed.data, "schedule_timezone") &&
+    parsed.data.schedule_timezone !== (current.schedule_timezone ?? "UTC");
 
   // Reconcile the pg_cron job with the scout's next state. Covers pause,
   // reactivation, and cron changes (see resolveScheduleAction).
   const scheduleAction = resolveScheduleAction({
     activeChanged,
     cronChanged,
+    timezoneChanged,
     willBeActive,
     hasSchedule: willHaveSchedule,
   });
@@ -2130,20 +2117,40 @@ async function createScoutFromTemplate(
     user_id: user.id,
     is_active: false,
   };
+  if (
+    tpl.type === "social" && typeof normalisedFields.criteria === "string" &&
+    normalisedFields.criteria.trim()
+  ) {
+    insertRow.monitor_mode = "criteria";
+  }
   const normalizedInsertRow = normalizeScoutBody(insertRow) as Record<
     string,
     unknown
   >;
-  validateTopicAndScope(normalizedInsertRow);
-  if (project_id !== undefined) insertRow.project_id = project_id;
+  const validated = CreateSchema.safeParse(normalizedInsertRow);
+  if (!validated.success) {
+    throw new ValidationError(
+      validated.error.issues.map((issue) =>
+        `${issue.path.join(".")}: ${issue.message}`
+      ).join("; "),
+    );
+  }
+  const timezoneError = scheduleTimezoneError(
+    validated.data.schedule_cron,
+    validated.data.schedule_timezone ?? "UTC",
+  );
+  if (timezoneError) throw new ValidationError(timezoneError);
 
   const { db } = getCallerClient(user);
   const { data, error } = await db
     .from("scouts")
     .insert(
-      project_id !== undefined
-        ? { ...normalizedInsertRow, project_id }
-        : normalizedInsertRow,
+      {
+        ...validated.data,
+        user_id: user.id,
+        is_active: false,
+        ...(project_id !== undefined ? { project_id } : {}),
+      },
     )
     .select("*")
     .single();

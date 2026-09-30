@@ -1,24 +1,11 @@
-"""
-Schedule service for the remaining Python API routes.
-
-The core storage/scheduling implementation is now adapter-driven. Supabase is
-the default runtime; the legacy EventBridge wording only applies when the old
-AWS-backed deployment target is still in use.
-"""
+"""Scout CRUD for the remaining Python routes, backed by Supabase adapters."""
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+from app.utils.schedule_naming import validate_url
 
-from app.config import get_settings
-from app.utils.schedule_naming import (
-    build_schedule_name,
-    convert_floats_to_decimal,
-    convert_decimals,
-    validate_url,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +18,6 @@ class ScheduleService:
     """Manages scout schedules through the active storage/scheduler adapters."""
 
     def __init__(self, scout_storage=None, scheduler=None):
-        settings = get_settings()
-        self.internal_service_key = settings.internal_service_key
-        # AWS EventBridge/Lambda ARNs are only read by the legacy non-Supabase
-        # scheduler adapter (unreachable while `deployment_target == "supabase"`
-        # is hardcoded). Kept as empty strings so the target_config dict at the
-        # EventBridge call site still has the expected keys.
-        self.scraper_lambda_arn = ""
-        self.eventbridge_role_arn = ""
 
         if scout_storage is None:
             from app.dependencies.providers import get_scout_storage
@@ -149,48 +128,19 @@ class ScheduleService:
             if body.get("topic"):
                 item["topic"] = body["topic"]
 
-        settings = get_settings()
-        if settings.deployment_target == "supabase":
-            await self.scout_storage.create_scout(user_id, item)
-        else:
-            await self.scout_storage.create_scout(user_id, convert_floats_to_decimal(item))
-
-        # 2. Create the schedule via the active scheduler adapter
-        rule_name = build_schedule_name(user_id, scraper_name)
-        input_template = json.dumps({
-            "user_id": user_id,
-            "scraper_name": scraper_name,
-            "scout_type": scout_type,
-            "url": body.get("url"),
-            "location": body.get("location"),
-            "topic": body.get("topic"),
-            "criteria": body.get("criteria"),
-            "preferred_language": body.get("preferred_language", "en"),
-            "excluded_domains": body.get("excluded_domains"),
-            "priority_sources": body.get("priority_sources"),
-            "source_mode": body.get("source_mode"),
-            "platform": body.get("platform"),
-            "profile_handle": body.get("profile_handle"),
-            "monitor_mode": social_monitor_mode
-            if scout_type == "social"
-            else body.get("monitor_mode"),
-            "track_removals": body.get("track_removals", False),
-            "tracked_urls": body.get("tracked_urls", []),
-            "root_domain": body.get("root_domain", ""),
-        })
-
-        if settings.deployment_target == "supabase":
-            cron_expr = cron_schedule.expression
-        else:
-            cron_expr = f"cron({cron_schedule.expression})"
-        target_config = {
-            "lambda_arn": self.scraper_lambda_arn,
-            "role_arn": self.eventbridge_role_arn,
-            "input": input_template,
-            # Also pass timezone for the scheduler adapter
-            "timezone": cron_schedule.timezone,
-        }
-        await self.scheduler.create_schedule(rule_name, cron_expr, target_config)
+        scout = await self.scout_storage.create_scout(user_id, item)
+        rule_name = f"scout-{scout['id']}"
+        try:
+            await self.scheduler.create_schedule(
+                rule_name,
+                cron_schedule.expression,
+                {"scout_id": scout["id"], "timezone": cron_schedule.timezone},
+            )
+        except Exception:
+            # A failed schedule must not leave a successfully-created, active
+            # row with no job. The adapter rolls back its schedule transaction.
+            await self.scout_storage.delete_scout(user_id, scraper_name)
+            raise
 
         logger.info(
             "Created scout '%s' for user %s (schedule: %s)",
@@ -224,13 +174,11 @@ class ScheduleService:
     # ------------------------------------------------------------------
 
     async def delete_scout(self, user_id: str, scraper_name: str) -> dict:
-        """Delete a scout: EventBridge schedule + all DynamoDB records."""
-        rule_name = build_schedule_name(user_id, scraper_name)
+        """Delete the canonical pg_cron job before removing the stored scout."""
+        scout = await self.scout_storage.get_scout(user_id, scraper_name)
+        if scout:
+            await self.scheduler.delete_schedule(f"scout-{scout['id']}")
 
-        # 1. Delete EventBridge schedule (ignore if not found)
-        await self.scheduler.delete_schedule(rule_name)
-
-        # 2. Delete all storage records (cascades internally in adapter)
         result = await self.scout_storage.delete_scout(user_id, scraper_name)
 
         # Normalize result to expected format
