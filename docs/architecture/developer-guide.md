@@ -123,6 +123,24 @@ a `m.some_key()` call exists without a corresponding key in `messages/en.json`. 
 key to `en.json` and all 12 language files (`da`, `de`, `es`, `fi`, `fr`, `it`, `nl`,
 `no`, `pl`, `pt`, `sv`), then recompile.
 
+### Frontend dependency security
+
+Use Node 22 and npm 10 for lockfile updates. Prefer targeted updates within the
+existing dependency ranges; keep `vitest` and `@vitest/coverage-v8` on matching
+versions. Do not use forced major upgrades or new overrides to hide an audit finding.
+
+After updating `frontend/package-lock.json`, verify a normal `npm ci` and
+`npm audit` including development dependencies, then run the frontend checks,
+tests, and production build. The September 2026 security refresh updates humanfs,
+the Vitest toolchain, baseline-browser-mapping, brace-expansion, devalue, undici,
+and DOMPurify without changing the manifest ranges.
+
+For browser verification of the static production build, supply the committed
+public build settings from `Dockerfile`; an unconfigured preview can fail with
+`supabaseKey is required` even when compilation succeeds. Exercise login and
+same-origin documentation navigation, and smoke-check Markdown sanitization and
+structured-state serialization when DOMPurify or devalue changes.
+
 ---
 
 ## Running Tests
