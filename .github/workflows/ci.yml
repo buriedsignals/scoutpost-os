@@ -204,7 +204,9 @@ jobs:
           deno-version: v2.x
       - name: Install Supabase CLI
         env:
-          SUPABASE_CLI_VERSION: 2.99.0
+          # 2.99.0 pins a database image with the supautils denied-function crash.
+          # Keep real permission-denial tests; use the patched database runtime.
+          SUPABASE_CLI_VERSION: 2.116.0
         run: |
           # GitHub releases occasionally 502 on download; retry curl.
           for attempt in 1 2 3; do
