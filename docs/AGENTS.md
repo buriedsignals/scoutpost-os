@@ -74,6 +74,7 @@ docs/
 - **Social Scout** (type `social`): `features/social.md` - Social media monitoring, Apify scraping
 - **Civic Scout** (type `civic`): `features/civic.md` - Council monitoring, promise extraction, design reference
 
+
 ### Units & Ingest
 - **Units / Entities**: `supabase/units-entities.md` - Canonical information units, search, verification, and lifecycle
 - **Ingest / Projects**: `supabase/projects-ingest.md` - Manual ingest, raw captures, ingests, and project scope

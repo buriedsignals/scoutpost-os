@@ -332,6 +332,7 @@ AI-powered local news monitoring platform. Users create "scouts" that monitor we
 - **Team Plan**: `docs/muckrock/entitlements-team-design.md` - Shared credit pool, ORG# records, seat management
 - **OSS / Self-Hosted**: `docs/oss/` - Architecture, adapters, Supabase, licensing, deployment, automation
 
+
 ## Service Documentation
 
 Detailed docs for each sidebar service in `docs/features/`:
