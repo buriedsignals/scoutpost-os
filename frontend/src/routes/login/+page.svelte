@@ -564,16 +564,21 @@
 					</div>
 
 					<div class="promo-card">
-						<h3 class="promo-title">Consulting</h3>
-						<p class="promo-subtitle">I train newsrooms to investigate with AI — workshops, custom tooling, and investigation collaborations.</p>
+						<div class="promo-kicker">
+							<span>Hire me</span>
+						</div>
+						<h3 class="promo-title">I train newsrooms to investigate with AI</h3>
+						<p class="promo-subtitle">Talks, workshops, custom tooling, and investigation collaborations.</p>
 						<div class="promo-section-label-wrap">
 							<span class="promo-section-label">Past clients</span>
 						</div>
 						<ul class="promo-features">
 							<li>Le Temps</li>
+							<li>Al Jazeera</li>
 							<li>MAZ Journalistenschule</li>
 							<li>Republik</li>
 							<li>20 Minuten</li>
+							<li>SRF</li>
 							<li>MediaStorm</li>
 							<li>The New Humanitarian</li>
 						</ul>
