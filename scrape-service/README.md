@@ -79,4 +79,10 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest -m live --no-cov
 ```
 
+The unit-test dependencies pin pytest 9.0.3
+for the [temporary-directory security fix](https://github.com/advisories/GHSA-6w46-j5rx-g56g)
+and pytest-asyncio 1.3.0 for pytest 9 compatibility. Update these together and
+run the normal unit tier without relaxing its 100% coverage gate. These are
+development dependencies; the deployed scraper's `requirements.txt` is separate.
+
 Local container: `scripts/dev/scrape-stack.sh` from the repo root.
