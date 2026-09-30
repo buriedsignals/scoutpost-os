@@ -9,8 +9,8 @@ Civic, imports and snapshots; this is not a Page-only monitor.
 
 1. Pass required CI and review the migration against the target schema.
 2. Apply `20260921131350_crawler_retrieval_health.sql` before deploying
-   `operations-monitor`. The dispatcher policy extraction preserves current
-   behavior and needs no coordinated scheduler rollout.
+   `operations-monitor`. This health-alert change does not modify dispatcher
+   policy and needs no coordinated scheduler rollout.
 3. Verify the service-role observation RPC returns schema version 1, a current
    timestamp and consistent counts. Verify anonymous/authenticated roles cannot
    execute it. Do not substitute zero counts if telemetry is unavailable.
