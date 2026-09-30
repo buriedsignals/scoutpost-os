@@ -5,9 +5,15 @@
 	import { IS_LOCAL_DEMO_MODE } from '$lib/demo/state';
 	import { onMount } from 'svelte';
 	import { consumeAuthReturn } from '$lib/utils/auth-return';
+	import NightWatchScene, { type SceneRect } from '$lib/components/login/NightWatchScene.svelte';
 
 	let mounted = false;
 	let featureListEl: HTMLElement;
+	let heroCopyEl: HTMLElement;
+	let authPanelEl: HTMLElement;
+	let signal = 0;
+	let storyEl: HTMLElement;
+	let scrolled = false;
 	let postLoginNavigationStarted = false;
 	const isSupabaseDeployment = import.meta.env.PUBLIC_DEPLOYMENT_TARGET === 'supabase';
 	const selfHostLoginNote = (import.meta.env.PUBLIC_SELF_HOST_LOGIN_NOTE ?? '').trim();
@@ -120,10 +126,29 @@
 		}
 	}
 
+	// The scope may roam above the hero caption and left of a side-docked auth card.
+	function sceneFreeRect(): SceneRect | null {
+		if (!heroCopyEl) return null;
+		const vw = window.innerWidth;
+		const heroTop = heroCopyEl.getBoundingClientRect().top + window.scrollY;
+		const auth = authPanelEl?.getBoundingClientRect();
+		const authBeside = vw >= 1024 && auth && auth.left > vw / 2;
+		return {
+			left: 0,
+			top: 0,
+			right: authBeside ? auth.left - 24 : vw,
+			bottom: Math.min(heroTop - 24, window.innerHeight)
+		};
+	}
+
 	$: notAvailable = $page.url.searchParams.get('error') === 'not_available';
 
 	onMount(() => {
 		mounted = true;
+
+		const onScroll = () => (scrolled = window.scrollY > 60);
+		onScroll();
+		window.addEventListener('scroll', onScroll, { passive: true });
 
 		const unsubscribe = auth.subscribe(async (state) => {
 			if (state.authenticated) {
@@ -155,17 +180,60 @@
 		return () => {
 			unsubscribe();
 			observer?.disconnect();
+			window.removeEventListener('scroll', onScroll);
 		};
 	});
 </script>
 
+{#snippet authMark()}
+	<svg class="auth-mark" viewBox="0 0 100 100" aria-hidden="true">
+		{#key signal}
+			{#if signal > 0}<circle class="auth-mark-ping" cx="74" cy="26" r="5" />{/if}
+		{/key}
+		<circle class="auth-mark-ring" cx="42" cy="58" r="30" pathLength="100" />
+		<line class="auth-mark-line" x1="42" y1="58" x2="74" y2="26" />
+		<circle class="auth-mark-hub" cx="42" cy="58" r="3.5" />
+		<circle class="auth-mark-point" cx="74" cy="26" r="5" />
+	</svg>
+{/snippet}
+
 <div class="login-container">
-	<!-- Subtle grid pattern (editorial baseline) -->
-	<div class="grid-pattern"></div>
+	<NightWatchScene freeRect={sceneFreeRect} onsignal={() => (signal += 1)} />
 
 	<div class="content-wrapper">
-		<!-- Auth panel - Fixed centered on left -->
-		<div class="auth-panel-container">
+		<!-- Hero caption, anchored to the bottom of the first screen like the teaser's captions -->
+		<header class="hero" class:mounted>
+			<div class="hero-copy" bind:this={heroCopyEl}>
+				<img src="/logo-scoutpost.svg" alt="Scoutpost" class="headline-logo" />
+
+				<p class="tagline">
+					Monitor the
+					<span class="highlight-muted">sources that matter</span>
+					and
+					<span class="highlight-accent">surface leads</span>.
+				</p>
+
+				<h2 class="subheadline">
+					Connect your agent to scouts that monitor pages, social profiles, city councils, vessels, and your beat — while you <span class="highlight-accent">focus on reporting</span>.
+				</h2>
+
+				<button
+					type="button"
+					class="scroll-cue"
+					class:scroll-cue--gone={scrolled}
+					aria-label="Scroll to learn more"
+					onclick={() => storyEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+				>
+					<span class="scroll-cue-ring">
+						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9.5l6 6 6-6" /></svg>
+					</span>
+					<span class="scroll-cue-line" aria-hidden="true"></span>
+				</button>
+			</div>
+		</header>
+
+		<!-- Auth panel - docked right on desktop, after the hero on mobile -->
+		<div class="auth-panel-container" bind:this={authPanelEl}>
 			<div class="auth-panel" class:mounted>
 				<div class="auth-shell">
 					<div class="auth-card">
@@ -177,7 +245,7 @@
 							</p>
 						{:else}
 							{#if showSupabaseAuth()}
-								<span class="brand-dot"></span>
+								{@render authMark()}
 								<p class="auth-title">{isSignup ? 'Create Account' : 'Welcome Back'}</p>
 								<p class="auth-subtitle">
 									{#if IS_LOCAL_DEMO_MODE}
@@ -216,7 +284,7 @@
 									<a href="/skills" class="auth-cta-link">See skills</a>
 								</div>
 							{:else}
-								<span class="brand-dot"></span>
+								{@render authMark()}
 								<p class="auth-prompt">Sign in</p>
 								<button class="sign-in-button" onclick={() => auth.login()}>
 									Sign in
@@ -253,21 +321,8 @@
 		</div>
 
 		<!-- Story / marketing panel -->
-		<div class="story-panel" class:mounted>
-			<img src="/logo-scoutpost.svg" alt="Scoutpost" class="headline-logo" />
-
-			<p class="tagline">
-				Monitor the
-				<span class="highlight-muted">sources that matter</span>
-				and
-				<span class="highlight-accent">surface leads</span>.
-			</p>
-
+		<div class="story-panel" class:mounted bind:this={storyEl}>
 			<div class="description-block">
-				<h2 class="subheadline">
-					Connect your agent to scouts that monitor pages, social profiles, city councils, vessels, and your beat — while you <span class="highlight-accent">focus on reporting</span>.
-				</h2>
-
 				<a
 					href="https://buriedsignals.com"
 					target="_blank"
@@ -615,66 +670,139 @@
 </div>
 
 <style>
-	/* Night Watch landing surface; layout and content remain unchanged. */
+	/* Night Watch landing surface: a surveillance scene behind a caption-style hero,
+	   with the auth card docked as dark glass. Copy is unchanged. */
 
 	.login-container {
+		--edge: clamp(1.25rem, 5vw, 5rem);
+		--auth-w: 400px;
+		--glass: oklch(0.2 0.009 215 / 0.68);
+		--glass-line: oklch(0.84 0.03 205 / 0.16);
+		--scope-teal: oklch(0.71 0.045 200);
+		--caption-muted: oklch(0.94 0.008 200 / 0.58);
+
 		min-height: 100vh;
-		background: var(--color-bg);
+		background: oklch(0.17 0.008 220);
 		color: var(--color-ink);
 		position: relative;
 		overflow-x: hidden;
 		font-family: var(--font-body);
 	}
 
-	/* Editorial baseline grid — very subtle hairline lattice */
-	.grid-pattern {
-		position: absolute;
-		inset: 0;
-		background-image:
-			linear-gradient(to right, var(--color-border) 1px, transparent 1px),
-			linear-gradient(to bottom, var(--color-border) 1px, transparent 1px);
-		background-size: 96px 96px;
-		opacity: 0.35;
-		z-index: 1;
-		pointer-events: none;
-		mask-image: linear-gradient(to bottom, black 0%, black 40%, transparent 95%);
-		-webkit-mask-image: linear-gradient(to bottom, black 0%, black 40%, transparent 95%);
-	}
-
 	.content-wrapper {
 		position: relative;
 		z-index: 3;
-		max-width: 1440px;
-		margin: 0 auto;
-		padding: 2rem 1.25rem;
-		min-height: 100vh;
+		padding: 0 var(--edge) 2.5rem;
 		display: flex;
-		flex-direction: column-reverse;
-		gap: 3rem;
-		align-items: flex-start;
+		flex-direction: column;
+		gap: 2.5rem;
 	}
 
-	@media (min-width: 768px) {
-		.content-wrapper {
-			padding: 3rem 2rem;
-			gap: 4rem;
+	.hero {
+		min-height: 78svh;
+		display: flex;
+		align-items: flex-end;
+		padding-top: 2rem;
+	}
+
+	/* Scroll cue: the scope ring with a chevron, and a sightline dropping toward the content. */
+	.scroll-cue {
+		display: none;
+		align-items: center;
+		gap: 0.875rem;
+		margin-top: 2.25rem;
+		padding: 0;
+		background: none;
+		border: 0;
+		cursor: pointer;
+		color: var(--color-ink);
+	}
+
+	@media (min-width: 1024px) {
+		.scroll-cue {
+			display: inline-flex;
 		}
+	}
+
+	.scroll-cue-ring {
+		display: grid;
+		place-items: center;
+		width: 2.75rem;
+		height: 2.75rem;
+		border: 1.5px solid var(--scope-teal);
+		border-radius: 50%;
+		transition: border-color 200ms ease, background 200ms ease;
+	}
+
+	.scroll-cue-ring svg {
+		width: 1.125rem;
+		height: 1.125rem;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+		animation: cue-bob 1.8s ease-in-out infinite;
+	}
+
+	.scroll-cue-line {
+		position: relative;
+		width: 4.5rem;
+		height: 1px;
+		background: oklch(0.94 0.008 200 / 0.18);
+		overflow: hidden;
+	}
+
+	.scroll-cue-line::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: var(--color-primary);
+		transform: translateX(-100%);
+		animation: cue-sweep 1.8s cubic-bezier(0.6, 0, 0.3, 1) infinite;
+	}
+
+	.scroll-cue:hover .scroll-cue-ring,
+	.scroll-cue:focus-visible .scroll-cue-ring {
+		border-color: var(--color-primary);
+		background: oklch(0.79 0.08 78 / 0.12);
+	}
+
+	.scroll-cue:focus-visible {
+		outline: none;
+	}
+
+	.hero.mounted .hero-copy > .scroll-cue--gone {
+		opacity: 0;
+		transform: translateY(8px);
+		transition-delay: 0ms;
+		pointer-events: none;
+	}
+
+	@keyframes cue-bob {
+		0%, 100% { transform: translateY(-2px); }
+		50% { transform: translateY(3px); }
+	}
+
+	@keyframes cue-sweep {
+		0% { transform: translateX(-100%); }
+		60%, 100% { transform: translateX(100%); }
+	}
+
+	.hero-copy {
+		max-width: 46rem;
 	}
 
 	@media (min-width: 1024px) {
 		.content-wrapper {
-			flex-direction: row;
-			padding: 4rem 3rem;
-			gap: 3rem;
-			align-items: flex-start;
-			justify-content: center;
+			padding: 0 calc(var(--auth-w) + var(--edge) * 2) 5rem var(--edge);
+			gap: 0;
 		}
-	}
 
-	@media (min-width: 1280px) {
-		.content-wrapper {
-			padding: 5rem 4rem;
-			gap: 5rem;
+		.hero {
+			/* Stops short of the fold so the next section visibly peeks in. */
+			min-height: calc(100svh - 3.5rem);
+			padding-bottom: clamp(2.5rem, 6vh, 4.5rem);
 		}
 	}
 
@@ -688,10 +816,10 @@
 	@media (min-width: 1024px) {
 		.auth-panel-container {
 			position: fixed;
-			left: 5rem;
+			right: var(--edge);
 			top: 50%;
 			transform: translateY(-50%);
-			width: 420px;
+			width: var(--auth-w);
 			max-width: calc(50vw - 6rem);
 			z-index: 10;
 		}
@@ -711,11 +839,38 @@
 	}
 
 	.auth-shell {
+		position: relative;
 		display: block;
-		padding: 1px;
-		background: var(--color-border-strong);
 		border-radius: var(--radius-xl);
-		box-shadow: var(--shadow-xl);
+		box-shadow: 0 40px 90px -30px oklch(0.05 0.01 220 / 0.85);
+	}
+
+	/* Viewfinder brackets around the card. */
+	.auth-shell::before {
+		content: '';
+		position: absolute;
+		inset: -9px;
+		pointer-events: none;
+		--c: var(--scope-teal);
+		background:
+			linear-gradient(var(--c), var(--c)) top left / 16px 1px,
+			linear-gradient(var(--c), var(--c)) top left / 1px 16px,
+			linear-gradient(var(--c), var(--c)) top right / 16px 1px,
+			linear-gradient(var(--c), var(--c)) top right / 1px 16px,
+			linear-gradient(var(--c), var(--c)) bottom left / 16px 1px,
+			linear-gradient(var(--c), var(--c)) bottom left / 1px 16px,
+			linear-gradient(var(--c), var(--c)) bottom right / 16px 1px,
+			linear-gradient(var(--c), var(--c)) bottom right / 1px 16px;
+		background-repeat: no-repeat;
+		opacity: 0;
+		transform: scale(1.04);
+		transition: opacity 700ms ease, transform 900ms cubic-bezier(0.2, 0.7, 0.2, 1);
+	}
+
+	.auth-panel.mounted .auth-shell::before {
+		opacity: 0.75;
+		transform: scale(1);
+		transition-delay: 500ms;
 	}
 
 	.auth-card {
@@ -723,9 +878,12 @@
 		flex-direction: column;
 		align-items: center;
 		padding: 2.5rem 2rem;
-		background: var(--color-surface-alt);
+		background: var(--glass);
+		-webkit-backdrop-filter: blur(20px) saturate(1.15);
+		backdrop-filter: blur(20px) saturate(1.15);
+		border: 1px solid var(--glass-line);
 		gap: 1.25rem;
-		border-radius: calc(var(--radius-xl) - 1px);
+		border-radius: var(--radius-xl);
 	}
 
 	.auth-logo {
@@ -733,10 +891,72 @@
 		width: auto;
 	}
 
-	.brand-dot {
-		width: 10px;
-		height: 10px;
-		background: var(--color-primary);
+	/* The Scoutpost mark; its point pings whenever the scene's scope finds a signal. */
+	.auth-mark {
+		width: 2.75rem;
+		height: 2.75rem;
+		overflow: visible;
+	}
+
+	.auth-mark-ring {
+		fill: none;
+		stroke: var(--scope-teal);
+		stroke-width: 6.5;
+		stroke-dasharray: 100;
+		stroke-dashoffset: 100;
+		transform: rotate(-45deg);
+		transform-origin: 42px 58px;
+	}
+
+	.auth-mark-line {
+		stroke: var(--color-primary);
+		stroke-width: 3.5;
+		stroke-linecap: round;
+		stroke-dasharray: 46;
+		stroke-dashoffset: 46;
+	}
+
+	.auth-mark-hub {
+		fill: var(--scope-teal);
+	}
+
+	.auth-mark-point {
+		fill: var(--color-primary);
+		opacity: 0;
+	}
+
+	.auth-panel.mounted .auth-mark-ring {
+		animation: mark-draw 900ms cubic-bezier(0.3, 0.7, 0.2, 1) 350ms forwards;
+	}
+
+	.auth-panel.mounted .auth-mark-line {
+		animation: mark-draw 380ms ease-out 1150ms forwards;
+	}
+
+	.auth-panel.mounted .auth-mark-point {
+		animation: mark-point 200ms ease-out 1500ms forwards;
+	}
+
+	.auth-mark-ping {
+		fill: none;
+		stroke: var(--color-primary);
+		stroke-width: 2.5;
+		transform-box: fill-box;
+		transform-origin: center;
+		animation: mark-ping 900ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+	}
+
+	@keyframes mark-draw {
+		to { stroke-dashoffset: 0; }
+	}
+
+	@keyframes mark-point {
+		to { opacity: 1; }
+	}
+
+	@keyframes mark-ping {
+		from { transform: scale(1); opacity: 0.9; }
+		to { transform: scale(5); opacity: 0; }
 	}
 
 	.auth-title {
@@ -832,9 +1052,10 @@
 
 	.auth-cta-row {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
+		gap: 0.25rem 0.5rem;
 		width: 100%;
 		padding-top: 0.25rem;
 	}
@@ -848,6 +1069,7 @@
 		color: var(--color-ink-muted);
 		text-decoration: none;
 		padding: 0.25rem 0.5rem;
+		white-space: nowrap;
 		transition: color 150ms ease;
 	}
 
@@ -1041,56 +1263,48 @@
 		transition-delay: 300ms;
 	}
 
-	@media (min-width: 1024px) {
-		.story-panel {
-			margin-left: calc(420px + 3rem);
-			padding: 0;
-		}
+	.hero .hero-copy > * {
+		opacity: 0;
+		transform: translateY(18px);
+		transition: opacity 900ms cubic-bezier(0.2, 0.7, 0.2, 1), transform 900ms cubic-bezier(0.2, 0.7, 0.2, 1);
 	}
 
-	@media (min-width: 1280px) {
-		.story-panel {
-			margin-left: calc(420px + 5rem);
-		}
+	.hero.mounted .hero-copy > * {
+		opacity: 1;
+		transform: none;
 	}
+
+	.hero.mounted .hero-copy > :nth-child(1) { transition-delay: 250ms; }
+	.hero.mounted .hero-copy > :nth-child(2) { transition-delay: 420ms; }
+	.hero.mounted .hero-copy > :nth-child(3) { transition-delay: 600ms; }
+	.hero.mounted .hero-copy > :nth-child(4) { transition-delay: 1100ms; }
 
 	.headline-logo {
 		display: block;
-		height: clamp(2.5rem, 6vw, 4rem);
+		height: clamp(2.25rem, 4.5vw, 3.25rem);
 		width: auto;
-		margin-bottom: 1.5rem;
+		margin: 0 0 1.75rem -0.35rem;
 	}
 
+	/* Caption treatment from the teaser: muted frost with bright key phrases. */
 	.tagline {
 		font-family: var(--font-display);
-		font-size: clamp(1.5rem, 3.4vw, 2.25rem);
-		line-height: 1.2;
-		font-weight: 600;
-		color: var(--color-ink);
-		letter-spacing: -0.02em;
-		margin-bottom: 1.5rem;
+		font-size: clamp(2rem, 4.4vw, 3.6rem);
+		line-height: 1.06;
+		font-weight: 700;
+		color: var(--caption-muted);
+		letter-spacing: -0.03em;
+		margin: 0 0 1.5rem;
+		text-wrap: balance;
 	}
 
 	.highlight-muted {
-		position: relative;
 		color: var(--color-ink);
-		font-style: italic;
-		font-weight: 400;
-	}
-	.highlight-muted::after {
-		content: '';
-		position: absolute;
-		left: 0;
-		right: 0;
-		top: 58%;
-		height: 2px;
-		background: var(--color-secondary);
-		transform: rotate(-1.5deg);
 	}
 
 	.highlight-accent {
 		color: var(--color-primary);
-		font-weight: 600;
+		font-weight: 700;
 	}
 
 	/* Section eyebrow — the single most repeated structural marker */
@@ -1187,12 +1401,14 @@
 
 	.subheadline {
 		font-family: var(--font-body);
-		font-size: clamp(1.125rem, 2vw, 1.375rem);
+		font-size: clamp(1.0625rem, 1.6vw, 1.25rem);
 		font-weight: 500;
 		line-height: 1.55;
-		color: var(--color-ink-muted);
+		color: var(--caption-muted);
 		letter-spacing: 0;
 		margin: 0;
+		max-width: 38rem;
+		text-wrap: pretty;
 	}
 
 	.subheadline .highlight-accent {
@@ -1205,7 +1421,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
-		margin-top: 1rem;
+		margin-top: 0;
 		font-family: var(--font-mono);
 		font-size: 0.6875rem;
 		font-weight: 500;
@@ -1238,7 +1454,7 @@
 		gap: 1rem;
 		align-items: flex-start;
 		padding: 1.25rem 1.25rem;
-		background: var(--color-surface-alt);
+		background: oklch(0.24 0.011 215 / 0.82);
 		border: 1px solid var(--color-border);
 		border-top-width: 0;
 		transition: background 150ms ease, border-color 150ms ease;
@@ -1347,7 +1563,7 @@
 		flex-direction: column;
 		gap: 0.75rem;
 		padding: 1.75rem;
-		background: var(--color-surface-alt);
+		background: oklch(0.24 0.011 215 / 0.82);
 		border: 1px solid var(--color-border);
 	}
 
@@ -1754,11 +1970,7 @@
 		}
 
 		.tagline {
-			font-size: 1.5rem;
-		}
-
-		.subheadline {
-			font-size: 1.0625rem;
+			font-size: 2rem;
 		}
 
 		.feature-item {
@@ -1768,11 +1980,20 @@
 		.promo-card {
 			padding: 1.25rem;
 		}
+
+		.auth-card {
+			padding: 2rem 1.25rem;
+		}
+
+		.auth-cta-link {
+			padding: 0.25rem 0.25rem;
+			letter-spacing: 0.07em;
+		}
 	}
 
 	@media (max-width: 375px) {
 		.content-wrapper {
-			padding: 2rem 1rem;
+			padding: 0 1rem 2rem;
 		}
 	}
 
@@ -1783,10 +2004,24 @@
 			opacity: 1;
 			transform: none;
 		}
-		.auth-panel, .story-panel {
+		.auth-panel, .story-panel, .hero .hero-copy > * {
 			opacity: 1;
 			transform: none;
 			transition: none;
+		}
+		.auth-mark-ring, .auth-mark-line {
+			stroke-dashoffset: 0;
+			animation: none !important;
+		}
+		.auth-mark-point {
+			opacity: 1;
+			animation: none !important;
+		}
+		.auth-mark-ping {
+			display: none;
+		}
+		.scroll-cue-ring svg, .scroll-cue-line::after {
+			animation: none;
 		}
 	}
 </style>
