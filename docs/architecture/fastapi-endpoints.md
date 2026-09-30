@@ -112,6 +112,9 @@ The browser-facing login flow in production now starts at the hosted
 | GET | `/api/auth/login` | None | — | Redirect to MuckRock OAuth authorize URL for localhost dev |
 | GET | `/api/auth/callback` | None | — | Exchange OAuth code, mint hosted Supabase session, hand browser back to localhost |
 
+|--------|------|------|-------------|
+| DELETE | `/api/user/delete-account` | — | `410 Gone`; hosted deletion is available only through `DELETE /user/account-deletion` after the fresh MuckRock plan gate |
+
 ### OSS (Supabase Auth)
 
 **Location:** `backend/app/main.py` (inline endpoint, mounted when `DEPLOYMENT_TARGET == "supabase"`)
