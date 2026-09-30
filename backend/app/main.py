@@ -512,6 +512,8 @@ async def public_legacy_skill():
     return _serve_markdown("skill.md")
 
 
+
+
 # Health check endpoints — MUST be declared BEFORE the SPA static mount
 # below, otherwise the mount catches /api/health and SPAStaticFiles raises
 # RuntimeError('Not a static file') → 500. Render's healthCheckPath is

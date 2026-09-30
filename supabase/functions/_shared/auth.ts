@@ -23,10 +23,10 @@ export interface AuthedUser {
   id: string;
   email?: string;
   muckrockSubject?: string;
-  /** Raw bearer token. Empty string for API-key auth (no JWT to forward). */
+  /** Raw session bearer token. Empty for explicit-owner callers without a JWT. */
   token: string;
-  /** Auth path used: "session" (Supabase JWT) or "api_key" (cj_… token). */
-  authMethod?: "session" | "api_key";
+  /** Delegated identities are constructed only by trusted server adapters. */
+  authMethod?: "session" | "api_key" | "delegated";
   /** Present for API-key auth so a key can revoke only itself. */
   apiKeyId?: string;
   apiKeyPrefix?: string;
@@ -114,14 +114,14 @@ export async function requireUserOrApiKey(req: Request): Promise<AuthedUser> {
 
 
 /** Returns a Supabase client scoped to the caller. For session auth this is
- *  the user-JWT client (RLS-enforced). For API-key auth there's no JWT, so
- *  we fall back to the service client — callers MUST add an explicit
+ *  the user-JWT client (RLS-enforced). API-key and delegated callers have no
+ *  user JWT, so use the service client — callers MUST add an explicit
  *  `.eq("user_id", user.id)` (or equivalent) on every query. The
  *  `needsExplicitScope` flag flips true on that path so the caller knows. */
 export function getCallerClient(
   user: AuthedUser,
 ): { db: SupabaseClient; needsExplicitScope: boolean } {
-  if (user.authMethod === "api_key") {
+  if (user.authMethod === "api_key" || user.authMethod === "delegated") {
     return { db: getServiceClient(), needsExplicitScope: true };
   }
   return { db: getUserClient(user.token), needsExplicitScope: false };

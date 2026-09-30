@@ -92,6 +92,7 @@ The private repo now has two explicit local auth modes:
 - Local demo mode keeps the example workspace local-only. Demo unit verify/delete interactions are simulated in-memory so the signup/demo flow still behaves like production onboarding, while the same workspace controls remain visible for UI smoke testing.
 - Local MuckRock dev is pinned to `http://localhost:5173/auth/callback`, and Vite proxies `/api/auth/*` to the local FastAPI process on `127.0.0.1:8000` so the browser never has to round-trip through Render just to finish login.
 
+
 The raw/manual path still exists for OSS-style development. Set the following in
 your frontend `.env.local` only when you intentionally want manual control:
 

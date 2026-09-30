@@ -11,7 +11,7 @@ if [ -z "$PROJECT_REF" ]; then
   echo "Set PROJECT_REF to the target Supabase project ref before deploying functions." >&2
   exit 2
 fi
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 # Deploy every local function directory that has an index.ts. Keeping this

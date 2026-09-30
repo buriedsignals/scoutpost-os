@@ -9,6 +9,11 @@ set -euo pipefail
 
 sed() {
   if [ "${1:-}" = "-i" ]; then
+    local file="${@: -1}"
+    if [ -L "$file" ]; then
+      echo "Refusing to replace symlink with sed -i: $file; edit its canonical file instead." >&2
+      return 1
+    fi
     shift
     if command sed --version >/dev/null 2>&1; then
       command sed -i "$@"
@@ -47,6 +52,10 @@ HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX="$(
   printf '%s' "$HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER" |
     tr '[:lower:]' '[:upper:]'
 )"
+
+# Remove private packages and bounded shared-file hooks before the legacy
+# transformations below. The helper never follows or rewrites symlinks.
+python3 scripts/ops/strip-private-integrations.py strip
 
 echo "=== Stripping SaaS-only code ==="
 
@@ -133,11 +142,9 @@ remove_hosted_shared_file storage_prefix_cleanup_test.ts
 # Remove hosted-only newsletter entitlement settings from files that remain in
 # the public mirror.
 sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" AGENTS.md
-sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" CLAUDE.md
 sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" docs/architecture/developer-guide.md
 sed_if_exists -i "/${HOSTED_NEWSLETTER_ENTITLEMENT_ENV_PREFIX}/d" supabase/functions/civic/items_test.ts
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" AGENTS.md
-sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" CLAUDE.md
 sed_if_exists -i "/INDICATOR_CLAIM_PEPPER/d" docs/architecture/developer-guide.md
 sed_if_exists -i "/ACCOUNT_DELETION_JWT_WAIT_SECONDS/d" AGENTS.md
 sed_if_exists -i '/^Hosted account deletion is a separate/,+5d' AGENTS.md
@@ -273,6 +280,7 @@ rm -f frontend/src/lib/stores/auth-muckrock.ts
 # -------------------------------------------------------------------
 rm -rf frontend/src/routes/admin/
 rm -rf frontend/src/routes/pricing/
+rm -f frontend/src/tests/components/pricing-page.test.ts
 rm -rf frontend/src/routes/subscription/claim/
 
 sed -i "s|'/login', '/pricing', '/setup', '/terms'|'/login', '/setup', '/terms'|" frontend/src/routes/+layout.svelte
@@ -853,6 +861,8 @@ sed_if_exists -i "s|${HOSTED_SUPABASE_REF}|<project-ref>|g" scripts/ops/deploy-f
 # -------------------------------------------------------------------
 # Validate: no SaaS-only references remain
 # -------------------------------------------------------------------
+python3 scripts/ops/strip-private-integrations.py check
+
 echo "=== Validating OSS build ==="
 FAIL=0
 HOSTED_ONLY_EDGE_FUNCTIONS=(

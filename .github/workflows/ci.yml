@@ -79,7 +79,7 @@ jobs:
       # the absence of --allow-net denies runtime fetch() — so a test that
       # forgets to stub fetch fails loudly instead of making a live call.
       - name: Deno unit tests (stack-free set, network-isolated)
-        run: cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ crawler-worker/ cli-auth/ scout-beat-execute/lifecycle_test.ts scout-transport-execute/ transport-sampler/ transport-test/ crawler-dispatch/_test.ts crawler-proxy/_test.ts resend-webhook/_test.ts mcp-server/oauth/register_test.ts civic/items_test.ts civic-execute/discovery_test.ts scouts/civic_baseline_test.ts
+        run: cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ crawler-worker/ cli-auth/ scout-beat-execute/lifecycle_test.ts scout-transport-execute/ transport-sampler/ transport-test/ crawler-dispatch/_test.ts crawler-proxy/_test.ts resend-webhook/_test.ts mcp-server/oauth/register_test.ts civic/items_test.ts civic-execute/discovery_test.ts scouts/civic_baseline_test.ts scouts/handlers_test.ts
       - name: Crawler worker contract check
         run: cd supabase/functions && deno check --allow-import scout-web-execute/index.ts scouts/index.ts crawler-dispatch/index.ts crawler-proxy/index.ts
       - name: Crawler health monitor regression tests (no runtime network)
@@ -88,6 +88,7 @@ jobs:
         run: deno test --allow-env --allow-import scripts/benchmarks/_bench_shared_test.ts scripts/benchmarks/_bench_truth_test.ts scripts/benchmarks/benchmark-beat_test.ts scripts/benchmarks/benchmark-civic_test.ts scripts/benchmarks/benchmark-transport_test.ts scripts/civic-repair-inventory_test.ts scripts/civic-backfill_test.ts
       - name: Scrape-port coverage gate (100% on new modules)
         run: bash scripts/ops/check-scrape-coverage.sh
+
 
   # scrape-service unit tier: 100% coverage gate enforced by its pytest.ini.
   # The browser path is lazily imported and exercised by live-marked tests +
@@ -177,6 +178,17 @@ jobs:
           pip install -r backend/requirements.txt
           cd backend
           DEPLOYMENT_TARGET=supabase python -c "from app.main import app; print('OSS boot test passed')"
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Check retained Page, MCP, and CLI entrypoints
+        run: cd supabase/functions && deno check --allow-import scouts/index.ts scouts/handlers.ts mcp-server/index.ts cli-auth/index.ts
+
+      - name: Validate regenerated public outputs
+        run: python3 scripts/ops/strip-private-integrations.py check
 
   selfhost-runtime-smoke:
     name: Self-host local runtime smoke

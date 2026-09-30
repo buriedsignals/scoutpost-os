@@ -1,3 +1,4 @@
+
 const STORAGE_KEY = 'scout:authReturn';
 
 interface StorageLike {

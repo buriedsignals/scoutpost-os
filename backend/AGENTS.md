@@ -126,3 +126,4 @@ See `backend/tests/AGENTS.md` for layout and mocking conventions.
 - `docs/supabase/edge-functions.md` — every Edge Function
 - `docs/oss/adapter-pattern.md` — port/adapter design (with post-cutover banner)
 - `cli/AGENTS.md` — `scout` CLI release + auth precedence
+

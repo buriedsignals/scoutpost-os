@@ -4,16 +4,7 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Exercise the creation-time baseline caller, including its final baseline
-// stamp, without starting a server or bypassing the shared scrape/resolver.
-const serve = Deno.serve;
-Deno.serve = (() => ({})) as unknown as typeof Deno.serve;
-let baseline: typeof import("./index.ts").ensureScheduledBaseline;
-try {
-  baseline = (await import("./index.ts")).ensureScheduledBaseline;
-} finally {
-  Deno.serve = serve;
-}
+import { ensureScheduledBaseline as baseline } from "./handlers.ts";
 
 async function exercise(mode: "failed" | "overflow" | "success") {
   const writes: {

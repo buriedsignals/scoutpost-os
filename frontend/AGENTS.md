@@ -164,3 +164,4 @@ npm run build  # Outputs to /build (static files)
 ```
 
 Static files are copied into the FastAPI Docker image at `backend/app/frontend_client/`.
+

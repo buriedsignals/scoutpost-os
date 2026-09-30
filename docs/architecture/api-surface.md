@@ -50,6 +50,7 @@ Auth: Bearer JWT (Supabase auth) **or** Bearer `cj_…` API key plus
 | `units` | Units list/get/search (hybrid lex+vec) + verify/reject/mark-used | Live |
 | `user` | Current user / preferences / timezone | Live |
 
+
 ### FastAPI routers (`backend/app/routers/*`)
 
 Reachable at `https://scoutpost.ai/api/...`. Hosted on Render.

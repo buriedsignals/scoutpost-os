@@ -574,3 +574,4 @@ date of 2026-10-16; changing models is a distinct lifecycle change.
 
 ### Frontend (Build-time)
 - `PUBLIC_MAPTILER_API_KEY` - Geocoding
+

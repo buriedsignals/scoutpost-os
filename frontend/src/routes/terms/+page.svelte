@@ -12,7 +12,7 @@
 		<a href="/" class="back-link">&larr; Back to Scoutpost</a>
 
 		<h1>Terms of Use & Privacy Policy</h1>
-		<p class="updated">Last updated: August 27, 2026</p>
+		<p class="updated">Last updated: September 30, 2026</p>
 
 		<section>
 			<h2>What Scoutpost Is</h2>
@@ -123,9 +123,10 @@
 			<ul>
 				<li>Passwords in application storage (authentication is handled by Supabase Auth)</li>
 				<li>Analytics, behavioral tracking, or advertising data</li>
-				<li>Browsing history or usage patterns</li>
+				<li>A record of your general browsing activity or behavior across websites</li>
 			</ul>
 		</section>
+
 
 		<section>
 			<h2>Third-Party Processors</h2>

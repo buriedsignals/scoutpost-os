@@ -77,6 +77,7 @@ _RELAY_RESPONSE_HEADERS = {
     "cache-control",
     "location",
     "www-authenticate",
+    "allow",
     "content-disposition",
 }
 

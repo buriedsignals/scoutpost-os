@@ -35,6 +35,7 @@ another paid request. This separates slow rendering from analysis inside the
 hosted request limit. Inline compatibility scraping retains its original
 remaining-budget policy.
 
+
 ## Change Detection and Renderer Attribution
 
 Page Scouts have one change-detection strategy: a fresh provider-port scrape
