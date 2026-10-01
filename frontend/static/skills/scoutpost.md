@@ -65,7 +65,7 @@ the local `scout` config.
 
 1. Understand what the journalist wants to monitor.
 2. Pick the right scout type.
-3. Confirm before creating or running anything that spends credits.
+3. Confirm before creating, running, changing, or deleting anything, and disclose credit spend.
 4. Use scouts and units to find leads.
 5. Treat unverified units as leads, not publishable facts.
 6. Surface source URLs and verification state in every summary.

@@ -82,8 +82,8 @@ capture time; they do not prove that a particular person saw it.
 
 1. Identify what the journalist wants to monitor and select the appropriate
    scout type.
-2. Confirm before creating or running work that spends credits; disclose the
-   expected spend for Civic Scouts, Fleet Scouts, or large batches.
+2. Confirm before creating, running, changing, or deleting anything; disclose
+   the expected spend for Civic Scouts, Fleet Scouts, or large batches.
 3. Use scouts and units to find, organize, and summarize leads.
 4. Treat unverified units as leads and cite their sources.
 5. Let a human verify or reject units before treating claims as publishable.

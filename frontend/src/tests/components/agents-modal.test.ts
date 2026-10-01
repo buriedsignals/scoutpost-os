@@ -126,8 +126,9 @@ describe('Connect Agent modal', () => {
 			configurable: true,
 			value: { writeText }
 		});
-		const { container: gooseSetup } = render(AgentSetup, { props: { recipe: goose } });
-		expect(gooseSetup.querySelector('a[href^="goose:"]')).toBeNull();
+		render(AgentSetup, { props: { recipe: goose } });
+		const gooseLink = screen.getByRole('link', { name: 'Add to Goose' }) as HTMLAnchorElement;
+		expect(gooseLink.href).toBe(oneClickFixture.scoutpost.goose);
 		await fireEvent.click(screen.getByRole('button', { name: 'Copy URL' }));
 		expect(writeText).toHaveBeenCalledWith('https://scoutpost.ai/mcp');
 		cleanup();

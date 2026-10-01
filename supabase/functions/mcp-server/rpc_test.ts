@@ -14,7 +14,7 @@ import {
   assertStringIncludes,
   assertThrows,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { createScoutBodyForMcp, TOOLS } from "./rpc.ts";
+import { createScoutBodyForMcp, listedTools, TOOLS } from "./rpc.ts";
 
 Deno.test("mcp parity: page-archive retrieval is exposed as agent tools", () => {
   const names = TOOLS.map((t) => t.name);
@@ -186,4 +186,24 @@ Deno.test("mcp parity: get_snapshot_url enumerates all six artifact kinds", () =
     [...artifact.enum].sort(),
     ["manifest", "markdown", "mhtml", "rawhtml", "screenshot", "tsr"],
   );
+});
+
+// OpenAI's plugin directory requires explicit readOnly/destructive/openWorld
+// booleans on every listed tool and rejects labels that contradict behaviour.
+Deno.test("mcp tools/list labels every tool, deletes as destructive and reads as read-only", () => {
+  const listed = listedTools();
+  assertEquals(listed.length, TOOLS.length);
+  for (const tool of listed) {
+    for (const hint of ["readOnlyHint", "destructiveHint", "openWorldHint"] as const) {
+      assertEquals(typeof tool.annotations?.[hint], "boolean", `${tool.name}.${hint}`);
+    }
+    if (/^(delete|merge|update)_/.test(tool.name)) {
+      assertEquals(tool.annotations.destructiveHint, true, tool.name);
+      assertEquals(tool.annotations.readOnlyHint, false, tool.name);
+    }
+    if (/^(list|get|search)_/.test(tool.name)) {
+      assertEquals(tool.annotations.readOnlyHint, true, tool.name);
+      assertEquals(tool.annotations.destructiveHint, false, tool.name);
+    }
+  }
 });

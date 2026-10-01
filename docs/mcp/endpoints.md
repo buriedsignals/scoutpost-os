@@ -191,8 +191,10 @@ $ curl -X POST https://scoutpost.ai/mcp \
 {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"scoutpost","version":"…"}}}
 ```
 
-`tools/list` returns the union of all tools registered in `rpc.ts`. `tools/call`
-dispatches by tool name and forwards `arguments` to the underlying EF.
+`tools/list` returns the union of all tools registered in `rpc.ts`, each with
+explicit `readOnlyHint`, `destructiveHint` and `openWorldHint` annotations
+(required by the OpenAI plugin directory). `tools/call` dispatches by tool name
+and forwards `arguments` to the underlying EF.
 
 `notifications/initialized` returns `202 Accepted` (no body) — JSON-RPC
 notifications have no response.

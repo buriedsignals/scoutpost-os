@@ -191,8 +191,26 @@ export function createScoutBodyForMcp(
 // Tools
 // ---------------------------------------------------------------------------
 
+// MCP tool annotations, required explicitly on every tool by the OpenAI plugin
+// directory. destructive covers deletes, overwrites, pausing, runs that can send
+// notifications and creation that can submit pages to the public Wayback Machine;
+// tests and previews that persist records are not read-only; openWorld covers
+// tools that can reach arbitrary public URLs or live external data.
+interface ToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  openWorldHint: boolean;
+}
+const READ: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const READ_WEB: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, openWorldHint: true };
+const WRITE: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
+const WRITE_WEB: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };
+const DESTRUCTIVE: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, openWorldHint: false };
+const DESTRUCTIVE_WEB: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, openWorldHint: true };
+
 interface ToolDef {
   name: string;
+  annotations: ToolAnnotations;
   description: string;
   inputSchema: Record<string, unknown>;
   handler: (
@@ -206,6 +224,7 @@ export const TOOLS: ToolDef[] = [
   // ---------- Scouts ----------
   {
     name: "list_scouts",
+    annotations: READ,
     description:
       "List all scouts owned by the caller (id, name, type, schedule, is_active).",
     inputSchema: {
@@ -226,6 +245,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "test_transport_config",
+    annotations: WRITE_WEB,
     description:
       "Step 1 for Fleet Scout creation. Test a transport config against current live data without creating a scout or spending credits. Returns baseline_ids and a compact preview. Pass those baseline_ids as transport_baseline_ids to create_scout in Step 2 so objects already present do not alert immediately. Hosted Scoutpost requires Pro/Team.",
     inputSchema: {
@@ -280,6 +300,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "test_web_scout",
+    annotations: READ_WEB,
     description:
       "Step 1 for Page (web) Scout creation. Probe a URL the way create_scout will: one fresh scrape plus an optional criteria check, no scout created, no baseline stored. Returns the shared probe envelope { ok, stage:'reach', error_code?, error? } alongside summary, scraper_status and criteria_status. ok:false carries error_code unreachable|blocked|empty_content|outside_configured_page|page_too_long and a human-readable error — create_scout would reject the same URL with HTTP 422, so fix the URL first. criteria_not_met is advisory: ok stays true and the scout can still be created. Run this before create_scout for type=web.",
     inputSchema: {
@@ -297,6 +318,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "create_scout",
+    annotations: DESTRUCTIVE_WEB,
     description:
       "Create a new scout. Required: name and type (web|beat|social|civic|transport). Probe first: web scouts run test_web_scout, civic scouts run discover_civic_sources then preview_civic_items, and pass one of the returned candidate URLs as tracked_urls. The server re-runs step 1 before inserting and answers HTTP 422 with the probe envelope { ok:false, stage, error_code, error } when it fails: civic → no_meetings_detected (the body also carries system, validated, invalid and candidates — read candidates and retry with one of them); web → unreachable|blocked|empty_content|outside_configured_page|page_too_long. The 422 body is returned in this tool's error text. web/beat/social/civic also need either location or topic; transport needs config (not location/topic) — see below. Topic is 1-3 short comma-separated tags for organization, not long instructions. Put long human context in description and filtering/notification rules in criteria. Web scouts require url. Beat scouts should pass criteria and optionally location/source_mode/priority_sources. Civic scouts require root_domain and tracked_urls. Social scouts require platform and profile_handle; MCP defaults them to monitor_mode=criteria, which requires criteria text. Pass monitor_mode=summarize explicitly to collect all substantive new posts. Transport scouts (Fleet Scout) are Pro/Team on hosted Scoutpost and require config: { mode: aircraft|vessel, watch_ids, geofence: { center: {lat,lon}, radius_km, display_name?, maptiler_id? }, categories?, criteria? }. Every mode needs the circular area and alerts when a watched object enters it. criteria is optional and only filters those entry alerts; it never replaces the area. watch_ids is required (max 20); categories only narrow it. Run test_transport_config first and pass its baseline_ids as transport_baseline_ids here. Transport supports 3h/6h/12h/daily regularity. Scheduling: pass `schedule_cron` OR `regularity` + `time` (+ `day_number` for weekly/monthly). Scheduled creation establishes web/beat/social/civic baselines immediately; Fleet creation seeds the tested baseline when transport_baseline_ids is supplied, while omission preserves the legacy first-run baseline. Web/Page scouts can turn on evidence archiving with archive_enabled (Pro/Team); captured snapshots are then retrievable via list_snapshots.",
     inputSchema: {
@@ -516,6 +538,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_scout",
+    annotations: READ,
     description: "Fetch a single scout by id.",
     inputSchema: {
       type: "object",
@@ -527,6 +550,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "update_scout",
+    annotations: DESTRUCTIVE_WEB,
     description:
       "Patch an existing scout. All fields optional; only sent keys change. Keep topic as 1-3 short comma-separated tags; put longer context in description and filtering/notification rules in criteria. A scout must retain either location or topic (transport scouts are scoped by config instead). For Fleet Scouts, pass a full replacement config with the required circle area; it alerts when watched objects enter that area, with criteria only as an optional post-entry filter. Fleet Scout configuration is Pro/Team-only on hosted Scoutpost. For web/page scouts, toggle evidence archiving with archive_enabled / wayback_enabled (archive_enabled is Pro/Team-gated).",
     inputSchema: {
@@ -652,6 +676,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "run_scout",
+    annotations: DESTRUCTIVE_WEB,
     description:
       "Trigger an on-demand scout run. Spends credits. Returns 202 + run_id.",
     inputSchema: {
@@ -664,6 +689,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "pause_scout",
+    annotations: DESTRUCTIVE,
     description:
       "Pause a scout: set is_active=false and unschedule its cron job.",
     inputSchema: {
@@ -678,6 +704,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "resume_scout",
+    annotations: WRITE_WEB,
     description:
       "Resume a paused scout: set is_active=true and re-schedule its cron job.",
     inputSchema: {
@@ -692,6 +719,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "delete_scout",
+    annotations: DESTRUCTIVE,
     description: "Delete a scout and unschedule its cron job.",
     inputSchema: {
       type: "object",
@@ -705,6 +733,7 @@ export const TOOLS: ToolDef[] = [
   // ---------- Civic accountability ----------
   {
     name: "discover_civic_sources",
+    annotations: READ_WEB,
     description:
       "Step 1 (detect) for Civic Scout creation: discover_civic_sources → preview_civic_items → create_scout. Given root_domain, maps the council site, fingerprints the committee system (moderngov|generic) and returns only listing pages behind which at least one meeting document is already visible (documents_visible ≥ 1), best first with recommended:true. Response: { ok, stage:'detect', error_code?, error?, system, candidates:[{url, description, confidence, system, documents_visible, recommended}], unverified? }. ok:false with error_code no_meetings_detected is an outcome, not a transport error: candidates is empty and unverified lists ranked pages a human can inspect by hand. Alternatively pass tracked_urls (1-2 URLs you already chose) instead of root_domain to validate them: the response then carries validated, invalid and replacement candidates, and create_scout will reject any URL listed in invalid.",
     inputSchema: {
@@ -735,6 +764,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "preview_civic_items",
+    annotations: WRITE_WEB,
     description:
       "Step 2 (sample) for Civic Scout creation, after discover_civic_sources and before create_scout. Read-only preview of 1-2 listing URLs: resolves meeting documents, parses at most two, runs one extraction pass and returns sample_items plus preview_snapshot_token (pass it to create_scout with import_current_items). Returns dated promises to follow and adopted material decisions; a valid empty result means no accountable item was found. Response carries the probe envelope { ok, stage:'sample', error_code?, error? } with valid and documents_found; ok:false codes are no_documents, unreachable (a linked meeting could not be fetched), parse_failed or model_failed. Every result is an AI-extracted lead that must be checked against the cited official source.",
     inputSchema: {
@@ -757,6 +787,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "list_civic_items",
+    annotations: READ,
     description:
       "List owner-scoped Civic accountability items. Promises have a human lifecycle status and due date; decisions are completed adopted actions and never enter the promise tracker.",
     inputSchema: {
@@ -787,6 +818,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_civic_item",
+    annotations: READ,
     description:
       "Read one Civic accountability item and its canonical provenance summary. Use get_unit_evidence for the owner-scoped exact evidence expressions.",
     inputSchema: {
@@ -799,6 +831,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "list_civic_runs",
+    annotations: READ,
     description:
       "List safe aggregate diagnostics for Civic runs, including policy version, semantic-zero state, counts, and rejection aggregates without exposing rejected source text or private criteria.",
     inputSchema: {
@@ -812,6 +845,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_civic_run",
+    annotations: READ,
     description:
       "Read safe aggregate diagnostics for one owner-scoped Civic run.",
     inputSchema: {
@@ -826,6 +860,7 @@ export const TOOLS: ToolDef[] = [
   // ---------- Page Archive (snapshots) ----------
   {
     name: "list_snapshots",
+    annotations: READ,
     description:
       "List evidence-archive snapshots for the caller's Web/Page scouts, newest first. Each row: id, scout_id, captured_at, capture_kind (baseline|change), fidelity (full|rendered_thirdparty|markdown_only), sizes, trust (RFC 3161 timestamp status + Wayback status/url), and the `artifacts` available to download. Filter by scout_id. Snapshots exist only for scouts with archiving enabled (create_scout/update_scout archive_enabled).",
     inputSchema: {
@@ -843,6 +878,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_snapshot_url",
+    annotations: READ,
     description:
       "Get a short-lived (5 min) signed download URL for one artifact of a snapshot. Artifacts: mhtml (full captured page, opens in Chrome/Edge), screenshot (png), rawhtml, markdown, manifest (JSON of per-artifact SHA-256 hashes), tsr (RFC 3161 timestamp token). Every URL downloads as an attachment. Returns 404 if the snapshot lacks that artifact (e.g. mhtml on a markdown_only capture) — call list_snapshots first to see each snapshot's `artifacts`.",
     inputSchema: {
@@ -872,6 +908,7 @@ export const TOOLS: ToolDef[] = [
   // ---------- Units ----------
   {
     name: "get_civic_promise",
+    annotations: READ,
     description:
       "Read one owner-scoped Civic promise, including its human lifecycle status and audited status history.",
     inputSchema: {
@@ -884,6 +921,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_unit_evidence",
+    annotations: READ,
     description:
       "Read owner-scoped bounded exact evidence expressions for one canonical unit. Use this to verify any AI-extracted Civic lead against its official source before publication.",
     inputSchema: {
@@ -896,6 +934,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "set_civic_promise_status",
+    annotations: DESTRUCTIVE,
     description:
       "Apply a human editorial Civic-promise transition. Civic extraction never makes this judgment. Read first and pass its exact updated_at as expected_updated_at.",
     inputSchema: {
@@ -922,6 +961,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "list_units",
+    annotations: READ,
     description:
       "List information units owned by the caller. Supports project, scout, verification, usage, and deleted-state filters.",
     inputSchema: {
@@ -951,6 +991,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "search_units",
+    annotations: READ,
     description:
       "Search the caller's information units. Modes: semantic, keyword, or hybrid. Supports project, scout, verification, usage, and deleted-state filters.",
     inputSchema: {
@@ -972,6 +1013,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_unit",
+    annotations: READ,
     description: "Fetch a single information unit by id.",
     inputSchema: {
       type: "object",
@@ -983,6 +1025,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "verify_unit",
+    annotations: DESTRUCTIVE,
     description:
       "Verify a unit (accept it for editorial use). Sets verified=true, optional verification_notes and verified_by.",
     inputSchema: {
@@ -1003,6 +1046,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "reject_unit",
+    annotations: DESTRUCTIVE,
     description:
       "Reject a unit (not wanted editorially). Sets verified=false and records the reason in verification_notes.",
     inputSchema: {
@@ -1027,6 +1071,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "mark_unit_used",
+    annotations: DESTRUCTIVE,
     description:
       "Flag a unit as used in a published article so it leaves the inbox. Optionally record the URL and timestamp.",
     inputSchema: {
@@ -1047,6 +1092,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "delete_unit",
+    annotations: DESTRUCTIVE,
     description: "Soft-delete an information unit by id.",
     inputSchema: {
       type: "object",
@@ -1060,6 +1106,7 @@ export const TOOLS: ToolDef[] = [
   // ---------- Projects ----------
   {
     name: "list_projects",
+    annotations: READ,
     description: "List investigation projects owned by the caller.",
     inputSchema: {
       type: "object",
@@ -1075,6 +1122,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "create_project",
+    annotations: WRITE,
     description:
       "Create a new investigation project (a workspace for grouping scouts + units).",
     inputSchema: {
@@ -1096,6 +1144,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_project",
+    annotations: READ,
     description: "Fetch a single project by id.",
     inputSchema: {
       type: "object",
@@ -1107,6 +1156,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "update_project",
+    annotations: DESTRUCTIVE,
     description: "Patch a project — name, description, visibility, or tags.",
     inputSchema: {
       type: "object",
@@ -1128,6 +1178,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "delete_project",
+    annotations: DESTRUCTIVE,
     description: "Delete a project by id.",
     inputSchema: {
       type: "object",
@@ -1141,6 +1192,7 @@ export const TOOLS: ToolDef[] = [
   // ---------- Ingest ----------
   {
     name: "ingest_content",
+    annotations: WRITE_WEB,
     description:
       "Ingest a URL or raw text into the knowledge base. Creates a raw_capture row and extracts atomic information_units with Gemini through OpenRouter's Google Vertex route.",
     inputSchema: {
@@ -1170,6 +1222,7 @@ export const TOOLS: ToolDef[] = [
   // ---------- Reflections ----------
   {
     name: "list_reflections",
+    annotations: READ,
     description:
       "List editorial reflections (agent-written synthesized summaries) owned by the caller.",
     inputSchema: {
@@ -1186,6 +1239,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "create_reflection",
+    annotations: WRITE,
     description:
       "Create a reflection (durable editorial note) over scouts, units, or entities. Embedded at write time for semantic search.",
     inputSchema: {
@@ -1214,6 +1268,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "search_reflections",
+    annotations: READ,
     description: "Semantic search over the caller's reflections.",
     inputSchema: {
       type: "object",
@@ -1230,6 +1285,7 @@ export const TOOLS: ToolDef[] = [
   // ---------- Entities ----------
   {
     name: "search_entities",
+    annotations: READ,
     description:
       "Find canonical entities (people, orgs, places, policies) across the knowledge base. Returns entity rows with type + canonical_name.",
     inputSchema: {
@@ -1251,6 +1307,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "merge_entities",
+    annotations: DESTRUCTIVE,
     description:
       "Collapse duplicate entities into a single keeper. Use after `search_entities` surfaces near-duplicates.",
     inputSchema: {
@@ -1363,6 +1420,16 @@ async function readRpcBody(req: Request): Promise<JsonRpcRequest | null> {
   }
 }
 
+/** The tools/list payload: public schema plus the annotations clients act on. */
+export function listedTools() {
+  return TOOLS.map((t) => ({
+    name: t.name,
+    description: t.description,
+    inputSchema: t.inputSchema,
+    annotations: t.annotations,
+  }));
+}
+
 export async function handleRpc(
   req: Request,
   requestId?: string,
@@ -1439,11 +1506,7 @@ export async function handleRpc(
   }
 
   if (body.method === "tools/list") {
-    const toolsList = TOOLS.map((t) => ({
-      name: t.name,
-      description: t.description,
-      inputSchema: t.inputSchema,
-    }));
+    const toolsList = listedTools();
     const responseBody = JSON.stringify({
       jsonrpc: "2.0",
       id: body.id ?? null,

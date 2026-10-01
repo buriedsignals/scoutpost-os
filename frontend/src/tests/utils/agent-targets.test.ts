@@ -59,7 +59,7 @@ describe("agent target resolution", () => {
     expect(chatgpt.uiSteps?.join(" ")).toContain("https://newsroom.example.com/mcp");
     const goose = getAgentRecipes("goose", target).recipes.mcp!;
     expect(goose.configSnippet).toBe("https://newsroom.example.com/mcp");
-    expect(goose.oneClick).toBeUndefined();
+    expect(goose.oneClick?.url).toContain(`url=${encodeURIComponent("https://newsroom.example.com/mcp")}&`);
   });
 
   it("builds secret-free CLI commands from the generated catalog", () => {
@@ -127,8 +127,8 @@ describe("agent target resolution", () => {
     expect(chatgpt?.uiSteps?.join(" ")).not.toContain("codex mcp add");
     expect(chatgpt?.warning).toBeUndefined();
 
-    expect(goose?.mode).toBe("ui-steps");
-    expect(goose?.oneClick).toBeUndefined();
+    expect(goose?.mode).toBe("one-click");
+    expect(goose?.oneClick?.label).toBe("Add to Goose");
     expect(goose?.configSnippet).toBe("https://scoutpost.ai/mcp");
 
     expect(cursor?.mode).toBe("one-click");
@@ -154,7 +154,7 @@ describe("agent target resolution", () => {
   });
 
   it("fills one-click links exactly like Engine's generated fixture", () => {
-    for (const slug of ["cursor"] as const) {
+    for (const slug of ["cursor", "goose"] as const) {
       const recipe = getAgentRecipes(slug).recipes.mcp!;
       expect(recipe.oneClick?.url).toBe(oneClickFixture.scoutpost[slug]);
     }

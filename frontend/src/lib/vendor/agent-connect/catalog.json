@@ -1,6 +1,6 @@
 {
   "package": "@buriedsignals/agent-connect",
-  "packageVersion": "0.3.0",
+  "packageVersion": "0.3.1",
   "products": {
     "navigator": {
       "claude-code": {
@@ -16,10 +16,10 @@
             "Run the login command and approve the browser sign-in.",
             "Ask Claude Code to use the {{CLI_BINARY}} command."
           ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "verify": "Run {{CLI_BINARY}} auth status and confirm you are signed in.",
           "onboardHint": "Paste this into Claude Code once the CLI is installed and signed in.",
           "docsUrl": "{{DOCS_URL}}",
-          "caveat": null
+          "caveat": "{{DISPLAY_NAME}} requires Python 3.11 or newer. If it works in your shell but not the agent, compare the {{CLI_BINARY}} executable each resolves. If its interpreter is missing, repair only the pipx installation that owns that executable using an installed supported Python. Restart the agent after repairing PATH."
         },
         "mcp": {
           "title": "Claude Code",
@@ -95,10 +95,10 @@
             "Run the login command and approve the browser sign-in.",
             "Ask Codex CLI to use the {{CLI_BINARY}} command."
           ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "verify": "Run {{CLI_BINARY}} auth status and confirm you are signed in.",
           "onboardHint": "Paste this into Codex CLI once the CLI is installed and signed in.",
           "docsUrl": "{{DOCS_URL}}",
-          "caveat": null
+          "caveat": "{{DISPLAY_NAME}} requires Python 3.11 or newer. If it works in your shell but not the agent, compare the {{CLI_BINARY}} executable each resolves. If its interpreter is missing, repair only the pipx installation that owns that executable using an installed supported Python. Restart the agent after repairing PATH."
         },
         "mcp": {
           "title": "Codex CLI",
@@ -154,10 +154,10 @@
             "Run the login command and approve the browser sign-in.",
             "Ask Antigravity to use the {{CLI_BINARY}} command."
           ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "verify": "Run {{CLI_BINARY}} auth status and confirm you are signed in.",
           "onboardHint": "Paste this into Antigravity once the CLI is installed and signed in.",
           "docsUrl": "{{DOCS_URL}}",
-          "caveat": null
+          "caveat": "{{DISPLAY_NAME}} requires Python 3.11 or newer. If it works in your shell but not the agent, compare the {{CLI_BINARY}} executable each resolves. If its interpreter is missing, repair only the pipx installation that owns that executable using an installed supported Python. Restart the agent after repairing PATH."
         },
         "mcp": {
           "title": "Antigravity",
@@ -192,10 +192,10 @@
             "Run the login command and approve the browser sign-in.",
             "Ask Gemini CLI to use the {{CLI_BINARY}} command."
           ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "verify": "Run {{CLI_BINARY}} auth status and confirm you are signed in.",
           "onboardHint": "Paste this into Gemini CLI once the CLI is installed and signed in.",
           "docsUrl": "{{DOCS_URL}}",
-          "caveat": null
+          "caveat": "{{DISPLAY_NAME}} requires Python 3.11 or newer. If it works in your shell but not the agent, compare the {{CLI_BINARY}} executable each resolves. If its interpreter is missing, repair only the pipx installation that owns that executable using an installed supported Python. Restart the agent after repairing PATH."
         },
         "mcp": {
           "title": "Gemini CLI",
@@ -218,17 +218,20 @@
       "goose": {
         "mcp": {
           "title": "Goose",
-          "tagline": "Connect {{DISPLAY_NAME}} from Goose’s Extensions settings, then sign in securely in your browser.",
-          "method": "ui-steps",
+          "tagline": "Add {{DISPLAY_NAME}} to Goose Desktop with one click, or from the Extensions screen.",
+          "method": "one-click",
           "command": "{{MCP_URL}}",
           "configPath": null,
-          "oneClick": null,
+          "oneClick": {
+            "label": "Add to Goose",
+            "url": "goose://extension?type=streamable_http&url={{MCP_URL_ENC}}&id={{SERVER_ID}}&name={{DISPLAY_NAME_ENC}}&description={{DISPLAY_NAME_ENC}}%20MCP%20server"
+          },
           "steps": [
-            "In Goose Desktop, open the sidebar → Extensions → Add custom extension.",
-            "Choose Streamable HTTP. Set ID to {{SERVER_ID}}, name to {{DISPLAY_NAME}}, and endpoint URL to {{MCP_URL}}.",
-            "Leave authentication headers and OAuth client credentials empty. Click Add, then enable the extension.",
-            "Complete {{DISPLAY_NAME}} sign-in and approve access in the browser when Goose requests authorization. Return to Goose and start a new session with the extension enabled.",
-            "Using the Goose CLI instead? Run goose configure → Add Extension → Remote Extension (Streamable HTTP), enter the same name and URL, skip headers, and complete the browser sign-in."
+            "Click Add to Goose above and approve the extension when Goose asks. Goose opens your browser to sign in to {{DISPLAY_NAME}}.",
+            "Or add it by hand: open the Goose sidebar → Extensions → Add custom extension.",
+            "Type: Streamable HTTP. Endpoint URL: {{MCP_URL}}. ID: {{SERVER_ID}}. Name: {{DISPLAY_NAME}}. Leave the timeout at its default and click Add.",
+            "Approve the {{DISPLAY_NAME}} sign-in in the browser window Goose opens.",
+            "Using the goose CLI instead? Run goose configure → Add Extension → Remote Extension (Streamable HTTP) and answer the prompts with the same name and URL."
           ],
           "verify": "Ask Goose to use {{DISPLAY_NAME}}.",
           "onboardHint": "Paste this as your first message in Goose once it is connected.",
@@ -249,10 +252,10 @@
             "Run the login command and approve the browser sign-in.",
             "Ask OpenCode to use the {{CLI_BINARY}} command."
           ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "verify": "Run {{CLI_BINARY}} auth status and confirm you are signed in.",
           "onboardHint": "Paste this into OpenCode once the CLI is installed and signed in.",
           "docsUrl": "{{DOCS_URL}}",
-          "caveat": null
+          "caveat": "{{DISPLAY_NAME}} requires Python 3.11 or newer. If it works in your shell but not the agent, compare the {{CLI_BINARY}} executable each resolves. If its interpreter is missing, repair only the pipx installation that owns that executable using an installed supported Python. Restart the agent after repairing PATH."
         },
         "mcp": {
           "title": "OpenCode",
@@ -305,7 +308,7 @@
             "Run the login command and approve the browser sign-in.",
             "Ask Claude Code to use the {{CLI_BINARY}} command."
           ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "verify": "Run {{CLI_BINARY}} user me and confirm your account appears.",
           "onboardHint": "Paste this into Claude Code once the CLI is installed and signed in.",
           "docsUrl": "{{DOCS_URL}}",
           "caveat": null
@@ -384,7 +387,7 @@
             "Run the login command and approve the browser sign-in.",
             "Ask Codex CLI to use the {{CLI_BINARY}} command."
           ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "verify": "Run {{CLI_BINARY}} user me and confirm your account appears.",
           "onboardHint": "Paste this into Codex CLI once the CLI is installed and signed in.",
           "docsUrl": "{{DOCS_URL}}",
           "caveat": null
@@ -443,7 +446,7 @@
             "Run the login command and approve the browser sign-in.",
             "Ask Antigravity to use the {{CLI_BINARY}} command."
           ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "verify": "Run {{CLI_BINARY}} user me and confirm your account appears.",
           "onboardHint": "Paste this into Antigravity once the CLI is installed and signed in.",
           "docsUrl": "{{DOCS_URL}}",
           "caveat": null
@@ -481,7 +484,7 @@
             "Run the login command and approve the browser sign-in.",
             "Ask Gemini CLI to use the {{CLI_BINARY}} command."
           ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "verify": "Run {{CLI_BINARY}} user me and confirm your account appears.",
           "onboardHint": "Paste this into Gemini CLI once the CLI is installed and signed in.",
           "docsUrl": "{{DOCS_URL}}",
           "caveat": null
@@ -507,17 +510,20 @@
       "goose": {
         "mcp": {
           "title": "Goose",
-          "tagline": "Connect {{DISPLAY_NAME}} from Goose’s Extensions settings, then sign in securely in your browser.",
-          "method": "ui-steps",
+          "tagline": "Add {{DISPLAY_NAME}} to Goose Desktop with one click, or from the Extensions screen.",
+          "method": "one-click",
           "command": "{{MCP_URL}}",
           "configPath": null,
-          "oneClick": null,
+          "oneClick": {
+            "label": "Add to Goose",
+            "url": "goose://extension?type=streamable_http&url={{MCP_URL_ENC}}&id={{SERVER_ID}}&name={{DISPLAY_NAME_ENC}}&description={{DISPLAY_NAME_ENC}}%20MCP%20server"
+          },
           "steps": [
-            "In Goose Desktop, open the sidebar → Extensions → Add custom extension.",
-            "Choose Streamable HTTP. Set ID to {{SERVER_ID}}, name to {{DISPLAY_NAME}}, and endpoint URL to {{MCP_URL}}.",
-            "Leave authentication headers and OAuth client credentials empty. Click Add, then enable the extension.",
-            "Complete {{DISPLAY_NAME}} sign-in and approve access in the browser when Goose requests authorization. Return to Goose and start a new session with the extension enabled.",
-            "Using the Goose CLI instead? Run goose configure → Add Extension → Remote Extension (Streamable HTTP), enter the same name and URL, skip headers, and complete the browser sign-in."
+            "Click Add to Goose above and approve the extension when Goose asks. Goose opens your browser to sign in to {{DISPLAY_NAME}}.",
+            "Or add it by hand: open the Goose sidebar → Extensions → Add custom extension.",
+            "Type: Streamable HTTP. Endpoint URL: {{MCP_URL}}. ID: {{SERVER_ID}}. Name: {{DISPLAY_NAME}}. Leave the timeout at its default and click Add.",
+            "Approve the {{DISPLAY_NAME}} sign-in in the browser window Goose opens.",
+            "Using the goose CLI instead? Run goose configure → Add Extension → Remote Extension (Streamable HTTP) and answer the prompts with the same name and URL."
           ],
           "verify": "Ask Goose to use {{DISPLAY_NAME}}.",
           "onboardHint": "Paste this as your first message in Goose once it is connected.",
@@ -538,7 +544,7 @@
             "Run the login command and approve the browser sign-in.",
             "Ask OpenCode to use the {{CLI_BINARY}} command."
           ],
-          "verify": "Run {{CLI_BINARY}} and confirm you are signed in.",
+          "verify": "Run {{CLI_BINARY}} user me and confirm your account appears.",
           "onboardHint": "Paste this into OpenCode once the CLI is installed and signed in.",
           "docsUrl": "{{DOCS_URL}}",
           "caveat": null

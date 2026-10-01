@@ -154,7 +154,7 @@ export const recipeMessages: Record<string, {
     verify: m.agentRecipe_goose_mcp_verify,
     onboardHint: m.agentRecipe_goose_mcp_onboardHint,
     caveat: null,
-    oneClickLabel: null,
+    oneClickLabel: m.agentRecipe_goose_mcp_oneClick,
     steps: [
       m.agentRecipe_goose_mcp_step1,
       m.agentRecipe_goose_mcp_step2,
