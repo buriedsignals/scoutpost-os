@@ -164,7 +164,7 @@ async def get_current_user(request: Request) -> dict:
             detail="User not found",
         )
 
-    # org_id comes from build_user_response (DynamoDB PROFILE = source of truth).
+    # org_id comes from build_user_response (stored profile = source of truth).
     # Do NOT override from JWT — stale sessions would bypass cancellation cleanup.
 
     return user
@@ -185,16 +185,16 @@ async def get_optional_user(request: Request) -> Optional[dict]:
 
 
 # =============================================================================
-# Lambda Service Key Verification
+# Internal Service Key Verification
 # =============================================================================
 
 def verify_service_key(
     x_service_key: Optional[str] = Header(None, alias="X-Service-Key")
 ) -> None:
     """
-    Verify Lambda service key for internal API calls.
+    Verify the internal service key (X-Service-Key) for internal API calls.
 
-    Use as a FastAPI dependency to protect endpoints called by AWS Lambda.
+    Use as a FastAPI dependency to protect endpoints called by internal services.
 
     Args:
         x_service_key: Service key from X-Service-Key header
@@ -262,7 +262,7 @@ async def verify_api_key(request: Request) -> dict:
     Verify an external API key for programmatic access.
 
     Extracts the Bearer token from the Authorization header, validates it
-    via ApiKeyService, then fetches the user profile from DynamoDB.
+    via ApiKeyService, then loads the user profile from storage.
 
     Returns:
         User dict (same shape as get_current_user).

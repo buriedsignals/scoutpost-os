@@ -2,8 +2,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from decimal import Decimal
-from botocore.exceptions import ClientError
-from app.services.user_service import UserService, resolve_tier, _apply_admin_override
+from app.services.user_service import InsufficientCreditsError, UserService, resolve_tier, _apply_admin_override
 
 
 # --- Tier Resolution (pure function, no mocks needed) ---
@@ -244,13 +243,12 @@ async def test_decrement_credits_atomic():
 
 @pytest.mark.asyncio
 async def test_decrement_credits_insufficient_raises():
-    """decrement_credits raises ClientError when adapter returns False."""
+    """decrement_credits raises InsufficientCreditsError when adapter returns False."""
     svc, mock_storage = _make_service()
     mock_storage.decrement_credits.return_value = False
 
-    with pytest.raises(ClientError) as exc_info:
+    with pytest.raises(InsufficientCreditsError):
         await svc.decrement_credits("user-uuid-123", 2)
-    assert exc_info.value.response["Error"]["Code"] == "ConditionalCheckFailedException"
 
 
 @pytest.mark.asyncio
@@ -413,13 +411,12 @@ async def test_decrement_org_credits_atomic():
 
 @pytest.mark.asyncio
 async def test_decrement_org_credits_insufficient_raises():
-    """decrement_org_credits raises ClientError when adapter returns False."""
+    """decrement_org_credits raises InsufficientCreditsError when adapter returns False."""
     svc, mock_storage = _make_service()
     mock_storage.decrement_org_credits.return_value = False
 
-    with pytest.raises(ClientError) as exc_info:
+    with pytest.raises(InsufficientCreditsError):
         await svc.decrement_org_credits("org-uuid-1", 50)
-    assert exc_info.value.response["Error"]["Code"] == "ConditionalCheckFailedException"
 
 
 # --- Seat Claiming ---

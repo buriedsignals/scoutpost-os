@@ -28,9 +28,6 @@ services:
       - APIFY_API_TOKEN=${APIFY_API_TOKEN}
       - LLM_MODEL=${LLM_MODEL:-google/gemini-2.5-flash-lite}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-central-1}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level info
     networks:
       - cojournalist-network

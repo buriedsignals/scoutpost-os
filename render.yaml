@@ -11,8 +11,6 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
-      - key: AWS_API_BASE_URL
-        value: https://kubbp7dr0b.execute-api.eu-central-1.amazonaws.com/dev
       - key: VITE_API_URL
         sync: false
       - key: DEBUG

@@ -9,8 +9,7 @@ DEPENDS ON: schemas/scouts (GeocodedLocation),
     embedding_utils (generate_embedding, cosine_similarity, decompress_embedding)
 USED BY: routers/units.py
 
-Delegates all storage to UnitStoragePort adapter selected at runtime
-based on DEPLOYMENT_TARGET (AWS DynamoDB or Supabase PostgreSQL).
+Delegates all storage to the UnitStoragePort adapter (Supabase PostgreSQL).
 """
 import logging
 from typing import Optional

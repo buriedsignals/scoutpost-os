@@ -40,10 +40,8 @@ APIFY_API_TOKEN=xxx
 INTERNAL_SERVICE_KEY=any-secret-string
 ```
 
-**AWS (SaaS):**
+**SaaS (hosted):**
 ```bash
-DEPLOYMENT_TARGET=aws
-AWS_REGION=eu-west-1
 MUCKROCK_CLIENT_ID=xxx
 MUCKROCK_CLIENT_SECRET=xxx
 SESSION_SECRET=xxx
@@ -333,11 +331,10 @@ an `ImportError`. Check that no service or router has a direct import of an AWS 
 
 ## Environment Variables Reference
 
-### Backend — SaaS (AWS)
+### Backend — SaaS (hosted)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DEPLOYMENT_TARGET` | Yes | `aws` |
 | `MUCKROCK_CLIENT_ID` | Yes | OAuth client ID |
 | `MUCKROCK_CLIENT_SECRET` | Yes | OAuth client secret |
 | `SESSION_SECRET` | Yes | JWT session signing key |
@@ -347,8 +344,7 @@ an `ImportError`. Check that no service or router has a direct import of an AWS 
 | `FIRECRAWL_API_KEY` | Yes | Web scraping |
 | `APIFY_API_TOKEN` | Yes | Social media scraping |
 | `RESEND_API_KEY` | Yes | Email notifications |
-| `INTERNAL_SERVICE_KEY` | Yes | Lambda → FastAPI auth |
-| `AWS_API_BASE_URL` | Yes | AWS API Gateway URL |
+| `INTERNAL_SERVICE_KEY` | Yes | Internal service auth (`X-Service-Key`) |
 
 ### Backend — OSS (Supabase)
 

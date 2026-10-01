@@ -8,6 +8,7 @@ import logging
 from typing import Optional
 
 from app.dependencies.auth import _get_services
+from app.services.user_service import InsufficientCreditsError
 try:
     from app.utils.credits import validate_user_credits as _validate_credits
 except ImportError:
@@ -17,19 +18,10 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def _get_admin_storage():
-    """Lazy-import AdminStorage to avoid circular imports."""
-    try:
-        from app.adapters.aws.admin_storage import AdminStorage
-        return AdminStorage()
-    except ImportError:
-        return None  # OSS mirror: admin storage not available
-
-
 async def get_user_org_id(user_id: str) -> Optional[str]:
     """Get user's team org_id from the legacy profile service.
 
-    Used by Lambda-triggered endpoints that don't have a session cookie.
+    For callers that don't have a session cookie.
     Returns None for non-team users or on error.
     """
     try:
@@ -70,7 +62,7 @@ async def decrement_credit(
     scout_name: str = "",
     scout_type: str = "",
 ) -> bool:
-    """Atomically decrement credits and log a usage audit record.
+    """Decrement credits through the user storage adapter. Writes no usage record.
 
     Args:
         user_id: User ID.
@@ -88,39 +80,22 @@ async def decrement_credit(
         if org_id:
             try:
                 await user_service.decrement_org_credits(org_id, amount)
+            except InsufficientCreditsError:
+                logger.warning(f"Insufficient team credits for org {org_id}")
+                return False
             except Exception as e:
-                error_code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
-                if error_code == "ConditionalCheckFailedException":
-                    logger.warning(f"Insufficient team credits for org {org_id}")
-                    return False
                 # Fail closed on unknown errors — don't fall back to personal credits
                 logger.error(f"Org credit decrement failed for {org_id}: {e}")
                 return False
         else:
             await user_service.decrement_credits(user_id, amount)
         logger.info(f"Decremented {amount} credit(s) for {user_id} (org={org_id})")
-
-        # Fire-and-forget: write USAGE# audit record
-        try:
-            storage = _get_admin_storage()
-            if storage:
-                await storage.store_usage_record(
-                    user_id=user_id,
-                    amount=amount,
-                    operation=operation,
-                    scout_name=scout_name,
-                    scout_type=scout_type,
-                    org_id=org_id,
-                )
-        except Exception as usage_err:
-            logger.error(f"Failed to write USAGE# record for {user_id}: {usage_err}")
-
         return True
+    except InsufficientCreditsError:
+        logger.warning(f"Insufficient credits for {user_id}")
+        return False
     except Exception as e:
-        if hasattr(e, "response") and e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
-            logger.warning(f"Insufficient credits for {user_id}")
-        else:
-            logger.error(f"Failed to decrement credit for {user_id}: {e}")
+        logger.error(f"Failed to decrement credit for {user_id}: {e}")
         return False
 
 

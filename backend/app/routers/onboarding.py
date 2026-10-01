@@ -2,7 +2,7 @@
 User onboarding router.
 
 PURPOSE: Handles onboarding initialization, status checks, and tour completion.
-All user state is stored in DynamoDB via UserService.
+All user state is stored through UserService and the storage adapter.
 
 DEPENDS ON: dependencies (get_current_user), UserService
 USED BY: frontend (onboarding modal), main.py (router mount)
@@ -108,7 +108,7 @@ async def initialize_user(
 async def get_onboarding_status(user: dict = Depends(get_current_user)):
     """
     Check if user has completed onboarding/initialization.
-    Reads directly from the user dict (fetched from DynamoDB by get_current_user).
+    Reads directly from the user dict (loaded from storage by get_current_user).
     """
     completed = user.get("onboarding_completed", False)
     return {
@@ -120,7 +120,7 @@ async def get_onboarding_status(user: dict = Depends(get_current_user)):
 @router.post("/tour-complete")
 async def complete_onboarding_tour(user: dict = Depends(get_current_user)):
     """
-    Mark the onboarding tour as completed in DynamoDB.
+    Mark the onboarding tour as completed in storage.
     """
     user_id = user["user_id"]
 

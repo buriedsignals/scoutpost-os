@@ -1,12 +1,12 @@
 """
-Token encryption for sensitive fields stored in DynamoDB.
+Token encryption for sensitive fields at rest.
 
 PURPOSE: Encrypt CMS bearer tokens (and any future sensitive fields) before
 storage, decrypt on retrieval. Uses Fernet symmetric encryption with a key
 derived from SESSION_SECRET via PBKDF2.
 
 DEPENDS ON: config (session_secret)
-USED BY: adapters/aws/user_storage.py (CMS token encrypt/decrypt)
+USED BY: adapters/supabase/user_storage.py (CMS token encrypt/decrypt)
 """
 import base64
 import hashlib

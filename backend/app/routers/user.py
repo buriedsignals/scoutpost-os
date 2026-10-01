@@ -2,11 +2,11 @@
 User router for user-specific settings and preferences.
 
 PURPOSE: GET/PUT /user/preferences for language, timezone, excluded domains,
-and CMS configuration. Stores preferences in DynamoDB via UserService.
+and CMS configuration. Stores preferences through UserService and the storage adapter.
 GET /user/data-export for GDPR Art. 15 right of access.
 DELETE /user/delete-account for GDPR Art. 17 right to erasure.
 
-DEPENDS ON: dependencies (session auth), services/user_service (DynamoDB),
+DEPENDS ON: dependencies (session auth), services/user_service,
     models/responses (UserPreferencesResponse), dependencies/providers (adapters)
 USED BY: frontend (settings panel), main.py (router mount)
 """
@@ -101,11 +101,11 @@ async def get_user_preferences(
     user: dict = Depends(get_current_user)
 ):
     """
-    Get user's preferences from DynamoDB.
+    Get user's preferences from storage.
     """
     user_id = user.get("user_id")
 
-    # Fetch fresh from DynamoDB to get cms_api_url and has_cms_token
+    # Fetch fresh from storage to get cms_api_url and has_cms_token
     # (get_current_user doesn't include CMS fields)
     user_service = _get_user_service()
     try:
@@ -132,7 +132,7 @@ async def update_user_preferences(
     user: dict = Depends(get_current_user)
 ):
     """
-    Update user's preferred language, timezone, excluded domains, and/or CMS config in DynamoDB.
+    Update user's preferred language, timezone, excluded domains, and/or CMS config in storage.
     """
     user_id = user.get("user_id")
 

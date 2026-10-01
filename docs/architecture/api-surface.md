@@ -127,7 +127,7 @@ Still required:
 - `FIRECRAWL_API_KEY` — web scraping
 - `APIFY_API_TOKEN` — social scraping
 - `RESEND_API_KEY` — notifications
-- `INTERNAL_SERVICE_KEY` — Lambda → FastAPI auth (legacy; still used by adapters)
+- `INTERNAL_SERVICE_KEY` — internal service auth (`X-Service-Key`; still used by adapters)
 - `LINEAR_API_KEY` — feedback router
 
 The embedding model emits 768-dimensional vectors with tag

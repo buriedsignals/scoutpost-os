@@ -203,9 +203,8 @@ fi
 
 # -------------------------------------------------------------------
 # Scripts: keep the OSS-friendly smoke test; drop hosted SaaS-only
-# migration and user-announcement tooling.
+# user-announcement tooling.
 # -------------------------------------------------------------------
-rm -rf scripts/migrate/
 # Hosted SaaS-only user update sender. It resolves recipients from MuckRock in
 # memory and sends through the hosted Resend account without Scoutpost storage.
 rm -f scripts/ops/send-user-update-email.ts

@@ -1,9 +1,9 @@
 """
 Pricing constants and cost calculation functions.
 
-Pure data and math — no AWS or external service dependencies.
+Pure data and math — no external service dependencies.
 Extracted from credits.py so routers can import without pulling in
-boto3/UserService (which are stripped in the OSS mirror).
+UserService.
 """
 from typing import Optional
 

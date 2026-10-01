@@ -7,7 +7,7 @@ symlinks from /usr/share/zoneinfo. The tzdata PyPI package restores acceptance
 of deprecated names, but ZoneInfo does NOT canonicalize them — e.g.
 ZoneInfo("Asia/Calcutta").key returns "Asia/Calcutta", not "Asia/Kolkata".
 
-This module provides a thin normalization layer so DynamoDB always stores
+This module provides a thin normalization layer so storage always holds
 canonical IANA identifiers.
 
 DEPENDS ON: zoneinfo (stdlib), tzdata (PyPI — required on slim images)

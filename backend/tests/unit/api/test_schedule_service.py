@@ -2,29 +2,17 @@
 Unit tests for ScheduleService and utility functions.
 
 Tests cover:
-- sanitize_name() — character replacement and dash collapsing
-- build_schedule_name() — known pairs, max-length truncation, user_ prefix stripping
-- convert_floats_to_decimal() — recursive float→Decimal conversion
 - validate_url() — SSRF protection (localhost, private IPs, scheme checks)
-- sanitize_scout_name_for_sk() — # and | replacement
 - create_scout() — scout record + timezone-aware pg_cron schedule creation
 - list_scouts() — delegates to storage adapter
 - get_scout() — single-scout lookup via adapter
 - delete_scout() — delegates to scheduler + storage adapters
 """
-from decimal import Decimal
 from unittest.mock import MagicMock, AsyncMock
 
 import pytest
 
-from app.utils.schedule_naming import (
-    sanitize_name,
-    build_schedule_name,
-    convert_floats_to_decimal,
-    validate_url,
-    sanitize_scout_name_for_sk,
-    convert_decimals,
-)
+from app.utils.schedule_naming import validate_url
 from app.services.schedule_service import ScheduleService
 
 
@@ -57,161 +45,6 @@ def mock_cron_schedule():
     schedule.expression = "0 10 * * *"
     schedule.timezone = "Europe/Oslo"
     return schedule
-
-
-# ---------------------------------------------------------------------------
-# sanitize_name()
-# ---------------------------------------------------------------------------
-
-class TestSanitizeName:
-    def test_replaces_spaces(self):
-        assert sanitize_name("Daily News Report") == "Daily-News-Report"
-
-    def test_replaces_special_chars(self):
-        assert sanitize_name("test@#$%^&*()name") == "test-name"
-
-    def test_preserves_allowed_chars(self):
-        assert sanitize_name("my-scout_v2.0") == "my-scout_v2.0"
-
-    def test_collapses_consecutive_dashes(self):
-        assert sanitize_name("a   b---c") == "a-b-c"
-
-    def test_strips_leading_trailing_dashes(self):
-        assert sanitize_name("  hello  ") == "hello"
-
-    def test_empty_string(self):
-        assert sanitize_name("") == ""
-
-    def test_only_special_chars(self):
-        assert sanitize_name("@#$%") == ""
-
-    def test_preserves_alphanumeric(self):
-        assert sanitize_name("abc123XYZ") == "abc123XYZ"
-
-    def test_underscore_preserved(self):
-        assert sanitize_name("DEV_Test_Scout") == "DEV_Test_Scout"
-
-
-# ---------------------------------------------------------------------------
-# build_schedule_name()
-# ---------------------------------------------------------------------------
-
-class TestBuildScheduleName:
-    def test_known_pair_uuid(self):
-        """UUID user ID produces correct schedule name."""
-        result = build_schedule_name(
-            "c6ac7e0c-35fd-48d0-9b76-7eb7acd48f2c",
-            "DEV_Tromso Real estate",
-        )
-        assert result == "scout-c6ac7e0c-35f-255fcbd3-DEV_Tromso-Real-estate"
-
-    def test_known_pair_prefixed_id(self):
-        """MuckRock-style user_xxx ID strips prefix."""
-        result = build_schedule_name("user_2abc3def", "Daily Zurich News")
-        assert result == "scout-2abc3def-9b68f4c1-Daily-Zurich-News"
-
-    def test_max_64_chars(self):
-        """Output never exceeds 64 characters."""
-        long_name = "A" * 200
-        result = build_schedule_name("user_12345678", long_name)
-        assert len(result) <= 64
-
-    def test_strips_user_prefix(self):
-        """'user_' prefix is removed from uid."""
-        result = build_schedule_name("user_abcdef123456", "test")
-        assert "user_" not in result
-        assert result.startswith("scout-abcdef123456-")
-
-    def test_empty_name_after_sanitize(self):
-        """Falls back to uid+hash when name sanitizes to empty."""
-        result = build_schedule_name("user_abc", "@#$%")
-        # Name part is empty, so format is scout-{uid}-{hash}
-        assert result.startswith("scout-abc-")
-        assert result.count("-") == 2  # scout-abc-hash
-
-    def test_deterministic(self):
-        """Same inputs always produce the same output."""
-        a = build_schedule_name("user-123", "test scout")
-        b = build_schedule_name("user-123", "test scout")
-        assert a == b
-
-    def test_different_names_different_hashes(self):
-        """Different scout names produce different hashes."""
-        a = build_schedule_name("user-123", "scout A")
-        b = build_schedule_name("user-123", "scout B")
-        assert a != b
-
-    def test_trailing_dash_stripped_from_truncated_name(self):
-        """Name part doesn't end with a dash after truncation."""
-        name = "A" * 44 + " "  # space becomes dash, giving 45 chars with trailing dash
-        result = build_schedule_name("user_abc", name)
-        assert not result.endswith("-")
-
-
-# ---------------------------------------------------------------------------
-# convert_floats_to_decimal()
-# ---------------------------------------------------------------------------
-
-class TestConvertFloatsToDecimal:
-    def test_simple_float(self):
-        result = convert_floats_to_decimal(3.14)
-        assert result == Decimal("3.14")
-        assert isinstance(result, Decimal)
-
-    def test_nested_dict(self):
-        data = {"lat": 59.95, "lng": 10.75}
-        result = convert_floats_to_decimal(data)
-        assert result == {"lat": Decimal("59.95"), "lng": Decimal("10.75")}
-
-    def test_nested_list(self):
-        data = [1.0, 2.5, 3.7]
-        result = convert_floats_to_decimal(data)
-        assert all(isinstance(v, Decimal) for v in result)
-
-    def test_deeply_nested(self):
-        data = {"location": {"coordinates": [59.95, 10.75]}}
-        result = convert_floats_to_decimal(data)
-        assert isinstance(result["location"]["coordinates"][0], Decimal)
-
-    def test_preserves_non_float_types(self):
-        data = {"name": "test", "count": 42, "active": True, "items": None}
-        result = convert_floats_to_decimal(data)
-        assert result == data
-
-    def test_empty_dict(self):
-        assert convert_floats_to_decimal({}) == {}
-
-    def test_empty_list(self):
-        assert convert_floats_to_decimal([]) == []
-
-    def test_string_unchanged(self):
-        assert convert_floats_to_decimal("hello") == "hello"
-
-
-# ---------------------------------------------------------------------------
-# convert_decimals() — reverse direction
-# ---------------------------------------------------------------------------
-
-class TestConvertDecimals:
-    def test_decimal_with_fraction_to_float(self):
-        result = convert_decimals(Decimal("3.14"))
-        assert result == 3.14
-        assert isinstance(result, float)
-
-    def test_decimal_integer_to_int(self):
-        result = convert_decimals(Decimal("42"))
-        assert result == 42
-        assert isinstance(result, int)
-
-    def test_nested_dict(self):
-        data = {"lat": Decimal("59.95"), "count": Decimal("5")}
-        result = convert_decimals(data)
-        assert result == {"lat": 59.95, "count": 5}
-
-    def test_nested_list(self):
-        data = [Decimal("1.0"), Decimal("2")]
-        result = convert_decimals(data)
-        assert result == [1.0, 2]
 
 
 # ---------------------------------------------------------------------------
@@ -262,30 +95,6 @@ class TestValidateUrl:
 
     def test_rejects_no_scheme(self):
         assert validate_url("example.com") is False
-
-
-# ---------------------------------------------------------------------------
-# sanitize_scout_name_for_sk()
-# ---------------------------------------------------------------------------
-
-class TestSanitizeScoutNameForSk:
-    def test_replaces_hash(self):
-        assert sanitize_scout_name_for_sk("test#name") == "test-name"
-
-    def test_replaces_pipe(self):
-        assert sanitize_scout_name_for_sk("test|name") == "test-name"
-
-    def test_replaces_both(self):
-        assert sanitize_scout_name_for_sk("a#b|c#d") == "a-b-c-d"
-
-    def test_strips_whitespace(self):
-        assert sanitize_scout_name_for_sk("  name  ") == "name"
-
-    def test_preserves_other_chars(self):
-        assert sanitize_scout_name_for_sk("my-scout_v2") == "my-scout_v2"
-
-    def test_empty_string(self):
-        assert sanitize_scout_name_for_sk("") == ""
 
 
 # ---------------------------------------------------------------------------

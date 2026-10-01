@@ -9,12 +9,14 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from botocore.exceptions import ClientError
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-TABLE_NAME = "scraping-jobs"
+
+class InsufficientCreditsError(Exception):
+    """The storage adapter refused a credit decrement because the balance is too low."""
+
 
 # Tier hierarchy for resolution
 TIER_RANK = {"free": 0, "pro": 1, "team": 2}
@@ -231,15 +233,11 @@ class UserService:
         """
         Atomically decrement user credits.
 
-        Raises botocore.exceptions.ClientError (ConditionalCheckFailedException)
-        if insufficient balance (adapter returns False).
+        Raises InsufficientCreditsError if the adapter refuses the decrement.
         """
         success = await self.storage.decrement_credits(user_id, amount)
         if not success:
-            raise ClientError(
-                {"Error": {"Code": "ConditionalCheckFailedException", "Message": "Insufficient credits"}},
-                "UpdateItem",
-            )
+            raise InsufficientCreditsError("Insufficient credits")
 
     async def _get_balance(self, user_id: str) -> int:
         """Get current credit balance."""
@@ -257,7 +255,7 @@ class UserService:
         """
         Create ORG#{org_id}/CREDITS record if it doesn't already exist.
 
-        Idempotent: adapter handles ConditionalCheckFailedException silently.
+        Idempotent: the adapter ignores an existing record.
         """
         await self.storage.create_org(
             org_id=org_id, monthly_cap=monthly_cap,
@@ -280,15 +278,11 @@ class UserService:
         """
         Atomically decrement org credits.
 
-        Raises botocore.exceptions.ClientError (ConditionalCheckFailedException)
-        if insufficient balance (adapter returns False).
+        Raises InsufficientCreditsError if the adapter refuses the decrement.
         """
         success = await self.storage.decrement_org_credits(org_id, amount)
         if not success:
-            raise ClientError(
-                {"Error": {"Code": "ConditionalCheckFailedException", "Message": "Insufficient org credits"}},
-                "UpdateItem",
-            )
+            raise InsufficientCreditsError("Insufficient org credits")
 
     async def claim_seat(self, org_id: str, user_id: str, tier_before_team: str) -> bool:
         """

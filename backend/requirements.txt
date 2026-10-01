@@ -24,8 +24,6 @@ python-dotenv==1.2.2
 # Data processing (numpy used by embedding_utils)
 numpy>=1.24.0
 
-# AWS SDK (for DynamoDB)
-boto3>=1.35.0
 # Rate limiting
 slowapi>=0.1.9
 
