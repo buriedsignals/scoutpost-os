@@ -15,7 +15,9 @@ def _write(path: Path, content: str) -> None:
 
 def test_public_skills_route_serves_prerendered_html(monkeypatch, tmp_path):
     _write(tmp_path / "index.html", "<html>root</html>")
-    _write(tmp_path / "skills/index.html", "<html>skills</html>")
+    # adapter-static's real output: skills.html beside the static skills/ dir.
+    _write(tmp_path / "skills.html", "<html>skills</html>")
+    _write(tmp_path / "skills/scoutpost.md", "# Scoutpost skill\n")
     monkeypatch.setattr(main, "FRONTEND_DIST", tmp_path)
 
     res = TestClient(app).get("/skills")

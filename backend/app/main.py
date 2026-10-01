@@ -146,9 +146,12 @@ def _serve_frontend_route(path: str) -> Response:
     if path == "/":
         return _serve_frontend_index()
 
-    route_path = _frontend_file(f"{path.strip('/')}/index.html")
-    if route_path.exists():
-        return FileResponse(route_path, headers=_SPA_NO_CACHE_HEADERS)
+    # adapter-static writes prerendered routes as <route>.html, or as
+    # <route>/index.html when a static directory of the same name exists.
+    route = path.strip("/")
+    for route_path in (_frontend_file(f"{route}.html"), _frontend_file(f"{route}/index.html")):
+        if route_path.is_file():
+            return FileResponse(route_path, headers=_SPA_NO_CACHE_HEADERS)
 
     return _serve_frontend_index()
 
