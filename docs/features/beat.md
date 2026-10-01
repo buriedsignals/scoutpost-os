@@ -18,7 +18,7 @@ and deduplication; weekly is the highest supported frequency.
 
 Both flows expose a source mode toggle so users can switch between niche and reliable. The backend pipeline is identical; only the default parameters differ.
 
-**`topic` vs `criteria` vs `description`:** The `criteria` field is the search/filter driver (keywords, inclusion/exclusion rules, thresholds, and notification requirements). The `topic` field is only for organization and UI filtering: store 1-3 short comma-separated tags such as `housing, council, budget`, not a sentence. The optional `description` field is human/agent context shown on scout cards. Every scout must have either a location or topic tags so it can be scoped and browsed. `BeatSearchRequest` has no `topic` field. `BeatExecuteRequest` has both: if `criteria` is empty but `topic` is set, `topic` is copied to `criteria` for backward compatibility with old SCRAPER# records.
+**`topic` vs `criteria` vs `description`:** The `criteria` field is the search/filter driver (keywords, inclusion/exclusion rules, thresholds, and notification requirements). The `topic` field is only for organization and UI filtering: store 1-3 short comma-separated tags such as `housing, council, budget`, not a sentence. The optional `description` field is human/agent context shown on scout cards. Every scout must have either a location or topic tags so it can be scoped and browsed. The `beat-search` preview takes no `topic` field.
 
 ## Execution Pipeline
 
@@ -193,7 +193,7 @@ default behavior, including Page Scout extraction, is unchanged.
 | **Criteria-only** | `criteria` set, no `location` | Criteria searches globally |
 | **Combined** | Both `location` and `criteria` | Criteria searches scoped to location |
 
-**Validation:** At least one of `location` or `criteria` must be provided (enforced by `BeatSearchRequest` and `BeatExecuteRequest`).
+**Validation:** At least one of `location` or `criteria` must be provided (enforced by the `beat-search` Edge Function).
 
 ## Source Modes
 

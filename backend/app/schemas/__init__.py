@@ -4,12 +4,6 @@ from app.schemas.scouts import (
     GeocodedLocation,
     Coordinates,
 )
-from app.schemas.beat import (
-    BeatSearchRequest,
-    BeatSearchResponse,
-    BeatExecuteRequest,
-    BeatExecuteResponse,
-)
 from app.schemas.units import (
     AtomicInformationUnit,
     UnitsResponse,
@@ -24,11 +18,6 @@ __all__ = [
     "AINewsArticle",
     "GeocodedLocation",
     "Coordinates",
-    # Beat schemas
-    "BeatSearchRequest",
-    "BeatSearchResponse",
-    "BeatExecuteRequest",
-    "BeatExecuteResponse",
     # Unit schemas
     "AtomicInformationUnit",
     "UnitsResponse",

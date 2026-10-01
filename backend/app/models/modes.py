@@ -5,7 +5,7 @@ PURPOSE: Literal types and enums shared across request models and services
 for scout type, schedule regularity, and monitoring channel.
 
 DEPENDS ON: (stdlib only)
-USED BY: models/responses.py, schemas/beat.py, schemas/social.py,
+USED BY: models/responses.py, schemas/social.py,
     schemas/v1.py, services/cron.py
 """
 from enum import Enum
