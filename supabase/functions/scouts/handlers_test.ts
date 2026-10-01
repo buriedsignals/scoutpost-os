@@ -3,8 +3,8 @@ import {
   assertRejects,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import type { AuthedUser } from "../_shared/auth.ts";
-import { NotFoundError, ValidationError } from "../_shared/errors.ts";
-import { createScout, getScout, testScout } from "./handlers.ts";
+import { ConflictError, NotFoundError, ValidationError } from "../_shared/errors.ts";
+import { createScout, getScout, runScout, testScout } from "./handlers.ts";
 
 const OWNER = "11111111-1111-4111-8111-111111111111";
 const OTHER_OWNER = "22222222-2222-4222-8222-222222222222";
@@ -230,5 +230,25 @@ Deno.test("Scheduled Page baseline failure rolls back only the newly owned Scout
     assertEquals(inserted, true);
     assertEquals(scheduled, false);
     assertEquals(deleted, [`eq.${SCOUT_ID}`, `eq.${OWNER}`]);
+  });
+});
+
+Deno.test("Run Now refuses a Beat Scout until its background baseline lands", async () => {
+  let row: Record<string, unknown> = { id: SCOUT_ID, is_active: true, type: "beat", baseline_established_at: null };
+  let triggered = 0;
+  await withBoundary((url) => {
+    if (url.pathname === "/rest/v1/scouts") return Response.json(row);
+    if (url.pathname === "/rest/v1/rpc/trigger_scout_run") {
+      triggered++;
+      return Response.json(BODY_ID);
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  }, async () => {
+    await assertRejects(() => runScout(user, SCOUT_ID), ConflictError, "baseline");
+    assertEquals(triggered, 0);
+    row = { ...row, baseline_established_at: "2026-10-01T14:05:00Z" };
+    const accepted = await runScout(user, SCOUT_ID);
+    assertEquals(accepted.status, 202);
+    assertEquals(triggered, 1);
   });
 });

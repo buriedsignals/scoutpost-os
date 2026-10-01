@@ -1944,7 +1944,7 @@ async function runScout(user: AuthedUser, id: string): Promise<Response> {
   const { db } = getCallerClient(user);
   const { data: scout, error: readErr } = await db
     .from("scouts")
-    .select("id, is_active")
+    .select("id, is_active, type, baseline_established_at")
     .eq("id", id)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -1952,6 +1952,13 @@ async function runScout(user: AuthedUser, id: string): Promise<Response> {
   if (!scout) throw new NotFoundError("scout");
   if (scout.is_active === false) {
     throw new ConflictError("scout is paused");
+  }
+  // Beat creation establishes its baseline in the background; a manual run
+  // before it lands is accepted and then fails with no_baseline. Refuse it.
+  if (scout.type === "beat" && !scout.baseline_established_at) {
+    throw new ConflictError(
+      "beat scout is still establishing its baseline; try Run Now again in a few minutes",
+    );
   }
 
   const svc = getServiceClient();
