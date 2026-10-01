@@ -135,8 +135,10 @@ export function createAuthStore(
 
 	let initialized = false;
 
+
 	return {
 		subscribe,
+
 
 		/**
 		 * Initialize auth state by checking Supabase session.
@@ -173,7 +175,9 @@ export function createAuthStore(
 							});
 							if (response.ok) {
 								const data = await response.json();
-								update((s) => ({ ...s, user: { ...sessionUser, ...data } }));
+								update((s) => s.authenticated && s.user?.user_id === sessionUser.user_id
+									? { ...s, user: { ...s.user, ...data } }
+									: s);
 							}
 						} catch {
 							/* keep session-derived user */

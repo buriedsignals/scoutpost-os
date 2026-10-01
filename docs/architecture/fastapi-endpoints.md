@@ -213,6 +213,7 @@ magiclink, resolve it server-side, then redirect the browser to
 Hosted production no longer serves `/api/auth/me`; the frontend now reads user
 state from Supabase and enriches via the `user` Edge Function (`GET /user/me`).
 
+
 **Response:**
 ```json
 {

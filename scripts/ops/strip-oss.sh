@@ -132,6 +132,8 @@ remove_hosted_shared_file "${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER}.ts"
 remove_hosted_shared_file "${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER}.test.ts"
 remove_hosted_shared_file entitlements.ts
 remove_hosted_shared_file entitlements.test.ts
+remove_hosted_shared_file user_entitlement_sync_test.ts
+rm -f frontend/src/tests/components/hosted-entitlement-sync.test.ts
 remove_hosted_shared_file muckrock.ts
 remove_hosted_shared_file account_deletion.ts
 remove_hosted_shared_file account_deletion_test.ts
@@ -150,6 +152,8 @@ sed_if_exists -i '/^Hosted account deletion is a separate/,+5d' AGENTS.md
 sed_if_exists -i '/^- \*\*Pending deletion guard:/,+2d' backend/AGENTS.md
 sed_if_exists -i '/^Hosted Preferences account deletion/,+4d' frontend/AGENTS.md
 sed_if_exists -i '/^Hosted account deletion is initiated/,+6d' docs/architecture/developer-guide.md
+sed_if_exists -i '/^<!-- HOSTED_ENTITLEMENT_SYNC_START -->$/,/^<!-- HOSTED_ENTITLEMENT_SYNC_END -->$/d' docs/architecture/fastapi-endpoints.md
+sed_if_exists -i '\|/user/sync-entitlements|d' docs/supabase/edge-functions.md
 sed_if_exists -i '/^After that existing admission decision/,+9d' docs/architecture/fastapi-endpoints.md
 sed_if_exists -i 's|Current user / preferences / timezone + hosted account-deletion gate|Current user / preferences / timezone|' docs/architecture/api-surface.md
 sed_if_exists -i "/^Indicator eligibility mode is a reviewed source-code decision, not an$/,+3d" AGENTS.md
@@ -387,6 +391,11 @@ rewrite(
     "frontend/src/lib/stores/auth-supabase.ts",
     [
         (
+            r"\n[ \t]*// HOSTED_ENTITLEMENT_SYNC(?:_[A-Z_]+)?_START\n.*?// HOSTED_ENTITLEMENT_SYNC(?:_[A-Z_]+)?_END\n",
+            "\n",
+            re.DOTALL,
+        ),
+        (
             r"\n\t\tentitlement_source:\n\t\t\ttypeof metadata\.entitlement_source === 'string' \|\| metadata\.entitlement_source === null\n\t\t\t\t\? metadata\.entitlement_source\n\t\t\t\t: null,",
             "",
             0,
@@ -488,6 +497,11 @@ rewrite(
 rewrite(
     "supabase/functions/user/index.ts",
     [
+        (
+            r"\n[ \t]*// HOSTED_ENTITLEMENT_SYNC_START\n.*?// HOSTED_ENTITLEMENT_SYNC_END\n",
+            "\n",
+            re.DOTALL,
+        ),
         (r"\n  requireIdentity,", "", 0),
         (
             r"\n// HOSTED_ACCOUNT_DELETION_START\n.*?// HOSTED_ACCOUNT_DELETION_END\n",
@@ -877,6 +891,7 @@ HOSTED_ONLY_SHARED_FILES=(
   "${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER}.test.ts"
   entitlements.ts
   entitlements.test.ts
+  user_entitlement_sync_test.ts
   muckrock.ts
   account_deletion.ts
   account_deletion_test.ts

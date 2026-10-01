@@ -226,6 +226,7 @@ async function getMe(user: AuthedUser): Promise<Response> {
   return jsonOk(body);
 }
 
+
 async function getPreferences(user: AuthedUser): Promise<Response> {
   const db = getUserClient(user.token);
   const { data, error } = await db
