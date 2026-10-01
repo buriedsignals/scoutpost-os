@@ -156,13 +156,14 @@ sed_if_exists -i '/^<!-- HOSTED_ENTITLEMENT_SYNC_START -->$/,/^<!-- HOSTED_ENTIT
 sed_if_exists -i '\|/user/sync-entitlements|d' docs/supabase/edge-functions.md
 sed_if_exists -i '/^After that existing admission decision/,+9d' docs/architecture/fastapi-endpoints.md
 sed_if_exists -i 's|Current user / preferences / timezone + hosted account-deletion gate|Current user / preferences / timezone|' docs/architecture/api-surface.md
-sed_if_exists -i "/^Indicator eligibility mode is a reviewed source-code decision, not an$/,+3d" AGENTS.md
+sed_if_exists -i "/^Indicator eligibility mode is a reviewed source-code decision, not an$/,+4d" AGENTS.md
 sed_if_exists -i "/^DEFAULT_BEEHIIV_LAB_TIER_ID = /d" backend/app/config.py
-sed_if_exists -i "/^    # Beehiiv \\/ Indicator entitlement lookup/,+8d" backend/app/config.py
+sed_if_exists -i "/^    # Beehiiv \\/ Indicator Lab entitlement lookup/,+10d" backend/app/config.py
 sed_if_exists -i "s|, apply hosted entitlements including ${HOSTED_NEWSLETTER_ENTITLEMENT_PROVIDER_TITLE} Indicator paid or Lab Pro||" docs/architecture/fastapi-endpoints.md
 rm -f supabase/migrations/00065_indicator_claims.sql
 rm -f supabase/migrations/00108_indicator_access_window.sql
 rm -f supabase/migrations/00109_indicator_manual_access_policy.sql
+rm -f supabase/migrations/20261001150000_indicator_lab_only.sql
 rm -f supabase/tests/indicator_access_policy.sql
 rm -f docs/operations/indicator-access-policy.md
 
