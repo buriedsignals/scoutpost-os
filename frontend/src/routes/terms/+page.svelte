@@ -15,7 +15,7 @@
 		{#if getLocale() !== 'en'}<p role="note" lang={getLocale()}>{m.docs_englishOriginal()}</p>{/if}
 
 		<h1>Terms of Use & Privacy Policy</h1>
-		<p class="updated">Last updated: September 30, 2026</p>
+		<p class="updated">Last updated: October 1, 2026</p>
 
 		<section>
 			<h2>What Scoutpost Is</h2>
