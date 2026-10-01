@@ -195,7 +195,8 @@ export function createScoutBodyForMcp(
 // directory. destructive covers deletes, overwrites, pausing, runs that can send
 // notifications and creation that can submit pages to the public Wayback Machine;
 // tests and previews that persist records are not read-only; openWorld covers
-// tools that can reach arbitrary public URLs or live external data.
+// tools that can reach arbitrary public URLs or live external data, or share
+// records beyond the caller (project visibility "team").
 interface ToolAnnotations {
   readOnlyHint: boolean;
   destructiveHint: boolean;
@@ -1122,7 +1123,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "create_project",
-    annotations: WRITE,
+    annotations: WRITE_WEB,
     description:
       "Create a new investigation project (a workspace for grouping scouts + units).",
     inputSchema: {
@@ -1156,7 +1157,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "update_project",
-    annotations: DESTRUCTIVE,
+    annotations: DESTRUCTIVE_WEB,
     description: "Patch a project — name, description, visibility, or tags.",
     inputSchema: {
       type: "object",
