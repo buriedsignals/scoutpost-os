@@ -214,6 +214,11 @@ class SPAStaticFiles(StaticFiles):
                 raise
             if _is_asset_path(path):
                 return Response(status_code=404, headers=_NO_STORE_HEADERS)
+            # Prerendered routes (adapter-static writes /terms as terms.html)
+            # must reach crawlers as real HTML, not the empty SPA shell.
+            prerendered = self._prerendered_page(path)
+            if prerendered:
+                return FileResponse(prerendered, headers=_SPA_NO_CACHE_HEADERS)
             index_path = os.path.join(self.directory, "index.html")
             if not os.path.exists(index_path):
                 return Response(status_code=404, headers=_NO_STORE_HEADERS)
@@ -229,6 +234,17 @@ class SPAStaticFiles(StaticFiles):
                 if str(served_path).endswith("index.html"):
                     response.headers["cache-control"] = "no-cache, must-revalidate"
         return response
+
+
+    def _prerendered_page(self, path: str) -> str | None:
+        route = path.strip("/")
+        if not route or "." in route.rsplit("/", 1)[-1]:
+            return None
+        root = os.path.realpath(self.directory)
+        candidate = os.path.realpath(os.path.join(root, f"{route}.html"))
+        if not candidate.startswith(root + os.sep) or not os.path.isfile(candidate):
+            return None
+        return candidate
 
 
 class EmailStaticFiles(StaticFiles):

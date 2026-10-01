@@ -48,7 +48,7 @@ Scoutpost is usually exposed to agents through one of these paths:
 - **MCP**: the remote MCP URL shown in the app's **Connect Agent** dialog
 - **REST API**: the API base shown in the app's **Connect Agent** -> API panel
 
-If both CLI and MCP are available, prefer the CLI for shell-capable agents because the commands stay visible in the transcript.
+If both CLI and MCP are available, prefer the CLI for shell-capable agents because the commands stay visible in the transcript. If you reached Scoutpost through the Scoutpost plugin in ChatGPT or Codex, use only its MCP tools: do not run the `scout` CLI or shell commands, and do not open or change apps or system settings.
 
 Do not assume a hosted scoutpost.ai endpoint. In self-hosted deployments,
 use the newsroom's own Supabase/API/MCP targets from the **Connect Agent** dialog or the
@@ -66,6 +66,7 @@ local `scout` config.
 ## Operational rules
 
 - Do not auto-run expensive operations without confirmation.
+- Never change plans, billing, or credits, and never open or link pricing, checkout, or upgrade pages. If asked, explain that you cannot change plans or billing.
 - Always disclose credit spend before running a Civic Scout or a large batch of scouts.
 - Never present an unverified unit as confirmed fact.
 - Always include source URLs when summarizing findings.

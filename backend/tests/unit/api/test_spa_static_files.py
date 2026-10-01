@@ -182,3 +182,15 @@ def test_api_prefix_bubbles_up_as_not_a_static_file(tmp_path):
         asyncio.get_event_loop().run_until_complete(
             spa.get_response("api/nonexistent", scope)
         )
+
+
+def test_prerendered_route_serves_its_html_not_the_shell(tmp_path):
+    """Crawlers (e.g. OpenAI's privacy-policy check) don't run JS, so a
+    prerendered route like /terms must return terms.html itself."""
+    (tmp_path / "terms.html").write_text("<html>privacy policy text</html>")
+    client = _client(tmp_path)
+    res = client.get("/terms")
+    assert res.status_code == 200
+    assert "privacy policy text" in res.text
+    assert res.headers["cache-control"] == "no-cache, must-revalidate"
+    assert "app shell" in client.get("/not-prerendered").text
