@@ -13,8 +13,6 @@
 	let heroCopyEl: HTMLElement;
 	let authPanelEl: HTMLElement;
 	let signal = 0;
-	let storyEl: HTMLElement;
-	let scrolled = false;
 	let postLoginNavigationStarted = false;
 	const isSupabaseDeployment = import.meta.env.PUBLIC_DEPLOYMENT_TARGET === 'supabase';
 	const selfHostLoginNote = (import.meta.env.PUBLIC_SELF_HOST_LOGIN_NOTE ?? '').trim();
@@ -147,10 +145,6 @@
 	onMount(() => {
 		mounted = true;
 
-		const onScroll = () => (scrolled = window.scrollY > 60);
-		onScroll();
-		window.addEventListener('scroll', onScroll, { passive: true });
-
 		const unsubscribe = auth.subscribe(async (state) => {
 			if (state.authenticated) {
 				await navigateAfterLogin();
@@ -181,7 +175,6 @@
 		return () => {
 			unsubscribe();
 			observer?.disconnect();
-			window.removeEventListener('scroll', onScroll);
 		};
 	});
 </script>
@@ -215,19 +208,6 @@
 				<h2 class="subheadline">
 					{m.login_connectDescription()} <span class="highlight-accent">{m.login_focusReporting()}</span>.
 				</h2>
-
-				<button
-					type="button"
-					class="scroll-cue"
-					class:scroll-cue--gone={scrolled}
-					aria-label={m.login_scrollLearn()}
-					onclick={() => storyEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-				>
-					<span class="scroll-cue-ring">
-						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9.5l6 6 6-6" /></svg>
-					</span>
-					<span class="scroll-cue-line" aria-hidden="true"></span>
-				</button>
 			</div>
 		</header>
 
@@ -320,16 +300,27 @@
 		</div>
 
 		<!-- Story / marketing panel -->
-		<div class="story-panel" class:mounted bind:this={storyEl}>
+		<div class="story-panel" class:mounted>
 			<div class="description-block">
-				<a
-					href="https://buriedsignals.com"
-					target="_blank"
-					rel="noopener noreferrer"
-					class="built-by-link"
-				>
-					{m.login_builtBy()} <strong>Buried Signals</strong> ↗
-				</a>
+				<div class="credits-row">
+					<a
+						href="https://buriedsignals.com"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="built-by-link"
+					>
+						{m.login_builtBy()} <strong>Buried Signals</strong> ↗
+					</a>
+					<a
+						href="https://www.imj.ch"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="supported-by-link"
+					>
+						<span>{m.login_supportedBy()}</span>
+						<img src="/logos/logo_imj_schwarz.svg" alt="IMJ" class="supported-by-logo" />
+					</a>
+				</div>
 
 				<hr class="works-with-divider" />
 				<div class="works-with">
@@ -655,15 +646,6 @@
 					</div>
 				</div>
 			</div>
-
-			<div class="footer-badges-container">
-				<div class="footer-group">
-					<p class="footer-label">{m.login_supportedBy()}</p>
-					<a href="https://www.imj.ch" target="_blank" rel="noopener noreferrer">
-						<img src="/logos/logo_imj_schwarz.svg" alt="IMJ" class="footer-logo footer-logo-imj footer-logo-desaturated" />
-					</a>
-				</div>
-			</div>
 		</div>
 	</div>
 </div>
@@ -704,90 +686,6 @@
 		padding-top: 2rem;
 	}
 
-	/* Scroll cue: the scope ring with a chevron, and a sightline dropping toward the content. */
-	.scroll-cue {
-		display: none;
-		align-items: center;
-		gap: 0.875rem;
-		margin-top: 2.25rem;
-		padding: 0;
-		background: none;
-		border: 0;
-		cursor: pointer;
-		color: var(--color-ink);
-	}
-
-	@media (min-width: 1024px) {
-		.scroll-cue {
-			display: inline-flex;
-		}
-	}
-
-	.scroll-cue-ring {
-		display: grid;
-		place-items: center;
-		width: 2.75rem;
-		height: 2.75rem;
-		border: 1.5px solid var(--scope-teal);
-		border-radius: 50%;
-		transition: border-color 200ms ease, background 200ms ease;
-	}
-
-	.scroll-cue-ring svg {
-		width: 1.125rem;
-		height: 1.125rem;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 2;
-		stroke-linecap: round;
-		stroke-linejoin: round;
-		animation: cue-bob 1.8s ease-in-out infinite;
-	}
-
-	.scroll-cue-line {
-		position: relative;
-		width: 4.5rem;
-		height: 1px;
-		background: oklch(0.94 0.008 200 / 0.18);
-		overflow: hidden;
-	}
-
-	.scroll-cue-line::after {
-		content: '';
-		position: absolute;
-		inset: 0;
-		background: var(--color-primary);
-		transform: translateX(-100%);
-		animation: cue-sweep 1.8s cubic-bezier(0.6, 0, 0.3, 1) infinite;
-	}
-
-	.scroll-cue:hover .scroll-cue-ring,
-	.scroll-cue:focus-visible .scroll-cue-ring {
-		border-color: var(--color-primary);
-		background: oklch(0.79 0.08 78 / 0.12);
-	}
-
-	.scroll-cue:focus-visible {
-		outline: none;
-	}
-
-	.hero.mounted .hero-copy > .scroll-cue--gone {
-		opacity: 0;
-		transform: translateY(8px);
-		transition-delay: 0ms;
-		pointer-events: none;
-	}
-
-	@keyframes cue-bob {
-		0%, 100% { transform: translateY(-2px); }
-		50% { transform: translateY(3px); }
-	}
-
-	@keyframes cue-sweep {
-		0% { transform: translateX(-100%); }
-		60%, 100% { transform: translateX(100%); }
-	}
-
 	.hero-copy {
 		max-width: 46rem;
 	}
@@ -799,9 +697,10 @@
 		}
 
 		.hero {
-			/* Stops short of the fold so the next section visibly peeks in. */
-			min-height: calc(100svh - 3.5rem);
-			padding-bottom: clamp(2.5rem, 6vh, 4.5rem);
+			/* Ends well above the fold so the credits and Works With row sit on the
+			   first screen; the subtracted height keeps the logo where it was. */
+			min-height: calc(100svh - 7rem - clamp(2.5rem, 6vh, 4.5rem));
+			padding-bottom: 1.5rem;
 		}
 	}
 
@@ -1276,7 +1175,6 @@
 	.hero.mounted .hero-copy > :nth-child(1) { transition-delay: 250ms; }
 	.hero.mounted .hero-copy > :nth-child(2) { transition-delay: 420ms; }
 	.hero.mounted .hero-copy > :nth-child(3) { transition-delay: 600ms; }
-	.hero.mounted .hero-copy > :nth-child(4) { transition-delay: 1100ms; }
 
 	.headline-logo {
 		display: block;
@@ -1323,7 +1221,7 @@
 	.works-with-divider {
 		border: 0;
 		border-top: 1px solid var(--color-border);
-		margin: 0.5rem 0 1rem 0;
+		margin: 0;
 		width: 100%;
 	}
 
@@ -1415,8 +1313,45 @@
 		font-weight: 500;
 	}
 
+	.credits-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem 2rem;
+	}
+
+	.supported-by-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.625rem;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		font-weight: 500;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--color-ink-muted);
+		text-decoration: none;
+		transition: color 150ms ease;
+	}
+
+	.supported-by-logo {
+		height: 1.5rem;
+		width: auto;
+		filter: grayscale(1) invert(1);
+		opacity: 0.8;
+		transition: opacity 150ms ease;
+	}
+
+	.supported-by-link:hover {
+		color: var(--color-primary);
+	}
+
+	.supported-by-link:hover .supported-by-logo {
+		opacity: 1;
+	}
+
 	.built-by-link {
-		align-self: flex-start;
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
@@ -1885,55 +1820,6 @@
 		color: var(--color-primary);
 	}
 
-	/* ──────────────────────────────────────────────────────────
-	   Footer badges
-	   ────────────────────────────────────────────────────────── */
-	.footer-badges-container {
-		display: flex;
-		flex-direction: row;
-		flex-wrap: wrap;
-		justify-content: flex-start;
-		gap: 2rem;
-		padding-top: 2rem;
-		border-top: 1px solid var(--color-border);
-	}
-
-	.footer-group {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		align-items: flex-start;
-	}
-
-	.footer-label {
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--color-ink-subtle);
-		margin: 0;
-	}
-
-	.footer-logo {
-		height: 2.25rem;
-		opacity: 0.55;
-		transition: opacity 150ms ease;
-	}
-
-	.footer-logo:hover {
-		opacity: 0.9;
-	}
-
-	.footer-logo-imj {
-		height: 2rem;
-		margin-top: 2px;
-	}
-
-	.footer-logo-desaturated {
-		filter: grayscale(1) invert(1);
-	}
-
 	.feature-icon,
 	.auth-input,
 	.auth-cta-link,
@@ -1958,12 +1844,6 @@
 	   Responsive adjustments
 	   ────────────────────────────────────────────────────────── */
 	@media (max-width: 640px) {
-		.footer-badges-container {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 1.25rem;
-		}
-
 		.headline-logo {
 			height: 2.25rem;
 		}
@@ -2018,9 +1898,6 @@
 		}
 		.auth-mark-ping {
 			display: none;
-		}
-		.scroll-cue-ring svg, .scroll-cue-line::after {
-			animation: none;
 		}
 	}
 </style>
