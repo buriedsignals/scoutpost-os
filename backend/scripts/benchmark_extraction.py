@@ -28,7 +28,7 @@ Usage:
 
     # Compare two models side-by-side (runs both, prints diff):
     python3 scripts/benchmark_extraction.py \
-        --provider gemini --model gemini-2.5-flash-lite \
+        --provider openrouter --model google/gemini-3.1-flash-lite \
         --compare-provider local \
         --compare-endpoint http://localhost:8080/v1/chat/completions \
         --compare-model qwen3.6-27b
@@ -568,7 +568,7 @@ def print_comparison(a: BenchmarkResult, b: BenchmarkResult) -> None:
 async def main():
     parser = argparse.ArgumentParser(description="Benchmark LLM extraction quality")
     parser.add_argument("--provider", default="openrouter", choices=["gemini", "openrouter", "local"])
-    parser.add_argument("--model", default="google/gemini-2.5-flash-lite")
+    parser.add_argument("--model", default="google/gemini-3.1-flash-lite")
     parser.add_argument("--endpoint", default="http://localhost:8080/v1/chat/completions")
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--limit", type=int, default=0, help="Limit to first N samples (0 = all)")

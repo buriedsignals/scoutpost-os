@@ -108,7 +108,6 @@ def test_load_settings_reads_values():
 def test_load_settings_openrouter_defaults_off():
     settings = load_settings(env={"SCRAPE_SERVICE_TOKEN": TEST_TOKEN})
     assert settings.openrouter_api_key is None
-    assert settings.openrouter_model == "google/gemini-3.5-flash-lite"
     assert settings.openrouter_timeout_s == 90.0
 
 

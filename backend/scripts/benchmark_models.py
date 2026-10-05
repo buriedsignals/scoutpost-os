@@ -1,7 +1,7 @@
 """
 Benchmark LLM models for each pipeline stage.
 
-Tests Qwen3-14B (OpenRouter) vs Gemini 2.5 Flash (direct API) on:
+Tests the production Gemini models (OpenRouter, Google Vertex ZDR) on:
 1. Query generation — multilingual (EN, DE, FR cities)
 2. AI filter — article selection from candidates
 3. Summary — bullet-point news summary
@@ -30,18 +30,16 @@ import httpx
 from app.config import settings
 
 # ---- Models to test ----
+# Gemini 2.5 retires on Vertex on 2026-10-20; these mirror the production
+# chat default and the extraction model.
 MODELS = {
-    "gemini-2.5-flash": {
-        "provider": "gemini",
-        "model_id": "gemini-2.5-flash",
-    },
-    "gemini-2.5-flash-lite": {
-        "provider": "gemini",
-        "model_id": "gemini-2.5-flash-lite",
-    },
-    "gemini-2.5-flash-lite (OpenRouter Vertex ZDR)": {
+    "gemini-3.5-flash-lite (OpenRouter Vertex ZDR)": {
         "provider": "openrouter",
-        "model_id": "google/gemini-2.5-flash-lite",
+        "model_id": "google/gemini-3.5-flash-lite",
+    },
+    "gemini-3.1-flash-lite (OpenRouter Vertex ZDR)": {
+        "provider": "openrouter",
+        "model_id": "google/gemini-3.1-flash-lite",
     },
 }
 
@@ -61,11 +59,13 @@ def extract_json(text: str) -> str:
 # ---- API helpers ----
 
 async def call_openrouter(client, model_id, messages, max_tokens=500, temperature=0.5, json_mode=True):
+    # Vertex rejects `temperature` for gemini-3.5-flash-lite under
+    # require_parameters (404, probed 2026-10-05); production omits it too.
+    del temperature
     payload = {
         "model": model_id,
         "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": temperature,
         "provider": {
             "only": ["google-vertex"],
             "zdr": True,

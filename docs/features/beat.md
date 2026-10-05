@@ -133,8 +133,11 @@ assumptions:
 - If every readable source is excluded as stale and no retrieval failed, the run
   succeeds with zero units and no alert; its pre-charge is refunded. A baseline
   run becomes ready. If no fresh source remains and any retrieval failed, the
-  run fails with the actual retrieval errors. An all-query search outage also
-  fails during baseline initialization and cannot establish readiness.
+  run fails with the actual retrieval errors. A publisher Firecrawl refuses
+  outright ("we do not support this site", e.g. nytimes.com) is a permanent
+  property of that source and does not count as a retrieval failure. An
+  all-query search outage also fails during baseline initialization and cannot
+  establish readiness.
 - Preview responses expose an `outcome` and `diagnostics`: `results`,
   `filtered_empty`, `no_candidates`, `unreadable_sources`, `unverified_empty`,
   or `error`. Verified filtering requires successful reads, policy-rejection

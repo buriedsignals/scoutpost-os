@@ -60,5 +60,9 @@ eval "$(
   ' "$keys_json" "$project_ref"
 )"
 
+# `exec` replaces this shell, so the EXIT trap would never run and the
+# service-role key file would stay in /tmp. Remove both files first.
+cleanup
+trap - EXIT
 echo "Running benchmark against linked Supabase project: $project_ref" >&2
 exec "$@"
