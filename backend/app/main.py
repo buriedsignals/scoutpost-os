@@ -189,7 +189,7 @@ limiter = Limiter(key_func=_client_ip_key)
 class SPAStaticFiles(StaticFiles):
     """Serve the SvelteKit build with correct SPA-vs-asset semantics.
 
-    - /api/* paths bubble up so FastAPI routers handle them.
+    - /api/* paths no router matched are 404 JSON, never the SPA shell.
     - Missing asset files (anything with a non-.html extension) return 404 so
       the browser's module MIME guard never sees HTML in place of JS/CSS/etc.
     - Missing SPA routes (no extension, or .html) serve index.html with a
@@ -201,7 +201,9 @@ class SPAStaticFiles(StaticFiles):
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         if path.startswith("api/"):
-            raise RuntimeError("Not a static file")
+            return JSONResponse(
+                {"detail": "Not Found"}, status_code=404, headers=_NO_STORE_HEADERS
+            )
 
         try:
             response = await super().get_response(path, scope)
@@ -508,9 +510,9 @@ async def public_legacy_skill():
 
 
 # Health check endpoints — MUST be declared BEFORE the SPA static mount
-# below, otherwise the mount catches /api/health and SPAStaticFiles raises
-# RuntimeError('Not a static file') → 500. Render's healthCheckPath is
-# /api/health so a regression here makes the deploy immediately unhealthy.
+# below, otherwise the mount catches /api/health and answers 404. Render's
+# healthCheckPath is /api/health so a regression here makes the deploy
+# immediately unhealthy.
 @app.get("/api/health", include_in_schema=False)
 async def health_check():
     """Health check endpoint for monitoring."""

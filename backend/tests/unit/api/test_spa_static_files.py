@@ -72,6 +72,15 @@ def test_missing_non_html_asset_paths_all_404(tmp_path):
         )
 
 
+def test_unmatched_api_path_is_404_json(tmp_path):
+    """Production 2026-10-05: unmatched /api/* reached the SPA mount and 500ed."""
+    client = TestClient(_client(tmp_path).app, raise_server_exceptions=False)
+    res = client.get("/api/v1/scouts")
+    assert res.status_code == 404
+    assert res.json() == {"detail": "Not Found"}
+    assert res.headers["cache-control"] == "no-store"
+
+
 def test_missing_spa_route_serves_index_html_with_no_cache(tmp_path):
     res = _client(tmp_path).get("/some/deep/spa/route")
     assert res.status_code == 200
