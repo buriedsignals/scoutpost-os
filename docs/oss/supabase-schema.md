@@ -418,9 +418,8 @@ pg_cron fires at schedule
                             └── Scout business logic + result storage
 ```
 
-Schedule creation and deletion are handled by the `SupabaseScheduler` adapter
-(`adapters/supabase/scheduler.py`), which executes the `cron.schedule()` / `cron.unschedule()`
-SQL via asyncpg.
+Schedule creation and deletion are handled by the `scouts` / `manage-schedule`
+Edge Functions through the `schedule_scout` / `unschedule_scout` RPCs.
 
 For details on the Edge Functions, see `docs/architecture/edge-functions.md`.
 

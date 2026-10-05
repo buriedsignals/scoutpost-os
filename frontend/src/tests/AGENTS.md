@@ -61,7 +61,7 @@ Logic extracted from Svelte components into testable `.ts` files:
 
 | Module | Source Component | Functions |
 |--------|-----------------|-----------|
-| `$lib/utils/scouts.ts` | workspace and scheduling UI | `SCOUT_COSTS`, `formatRegularity`, `truncateUrl`, `stripMarkdown`, `getCriteriaStatusVariant` |
+| `$lib/utils/scouts.ts` | workspace and scheduling UI | `SCOUT_COSTS`, `getScoutCost`, `formatRegularity`, `truncateUrl`, `getScoutStatus` |
 
 ## Mock Strategy
 

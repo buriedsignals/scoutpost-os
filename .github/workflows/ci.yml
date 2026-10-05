@@ -61,12 +61,10 @@ jobs:
       - run: cd frontend && npm ci
       - run: cd frontend && npm run check
 
-  # Edge Function unit tests — stack-free set only. Most per-function
-  # _test.ts files are integration tests that need a running local Supabase
-  # stack (supabase start + served functions) and stay out of CI; _shared/
-  # scout-transport-execute/, transport-sampler/, transport-test/, crawler
-  # dispatch submission handling, and the signed Resend webhook verifier are
-  # pure and must stay green here.
+  # Edge Function unit tests — stack-free set only. The list lives in
+  # supabase/functions/deno.json (`deno task test`). Per-function _test.ts
+  # files that need a running local Supabase stack run in the
+  # selfhost-runtime-smoke job instead.
   test-functions:
     name: Edge Function unit tests
     runs-on: ubuntu-latest
@@ -79,13 +77,17 @@ jobs:
       # the absence of --allow-net denies runtime fetch() — so a test that
       # forgets to stub fetch fails loudly instead of making a live call.
       - name: Deno unit tests (stack-free set, network-isolated)
-        run: cd supabase/functions && deno test --allow-env --allow-read=. --allow-import _shared/ crawler-worker/ cli-auth/ scout-beat-execute/lifecycle_test.ts scout-transport-execute/ transport-sampler/ transport-test/ crawler-dispatch/_test.ts crawler-proxy/_test.ts resend-webhook/_test.ts mcp-server/oauth/register_test.ts civic/items_test.ts civic-execute/discovery_test.ts scouts/civic_baseline_test.ts scouts/handlers_test.ts
+        run: cd supabase/functions && deno task test
       - name: Crawler worker contract check
         run: cd supabase/functions && deno check --allow-import scout-web-execute/index.ts scouts/index.ts crawler-dispatch/index.ts crawler-proxy/index.ts
       - name: Crawler health monitor regression tests (no runtime network)
         run: deno test --allow-env --allow-import supabase/functions/operations-monitor/_test.ts
       - name: Benchmark truth unit tests
-        run: deno test --allow-env --allow-import scripts/benchmarks/_bench_shared_test.ts scripts/benchmarks/_bench_truth_test.ts scripts/benchmarks/benchmark-beat_test.ts scripts/benchmarks/benchmark-civic_test.ts scripts/benchmarks/benchmark-transport_test.ts scripts/civic-repair-inventory_test.ts scripts/civic-backfill_test.ts
+        run: deno test --allow-env --allow-import scripts/benchmarks/_bench_truth_test.ts scripts/civic-repair-inventory_test.ts scripts/civic-backfill_test.ts scripts/benchmarks/_crawl4ai_shadow_config_test.ts scripts/benchmarks/_crawl4ai_shadow_contract_test.ts scripts/benchmarks/_crawl4ai_shadow_gates_test.ts scripts/benchmarks/_scrape_corpus_test.ts scripts/benchmarks/benchmark-openrouter-embeddings_test.ts scripts/ops/backfill-embeddings_test.ts scripts/ops/replay-paused-web-scouts_test.ts
+      - name: Public policy contract tests
+        run: deno test --allow-env --allow-read --allow-import scripts/abuse_risk_audit_contract_test.ts scripts/acceptable_use_policy_contract_test.ts
+      - name: MCP stdio bridge tests
+        run: cd mcp && deno task test
       - name: Scrape-port coverage gate (100% on new modules)
         run: bash scripts/ops/check-scrape-coverage.sh
 
@@ -269,13 +271,19 @@ jobs:
         run: bash scripts/tests/run-scout-dispatch-drain-integration.sh
 
       - name: Run hosted account deletion integration
-        run: |
-          set -a
-          # shellcheck disable=SC1091
-          source /tmp/scout-supabase.env
-          set +a
-          deno test --allow-env --allow-net --allow-read \
-            supabase/functions/account-deletion-worker/_test.ts
+        run: echo "SaaS-only tests stripped from the OSS mirror"
+
+      # schedule_scout refuses to run without these Vault entries; local values
+      # only need to exist (the edge runtime has no provider secrets, so no
+      # paid API is reachable from these tests).
+      - name: Seed local Vault for scheduling
+        run: docker exec supabase_db_cojournalist psql -U postgres -v ON_ERROR_STOP=1 -c "select vault.create_secret('http://kong:8000', 'project_url'); select vault.create_secret('local-ci-internal-key', 'internal_service_key');"
+
+      - name: Run Edge Function handler integration tests
+        run: set -a && source /tmp/scout-supabase.env && set +a && cd supabase/functions && deno test --allow-env --allow-net --allow-read --allow-import apify-callback/_test.ts civic-execute/_test.ts civic-extract-worker/_test.ts civic-test/_test.ts entities/_test.ts execute-scout/_test.ts ingest/_test.ts mcp-server/_test.ts openapi-spec/_test.ts projects/_test.ts reflections/_test.ts scout-beat-execute/_test.ts scout-templates/_test.ts scout-web-execute/_test.ts scouts/_test.ts social-kickoff/_test.ts units/_test.ts user/_test.ts
+
+      - name: Run Page archive storage policy integration
+        run: set -a && source /tmp/scout-supabase.env && set +a && PAGE_ARCHIVE_INTEGRATION_TEST=1 deno test --allow-env --allow-net --allow-read --allow-import supabase/functions/_shared/snapshot_store_integration_test.ts
 
       - name: Run local self-host smoke
         run: |

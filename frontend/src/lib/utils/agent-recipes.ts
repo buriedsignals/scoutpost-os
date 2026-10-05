@@ -184,12 +184,3 @@ export function getAgentRecipes(
   if (!defaultPath) throw new Error(`${slug} has no AgentConnect recipe`);
   return { paths, default: defaultPath, recipes };
 }
-
-export function buildCliLoginCommand(
-  slug: AgentSlug,
-  target: AgentTargetContext = HOSTED_AGENT_TARGET,
-): string {
-  const recipe = agentCatalog[slug].cli;
-  if (!recipe) throw new Error(`${slug} has no CLI recipe`);
-  return fill(recipe.command, target);
-}

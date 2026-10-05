@@ -2,7 +2,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WorkspacePage from '../../routes/+page.svelte';
-import { scoutsStore } from '$lib/stores/workspace/scouts';
 import { unitsStore } from '$lib/stores/workspace/units';
 import { selectionStore } from '$lib/stores/workspace/selection';
 import * as m from '$lib/paraglide/messages';
@@ -37,15 +36,11 @@ vi.mock('$lib/stores/auth', async () => {
 
 beforeEach(() => {
 	localStorage.clear();
-	scoutsStore.reset();
-	unitsStore.reset();
 	selectionStore.clear();
 });
 
 afterEach(() => {
 	cleanup();
-	scoutsStore.reset();
-	unitsStore.reset();
 	selectionStore.clear();
 	vi.clearAllMocks();
 });

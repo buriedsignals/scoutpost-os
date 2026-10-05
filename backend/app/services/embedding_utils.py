@@ -30,10 +30,6 @@ class EmbeddingError(RuntimeError):
     """A secret-safe embedding configuration, transport, or response error."""
 
 
-class _EmbeddingProviderError(EmbeddingError):
-    """An HTTP error that existing batch callers may treat as best effort."""
-
-
 def normalize_embedding(values: list[float]) -> list[float]:
     """Normalize an embedding to unit length as a storage-boundary safeguard."""
     arr = np.array(values, dtype=np.float32)
@@ -94,10 +90,10 @@ async def _request_embeddings(
         )
     except httpx.HTTPError:
         logger.error("OpenRouter embedding transport failed")
-        raise _EmbeddingProviderError("OpenRouter embedding request failed") from None
+        raise EmbeddingError("OpenRouter embedding request failed") from None
     if response.status_code != 200:
         logger.error("OpenRouter embedding failed with status %s", response.status_code)
-        raise _EmbeddingProviderError(
+        raise EmbeddingError(
             f"OpenRouter embedding failed with status {response.status_code}"
         )
 
@@ -163,22 +159,6 @@ async def generate_embedding(
     return values[0]
 
 
-async def generate_embeddings_batch(
-    texts: List[str],
-    task_type: str = "SEMANTIC_SIMILARITY",
-    titles: Optional[List[Optional[str]]] = None,
-) -> List[List[float]]:
-    if not texts:
-        return []
-    if titles is not None and len(titles) != len(texts):
-        raise ValueError("titles must be the same length as texts")
-    resolved_titles = titles if titles is not None else [None] * len(texts)
-    try:
-        return await _request_embeddings(texts, task_type, resolved_titles)
-    except _EmbeddingProviderError:
-        return []
-
-
 def cosine_similarity(a: list[float], b: list[float]) -> float:
     """Calculate cosine similarity between two vectors with zero-norm protection."""
     a_arr, b_arr = np.array(a), np.array(b)
@@ -186,12 +166,6 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     if norm_a == 0 or norm_b == 0:
         return 0.0
     return float(np.dot(a_arr, b_arr) / (norm_a * norm_b))
-
-
-def compress_embedding(embedding: list[float]) -> str:
-    """Compress an embedding to the existing base64-encoded float32 format."""
-    packed = struct.pack(f"{len(embedding)}f", *embedding)
-    return base64.b64encode(packed).decode()
 
 
 def decompress_embedding(compressed: str) -> list[float]:

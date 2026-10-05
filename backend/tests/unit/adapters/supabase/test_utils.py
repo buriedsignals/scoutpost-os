@@ -57,24 +57,17 @@ class TestRowToDict:
         assert result["event_date"] == "2026-04-01"
 
     def test_custom_uuid_fields(self):
-        """Custom uuid_fields parameter should be respected."""
+        """Custom uuid_fields parameter should be respected; unlisted UUIDs stay as-is."""
         uid = uuid4()
         aid = uuid4()
+        sid = uuid4()
         result = row_to_dict(
-            {"id": uid, "article_id": aid, "name": "test"},
+            {"id": uid, "article_id": aid, "scout_id": sid, "name": "test"},
             uuid_fields=("id", "article_id"),
         )
         assert result["id"] == str(uid)
         assert result["article_id"] == str(aid)
-
-    def test_does_not_convert_non_default_uuid_fields(self):
-        """UUID fields not in the default set should remain as-is."""
-        uid = uuid4()
-        aid = uuid4()
-        result = row_to_dict({"id": uid, "article_id": aid})
-        assert result["id"] == str(uid)
-        # article_id is not in default uuid_fields, stays as UUID
-        assert result["article_id"] == aid
+        assert result["scout_id"] == sid
 
     def test_non_jsonb_strings_left_alone(self):
         """String fields not in _JSONB_FIELDS should not be parsed."""

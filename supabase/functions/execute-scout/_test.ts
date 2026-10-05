@@ -14,17 +14,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   createTestUser,
   functionUrl,
+  getTestingServiceRoleKey,
   SUPABASE_URL,
 } from "../_shared/_testing.ts";
 
-function serviceKey(): string {
-  const k = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!k) throw new Error("SUPABASE_SERVICE_ROLE_KEY required for tests");
-  return k;
-}
-
 function svc() {
-  return createClient(SUPABASE_URL, serviceKey(), {
+  return createClient(SUPABASE_URL, getTestingServiceRoleKey(), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -44,16 +39,7 @@ function serviceHeaders(): HeadersInit {
       "Content-Type": "application/json",
     };
   }
-  return authHeaders(serviceKey());
-}
-
-function internalHeaders(): HeadersInit {
-  const k = Deno.env.get("INTERNAL_SERVICE_KEY");
-  if (!k) throw new Error("INTERNAL_SERVICE_KEY required for this test");
-  return {
-    "X-Service-Key": k,
-    "Content-Type": "application/json",
-  };
+  return authHeaders(getTestingServiceRoleKey());
 }
 
 async function insertScout(
@@ -91,21 +77,6 @@ Deno.test("execute-scout: unknown scout_id returns 404", async () => {
   const res = await fetch(functionUrl("execute-scout"), {
     method: "POST",
     headers: serviceHeaders(),
-    body: JSON.stringify({ scout_id: crypto.randomUUID() }),
-  });
-  const body = await res.json();
-  assertEquals(res.status, 404);
-  assertEquals(body.code, "not_found");
-});
-
-Deno.test("execute-scout: X-Service-Key reaches scout lookup", async () => {
-  if (!Deno.env.get("INTERNAL_SERVICE_KEY")) {
-    console.warn("skipping: INTERNAL_SERVICE_KEY not set");
-    return;
-  }
-  const res = await fetch(functionUrl("execute-scout"), {
-    method: "POST",
-    headers: internalHeaders(),
     body: JSON.stringify({ scout_id: crypto.randomUUID() }),
   });
   const body = await res.json();

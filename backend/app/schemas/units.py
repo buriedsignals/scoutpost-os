@@ -49,20 +49,6 @@ class AtomicInformationUnit(BaseModel):
     date: Optional[str] = None
 
 
-class ExtractedUnit(BaseModel):
-    """Unit as extracted by LLM (before storage)."""
-
-    statement: str
-    type: Literal["fact", "event", "entity_update"]
-    entities: list[str] = Field(default_factory=list)
-
-
-class ExtractionResponse(BaseModel):
-    """LLM extraction response."""
-
-    units: list[ExtractedUnit]
-
-
 class UnitsResponse(BaseModel):
     """Response containing list of atomic information units."""
 

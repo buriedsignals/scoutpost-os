@@ -9,7 +9,7 @@ Default runtime:
 - Static frontend on the host of your choice
 
 Optional runtime:
-- FastAPI on Render or another Python host if your newsroom wants the legacy/internal `/api/v1` add-on
+- FastAPI on Render or another Python host if your newsroom wants the legacy/internal FastAPI add-on
 
 The public OSS branch is `master`.
 
@@ -199,7 +199,7 @@ functions become active. The full verification and rollback procedure is in
 
 ## Optional FastAPI Add-on
 
-The Python backend remains available for newsrooms that want the legacy/internal API surface, especially `/api/v1`.
+The Python backend remains available for newsrooms that want the legacy/internal API surface.
 
 It is not required for:
 - login

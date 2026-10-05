@@ -14,31 +14,20 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   createTestUser,
   functionUrl,
+  getTestingServiceRoleKey,
   SUPABASE_URL,
 } from "../_shared/_testing.ts";
 
-const SERVICE_KEY = Deno.env.get("INTERNAL_SERVICE_KEY") ?? "";
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const FIRECRAWL_KEY = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
-const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
+const SERVICE_ROLE_KEY = getTestingServiceRoleKey();
 const LIVE_PROVIDER_TESTS = Deno.env.get("SCOUT_LIVE_PROVIDER_TESTS") === "1";
-const hasServiceAuth = Boolean(SERVICE_ROLE_KEY || SERVICE_KEY);
-const liveKeys = Boolean(
-  LIVE_PROVIDER_TESTS && hasServiceAuth && FIRECRAWL_KEY && OPENROUTER_KEY,
-);
+const liveKeys = LIVE_PROVIDER_TESTS &&
+  Boolean(Deno.env.get("FIRECRAWL_API_KEY")) &&
+  Boolean(Deno.env.get("OPENROUTER_API_KEY"));
 
-function svcHeaders(): HeadersInit {
-  if (SERVICE_ROLE_KEY) {
-    return {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${SERVICE_ROLE_KEY}`,
-    };
-  }
-  return {
-    "Content-Type": "application/json",
-    "X-Service-Key": SERVICE_KEY,
-  };
-}
+const SERVICE_HEADERS: HeadersInit = {
+  "Content-Type": "application/json",
+  "Authorization": `Bearer ${SERVICE_ROLE_KEY}`,
+};
 
 function adminDb() {
   return createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
@@ -61,10 +50,6 @@ Deno.test("scout-beat-execute: unauthenticated returns 401", async () => {
 Deno.test(
   "scout-beat-execute: 400 when scout has no location, criteria, or topic",
   async () => {
-    if (!hasServiceAuth) {
-      console.warn("skipping: service auth not set");
-      return;
-    }
     const user = await createTestUser();
     const db = adminDb();
     try {
@@ -85,7 +70,7 @@ Deno.test(
 
       const res = await fetch(functionUrl("scout-beat-execute"), {
         method: "POST",
-        headers: svcHeaders(),
+        headers: SERVICE_HEADERS,
         body: JSON.stringify({ scout_id: scout.id }),
       });
       assertEquals(res.status, 400);
@@ -104,13 +89,9 @@ Deno.test(
 );
 
 Deno.test("scout-beat-execute: 404 when scout missing", async () => {
-  if (!hasServiceAuth) {
-    console.warn("skipping: service auth not set");
-    return;
-  }
   const res = await fetch(functionUrl("scout-beat-execute"), {
     method: "POST",
-    headers: svcHeaders(),
+    headers: SERVICE_HEADERS,
     body: JSON.stringify({
       scout_id: "00000000-0000-0000-0000-000000000000",
     }),
@@ -121,7 +102,7 @@ Deno.test("scout-beat-execute: 404 when scout missing", async () => {
 
 Deno.test({
   name:
-    "scout-beat-execute: happy path scrapes + extracts (live firecrawl+openrouter)",
+    "scout-beat-execute: live smoke returns ok with a run id (live firecrawl+openrouter)",
   ignore: !liveKeys,
   fn: async () => {
     const user = await createTestUser();
@@ -148,7 +129,7 @@ Deno.test({
 
       const res = await fetch(functionUrl("scout-beat-execute"), {
         method: "POST",
-        headers: svcHeaders(),
+        headers: SERVICE_HEADERS,
         body: JSON.stringify({ scout_id: scout.id }),
       });
       const body = await res.json();
@@ -195,7 +176,7 @@ Deno.test({
 
       const res = await fetch(functionUrl("scout-beat-execute"), {
         method: "POST",
-        headers: svcHeaders(),
+        headers: SERVICE_HEADERS,
         body: JSON.stringify({ scout_id: scout.id }),
       });
       const body = await res.json();

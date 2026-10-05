@@ -83,7 +83,6 @@ rm -f backend/app/routers/local_auth.py
 rm -f backend/app/routers/muckrock_proxy.py
 rm -f backend/app/services/muckrock_client.py
 rm -f backend/app/services/muckrock_client.py
-rm -f backend/tests/unit/auth/test_auth_router.py
 rm -f backend/tests/unit/api/test_local_auth.py
 rm -f backend/tests/unit/api/test_muckrock_proxy.py
 
@@ -95,19 +94,14 @@ sed -i '/^# Auth broker/d' backend/app/main.py
 sed -i '/^from app\.routers import auth$/d' backend/app/main.py
 sed -i '/app\.include_router(auth\.router/d' backend/app/main.py
 
-# NOTE: user_service.py and session_service.py are kept for OSS. Many
-# routers still import them (scraper, pulse, onboarding, user, data_extractor,
-# utils/credits). They're dormant under deployment_target="supabase" but
-# must be importable for the non-auth surface to load. PR 4 (post-cutover
-# on the SaaS side) will remove those routers + services together.
-
 # Backend: remove SaaS-only billing and credit management
-rm -f backend/app/utils/credits.py
 rm -f backend/scripts/grant_pro.py
 rm -f backend/tests/unit/scripts/test_grant_pro.py
 
 # Backend: remove feedback router (Linear integration — SaaS-only)
 rm -f backend/app/routers/feedback.py
+rm -f backend/tests/unit/api/test_feedback.py
+rm -f backend/tests/integration/test_linear_feedback_smoke.py
 
 # Supabase Edge Functions: remove hosted/SaaS-only endpoints before OSS
 # deploy discovery runs. Self-hosted deployments should not deploy MuckRock
@@ -120,8 +114,8 @@ strip_edge_function mcp-auth
 strip_edge_function newsletter-subscribe
 strip_edge_function user-update-email
 strip_edge_function account-deletion-worker
-# Their tests run in the private CI only; drop them from the mirror's test step.
-sed_if_exists -i 's| auth-muckrock/redirects_test.ts mcp-auth/_test.ts indicator-claim/_test.ts user-update-email/_test.ts||' .github/workflows/ci.yml
+# Their tests run in the private CI only; the prune step below drops them from
+# the mirror's test commands.
 sed_if_exists -i '/^# auth-muckrock is browser-facing/,+1d' supabase/config.toml
 sed_if_exists -i '/^# mcp-auth is the MCP-only sibling/,+4d' supabase/config.toml
 sed_if_exists -i '/^# newsletter-subscribe is called pre-auth/,+1d' supabase/config.toml
@@ -189,6 +183,8 @@ rm -rf docs/superpowers/
 rm -rf docs/muckrock/
 rm -rf docs/billing/
 rm -rf docs/supabase/
+# Checks the hosted Apify/social docs removed above.
+rm -f scripts/social_policy_contract_test.ts
 rm -rf docs/plans/
 rm -f docs/architecture/license-key-infrastructure.md
 rm -f docs/architecture/aws-architecture.md
@@ -713,6 +709,8 @@ while i < len(lines):
 
 text = "\n".join(out) + "\n"
 text = text.replace("if settings.local_muckrock_auth_broker:\nelse:\n", "")
+# Every legacy router in the grouped import is stripped above; drop the empty tuple.
+text = text.replace("from app.routers import (\n)\n", "")
 p.write_text(text)
 PY
 
@@ -874,6 +872,66 @@ PY
 
 sed_if_exists -i "s|https://${HOSTED_SUPABASE_REF}.supabase.co/functions/v1|https://www.scoutpost.ai/functions/v1|g" supabase/functions/openapi-spec/spec.json
 sed_if_exists -i "s|${HOSTED_SUPABASE_REF}|<project-ref>|g" scripts/ops/deploy-functions.sh
+
+# Tests whose subject was stripped above cannot run in the mirror: delete
+# script tests with unresolvable relative imports, then drop every missing
+# path from the mirror's test commands (ci.yml run lines and the Edge
+# Function `deno task test` list). A command left without paths would make
+# `deno test` discover every test, so it becomes an explicit skip instead.
+python3 - <<'PY'
+import json
+import re
+from pathlib import Path
+
+import_re = re.compile(r'from\s+"(\.{1,2}/[^"]+)"')
+
+
+def imports_resolve(path: Path, seen: set[Path]) -> bool:
+    """True when every relative import, followed transitively, still exists."""
+    if path in seen:
+        return True
+    seen.add(path)
+    if not path.exists():
+        return False
+    return all(
+        imports_resolve((path.parent / target).resolve(), seen)
+        for target in import_re.findall(path.read_text())
+    )
+
+
+for test in Path("scripts").rglob("*_test.ts"):
+    if not imports_resolve(test.resolve(), set()):
+        test.unlink()
+
+path_re = re.compile(r"(_test|\.test)\.ts$|/$")
+cd_re = re.compile(r"\bcd (\S+) &&")
+
+
+def prune(command: str, base: str) -> str:
+    tokens = command.split(" ")
+    paths = [t for t in tokens if path_re.search(t) and not t.startswith("-")]
+    kept = [t for t in tokens if t not in paths or Path(base + t).exists()]
+    if paths and not any(t in kept for t in paths):
+        return 'echo "SaaS-only tests stripped from the OSS mirror"'
+    return " ".join(kept)
+
+
+ci = Path(".github/workflows/ci.yml")
+lines = []
+for line in ci.read_text().splitlines(keepends=True):
+    head, sep, command = line.rstrip("\n").partition("run: ")
+    if sep and "deno test" in command:
+        cd = cd_re.search(command)
+        base = f"{cd.group(1)}/" if cd else ""
+        line = head + sep + prune(command, base) + "\n"
+    lines.append(line)
+ci.write_text("".join(lines))
+
+deno_json = Path("supabase/functions/deno.json")
+config = json.loads(deno_json.read_text())
+config["tasks"]["test"] = prune(config["tasks"]["test"], "supabase/functions/")
+deno_json.write_text(json.dumps(config, indent=2) + "\n")
+PY
 
 # -------------------------------------------------------------------
 # Validate: no SaaS-only references remain

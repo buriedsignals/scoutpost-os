@@ -47,7 +47,7 @@ endpoints. See [`docs/features/page-archive.md`](docs/features/page-archive.md).
 ## Tech Stack
 
 - **Frontend**: SvelteKit + TailwindCSS (static SPA)
-- **Backend**: FastAPI (Python) — auth broker, feedback, admin, public `/api/v1`
+- **Backend**: FastAPI (Python) — auth broker, feedback, admin, Edge Function proxy
 - **Scout runtime**: Supabase Edge Functions + pg_cron (post-2026-04-22 cutover)
 - **Database**: Supabase Postgres with pgvector + HNSW for hybrid search
 - **Auth**: MuckRock OAuth 2.0 (SaaS) / Supabase Auth (OSS / self-hosted)
@@ -120,7 +120,7 @@ before merge.
 
 ```
 ├── frontend/        # SvelteKit SPA
-├── backend/         # FastAPI service (auth, feedback, admin, /api/v1)
+├── backend/         # FastAPI service (auth, feedback, admin, EF proxy)
 ├── supabase/        # Edge Functions + migrations + pg_cron
 ├── cli/             # `scout` Deno CLI — talks to FastAPI or EFs
 ├── docs/            # Architecture + features + supabase docs

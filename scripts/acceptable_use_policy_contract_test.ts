@@ -95,7 +95,10 @@ Deno.test("machine-readable acceptable-use contract is stable and evidence-led",
   const promptEvidence = (ruleById.get("AUP-PROMPT-INJECTION")
     ?.required_evidence as string[]).join(" ");
   assert.match(promptEvidence, /account[^.\n]*(authored|configur)/i);
-  assert.match(promptEvidence, /monitored[- ]source[^.\n]*not[^.\n]*(attribut|evidence)/i);
+  assert.match(
+    promptEvidence,
+    /monitored[- ]source[^.\n]*not[^.\n]*(attribut|evidence)/i,
+  );
   const misinformationEvidence = (ruleById.get("AUP-MISINFORMATION")
     ?.required_evidence as string[]).join(" ");
   assert.match(misinformationEvidence, /account activity[^.\n]*generat/i);
@@ -108,9 +111,15 @@ Deno.test("Terms publish the complete acceptable-use and review contract", async
 
   assert.match(terms, /id=["']acceptable-use["']/);
   assert.match(terms, /acceptable-use-policy\.json/);
-  assert.match(terms, /investigative[^.\n]*public-service|public-service[^.\n]*investigative/);
+  assert.match(
+    terms,
+    /investigative[^.\n]*public-service|public-service[^.\n]*investigative/,
+  );
   assert.match(terms, /personal surveillance/);
-  assert.match(terms, /unauthorized[^.\n]*(private content|private-content)[^.\n]*circumvent/);
+  assert.match(
+    terms,
+    /unauthorized[^.\n]*(private content|private-content)[^.\n]*circumvent/,
+  );
   assert.match(terms, /stalking[^.\n]*harassment[^.\n]*doxxing/);
   assert.match(terms, /coercive[^.\n]*discriminatory[^.\n]*surveillance/);
   assert.match(terms, /coercive[^.\n]*employee monitoring/);
@@ -125,7 +134,10 @@ Deno.test("Terms publish the complete acceptable-use and review contract", async
   assert.match(terms, /private content[^.\n]*(prohibited|violation)/);
   assert.match(terms, /operator review/);
   assert.match(terms, /terminate[^.\n]*after review/);
-  assert.match(terms, /logs[^.\n]*(appropriate and lawful|lawful and appropriate)/);
+  assert.match(
+    terms,
+    /logs[^.\n]*(appropriate and lawful|lawful and appropriate)/,
+  );
   assert.doesNotMatch(terms, /automatic[^.\n]*(pause|suspend|ban|terminat)/);
 
   const publishedRules = new Map(
@@ -133,7 +145,8 @@ Deno.test("Terms publish the complete acceptable-use and review contract", async
       /<li>\s*<strong>(AUP-[A-Z-]+)<\/strong>\s*(?:&mdash;|—|-)\s*([\s\S]*?)<\/li>/g,
     )].map(([, id, summary]) => [
       id,
-      summary.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().toLowerCase(),
+      summary.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
+        .toLowerCase(),
     ]),
   );
   const contract = record(JSON.parse(await source(POLICY_PATH)), "policy");
@@ -157,24 +170,34 @@ Deno.test("verified source-service constraints are linked from public policy sur
   assert.equal(authority.schema_version, 1);
   assert.equal(authority.authority_url, "/source-service-constraints.json");
   const services = authority.services as Record<string, unknown>[];
-  assert.deepEqual(services.map((service) => service.id).sort(), ["apify", "firecrawl"]);
+  assert.deepEqual(services.map((service) => service.id).sort(), [
+    "apify",
+    "firecrawl",
+  ]);
   const officialSources = services.flatMap((service) =>
     service.official_sources as string[]
   );
-  for (const expected of [
-    "https://docs.apify.com/legal/general-terms-and-conditions",
-    "https://docs.apify.com/legal/acceptable-use-policy",
-    "https://docs.apify.com/legal/actor-terms-and-conditions",
-    "https://www.firecrawl.dev/terms-of-service",
-    "https://docs.firecrawl.dev/api-reference/endpoint/crawl-post",
-  ]) {
-    assert.ok(officialSources.includes(expected), `missing official source ${expected}`);
+  for (
+    const expected of [
+      "https://docs.apify.com/legal/general-terms-and-conditions",
+      "https://docs.apify.com/legal/acceptable-use-policy",
+      "https://docs.apify.com/legal/actor-terms-and-conditions",
+      "https://www.firecrawl.dev/terms-of-service",
+      "https://docs.firecrawl.dev/api-reference/endpoint/crawl-post",
+    ]
+  ) {
+    assert.ok(
+      officialSources.includes(expected),
+      `missing official source ${expected}`,
+    );
   }
-  for (const path of [
-    "frontend/src/routes/terms/+page.svelte",
-    "frontend/src/routes/faq/+page.svelte",
-    "frontend/static/faq.txt",
-  ]) {
+  for (
+    const path of [
+      "frontend/src/routes/terms/+page.svelte",
+      "frontend/src/routes/faq/+page.svelte",
+      "frontend/static/faq.txt",
+    ]
+  ) {
     assert.match(await source(path), /source-service-constraints\.json/);
   }
 });
@@ -201,7 +224,10 @@ Deno.test("public FAQ surfaces state the anti-stalkerware boundary and link the 
 
 Deno.test("UI, CLI, MCP, and public skill give matching Social Scout policy guidance", async (t) => {
   const surfaces = [
-    ["Social Scout UI", "frontend/src/lib/components/news/SocialScoutView.svelte"],
+    [
+      "Social Scout UI",
+      "frontend/src/lib/components/news/SocialScoutView.svelte",
+    ],
     ["scout CLI", "cli/commands/scouts.ts"],
     ["MCP create_scout", "supabase/functions/mcp-server/rpc.ts"],
     ["public Scoutpost skill", "frontend/static/skills/scoutpost.md"],
@@ -209,7 +235,14 @@ Deno.test("UI, CLI, MCP, and public skill give matching Social Scout policy guid
 
   for (const [name, path] of surfaces) {
     await t.step(name, async () => {
-      const document = (await source(path)).toLowerCase();
+      let document = (await source(path)).toLowerCase();
+      if (name === "Social Scout UI") {
+        // The component renders localized copy: check it renders the policy
+        // message, then check the English text users read.
+        assert.match(document, /m\.socialscout_publicinterest\(\)/);
+        const messages = JSON.parse(await source("frontend/messages/en.json"));
+        document += `\n${messages.socialScout_publicInterest}`.toLowerCase();
+      }
       assert.match(document, /public[^.\n]*(profile|source)/);
       assert.match(document, /public-interest|public interest/);
       assert.match(document, /terms#acceptable-use/);

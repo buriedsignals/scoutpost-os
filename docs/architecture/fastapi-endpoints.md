@@ -5,7 +5,7 @@
 
 ## Overview
 
-FastAPI now hosts a thin set of endpoints: the auth broker (MuckRock OAuth + Supabase magiclink handoff), feedback (Linear), admin/billing (SaaS-only), the public `/api/v1` API, and a few legacy helpers (`/api/units/*`, `/api/export/*`, `/api/onboarding/*`, `/api/user/*`).
+FastAPI now hosts a thin set of endpoints: the auth broker (MuckRock OAuth + Supabase magiclink handoff), feedback (Linear), admin/billing (SaaS-only), and a few legacy helpers (`/api/units/*`, `/api/export/*`, `/api/onboarding/*`, `/api/user/*`). The public REST API is served by Supabase Edge Functions under `/functions/v1/*`.
 
 **All scout scheduling, execution, and data persistence moved to Supabase Edge Functions in the 2026-04-22 cutover.** The dead routers — `scouts.py`, `pulse.py`, `social.py`, `civic.py`, `scraper.py`, `data_extractor.py` — were deleted; the frontend api-client routes to EFs when `PUBLIC_DEPLOYMENT_TARGET=supabase`. Sections below that reference Lambda or AWS API Gateway describe the historical pre-cutover behavior; production no longer uses them and they're slated for removal once the AWS infra teardown completes.
 
@@ -15,28 +15,12 @@ FastAPI now hosts a thin set of endpoints: the auth broker (MuckRock OAuth + Sup
 
 ### User Endpoints
 Protected by Supabase Bearer JWTs in the current post-cutover runtime.
-The `get_current_user()` dependency in `dependencies/auth.py` delegates to `providers.get_auth()`, which returns `SupabaseAuth` while `deployment_target == "supabase"`. The older session-cookie branch remains as residual fallback code only.
+The `get_current_user()` dependency in `dependencies/auth.py` delegates to `providers.get_auth()`, which returns `SupabaseAuth`.
 
 ### Internal Edge Function / Worker Endpoints
 Protected by the internal service-key boundary. In the current Supabase runtime,
 the key is stored as a Supabase Edge Function secret / Supabase Vault value or
 in local env files for self-hosted development.
-
-```python
-def verify_service_key(x_service_key: str) -> None:
-    if x_service_key != settings.internal_service_key:
-        raise HTTPException(status_code=401, detail="Invalid service key")
-```
-
-### Legacy scout creation
-
-The still-mounted `POST /api/v1/scouts` endpoint accepts `web`, `beat`, and
-`social`, with its existing required nested `schedule` object. It requires a
-nonblank name and Project tags (`topic`) or a meaningful location, and preserves
-that scope for all three types. Page requires URL; Social requires platform and
-profile handle, plus criteria when criteria mode is selected. Civic and Fleet
-creation use the canonical `/functions/v1/scouts` contract, not this legacy
-endpoint. See [creation requirements](../supabase/scouts-runs.md#creation-requirements).
 
 ### Current scout schedule contract
 
@@ -74,14 +58,10 @@ Top-of-hour jobs retain the 0–29 minute spreading policy. See
 [cron scheduling](../supabase/cron-jobs.md#scheduled-scouts-per-scout) for
 dispatch, claiming, deployment order, and local SQL verification.
 
-The residual Python `POST /api/v1/scouts` accepts the same top-level
-`schedule_timezone` alongside its nested `schedule` object, now produces
-five-field pg_cron expressions, and returns raw `schedule_cron` plus
-`schedule_timezone` in list/detail/create responses. It does not infer a
-timezone from mutable user preferences. The service-only `manage-schedule`
-endpoint accepts `schedule_timezone` with `cron_expression`; update/delete
-require `scout_id`. All entry points use canonical `scout-<uuid>` job names
-and the same SQL scheduler rather than building independent cron commands.
+The service-only `manage-schedule` endpoint accepts `schedule_timezone` with
+`cron_expression`; update/delete require `scout_id`. All entry points use
+canonical `scout-<uuid>` job names and the same SQL scheduler rather than
+building independent cron commands.
 
 
 ---
@@ -1147,22 +1127,6 @@ GET /api/units/unused?country=US&state=CA&city=San%20Francisco&displayName=San%2
 
 ---
 
-## Credit Costs
-
-All credit costs are defined in `backend/app/utils/credits.py`.
-
-| Operation | Cost |
-|-----------|------|
-| Web data extraction | 1 credit/page |
-| Social data extraction | 6 credits |
-| Local Pulse scout (scheduled) | 2 credits/run |
-| Local Data scout (scheduled) | 1 credit/run |
-| Local news search (on-demand) | Free |
-
-Scheduled monitoring multiplies per-run cost by frequency: daily (30x), weekly (4x), monthly (1x).
-
----
-
 ## User Preferences Endpoints
 
 **Location:** `backend/app/routers/user.py`
@@ -1208,324 +1172,6 @@ Update user preferences. At least one field must be provided.
 {
   "success": true,
   "preferred_language": "fr"
-}
-```
-
----
-
-## V1 External API
-
-**Location:** `backend/app/routers/v1.py`
-
-Programmatic API for external integrations. Uses API key authentication (not session cookies).
-
-### Key Management
-
-Manage API keys for programmatic access. Authenticated via session cookie.
-
-| Method | Path | Auth | Rate Limit | Description |
-|--------|------|------|------------|-------------|
-| POST | `/api/v1/keys` | Session cookie | 10/min | Create new API key (raw key returned once) |
-| GET | `/api/v1/keys` | Session cookie | 10/min | List API keys (prefix only) |
-| DELETE | `/api/v1/keys/{key_id}` | Session cookie | 10/min | Revoke API key |
-
-#### POST /api/v1/keys
-
-Create a new API key. The raw key is returned only once — store it securely.
-
-**Auth:** Session cookie
-
-**Rate limit:** 10 requests/minute
-
-**Request:**
-```json
-{
-  "name": "My Integration"
-}
-```
-
-**Response:**
-```json
-{
-  "key_id": "key_abc123",
-  "name": "My Integration",
-  "key": "coj_live_xxxxxxxxxxxxxxxxxxxxxxxx",
-  "prefix": "coj_live_xxxx",
-  "created_at": "2026-03-28T10:00:00Z"
-}
-```
-
----
-
-#### GET /api/v1/keys
-
-List all API keys for the authenticated user. Only the key prefix is returned.
-
-**Auth:** Session cookie
-
-**Rate limit:** 10 requests/minute
-
-**Response:**
-```json
-{
-  "keys": [
-    {
-      "key_id": "key_abc123",
-      "name": "My Integration",
-      "prefix": "coj_live_xxxx",
-      "created_at": "2026-03-28T10:00:00Z",
-      "last_used": "2026-03-28T12:00:00Z"
-    }
-  ]
-}
-```
-
----
-
-#### DELETE /api/v1/keys/{key_id}
-
-Revoke an API key. The key becomes immediately unusable.
-
-**Auth:** Session cookie
-
-**Rate limit:** 10 requests/minute
-
-**Response:**
-```json
-{
-  "success": true,
-  "key_id": "key_abc123"
-}
-```
-
----
-
-### Scout Management
-
-Manage scouts via API key. All endpoints require `Authorization: Bearer <api_key>` header.
-
-| Method | Path | Auth | Rate Limit | Description |
-|--------|------|------|------------|-------------|
-| GET | `/api/v1/scouts` | API key | 60/min | List all scouts |
-| POST | `/api/v1/scouts` | API key | 10/min | Create scout with schedule |
-| GET | `/api/v1/scouts/{name}` | API key | 60/min | Get scout details + recent runs |
-| DELETE | `/api/v1/scouts/{name}` | API key | 10/min | Delete scout + schedule |
-| POST | `/api/v1/scouts/{name}/run` | API key | 5/min | Manually trigger scout |
-
-#### GET /api/v1/scouts
-
-List all scouts for the authenticated API key owner.
-
-**Auth:** API key
-
-**Rate limit:** 60 requests/minute
-
-**Response:**
-```json
-{
-  "scouts": [
-    {
-      "name": "Daily Zurich News",
-      "scout_type": "pulse",
-      "regularity": "daily",
-      "status": "active",
-      "last_run": "2026-03-28T08:00:00Z"
-    }
-  ]
-}
-```
-
----
-
-#### POST /api/v1/scouts
-
-Create a new scout with a schedule.
-
-**Auth:** API key
-
-**Rate limit:** 10 requests/minute
-
-**Request:**
-```json
-{
-  "name": "Daily Zurich News",
-  "scout_type": "pulse",
-  "regularity": "daily",
-  "time": "08:00",
-  "location": {
-    "displayName": "Zurich, Switzerland",
-    "city": "Zurich",
-    "country": "CH"
-  },
-  "criteria": "climate policy"
-}
-```
-
-**Response:**
-```json
-{
-  "name": "Daily Zurich News",
-  "scout_type": "pulse",
-  "regularity": "daily",
-  "status": "active",
-  "next_run": "2026-03-29T08:00:00Z"
-}
-```
-
----
-
-#### GET /api/v1/scouts/{name}
-
-Get scout details including recent run history.
-
-**Auth:** API key
-
-**Rate limit:** 60 requests/minute
-
-**Response:**
-```json
-{
-  "name": "Daily Zurich News",
-  "scout_type": "pulse",
-  "regularity": "daily",
-  "status": "active",
-  "last_run": "2026-03-28T08:00:00Z",
-  "recent_runs": [
-    {
-      "timestamp": "2026-03-28T08:00:00Z",
-      "scraper_status": true,
-      "criteria_status": true,
-      "summary": "Found 5 news articles for Zurich"
-    }
-  ]
-}
-```
-
----
-
-#### DELETE /api/v1/scouts/{name}
-
-Delete a scout and its associated EventBridge schedule.
-
-**Auth:** API key
-
-**Rate limit:** 10 requests/minute
-
-**Response:**
-```json
-{
-  "success": true,
-  "name": "Daily Zurich News",
-  "status": "deleted"
-}
-```
-
----
-
-#### POST /api/v1/scouts/{name}/run
-
-Manually trigger a scout execution.
-
-**Auth:** API key
-
-**Rate limit:** 5 requests/minute
-
-**Response:**
-```json
-{
-  "scraper_status": true,
-  "criteria_status": true,
-  "summary": "Found 5 news articles for Zurich",
-  "notification_sent": true
-}
-```
-
----
-
-### Information Units
-
-Query information units via API key. All endpoints require `Authorization: Bearer <api_key>` header.
-
-| Method | Path | Auth | Rate Limit | Description |
-|--------|------|------|------------|-------------|
-| GET | `/api/v1/units` | API key | 60/min | List units (filter by location/topic/scout) |
-| GET | `/api/v1/units/search` | API key | 30/min | Semantic search units |
-
-#### GET /api/v1/units
-
-List information units. Supports filtering by location, topic, or scout name.
-
-**Auth:** API key
-
-**Rate limit:** 60 requests/minute
-
-**Query Parameters:**
-
-| Param | Required | Description |
-|-------|----------|-------------|
-| `location` | No | Location filter (e.g., `US#CA#San Francisco`) |
-| `topic` | No | Topic tag filter |
-| `scout` | No | Scout name filter |
-| `limit` | No | Max results (default: 50, max: 100) |
-
-**Request:**
-```
-GET /api/v1/units?topic=Climate&limit=10
-```
-
-**Response:**
-```json
-{
-  "units": [
-    {
-      "unit_id": "unit_xxx",
-      "title": "New Climate Initiative Announced",
-      "summary": "City officials announced a $50M climate investment...",
-      "source_url": "https://sfchronicle.com/article/123",
-      "scout_type": "pulse",
-      "created_at": "2026-03-28T10:00:00Z"
-    }
-  ],
-  "count": 1
-}
-```
-
----
-
-#### GET /api/v1/units/search
-
-Semantic search across information units using vector similarity.
-
-**Auth:** API key
-
-**Rate limit:** 30 requests/minute
-
-**Query Parameters:**
-
-| Param | Required | Description |
-|-------|----------|-------------|
-| `q` | Yes | Search query |
-| `limit` | No | Max results (default: 10, max: 50) |
-
-**Request:**
-```
-GET /api/v1/units/search?q=renewable%20energy%20investment&limit=5
-```
-
-**Response:**
-```json
-{
-  "units": [
-    {
-      "unit_id": "unit_xxx",
-      "title": "New Climate Initiative Announced",
-      "summary": "City officials announced a $50M climate investment...",
-      "source_url": "https://sfchronicle.com/article/123",
-      "score": 0.89,
-      "created_at": "2026-03-28T10:00:00Z"
-    }
-  ],
-  "count": 1
 }
 ```
 
@@ -1622,10 +1268,8 @@ Google Vertex; returned usage/provider metadata feeds operator usage records.
 | `backend/app/routers/scraper.py` | Scheduling endpoints |
 | `backend/app/routers/units.py` | Information units (feed data) |
 | `backend/app/routers/user.py` | User preferences (language, timezone, CMS config) |
-| `backend/app/routers/v1.py` | V1 external API (keys, scouts, units) |
 | `backend/app/schemas/scouts.py` | Web scout request/response schemas |
 | `backend/app/schemas/pulse.py` | Pulse request/response schemas |
-| `backend/app/schemas/social.py` | Social Scout request/response schemas |
 | `backend/app/services/pulse_orchestrator.py` | Beat Scout (type `pulse`) orchestrator |
 | `backend/app/services/social_orchestrator.py` | Social Scout orchestrator (Apify scrapers) |
 | `backend/app/services/notification_service.py` | Unified email notifications (markdown→HTML) |

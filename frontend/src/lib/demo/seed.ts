@@ -4,8 +4,8 @@
  * Shown on the workspace when the user has zero real scouts and has not yet
  * dismissed the demo by creating their first scout. Everything here is pure
  * in-memory — nothing is written to Supabase, nothing is scheduled, nothing
- * consumes credits. The first successful `scoutsStore.create()` wipes the
- * demo and sets a localStorage flag so it never re-seeds.
+ * consumes credits. Once the workspace has a real scout, the workspace page
+ * retires the demo and sets a localStorage flag so it never re-seeds.
  */
 import type { Scout, Unit } from '$lib/types/workspace';
 import { IS_LOCAL_DEMO_MODE } from '$lib/demo/state';

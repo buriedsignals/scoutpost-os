@@ -1,7 +1,7 @@
 {
   "lock": false,
   "tasks": {
-    "test": "deno test --allow-env --allow-read=. --allow-import _shared/ crawler-worker/ scout-beat-execute/lifecycle_test.ts scout-transport-execute/ transport-sampler/ transport-test/ resend-webhook/_test.ts",
-    "test:coverage": "deno test --allow-env --allow-read=. --allow-import --coverage=coverage --coverage-raw-data-only --clean _shared/ crawler-worker/ scout-beat-execute/lifecycle_test.ts scout-transport-execute/ transport-sampler/ transport-test/ resend-webhook/_test.ts"
+    "test": "deno test --allow-env --allow-read=. --allow-import _shared/ crawler-worker/ cli-auth/ scout-beat-execute/lifecycle_test.ts scout-transport-execute/ transport-sampler/ transport-test/ crawler-dispatch/_test.ts crawler-proxy/_test.ts resend-webhook/_test.ts mcp-server/oauth/register_test.ts civic/items_test.ts civic-execute/discovery_test.ts scouts/civic_baseline_test.ts scouts/handlers_test.ts abuse-risk-audit/_test.ts beat-search/budget_stage_test.ts mcp-server/oauth/_test.ts mcp-server/rpc_test.ts openapi-spec/_test.ts snapshots/snapshot_view_test.ts social-test/_test.ts units/search_utils_test.ts",
+    "test:coverage": "deno task test --coverage=coverage --coverage-raw-data-only --clean"
   }
 }

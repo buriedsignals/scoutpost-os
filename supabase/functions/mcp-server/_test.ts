@@ -23,7 +23,11 @@ import {
   assertNotEquals,
   assertStringIncludes,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { functionUrl } from "../_shared/_testing.ts";
+import {
+  functionUrl,
+  getTestingServiceRoleKey,
+  SUPABASE_URL,
+} from "../_shared/_testing.ts";
 
 // Direct imports for unit tests (no network / DB).
 import { base64urlEncode, signState, verifyState } from "./oauth/state.ts";
@@ -892,12 +896,7 @@ async function seedCodeRow(): Promise<{
   const { createClient } = await import(
     "https://esm.sh/@supabase/supabase-js@2"
   );
-  const url = Deno.env.get("SUPABASE_URL") ?? "http://127.0.0.1:54321";
-  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!key) {
-    throw new Error("SUPABASE_SERVICE_ROLE_KEY required for seeded tests");
-  }
-  const db = createClient(url, key, {
+  const db = createClient(SUPABASE_URL, getTestingServiceRoleKey(), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 

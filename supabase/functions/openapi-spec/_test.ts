@@ -38,13 +38,16 @@ function maybeEnv(name: string): string | null {
   }
 }
 
+// Same aliases as `_shared/_testing.ts`; that module is not imported because
+// it throws without env and these structural tests must also run offline.
+const SUPABASE_URL = maybeEnv("SUPABASE_URL") ?? maybeEnv("API_URL");
+
 function functionUrl(name: string, path = ""): string {
-  const base = maybeEnv("SUPABASE_URL");
-  if (!base) throw new Error("SUPABASE_URL not configured for online tests");
-  return `${base}/functions/v1/${name}${path}`;
+  if (!SUPABASE_URL) throw new Error("SUPABASE_URL not configured for online tests");
+  return `${SUPABASE_URL}/functions/v1/${name}${path}`;
 }
 
-const HAS_SUPABASE_URL = Boolean(maybeEnv("SUPABASE_URL"));
+const HAS_SUPABASE_URL = Boolean(SUPABASE_URL);
 
 // ---------------------------------------------------------------------------
 // Offline structural assertions — catch drift the moment a route disappears.

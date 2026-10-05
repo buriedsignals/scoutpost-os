@@ -14,7 +14,6 @@ Read the nearest parent `AGENTS.md` / `AGENTS.md` before editing; its session pr
 | `onboarding.py` | `/api/onboarding/*` | Timezone/language/location bootstrap, tour-complete flag. | No |
 | `user.py` | `/api/user/*` | User preferences and data export. The incomplete legacy account-delete route is permanently `410 Gone`; hosted deletion belongs to the `user` Edge Function. | No |
 | `units.py` | `/api/units/*` | Legacy unit helpers still called by the SPA while the units-only surface consolidates on EFs. | No |
-| `v1.py` | `/api/v1/*` | Thin OSS REST surface. `cj_` key validation now lives in the Supabase `validate_api_key` RPC (reached via `public_edge_proxy` → `/functions/v1/*`, which the CLI uses); the FastAPI key path returns 401 (no `ApiKeyService`). | No |
 
 SaaS-only routers are stripped from the OSS mirror by `scripts/ops/strip-oss.sh`.
 When adding a SaaS-only router or service you MUST update `strip-oss.sh`.
@@ -25,15 +24,12 @@ Kept because they back the residual routers above:
 
 | Service | Used By |
 |---|---|
-| `cron.py` | `schedule_service.py` |
-| `crypto.py` | `adapters/supabase/user_storage.py` (CMS token encryption), session tokens |
-| `embedding_utils.py` | `feed_search_service.py`, `adapters/supabase/execution_storage.py` |
-| `feed_search_service.py` | `routers/units.py`, `routers/v1.py` |
+| `crypto.py` | `adapters/supabase/user_storage.py` (CMS token encryption) |
+| `embedding_utils.py` | `feed_search_service.py`, `adapters/supabase/unit_storage.py` |
+| `feed_search_service.py` | `routers/units.py` |
 | `http_client.py` | Shared connection pooling (used by `embedding_utils.py`) |
-| `muckrock_client.py` | `routers/muckrock_proxy.py`, `routers/local_auth.py` |
-| `schedule_service.py` | `routers/v1.py` scout list/CRUD |
-| `session_service.py` | Session cookie encode/decode |
-| `user_service.py` | `routers/user.py` |
+| `muckrock_client.py` | `routers/local_auth.py` |
+| `user_service.py` | `routers/user.py`, `routers/onboarding.py` |
 
 The DynamoDB-backed `api_key_service.py`, `license_key_service.py`, and
 `seed_data_service.py` (plus the `license.py` router) were removed in the
@@ -47,6 +43,12 @@ Legacy scout/news services (`scout_service.py`, `news_utils.py`,
 post-cutover sweep — their responsibilities moved into Supabase Edge
 Functions.
 
+The unreachable `/api/v1/*` router (every route 401/404'd once
+`ApiKeyService` was gone) was removed together with `schedule_service.py`,
+`cron.py`, `session_service.py`, the credit/billing helpers, and the scheduler
+and billing ports. The public REST API is the Supabase Edge Functions under
+`/functions/v1/*`.
+
 ## Adapters (`backend/app/adapters/supabase/*`)
 
 Supabase is the only registered backend after the v2 cutover. The port/adapter
@@ -59,9 +61,7 @@ pattern is kept for DI and testability. Surviving adapters and their ports:
 | `RunStoragePort` | `run_storage.py` |
 | `UnitStoragePort` | `unit_storage.py` |
 | `UserStoragePort` | `user_storage.py` |
-| `SchedulerPort` | `scheduler.py` |
 | `AuthPort` | `auth.py` |
-| `BillingPort` | `billing.py` (no-op) |
 
 Retired in post-cutover sweep: `PostSnapshotStoragePort`, `SeenRecordStoragePort`,
 `PromiseStoragePort` — the data they represented (Social baselines, dedup seen
@@ -75,8 +75,7 @@ Functions.
   `providers.get_auth()` which currently returns `SupabaseAuth`.
 - **Public API (`cj_…` keys):** validated by the Supabase `validate_api_key`
   RPC, reached via `public_edge_proxy.py` → `/functions/v1/*` (the path the
-  `scout` CLI uses). The FastAPI `/api/v1/*` router has no `ApiKeyService` and
-  returns 401 on `cj_` auth.
+  `scout` CLI uses).
 - **Hosted production MuckRock auth:** `muckrock_proxy.py` forwards to
   Supabase EFs which handle the OAuth + webhook HMAC.
 - **Local pre-push MuckRock auth:** `local_auth.py` is mounted only with

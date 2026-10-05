@@ -16,9 +16,7 @@ _execution_storage = None
 _run_storage = None
 _unit_storage = None
 _user_storage = None
-_scheduler = None
 _auth = None
-_billing = None
 
 
 # ---------------------------------------------------------------------------
@@ -70,15 +68,6 @@ def get_user_storage():
     return _user_storage
 
 
-def get_scheduler():
-    """Return the Scheduler adapter singleton."""
-    global _scheduler
-    if _scheduler is None:
-        from app.adapters.supabase.scheduler import SupabaseScheduler
-        _scheduler = SupabaseScheduler()
-    return _scheduler
-
-
 def get_auth():
     """Return the Auth adapter singleton."""
     global _auth
@@ -86,12 +75,3 @@ def get_auth():
         from app.adapters.supabase.auth import SupabaseAuth
         _auth = SupabaseAuth(user_storage=get_user_storage())
     return _auth
-
-
-def get_billing():
-    """Return the Billing adapter singleton."""
-    global _billing
-    if _billing is None:
-        from app.adapters.supabase.billing import NoOpBilling
-        _billing = NoOpBilling()
-    return _billing

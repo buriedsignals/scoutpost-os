@@ -5,12 +5,9 @@
 import { describe, it, expect } from 'vitest';
 import {
 	SCOUT_COSTS,
-	SOCIAL_SCOUT_COSTS,
-	EXTRACT_COSTS,
 	getScoutCost,
 	normalizeScoutType,
 	truncateUrl,
-	stripMarkdown,
 	getScoutStatus,
 	type ScoutStatusInput
 } from '$lib/utils/scouts';
@@ -20,22 +17,6 @@ import {
 // ===========================================================================
 
 describe('SCOUT_COSTS', () => {
-	it('web scouts cost 1 credit', () => {
-		expect(SCOUT_COSTS.web).toBe(1);
-	});
-
-	it('pulse scouts cost 7 credits', () => {
-		expect(SCOUT_COSTS.pulse).toBe(7);
-	});
-
-	it('social scouts base cost is 2 credits', () => {
-		expect(SCOUT_COSTS.social).toBe(2);
-	});
-
-	it('transport scouts cost 1 credit per run', () => {
-		expect(SCOUT_COSTS.transport).toBe(1);
-	});
-
 	it('all scout types have costs', () => {
 		expect(Object.keys(SCOUT_COSTS).sort()).toEqual([
 			'civic',
@@ -51,6 +32,8 @@ describe('getScoutCost', () => {
 	it('returns base cost for non-social types', () => {
 		expect(getScoutCost('web')).toBe(1);
 		expect(getScoutCost('pulse')).toBe(7);
+		expect(getScoutCost('transport')).toBe(1);
+		expect(getScoutCost('civic')).toBe(10);
 	});
 
 	it('accepts legacy beat aliases from live data', () => {
@@ -73,20 +56,6 @@ describe('getScoutCost', () => {
 	it('returns base social cost when no platform given', () => {
 		expect(getScoutCost('social')).toBe(2);
 	});
-});
-
-describe('SOCIAL_SCOUT_COSTS', () => {
-	it('instagram costs 2', () => expect(SOCIAL_SCOUT_COSTS.instagram).toBe(2));
-	it('x costs 2', () => expect(SOCIAL_SCOUT_COSTS.x).toBe(2));
-	it('facebook costs 15', () => expect(SOCIAL_SCOUT_COSTS.facebook).toBe(15));
-});
-
-describe('EXTRACT_COSTS', () => {
-	it('website costs 1', () => expect(EXTRACT_COSTS.website).toBe(1));
-	it('social (X) costs 2', () => expect(EXTRACT_COSTS.social).toBe(2));
-	it('instagram costs 2', () => expect(EXTRACT_COSTS.instagram).toBe(2));
-	it('facebook costs 15', () => expect(EXTRACT_COSTS.facebook).toBe(15));
-	it('instagram_comments costs 15', () => expect(EXTRACT_COSTS.instagram_comments).toBe(15));
 });
 
 // ===========================================================================
@@ -119,47 +88,6 @@ describe('truncateUrl', () => {
 		const result = truncateUrl(long);
 		expect(result.length).toBeLessThanOrEqual(40);
 		expect(result).toMatch(/\.\.\.$/);
-	});
-});
-
-// ===========================================================================
-// stripMarkdown
-// ===========================================================================
-
-describe('stripMarkdown', () => {
-	it('empty string returns empty', () => {
-		expect(stripMarkdown('')).toBe('');
-	});
-
-	it('strips markdown links', () => {
-		expect(stripMarkdown('[Click here](https://example.com)')).toBe('Click here');
-	});
-
-	it('strips bold', () => {
-		expect(stripMarkdown('**important** text')).toBe('important text');
-	});
-
-	it('strips italic', () => {
-		expect(stripMarkdown('*emphasized* text')).toBe('emphasized text');
-	});
-
-	it('strips headers', () => {
-		expect(stripMarkdown('## Heading\nContent')).toBe('Heading Content');
-	});
-
-	it('strips bullet points', () => {
-		expect(stripMarkdown('- item one\n- item two')).toBe('item one item two');
-	});
-
-	it('truncates to 150 chars with ellipsis', () => {
-		const long = 'word '.repeat(50);
-		const result = stripMarkdown(long);
-		expect(result.length).toBeLessThanOrEqual(153); // 150 + "..."
-		expect(result).toMatch(/\.\.\.$/);
-	});
-
-	it('short text has no ellipsis', () => {
-		expect(stripMarkdown('Short text')).toBe('Short text');
 	});
 });
 

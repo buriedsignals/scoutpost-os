@@ -45,7 +45,7 @@ describe('webhookClient.testScraper', () => {
 		expect(auth === undefined || /^Bearer /.test(auth)).toBe(true);
 	});
 
-	it('sends url, criteria, and scraperName in body', async () => {
+	it('sends exactly url, criteria, and scraperName in body (no userId)', async () => {
 		fetchSpy = mockFetchResponse({
 			summary: 'found',
 			scraper_status: true,
@@ -60,23 +60,11 @@ describe('webhookClient.testScraper', () => {
 		});
 
 		const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-		expect(body.url).toBe('https://example.com');
-		expect(body.criteria).toBe('price changes');
-		expect(body.scraperName).toBe('my-scout');
-	});
-
-	it('does not send userId in body', async () => {
-		fetchSpy = mockFetchResponse({
-			summary: '',
-			scraper_status: true,
-			criteria_status: false
+		expect(body).toEqual({
+			url: 'https://example.com',
+			criteria: 'price changes',
+			scraperName: 'my-scout'
 		});
-		vi.stubGlobal('fetch', fetchSpy);
-
-		await webhookClient.testScraper({ url: 'https://example.com' });
-
-		const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-		expect(body.userId).toBeUndefined();
 	});
 
 	it('throws on non-ok response', async () => {

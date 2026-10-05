@@ -2,10 +2,7 @@
  * Tests for Transport Scout UI helpers + the skipped status variant.
  */
 import { describe, it, expect } from 'vitest';
-import {
-	transportModeCategories,
-	transportRegularities
-} from '$lib/utils/transport';
+import { transportModeCategories } from '$lib/utils/transport';
 import { getScoutStatus } from '$lib/utils/scouts';
 
 describe('transportModeCategories', () => {
@@ -25,13 +22,6 @@ describe('transportModeCategories', () => {
 		// filtered on it would silently match nothing.
 		expect(transportModeCategories('vessel')).toContain('pleasure');
 		expect(transportModeCategories('vessel')).not.toContain('yacht');
-	});
-});
-
-describe('transportRegularities', () => {
-	it('offers 3h/6h/12h/daily for aircraft and vessels', () => {
-		const a = transportRegularities('aircraft').map((r) => r.value);
-		expect(a).toEqual(['3h', '6h', '12h', 'daily']);
 	});
 });
 

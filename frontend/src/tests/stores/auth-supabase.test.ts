@@ -52,21 +52,6 @@ describe('auth-supabase login', () => {
 		);
 	});
 
-	it('prefers an explicit local callback override for hosted dev auth', async () => {
-		const { buildMuckRockLoginUrl } = await loadAuthStore();
-		const loginUrl = buildMuckRockLoginUrl(
-			'https://newsroom-project.supabase.co',
-			null,
-			{ origin: 'http://127.0.0.1:4173', hostname: '127.0.0.1' },
-			true,
-			'http://localhost:5173/auth/callback'
-		);
-
-		expect(loginUrl).toBe(
-			'https://newsroom-project.supabase.co/functions/v1/auth-muckrock/login?post_login_redirect=http%3A%2F%2Flocalhost%3A5173%2Fauth%2Fcallback'
-		);
-	});
-
 	it('uses an explicit broker override when configured', async () => {
 		const { buildMuckRockLoginUrl } = await loadAuthStore();
 		const loginUrl = buildMuckRockLoginUrl(

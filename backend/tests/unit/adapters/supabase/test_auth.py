@@ -16,8 +16,6 @@ def mock_settings():
     settings = MagicMock()
     settings.supabase_jwt_secret = "test-jwt-secret-key-for-testing-only"
     settings.supabase_url = "https://test.supabase.co"
-    settings.supabase_service_key = "test-service-key"
-    settings.internal_service_key = "test-internal-key"
     return settings
 
 
@@ -132,30 +130,3 @@ class TestGetCurrentUser:
         with pytest.raises(HTTPException) as exc_info:
             await auth_adapter.get_current_user(request)
         assert exc_info.value.status_code == 401
-
-
-class TestGetUserEmail:
-    @pytest.mark.asyncio
-    async def test_returns_email_from_supabase(self, auth_adapter):
-        mock_user = MagicMock()
-        mock_user.user.email = "journalist@newsroom.org"
-
-        mock_client = MagicMock()
-        mock_client.auth.admin.get_user_by_id = AsyncMock(return_value=mock_user)
-        auth_adapter._supabase_client = mock_client
-
-        email = await auth_adapter.get_user_email("user-123")
-
-        assert email == "journalist@newsroom.org"
-
-
-class TestVerifyServiceKey:
-    @pytest.mark.asyncio
-    async def test_returns_true_for_valid_key(self, auth_adapter, mock_settings):
-        result = await auth_adapter.verify_service_key(mock_settings.internal_service_key)
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_returns_false_for_invalid_key(self, auth_adapter):
-        result = await auth_adapter.verify_service_key("wrong-key")
-        assert result is False

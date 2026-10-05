@@ -1,6 +1,5 @@
 """Contract tests for OpenRouter Gemini embeddings and vector utilities."""
 
-import base64
 import math
 from unittest.mock import AsyncMock, MagicMock
 
@@ -14,16 +13,12 @@ from app.services.embedding_utils import (
     EMBEDDING_MODEL_TAG,
     OPENROUTER_EMBEDDING_MODEL,
     EmbeddingError,
-    compress_embedding,
     cosine_similarity,
-    decompress_embedding,
     generate_embedding,
-    generate_embeddings_batch,
     normalize_embedding,
 )
 
 VECTOR_A = [1.0] + [0.0] * (EMBEDDING_DIMENSIONS - 1)
-VECTOR_B = [0.0, 1.0] + [0.0] * (EMBEDDING_DIMENSIONS - 2)
 
 
 def _response(*items: tuple[int, list[float]], status_code: int = 200) -> MagicMock:
@@ -60,18 +55,6 @@ class TestEmbeddingConstants:
         assert EMBEDDING_MODEL_TAG == (
             "openrouter-google-gemini-embedding-001-768-zdr-v1"
         )
-
-
-class TestEmbeddingCompression:
-    def test_roundtrip_preserves_existing_float32_format(self):
-        original = [0.1, 0.2, 0.3, -0.5, 1.0]
-        decompressed = decompress_embedding(compress_embedding(original))
-        assert len(decompressed) == len(original)
-        for expected, actual in zip(original, decompressed):
-            assert abs(expected - actual) < 1e-6
-
-    def test_compressed_value_is_base64(self):
-        base64.b64decode(compress_embedding([0.1, 0.2]))
 
 
 class TestCosineSimilarity:
@@ -190,36 +173,3 @@ class TestGenerateEmbedding:
         with pytest.raises(EmbeddingError, match="malformed JSON") as error:
             await generate_embedding("test")
         assert "private parser detail" not in str(error.value)
-
-
-class TestGenerateEmbeddingsBatch:
-    @pytest.mark.asyncio
-    async def test_empty_batch_does_not_call_service(self, monkeypatch):
-        get_client = AsyncMock()
-        monkeypatch.setattr(embedding_utils, "get_http_client", get_client)
-        assert await generate_embeddings_batch([]) == []
-        get_client.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_batch_preserves_inputs_and_response_order(self, monkeypatch):
-        _configure(monkeypatch)
-        client = _install_client(monkeypatch, _response((1, VECTOR_B), (0, VECTOR_A)))
-        result = await generate_embeddings_batch(
-            ["alpha", "beta"], "RETRIEVAL_DOCUMENT", titles=["Title A", None]
-        )
-        assert result == [VECTOR_A, VECTOR_B]
-        assert client.post.call_args.kwargs["json"]["input"] == [
-            "title: Title A | text: alpha",
-            "beta",
-        ]
-
-    @pytest.mark.asyncio
-    async def test_titles_length_must_match_inputs(self):
-        with pytest.raises(ValueError, match="titles must be the same length"):
-            await generate_embeddings_batch(["alpha"], titles=["one", "two"])
-
-    @pytest.mark.asyncio
-    async def test_http_failure_preserves_best_effort_empty_batch(self, monkeypatch):
-        _configure(monkeypatch)
-        _install_client(monkeypatch, _response(status_code=529))
-        assert await generate_embeddings_batch(["alpha"]) == []

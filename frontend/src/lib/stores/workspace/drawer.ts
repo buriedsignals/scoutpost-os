@@ -19,21 +19,13 @@ export interface DrawerState {
 const initialState: DrawerState = { open: false };
 
 function createDrawerStore() {
-	const { subscribe, set, update }: Writable<DrawerState> = writable({ ...initialState });
+	const { subscribe, set }: Writable<DrawerState> = writable({ ...initialState });
 
 	return {
 		subscribe,
 
 		open(): void {
 			set({ open: true });
-		},
-
-		close(): void {
-			set({ open: false });
-		},
-
-		toggle(): void {
-			update((s) => ({ open: !s.open }));
 		},
 
 		/**

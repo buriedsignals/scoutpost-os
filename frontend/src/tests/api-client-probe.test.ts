@@ -77,50 +77,6 @@ describe('discoverCivic', () => {
 		expect(result.candidates[0].recommended).toBe(true);
 		expect(result.error_code).toBeUndefined();
 	});
-
-	it('passes the no_meetings_detected outcome through with error, error_code and unverified pages', async () => {
-		const body = {
-			ok: false,
-			stage: 'detect',
-			error_code: 'no_meetings_detected',
-			error: 'No council meetings were detected on this website. Choose one of the suggested pages, or enter the page that lists individual meetings (agendas, minutes or protocols).',
-			system: 'generic',
-			candidates: [],
-			unverified: [{ url: 'https://www.bristol.gov.uk/council', description: 'Council section', confidence: 0.4 }]
-		};
-		fetchSpy = mockFetchResponse(body);
-		vi.stubGlobal('fetch', fetchSpy);
-
-		const result = await apiClient.discoverCivic('https://www.bristol.gov.uk/');
-
-		expect(result.ok).toBe(false);
-		expect(result.error_code).toBe('no_meetings_detected');
-		expect(isProbeOutcome(result.error_code)).toBe(true);
-		expect(result.error).toBe(body.error);
-		expect(result.candidates).toEqual([]);
-		expect(result.unverified).toEqual(body.unverified);
-	});
-
-	it('passes a reach-stage failure (blocked) through as ok:false with the server sentence', async () => {
-		const body = {
-			ok: false,
-			stage: 'reach',
-			error_code: 'blocked',
-			error: 'The website blocks automated access, so it cannot be monitored from here.',
-			system: 'generic',
-			candidates: []
-		};
-		fetchSpy = mockFetchResponse(body);
-		vi.stubGlobal('fetch', fetchSpy);
-
-		const result = await apiClient.discoverCivic('blocked.example');
-
-		expect(result.ok).toBe(false);
-		expect(result.stage).toBe('reach');
-		expect(result.error_code).toBe('blocked');
-		expect(isProbeOutcome(result.error_code)).toBe(false);
-		expect(result.error).toBe(body.error);
-	});
 });
 
 describe('testCivic', () => {
@@ -156,31 +112,6 @@ describe('testCivic', () => {
 		expect(result.valid).toBe(false);
 		expect(result.error_code).toBe('no_documents');
 		expect(result.error).toBe(body.error);
-	});
-
-	it('keeps the existing success fields alongside the ok envelope', async () => {
-		const body = {
-			ok: true,
-			stage: 'sample',
-			api_version: '2',
-			valid: true,
-			documents_found: 2,
-			documents_resolved: 2,
-			documents_evaluated: 2,
-			policy_version: 'v2',
-			preview_snapshot_token: 'tok-1',
-			sample_items: [],
-			sample_promises: []
-		};
-		fetchSpy = mockFetchResponse(body);
-		vi.stubGlobal('fetch', fetchSpy);
-
-		const result = await apiClient.testCivic(['https://example.gov/meetings']);
-
-		expect(result.ok).toBe(true);
-		expect(result.valid).toBe(true);
-		expect(result.preview_snapshot_token).toBe('tok-1');
-		expect(result.error).toBeUndefined();
 	});
 });
 

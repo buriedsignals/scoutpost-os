@@ -7,7 +7,6 @@
  * DEPENDS ON: $lib/config/api (buildApiUrl), $lib/types
  *
  * Uses httpOnly session cookies for authentication (credentials: 'include').
- * Also exports the legacy InformationUnit type used by compatibility helpers.
  */
 import * as m from '$lib/paraglide/messages';
 import type {
@@ -307,15 +306,9 @@ function buildQueryString(params: Record<string, string | number | undefined | n
  * UI components migrate to workspaceApi (POST-CUTOVER-TODO #2).
  */
 
-// Helper: resolve a legacy scout NAME (string) to a v2 scout UUID.
-// Performs a single GET /scouts and matches by name. Cached per session
-// in module scope so a sequence of run-now/delete calls only pays the
-// lookup once. Cache invalidates on any list refetch.
-let _scoutNameToIdCache: Map<string, string> | null = null;
-
 type ListedScout = Record<string, unknown> & { id: string; name: string };
 
-/** Fetch every scout page for legacy callers that still operate by scout name. */
+/** Fetch every scout page (GET /scouts is paginated). */
 async function fetchAllScouts(): Promise<ListedScout[]> {
 	const { authStore } = await import('$lib/stores/auth');
 	const token = await authStore.getToken();
@@ -341,34 +334,16 @@ async function fetchAllScouts(): Promise<ListedScout[]> {
 	}
 }
 
-async function resolveScoutId(scraperName: string): Promise<string> {
-	if (_scoutNameToIdCache?.has(scraperName)) {
-		return _scoutNameToIdCache.get(scraperName)!;
-	}
-	const items = await fetchAllScouts();
-	const cache = new Map<string, string>();
-	for (const item of items) cache.set(item.name, item.id);
-	_scoutNameToIdCache = cache;
-	const id = cache.get(scraperName);
-	if (!id) throw new Error(m.apiErrors_scoutNotFound({ name: scraperName }));
-	return id;
-}
-
 export const apiClient = {
 	/**
 	 * Get all active monitoring jobs.
 	 *
 	 * Adapter: calls Edge Function GET /scouts (paginated `{items, pagination}`)
 	 * and reshapes to the legacy `{scrapers: [{scraper_name, ...}], count}`
-	 * envelope expected by legacy scout-management callers. Refreshes the
-	 * name→id resolve cache on every list fetch.
+	 * envelope expected by legacy scout-management callers.
 	 */
 	async getActiveJobs(): Promise<import('$lib/types').ActiveJobsResponse> {
 		const items = await fetchAllScouts();
-		// Refresh the resolve cache as a side effect.
-		const cache = new Map<string, string>();
-		for (const item of items) cache.set(item.name, item.id);
-		_scoutNameToIdCache = cache;
 		// Reshape each item: surface legacy `scraper_name` alongside `name`.
 		const scrapers = items.map((item) => ({
 			...item,
@@ -382,35 +357,6 @@ export const apiClient = {
 			user: String(user),
 			scrapers
 		} as unknown as import('$lib/types').ActiveJobsResponse;
-	},
-
-	/**
-	 * Delete an active monitoring job by name.
-	 *
-	 * Adapter: resolves name → UUID, then DELETE /scouts/:id.
-	 */
-	async deleteActiveJob(scraperName: string): Promise<void> {
-		const id = await resolveScoutId(scraperName);
-		const { authStore } = await import('$lib/stores/auth');
-		const token = await authStore.getToken();
-		const response = await fetch(buildApiUrl(`/scouts/${encodeURIComponent(id)}`), {
-			method: 'DELETE',
-			headers: { ...JSON_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-		});
-		if (!response.ok && response.status !== 204) {
-			let detail = m.scouts_failedToDelete();
-			try {
-				const error = await response.json();
-				detail = error.detail || error.error || detail;
-			} catch {
-				/* non-JSON */
-			}
-			throw new Error(detail);
-		}
-		// Invalidate cache after delete.
-		_scoutNameToIdCache = null;
-		if (response.status === 204) return;
-		return response.json();
 	},
 
 	/**
@@ -453,36 +399,6 @@ export const apiClient = {
 			m.apiErrors_scheduleLocalScoutFailed()
 		);
 		return res as unknown as ScoutSetupResponse;
-	},
-
-	/**
-	 * Manually trigger a scout execution ("Run Now").
-	 *
-	 * Adapter: resolves name → UUID, POSTs to /scouts/:id/run. The Edge
-	 * Function returns 202 + run_id (async), not the legacy sync result
-	 * shape. We synthesize a "queued" response so the UI's success path
-	 * fires; the spinner stop is POST-CUTOVER-TODO #3 (separate fix).
-	 */
-	async runScoutNow(scraperName: string): Promise<{
-		scraper_status: boolean;
-		criteria_status: boolean;
-		summary: string;
-		notification_sent?: boolean;
-		change_status?: string;
-	}> {
-		const id = await resolveScoutId(scraperName);
-		await apiRequestSafeError<Record<string, unknown>>(
-			'POST',
-			`/scouts/${encodeURIComponent(id)}/run`,
-			{},
-			m.scouts_failedToRun()
-		);
-		return {
-			scraper_status: true,
-			criteria_status: false,
-			summary: m.apiFeedback_scoutRunQueued(),
-			notification_sent: false
-		};
 	},
 
 	/**
@@ -611,65 +527,6 @@ export const apiClient = {
 		});
 	},
 
-	// ==================== Information Units API ====================
-
-	/**
-	 * Get distinct locations where user has information units.
-	 *
-	 * Adapter: the units EF doesn't expose /units/locations, so we
-	 * aggregate client-side: fetch a page of units and dedupe distinct
-	 * country/state/city combinations into displayName-shaped strings.
-	 * 200-unit cap keeps the request bounded; if a user has more they
-	 * see the most-recent locations only (acceptable for filter UX).
-	 */
-	async getUserUnitLocations(): Promise<{ locations: string[] }> {
-		return apiRequest('GET', '/units/locations');
-	},
-
-	/**
-	 * Get all unused information units (no location/topic filter).
-	 */
-	async getAllUnusedUnits(limit: number = 50): Promise<{
-		units: InformationUnit[];
-		count: number;
-	}> {
-		const qs = buildQueryString({ limit });
-		return apiRequest('GET', `/units/all?${qs}`);
-	},
-
-	/**
-	 * Get only unused information units for a location.
-	 */
-	async getUnusedUnitsByLocation(params: {
-		country: string;
-		state?: string;
-		city?: string;
-		displayName: string;
-		limit?: number;
-	}): Promise<{
-		units: InformationUnit[];
-		count: number;
-	}> {
-		const qs = buildQueryString({
-			country: params.country,
-			state: params.state,
-			city: params.city,
-			displayName: params.displayName,
-			limit: params.limit
-		});
-		return apiRequest('GET', `/units/unused?${qs}`);
-	},
-
-	/**
-	 * Mark units as used in an article.
-	 */
-	async markUnitsUsed(unitKeys: { pk: string; sk: string }[]): Promise<{
-		marked_count: number;
-		total_requested: number;
-	}> {
-		return apiRequest('PATCH', '/units/mark-used', { unit_keys: unitKeys });
-	},
-
 	/**
 	 * Update user preferences (language, timezone, and/or excluded domains).
 	 */
@@ -701,67 +558,6 @@ export const apiClient = {
 					? response.health_notifications_enabled
 					: params.health_notifications_enabled
 		};
-	},
-
-	/**
-	 * Get distinct topics where user has information units.
-	 *
-	 * Adapter: aggregate client-side from a single GET /units page,
-	 * same approach as getUserUnitLocations. 200-unit cap.
-	 */
-	async getUserUnitTopics(): Promise<{ topics: string[] }> {
-		return apiRequest('GET', '/units/topics');
-	},
-
-	/**
-	 * Get information units for a specific topic.
-	 *
-	 * Adapter: client-side filter on a GET /units page. The units EF
-	 * doesn't (yet) accept topic as a filter param; rather than ship
-	 * a server-side EF change at 1AM, filter the result locally. 200-
-	 * unit cap. Server-side topic filter is a small EF patch for the
-	 * morning.
-	 */
-	async getUnitsByTopic(params: {
-		topic: string;
-		limit?: number;
-	}): Promise<{
-		units: InformationUnit[];
-		count: number;
-	}> {
-		const qs = buildQueryString({
-			topic: params.topic,
-			limit: params.limit
-		});
-		return apiRequest('GET', `/units/by-topic?${qs}`);
-	},
-
-	/**
-	 * Semantic search across information units.
-	 */
-	async searchUnitsSemantic(params: {
-		country?: string;
-		state?: string;
-		city?: string;
-		displayName?: string;
-		topic?: string;
-		query: string;
-		limit?: number;
-	}): Promise<{
-		units: (InformationUnit & { similarity_score: number })[];
-		count: number;
-		query: string;
-	}> {
-		const qs = buildQueryString({
-			country: params.country,
-			state: params.state,
-			city: params.city,
-			displayName: params.displayName,
-			topic: params.topic,
-			query: params.query,
-			limit: params.limit
-		});
-		return apiRequest('GET', `/units/search?${qs}`);
 	},
 
 	// ==================== API Key Management ====================
@@ -831,27 +627,6 @@ export interface CliAuthorizationRequest {
 	access: string;
 }
 
-/**
- * Atomic information unit from scout execution.
- */
-export interface InformationUnit {
-	unit_id: string;
-	pk: string;
-	sk: string;
-	statement: string;
-	unit_type: string;
-	entities: string[];
-	source_url: string;
-	source_domain: string | null;
-	source_title: string;
-	scout_type: string;
-	scout_id: string;
-	topic?: string;
-	created_at: string;
-	used_in_article: boolean;
-	date?: string | null;
-}
-
 // ===========================================================================
 // Workspace API — v2 dual-backend helpers
 // ===========================================================================
@@ -868,22 +643,14 @@ export interface InformationUnit {
 // Helpers do NOT modify the existing `apiClient` export above.
 
 import type {
-	Project as _WorkspaceProject,
 	Scout as _WorkspaceScout,
 	Unit as _WorkspaceUnit,
-	Reflection as _WorkspaceReflection,
-	Entity as _WorkspaceEntity,
-	CreateScoutInput as _WorkspaceCreateScoutInput,
 	PaginatedUnits as _WorkspacePaginatedUnits,
 	PaginatedScouts as _WorkspacePaginatedScouts
 } from '$lib/types/workspace';
 
-export type WorkspaceProject = _WorkspaceProject;
 export type WorkspaceScout = _WorkspaceScout;
 export type WorkspaceUnit = _WorkspaceUnit;
-export type WorkspaceReflection = _WorkspaceReflection;
-export type WorkspaceEntity = _WorkspaceEntity;
-export type WorkspaceCreateScoutInput = _WorkspaceCreateScoutInput;
 export type WorkspacePaginatedUnits = _WorkspacePaginatedUnits;
 export type WorkspacePaginatedScouts = _WorkspacePaginatedScouts;
 
@@ -997,24 +764,16 @@ async function workspaceAuthHeaders(): Promise<Record<string, string>> {
 
 /**
  * Core workspace request. Resolves the JSON body (or `null` on 204) and
- * throws `ApiError` on non-2xx. Accepts:
- *   - `rawText: true` — resolve as `string` instead of JSON.
- *   - `query` — serialized with omit-undefined rules from `buildQueryString`.
+ * throws `ApiError` on non-2xx.
  */
 async function workspaceRequest<T>(
 	method: string,
 	path: string,
-	opts: {
-		body?: unknown;
-		query?: Record<string, string | number | undefined | null>;
-		rawText?: boolean;
-	} = {}
+	opts: { body?: unknown } = {}
 ): Promise<T> {
 	const auth = await workspaceAuthHeaders();
 	const headers: Record<string, string> = { ...JSON_HEADERS, ...auth };
-
-	const qs = opts.query ? buildQueryString(opts.query) : '';
-	const url = buildApiUrl(qs ? `${path}?${qs}` : path);
+	const url = buildApiUrl(path);
 
 	const init: RequestInit = {
 		method,
@@ -1032,7 +791,6 @@ async function workspaceRequest<T>(
 	}
 
 	if (response.status === 204) return null as unknown as T;
-	if (opts.rawText) return (await response.text()) as unknown as T;
 
 	const body = (await parseJsonSafe(response)) as unknown;
 	return unwrapEnvelope(body) as T;
@@ -1057,7 +815,7 @@ function unwrapEnvelope(body: unknown): unknown {
 }
 
 // ---------------------------------------------------------------------------
-// workspaceApi — 15 helpers
+// workspaceApi
 // ---------------------------------------------------------------------------
 
 /**
@@ -1072,33 +830,9 @@ function unwrapEnvelope(body: unknown): unknown {
  *  - Throws `ApiError(message, code, status)` on non-2xx.
  *
  * Endpoint routing assumes VITE_API_URL points at whichever backend should
- * serve the request. Helpers that don't have a FastAPI counterpart
- * (projects, reflections, entities, ingest, mergeEntities)
- * are Edge-only today — see the shape-mismatch table in the PR description.
+ * serve the request.
  */
 export const workspaceApi = {
-	/**
-	 * List all projects for the current user.
-	 *
-	 * Envelope tolerance: `{items, pagination}` (Edge Function) or
-	 * `{data: [...]}` (hypothetical FastAPI) unwrap to `Project[]`.
-	 * Edge Function only today (no FastAPI equivalent).
-	 */
-	async listProjects(): Promise<WorkspaceProject[]> {
-		const res = await workspaceRequest<unknown>('GET', '/projects');
-		return (Array.isArray(res) ? res : []) as WorkspaceProject[];
-	},
-
-	/**
-	 * Fetch a single project by id.
-	 *
-	 * Both backends return the bare object; no envelope unwrap needed but
-	 * the shared helper still tolerates `{data: {...}}`.
-	 */
-	async getProject(id: string): Promise<WorkspaceProject> {
-		return workspaceRequest<WorkspaceProject>('GET', `/projects/${encodeURIComponent(id)}`);
-	},
-
 	/**
 	 * List scouts, optionally scoped to a project.
 	 *
@@ -1145,26 +879,9 @@ export const workspaceApi = {
 	},
 
 	/**
-	 * Create a scout. Accepts the template-aware `CreateScoutInput`; callers
-	 * are responsible for mapping UI templates (`location`/`beat`) to the
-	 * backend `type` (`pulse`).
-	 *
-	 * Edge Function returns the shaped scout; FastAPI returns a ScoutResponse
-	 * with the same id field — both tolerated via the bare-object unwrap.
-	 */
-	async createScout(data: WorkspaceCreateScoutInput): Promise<WorkspaceScout> {
-		return normalizeWorkspaceScout(
-			await workspaceRequest<WorkspaceScout>('POST', '/scouts', { body: data })
-		);
-	},
-
-	/**
 	 * Trigger an on-demand run of a scout.
 	 *
-	 * Edge Function returns `{scout_id, run_id}` (202); FastAPI exposes
-	 * `/scrapers/run-now` with a different payload. This helper targets the
-	 * Edge Function contract; FastAPI callers should use
-	 * `apiClient.runScoutNow` instead (kept for backward compatibility).
+	 * Edge Function returns `{scout_id, run_id}` (202).
 	 */
 	async runScout(id: string): Promise<{ run_id: string; status?: string }> {
 		const res = await workspaceRequest<Record<string, unknown>>(
@@ -1239,14 +956,6 @@ export const workspaceApi = {
 	},
 
 	/**
-	 * Fetch a single unit by id.
-	 * Both backends return the bare object.
-	 */
-	async getUnit(id: string): Promise<WorkspaceUnit> {
-		return workspaceRequest<WorkspaceUnit>('GET', `/units/${encodeURIComponent(id)}`);
-	},
-
-	/**
 	 * Semantic search across units, optionally scoped to a scout.
 	 *
 	 * Edge Function POSTs to `/units/search` with `{query_text, project_id?}`
@@ -1267,100 +976,6 @@ export const workspaceApi = {
 	 */
 	async deleteUnit(id: string): Promise<void> {
 		await workspaceRequest<void>('DELETE', `/units/${encodeURIComponent(id)}`);
-	},
-
-	/**
-	 * List reflections, optionally scoped to a source unit.
-	 *
-	 * Edge Function supports `project_id` filtering; there is no
-	 * `unit_id` filter at the backend today, so when `unitId` is provided
-	 * we still pass it through (`unit_id=<id>`) — the Edge Function ignores
-	 * unknown query params. See the shape-mismatch note in the PR
-	 * description.
-	 */
-	async listReflections(unitId?: string): Promise<WorkspaceReflection[]> {
-		const query = unitId ? { unit_id: unitId } : undefined;
-		const res = await workspaceRequest<unknown>('GET', '/reflections', { query });
-		return (Array.isArray(res) ? res : []) as WorkspaceReflection[];
-	},
-
-	/**
-	 * List entities, optionally scoped to a scout.
-	 *
-	 * Like `listReflections`, the Edge Function doesn't currently filter by
-	 * `scout_id` (it filters by `type` and `search`); the parameter is
-	 * preserved on the wire for forward compatibility.
-	 */
-	async listEntities(scoutId?: string): Promise<WorkspaceEntity[]> {
-		const query = scoutId ? { scout_id: scoutId } : undefined;
-		const res = await workspaceRequest<unknown>('GET', '/entities', { query });
-		return (Array.isArray(res) ? res : []) as WorkspaceEntity[];
-	},
-
-	/**
-	 * Manual ingestion — either a URL to scrape or raw content to extract.
-	 *
-	 * Edge Function `/ingest` returns `{ingest_id, raw_capture_id, units}`.
-	 * There is no FastAPI equivalent today. The plan documented the return
-	 * shape as `{job_id}`; we preserve the Edge Function field naming and
-	 * expose `ingest_id` + a convenience `job_id` alias for callers that
-	 * want the "job" framing.
-	 */
-	async ingest(params: {
-		url?: string;
-		content?: string;
-		project_id?: string;
-		title?: string;
-		criteria?: string;
-		notes?: string;
-	}): Promise<{
-		job_id: string;
-		ingest_id: string;
-		raw_capture_id?: string;
-		units: Array<{ id: string; statement: string }>;
-	}> {
-		const body: Record<string, unknown> = params.url
-			? { kind: 'url', url: params.url }
-			: { kind: 'text', text: params.content ?? '' };
-		if (params.project_id) body.project_id = params.project_id;
-		if (params.title) body.title = params.title;
-		if (params.criteria) body.criteria = params.criteria;
-		if (params.notes) body.notes = params.notes;
-
-		const res = await workspaceRequest<Record<string, unknown>>('POST', '/ingest', { body });
-		const ingestId = String(res?.ingest_id ?? res?.job_id ?? '');
-		return {
-			ingest_id: ingestId,
-			job_id: ingestId,
-			raw_capture_id:
-				typeof res?.raw_capture_id === 'string' ? (res.raw_capture_id as string) : undefined,
-			units: Array.isArray(res?.units)
-				? (res.units as Array<{ id: string; statement: string }>)
-				: []
-		};
-	},
-
-	/**
-	 * Merge one or more entity ids into a keeper entity.
-	 *
-	 * Plan signature `mergeEntities(ids)` is ambiguous about which id is the
-	 * keeper. We require the first id to be the keeper (matching the Edge
-	 * Function `{keep_id, merge_ids}` payload) and pass the rest as
-	 * `merge_ids`. The Edge Function returns `{merged: <count>}` — we
-	 * resolve with a thin `{merged, keep_id}` record.
-	 */
-	async mergeEntities(ids: string[]): Promise<{ keep_id: string; merged: number }> {
-		if (!Array.isArray(ids) || ids.length < 2) {
-			throw new ApiError(m.apiErrors_mergeEntitiesRequiresIds());
-		}
-		const [keepId, ...mergeIds] = ids;
-		const res = await workspaceRequest<Record<string, unknown>>('POST', '/entities/merge', {
-			body: { keep_id: keepId, merge_ids: mergeIds }
-		});
-		return {
-			keep_id: keepId,
-			merged: typeof res?.merged === 'number' ? (res.merged as number) : mergeIds.length
-		};
 	},
 
 	/**
@@ -1388,30 +1003,5 @@ export const workspaceApi = {
 		return workspaceRequest<WorkspaceUnit>('PATCH', `/units/${encodeURIComponent(id)}`, {
 			body: { verified: false, verification_notes: 'rejected' }
 		});
-	},
-
-	/**
-	 * Civic Scout test extraction — hits the `civic-test` Edge Function (or the
-	 * FastAPI civic router) with a list of tracked URLs + optional criteria.
-	 * Returns the document count + a sample promise so the AddScoutModal can
-	 * validate the Civic config before saving.
-	 *
-	 * Contract matches `supabase/functions/civic-test/index.ts` (and the FastAPI
-	 * civic router's matching `/civic-test` endpoint). Response-shape-tolerant:
-	 * fills in sensible fallbacks if a backend omits `valid` or `sample_promise`.
-	 */
-	async civicTest(params: {
-		tracked_urls: string[];
-		criteria?: string;
-	}): Promise<{ documents_found: number; sample_promise?: string | null; valid: boolean }> {
-		const res = await workspaceRequest<Record<string, unknown>>('POST', '/civic-test', {
-			body: params
-		});
-		const found = typeof res?.documents_found === 'number' ? (res.documents_found as number) : 0;
-		const sample =
-			typeof res?.sample_promise === 'string' ? (res.sample_promise as string) : null;
-		const valid =
-			typeof res?.valid === 'boolean' ? (res.valid as boolean) : found > 0;
-		return { documents_found: found, sample_promise: sample, valid };
 	}
 };

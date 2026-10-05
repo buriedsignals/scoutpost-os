@@ -14,30 +14,18 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   createTestUser,
   functionUrl,
+  getTestingServiceRoleKey,
   SUPABASE_URL,
 } from "../_shared/_testing.ts";
 
-const SERVICE_KEY = Deno.env.get("INTERNAL_SERVICE_KEY") ?? "";
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const FIRECRAWL_KEY = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
-const LIVE_PROVIDER_TESTS = Deno.env.get("SCOUT_LIVE_PROVIDER_TESTS") === "1";
-const hasServiceAuth = Boolean(SERVICE_ROLE_KEY || SERVICE_KEY);
-const liveKeys = Boolean(
-  LIVE_PROVIDER_TESTS && hasServiceAuth && FIRECRAWL_KEY,
-);
+const SERVICE_ROLE_KEY = getTestingServiceRoleKey();
+const liveKeys = Deno.env.get("SCOUT_LIVE_PROVIDER_TESTS") === "1" &&
+  Boolean(Deno.env.get("FIRECRAWL_API_KEY"));
 
-function svcHeaders(): HeadersInit {
-  if (SERVICE_ROLE_KEY) {
-    return {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${SERVICE_ROLE_KEY}`,
-    };
-  }
-  return {
-    "Content-Type": "application/json",
-    "X-Service-Key": SERVICE_KEY,
-  };
-}
+const SERVICE_HEADERS: HeadersInit = {
+  "Content-Type": "application/json",
+  "Authorization": `Bearer ${SERVICE_ROLE_KEY}`,
+};
 
 function adminDb() {
   return createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
@@ -58,10 +46,6 @@ Deno.test("civic-execute: unauthenticated returns 401", async () => {
 });
 
 Deno.test("civic-execute: 400 when tracked_urls is empty", async () => {
-  if (!hasServiceAuth) {
-    console.warn("skipping: service auth not set");
-    return;
-  }
   const user = await createTestUser();
   const db = adminDb();
   try {
@@ -82,11 +66,11 @@ Deno.test("civic-execute: 400 when tracked_urls is empty", async () => {
 
     const res = await fetch(functionUrl("civic-execute"), {
       method: "POST",
-      headers: svcHeaders(),
+      headers: SERVICE_HEADERS,
       body: JSON.stringify({ scout_id: scout.id }),
     });
     assertEquals(res.status, 400);
-    await res.body?.cancel();
+    assertEquals((await res.json()).error, "scout has no tracked_urls");
 
     await db.from("scouts").delete().eq("id", scout.id);
   } finally {
@@ -95,13 +79,9 @@ Deno.test("civic-execute: 400 when tracked_urls is empty", async () => {
 });
 
 Deno.test("civic-execute: 404 when scout missing", async () => {
-  if (!hasServiceAuth) {
-    console.warn("skipping: service auth not set");
-    return;
-  }
   const res = await fetch(functionUrl("civic-execute"), {
     method: "POST",
-    headers: svcHeaders(),
+    headers: SERVICE_HEADERS,
     body: JSON.stringify({
       scout_id: "00000000-0000-0000-0000-000000000000",
     }),
@@ -136,7 +116,7 @@ Deno.test({
 
       const res = await fetch(functionUrl("civic-execute"), {
         method: "POST",
-        headers: svcHeaders(),
+        headers: SERVICE_HEADERS,
         body: JSON.stringify({ scout_id: scout.id }),
       });
       assertEquals(res.status, 200);

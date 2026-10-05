@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildCliLoginCommand,
   fill,
   getAgentRecipes,
   getOnboardPrompt,
@@ -60,14 +59,6 @@ describe("agent target resolution", () => {
     const goose = getAgentRecipes("goose", target).recipes.mcp!;
     expect(goose.configSnippet).toBe("https://newsroom.example.com/mcp");
     expect(goose.oneClick?.url).toContain(`url=${encodeURIComponent("https://newsroom.example.com/mcp")}&`);
-  });
-
-  it("builds secret-free CLI commands from the generated catalog", () => {
-    const command = buildCliLoginCommand("claude-code");
-    expect(command).toBe(
-      'npm install --global scoutpost-cli\nscout auth login --site https://scoutpost.ai --label "Claude Code"',
-    );
-    expect(command).not.toMatch(/cj_|api_key|anon_key|auth_token/i);
   });
 
   it("normalizes retired selector values into the canonical catalog", () => {

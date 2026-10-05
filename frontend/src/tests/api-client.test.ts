@@ -77,95 +77,6 @@ describe('getActiveJobs', () => {
 });
 
 // ===========================================================================
-// deleteActiveJob
-// ===========================================================================
-
-describe('deleteActiveJob', () => {
-	it('resolves name → UUID via /scouts then DELETE /scouts/:id', async () => {
-		// First fetch: GET /scouts to resolve name → uuid.
-		// Second fetch: DELETE /scouts/<uuid>.
-		fetchSpy = vi.fn()
-			.mockResolvedValueOnce({
-				ok: true,
-				status: 200,
-				json: vi.fn().mockResolvedValue({
-					items: [{ id: 'uuid-abc', name: 'my scout name' }]
-				}),
-				text: vi.fn().mockResolvedValue('')
-			})
-			.mockResolvedValueOnce({
-				ok: true,
-				status: 204,
-				json: vi.fn().mockResolvedValue(undefined),
-				text: vi.fn().mockResolvedValue('')
-			});
-		vi.stubGlobal('fetch', fetchSpy);
-
-		await apiClient.deleteActiveJob('my scout name');
-
-		expect(fetchSpy.mock.calls[1][0]).toBe('/api/scouts/uuid-abc');
-		expect(fetchSpy.mock.calls[1][1].method).toBe('DELETE');
-	});
-
-	it('handles special characters in scout name (URL-encoded UUID path)', async () => {
-		fetchSpy = vi.fn()
-			.mockResolvedValueOnce({
-				ok: true,
-				status: 200,
-				json: vi.fn().mockResolvedValue({
-					items: [{ id: 'uuid/with&special', name: 'scout/with&special' }]
-				}),
-				text: vi.fn().mockResolvedValue('')
-			})
-			.mockResolvedValueOnce({
-				ok: true,
-				status: 204,
-				json: vi.fn().mockResolvedValue(undefined),
-				text: vi.fn().mockResolvedValue('')
-			});
-		vi.stubGlobal('fetch', fetchSpy);
-
-		await apiClient.deleteActiveJob('scout/with&special');
-
-		const url = fetchSpy.mock.calls[1][0];
-		expect(url).toContain(encodeURIComponent('uuid/with&special'));
-	});
-});
-
-// ===========================================================================
-// runScoutNow
-// ===========================================================================
-
-describe('runScoutNow', () => {
-	it('resolves name → UUID via /scouts then POSTs /scouts/:id/run', async () => {
-		fetchSpy = vi.fn()
-			.mockResolvedValueOnce({
-				ok: true,
-				status: 200,
-				json: vi.fn().mockResolvedValue({
-					items: [{ id: 'uuid-run', name: 'test-scout' }]
-				}),
-				text: vi.fn().mockResolvedValue('')
-			})
-			.mockResolvedValueOnce({
-				ok: true,
-				status: 202,
-				json: vi.fn().mockResolvedValue({ run_id: 'r-1' }),
-				text: vi.fn().mockResolvedValue('{"run_id":"r-1"}')
-			});
-		vi.stubGlobal('fetch', fetchSpy);
-
-		const result = await apiClient.runScoutNow('test-scout');
-
-		expect(fetchSpy.mock.calls[1][0]).toBe('/api/scouts/uuid-run/run');
-		expect(fetchSpy.mock.calls[1][1].method).toBe('POST');
-		// Adapter synthesizes a "queued" response since EF returns 202 only.
-		expect(result.scraper_status).toBe(true);
-		expect(result.summary).toBe('Scout run queued');
-	});
-});
-
-// ===========================================================================
 // searchPulse
 // ===========================================================================
 
@@ -186,17 +97,6 @@ describe('searchPulse', () => {
 		const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
 		expect(body.criteria).toBe('AI');
 		expect(body.category).toBe('news');
-	});
-
-	it('sends location search', async () => {
-		const loc = { displayName: 'Zurich', country: 'CH', state: 'Zurich', city: 'Zurich', locationType: 'city' as const, maptilerId: 'maptiler-123' };
-		fetchSpy = mockFetchResponse({ status: 'completed', articles: [] });
-		vi.stubGlobal('fetch', fetchSpy);
-
-		await apiClient.searchPulse({ location: loc });
-
-		const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-		expect(body.location.displayName).toBe('Zurich');
 	});
 
 	it('passes custom filter prompt', async () => {
@@ -318,70 +218,6 @@ describe('scheduleLocalScout', () => {
 });
 
 // ===========================================================================
-// Information Units API
-// ===========================================================================
-
-describe('Information Units', () => {
-	it('getUserUnitLocations uses the units compatibility route', async () => {
-		fetchSpy = mockFetchResponse({
-			locations: ['CH#Bern#Bern', 'CH#Zurich#Zurich']
-		});
-		vi.stubGlobal('fetch', fetchSpy);
-
-		const result = await apiClient.getUserUnitLocations();
-
-		expect(fetchSpy.mock.calls[0][0]).toBe('/api/units/locations');
-		expect(result.locations).toEqual(['CH#Bern#Bern', 'CH#Zurich#Zurich']);
-	});
-
-	it('getUnitsByTopic uses the compatibility route', async () => {
-		fetchSpy = mockFetchResponse({
-			units: [
-				{ unit_id: 'u1', topic: 'Climate' },
-			],
-			count: 1
-		});
-		vi.stubGlobal('fetch', fetchSpy);
-
-		const result = await apiClient.getUnitsByTopic({ topic: 'Climate' });
-
-		const url: string = fetchSpy.mock.calls[0][0];
-		expect(url).toBe('/api/units/by-topic?topic=Climate');
-		expect(result.units).toHaveLength(1);
-		expect(result.count).toBe(1);
-	});
-
-	it('searchUnitsSemantic passes query param', async () => {
-		fetchSpy = mockFetchResponse({ units: [], count: 0, query: 'AI' });
-		vi.stubGlobal('fetch', fetchSpy);
-
-		await apiClient.searchUnitsSemantic({ query: 'AI' });
-
-		const url: string = fetchSpy.mock.calls[0][0];
-		expect(url).toContain('query=AI');
-	});
-
-	it('markUnitsUsed sends PATCH with unit keys', async () => {
-		fetchSpy = mockFetchResponse({ marked_count: 2, total_requested: 2 });
-		vi.stubGlobal('fetch', fetchSpy);
-
-		const keys = [
-			{ pk: 'USER#123', sk: 'UNIT#abc' },
-			{ pk: 'USER#123', sk: 'UNIT#def' }
-		];
-		await apiClient.markUnitsUsed(keys);
-
-		expect(fetchSpy).toHaveBeenCalledWith(
-			'/api/units/mark-used',
-			expect.objectContaining({
-				method: 'PATCH',
-					body: JSON.stringify({ unit_keys: keys })
-			})
-		);
-	});
-});
-
-// ===========================================================================
 // updateUserPreferences
 // ===========================================================================
 
@@ -494,27 +330,5 @@ describe('apiRequest', () => {
 
 		await expect(apiRequest('DELETE', '/api-keys/key_1')).resolves.toBeUndefined();
 		expect(json).not.toHaveBeenCalled();
-	});
-});
-
-// ===========================================================================
-// Cookie-based auth
-// ===========================================================================
-
-describe('Bearer auth', () => {
-	it('all requests omit credentials (Authorization attached only when token exists)', async () => {
-		fetchSpy = mockFetchResponse({ scrapers: [] });
-		vi.stubGlobal('fetch', fetchSpy);
-
-		await apiClient.getActiveJobs();
-
-		const options = fetchSpy.mock.calls[0][1];
-		// credentials dropped — Supabase Edge Functions return '*' origin;
-		// browsers reject credentials:'include' with wildcard CORS.
-		expect(options.credentials).toBeUndefined();
-		expect(options.headers['Content-Type']).toBe('application/json');
-		// In this test the authStore is unmocked, so getToken returns null and
-		// no Authorization header is attached. api-client-workspace.test.ts
-		// covers the Bearer-token-present path with a mocked authStore.
 	});
 });

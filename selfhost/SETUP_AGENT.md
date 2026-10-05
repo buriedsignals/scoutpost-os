@@ -10,7 +10,7 @@ Assume the OSS deployment is:
 - Supabase Edge Functions for the default backend surface
 - Static frontend on any host
 
-FastAPI is optional. Treat it as an add-on only if the user explicitly wants the legacy/internal `/api/v1` surface.
+FastAPI is optional. Treat it as an add-on only if the user explicitly wants the legacy/internal FastAPI surface.
 
 ## Required Inputs
 

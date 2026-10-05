@@ -36,14 +36,12 @@ Backlog of work intentionally left out of recent PRs (#99 hardening / #101 combi
 
 ## 3. Adapter ports — re-audit when GDPR data-export moves to Edge Function
 
-- **What**: `backend/app/adapters/supabase/` has 8 adapters (`scout_storage`, `execution_storage`, `run_storage`, `unit_storage`, `user_storage`, `scheduler`, `auth`, `billing`). During the audit we found all 8 are live. `execution_storage` and `run_storage` are only used by `routers/user.py::data_export` (GDPR Art. 15). When GDPR data-export is ported to an Edge Function, those two adapters become orphans and can be deleted.
+- **What**: `backend/app/adapters/supabase/` has 6 adapters (`scout_storage`, `execution_storage`, `run_storage`, `unit_storage`, `user_storage`, `auth`). `execution_storage` and `run_storage` are only used by `routers/user.py::data_export` (GDPR Art. 15). When GDPR data-export is ported to an Edge Function, those two adapters become orphans and can be deleted.
 - **Impact M · Risk M · Cost M** — once GDPR moves, maybe 1-2h.
 - **Where**:
   - `backend/app/adapters/supabase/execution_storage.py`, `run_storage.py`
   - `backend/app/ports/storage.py` → `ExecutionStoragePort`, `RunStoragePort`
   - `backend/app/dependencies/providers.py` → `get_execution_storage`, `get_run_storage`
-  - `backend/app/dependencies/__init__.py` → re-exports
-  - Related tests: `backend/tests/unit/adapters/supabase/test_{execution,run}_storage.py`
 - **Verification that it's safe to remove**:
   ```bash
   grep -rn "get_execution_storage\|get_run_storage\|ExecutionStoragePort\|RunStoragePort" backend/app/routers/ backend/app/services/
@@ -53,17 +51,7 @@ Backlog of work intentionally left out of recent PRs (#99 hardening / #101 combi
 
 ---
 
-## 4. `get_llm_client()` in `http_client.py` — delete if still unused next sweep
-
-- **What**: `backend/app/services/http_client.py` still exposes `get_llm_client()` (keepalive-off pool for LLM calls) even though its only consumer (`openrouter.py`) was deleted in #101. Kept on purpose as a placeholder for future LLM work, but if it's still untouched in 30 days, delete it.
-- **Impact L · Risk L · Cost L** — 5 minutes.
-- **Where**: `backend/app/services/http_client.py` — `get_llm_client` function + any internal LLM-specific pool state.
-- **Verification**: `grep -rn "get_llm_client" backend/app/` — if zero non-self hits, delete the function + the module-level LLM-pool state.
-- **Deferred because**: cheap to keep as documented template; low urgency.
-
----
-
-## 5. Large frontend components — don't refactor preemptively
+## 4. Large frontend components — don't refactor preemptively
 
 - **What**: Three `.svelte` files over 600 lines — `frontend/src/lib/components/modals/ScoutScheduleModal.svelte` (995), `frontend/src/lib/components/news/BeatScoutView.svelte` (985), `frontend/src/lib/components/panels/UnitDrawer.svelte` (663).
 - **Impact L · Risk H · Cost H** — a split is a 1-2 day refactor each and risks regression in a busy area of the UI.
@@ -72,7 +60,7 @@ Backlog of work intentionally left out of recent PRs (#99 hardening / #101 combi
 
 ---
 
-## 6. i18n dead-key audit — Paraglide may be carrying unused keys
+## 5. i18n dead-key audit — Paraglide may be carrying unused keys
 
 - **What**: `frontend/messages/en.json` has ~777 keys. Paraglide's strict mode only fails on *missing* keys, not unused ones. A sweep to remove dead keys would shave translation maintenance for all 12 locales.
 - **Impact L · Risk L · Cost M** — ~1h for the grep + removal + retranslation tooling pass.
@@ -82,14 +70,14 @@ Backlog of work intentionally left out of recent PRs (#99 hardening / #101 combi
 
 ---
 
-## 7. `bump_credits.py` docstring pointer
+## 6. `bump_credits.py` docstring pointer
 
-- **What**: `backend/scripts/bump_credits.py` (post-#audit) has a small docstring pointer to "see follow-ups.md for related cleanup items" — that is *this* file. Keep in sync if any of items 1-6 change.
+- **What**: `backend/scripts/bump_credits.py` (post-#audit) has a small docstring pointer to "see follow-ups.md for related cleanup items" — that is *this* file. Keep in sync if any of items 1-5 change.
 - **Impact L · Risk L · Cost L** — nothing to do now; note for future maintainers.
 
 ---
 
-## 8. `SPAStaticFiles` — unregistered `/api/*` returns 500 instead of 404
+## 7. `SPAStaticFiles` — unregistered `/api/*` returns 500 instead of 404
 
 - **What**: `backend/app/main.py::SPAStaticFiles.get_response` does `if path.startswith("api/"): raise RuntimeError("Not a static file")` for any `/api/*` path that isn't matched by a FastAPI router. The RuntimeError bubbles to `global_exception_handler` and becomes `HTTP 500 {"error":"Internal server error"}`. A client hitting an unregistered API path sees a 500 where a 404 is the correct shape.
 - **Impact L · Risk L · Cost L** — 2-line change + 1 unit test. 10 minutes.
@@ -104,7 +92,7 @@ Backlog of work intentionally left out of recent PRs (#99 hardening / #101 combi
   curl -sI https://scoutpost.ai/api/bogus-does-not-exist | head -2
   # expect post-fix: HTTP/2 404 (currently: HTTP/2 500)
   curl -sI https://scoutpost.ai/api/auth/has-users | head -2
-  # expect post-fix on SaaS: HTTP/2 404 (gate removes the route; currently 500 because of same bug)
+  # expect post-fix on SaaS: HTTP/2 404 (route removed; currently 500 because of same bug)
   ```
 - **Deferred because**: security-intent of D3 (no unauthenticated information disclosure from `/api/auth/has-users`) is already satisfied — the endpoint returns `{"error":"Internal server error"}` not `{"has_users": true}`. Fixing is purely about surfacing correct HTTP semantics so clients can distinguish "not found" from "server crash." Low urgency; ship in its own small PR alongside other L·L·L items.
 

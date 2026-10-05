@@ -1,8 +1,9 @@
 """Supabase implementation of UnitStoragePort.
 
 Uses asyncpg with pgvector for semantic search over information units.
-This is the most complex storage adapter: it handles bulk inserts,
-multi-dimensional filtering (location, topic), and vector similarity search.
+Units are inserted by Supabase Edge Functions; this adapter handles
+multi-dimensional filtering (location, topic), vector similarity search, and
+marking units as used.
 
 DEPENDS ON: connection (get_pool), ports.storage (UnitStoragePort)
 USED BY: dependencies/providers.py (DI wiring)
@@ -11,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date as date_type
 from typing import Optional
 
 from app.adapters.supabase.connection import get_pool
@@ -34,77 +34,6 @@ class SupabaseUnitStorage(UnitStoragePort):
     async def _ensure_pool(self):
         if self.pool is None:
             self.pool = await get_pool()
-
-    async def store_units(self, user_id: str, scout_id: str, units: list[dict]) -> None:
-        """Bulk insert information units with embeddings."""
-        await self._ensure_pool()
-
-        if not units:
-            return
-
-        # Build values for executemany
-        records = []
-        for unit in units:
-            embedding = unit.get("embedding")
-            embedding_str = None
-            if embedding:
-                embedding_str = f"[{','.join(str(v) for v in embedding)}]"
-
-            # Fix #36: convert string event_date to datetime.date for asyncpg
-            event_date_raw = unit.get("event_date")
-            event_date = None
-            if event_date_raw:
-                if isinstance(event_date_raw, str):
-                    try:
-                        event_date = date_type.fromisoformat(event_date_raw)
-                    except ValueError:
-                        event_date = None
-                elif isinstance(event_date_raw, date_type):
-                    event_date = event_date_raw
-
-            # Fix #32: empty string → None for UUID cast
-            article_id = unit.get("article_id") or None
-
-            records.append((
-                user_id,
-                scout_id,
-                unit.get("scout_type"),
-                article_id,
-                unit["statement"],
-                unit["type"],
-                unit.get("entities"),
-                embedding_str,
-                EMBEDDING_MODEL_TAG if embedding_str else None,
-                unit.get("source_url"),
-                unit.get("source_domain"),
-                unit.get("source_title"),
-                event_date,
-                unit.get("country"),
-                unit.get("state"),
-                unit.get("city"),
-                unit.get("topic"),
-                unit.get("dataset_id"),
-            ))
-
-        await self.pool.executemany(
-            """
-            INSERT INTO information_units (
-                user_id, scout_id, scout_type, article_id,
-                statement, type, entities, embedding_v2, embedding_model_v2,
-                source_url, source_domain, source_title,
-                event_date, country, state, city, topic, dataset_id
-            )
-            VALUES (
-                $1::uuid, $2::uuid, $3, $4::uuid,
-                $5, $6, $7, $8::vector,
-                $9,
-                $10, $11, $12,
-                $13, $14, $15, $16, $17, $18
-            )
-            """,
-            records,
-        )
-        logger.info(f"Stored {len(records)} information units for scout {scout_id}")
 
     async def search_units(self, user_id: str, query_embedding: list[float],
                             filters: dict = None, limit: int = 20) -> list[dict]:
@@ -303,23 +232,5 @@ class SupabaseUnitStorage(UnitStoragePort):
             LIMIT $2
             """,
             user_id, limit,
-        )
-        return [row_to_dict(row, _UNIT_UUID_FIELDS) for row in rows]
-
-    async def get_units_by_scout(self, user_id: str, scout_id: str, limit: int = 50) -> list[dict]:
-        """Get information units for a specific scout."""
-        await self._ensure_pool()
-        rows = await self.pool.fetch(
-            """
-            SELECT id, user_id, scout_id, scout_type, article_id,
-                   statement, type, entities, source_url, source_domain,
-                   source_title, event_date, country, state, city, topic,
-                   used_in_article, created_at
-            FROM information_units
-            WHERE user_id = $1::uuid AND scout_id = $2::uuid
-            ORDER BY created_at DESC
-            LIMIT $3
-            """,
-            user_id, scout_id, limit,
         )
         return [row_to_dict(row, _UNIT_UUID_FIELDS) for row in rows]

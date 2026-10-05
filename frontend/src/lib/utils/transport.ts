@@ -1,7 +1,7 @@
 /**
- * Transport Scout UI helpers — per-mode categories and the per-mode schedule
- * window. New Fleet scouts use a MapTiler-selected center plus an explicit
- * radius; legacy presets remain runtime-only in the backend.
+ * Transport Scout UI helpers — per-mode categories, watch-ID validation and
+ * ID lookup sources. New Fleet scouts use a MapTiler-selected center plus an
+ * explicit radius; legacy presets remain runtime-only in the backend.
  */
 import * as m from '$lib/paraglide/messages';
 
@@ -63,19 +63,3 @@ export const TRANSPORT_ID_SOURCES: Record<
 	vessel: { label: 'MarineTraffic', url: 'https://www.marinetraffic.com/' },
 	aircraft: { label: 'ADS-B Exchange', url: 'https://globe.adsbexchange.com/' },
 };
-
-export interface RegularityOption {
-	value: '3h' | '6h' | '12h' | 'daily';
-	label: string;
-}
-
-/** Aircraft and vessel schedule options. */
-export function transportRegularities(mode: TransportMode): RegularityOption[] {
-	const daily: RegularityOption = { value: 'daily', label: m.schedule_daily() };
-	return [
-		{ value: '3h', label: m.transport_every3h() },
-		{ value: '6h', label: m.transport_every6h() },
-		{ value: '12h', label: m.transport_every12h() },
-		daily
-	];
-}

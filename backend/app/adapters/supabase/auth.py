@@ -1,23 +1,18 @@
 """Supabase implementation of AuthPort.
 
-Uses Supabase JWT validation for user authentication. Gets email from
-auth.users via supabase-py admin API. Service key verification uses
-HMAC comparison identical to the AWS adapter.
+Validates Supabase JWTs (ES256 via JWKS, legacy HS256 via the shared secret)
+and loads the caller's user_preferences row.
 
-DEPENDS ON: config (supabase_jwt_secret, supabase_url, supabase_service_key,
-            internal_service_key), ports.auth (AuthPort)
+DEPENDS ON: config (supabase_jwt_secret, supabase_url), ports.auth (AuthPort)
 USED BY: dependencies/providers.py (DI wiring)
 """
 from __future__ import annotations
 
-import hmac
 import logging
-from typing import Optional
 
 import jwt as pyjwt
 from fastapi import HTTPException, Request, status
 from jwt import PyJWKClient
-from supabase import AsyncClient, acreate_client
 
 from app.config import get_settings
 from app.ports.auth import AuthPort
@@ -38,11 +33,8 @@ class SupabaseAuth(AuthPort):
     def __init__(self, user_storage=None):
         settings = get_settings()
         self.jwt_secret = settings.supabase_jwt_secret
-        self.internal_service_key = settings.internal_service_key
         self.user_storage = user_storage
         self._supabase_url = settings.supabase_url
-        self._supabase_service_key = settings.supabase_service_key
-        self._supabase_client: AsyncClient | None = None
         self._jwks_client: PyJWKClient | None = None
         self._hs256_enabled = bool(self.jwt_secret) and len(self.jwt_secret) >= self._MIN_HS256_SECRET_LEN
         if not self._hs256_enabled:
@@ -151,27 +143,3 @@ class SupabaseAuth(AuthPort):
 
         user["user_id"] = user_id
         return user
-
-    async def get_user_email(self, user_id: str) -> Optional[str]:
-        """Get user email from Supabase auth.users via async admin API.
-
-        Uses the async Supabase client (acreate_client) to avoid blocking
-        the event loop. The client is lazily initialized on first call.
-        """
-        try:
-            if self._supabase_client is None:
-                self._supabase_client = await acreate_client(
-                    self._supabase_url,
-                    self._supabase_service_key,
-                )
-            result = await self._supabase_client.auth.admin.get_user_by_id(user_id)
-            return result.user.email
-        except Exception as e:
-            logger.error(f"Failed to fetch email from Supabase for {user_id}: {e}")
-            return None
-
-    async def verify_service_key(self, key: str) -> bool:
-        """Verify internal service key using constant-time comparison."""
-        if not self.internal_service_key or not key:
-            return False
-        return hmac.compare_digest(key, self.internal_service_key)

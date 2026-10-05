@@ -32,10 +32,12 @@ export function getTestingAnonKey(): string {
 }
 
 export function getTestingServiceRoleKey(): string {
+  // The JWT service-role key comes before SECRET_KEY: tests also send it as
+  // an Edge Function service bearer, which accepts only the JWT form.
   return envAny(
     "SUPABASE_SERVICE_ROLE_KEY",
-    "SECRET_KEY",
     "SERVICE_ROLE_KEY",
+    "SECRET_KEY",
   );
 }
 
@@ -141,6 +143,23 @@ export async function createTestUser(): Promise<TestUser> {
     token,
     cleanup: async () => {
       try {
+        // These auth.users FKs do not cascade, so deleteUser fails while such
+        // rows exist and the user's scouts and queued work leak into later
+        // tests (e.g. a civic queue row the extract worker then claims).
+        await service.from("information_units").delete().eq("deleted_by", userId);
+        for (
+          const table of [
+            "information_units",
+            "promises",
+            "seen_records",
+            "execution_records",
+            "post_snapshots",
+            "usage_records",
+            "scout_runs",
+          ]
+        ) {
+          await service.from(table).delete().eq("user_id", userId);
+        }
         await service.auth.admin.deleteUser(userId);
       } catch {
         // Test users are unique and isolated, so cleanup remains best-effort

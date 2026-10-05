@@ -64,7 +64,6 @@ Frontend is served by the same service in dev; static SPA in production.
 | `user.py` | `/api/user/*` | User preferences (mirrors EF; legacy callers); old `DELETE /delete-account` is `410 Gone` | Live |
 | `units.py` | `/api/units/*` | Units helpers (legacy callers) | Live |
 | `license.py` | `/api/license/*` | License key gating (legacy; public repo is AGPL-3.0) | Live |
-| `v1.py` | `/api/v1/*` | Public REST API (CLI uses this OR the Supabase EF URL) | Live |
 | `feedback.py` | `/api/feedback` | Linear support widget — POST creates issues | Live (SaaS-only — stripped from OSS) |
 
 ### Removed in this PR (cutover finish)
@@ -102,10 +101,9 @@ The following stay because non-dead callers still import them
 (verified via `rg "from app.services.<name>"`):
 
 - `services/notification_service.py` — used by `services/scout_service.py` + `services/social_orchestrator.py`
-- `services/user_service.py` — used by `dependencies/auth.py`, `utils/credits.py`, `routers/{auth,user,onboarding,export}.py`
+- `services/user_service.py` — used by `routers/{user,onboarding}.py`
 - `services/execution_deduplication.py` — used by `services/scout_service.py` + `services/execute_pipeline.py`
 - `services/scout_service.py` — preserved per `backend/CLAUDE.md` "Critical Architecture - DO NOT REMOVE"
-- `services/scout_runner.py`, `services/schedule_service.py`, `services/cron.py`, `services/news_utils.py` — still used by `routers/v1.py` (external API)
 
 ---
 
@@ -113,12 +111,12 @@ The following stay because non-dead callers still import them
 
 The cutover does **not** free up any Supabase-related Render env vars. The
 adapter layer (`backend/app/adapters/supabase/*`) still reads them at
-runtime for the auth broker, units endpoint, and v1 API.
+runtime for the auth broker and units endpoint.
 
 Still required:
 
 - `DATABASE_URL` — asyncpg pool in `adapters/supabase/connection.py`
-- `SUPABASE_SERVICE_KEY` — admin ops in `adapters/supabase/auth.py` + `adapters/supabase/scheduler.py`
+- `SUPABASE_SERVICE_KEY` — Supabase admin client in `routers/local_auth.py` (local broker only)
 - `SUPABASE_JWT_SECRET` — residual FastAPI HS256 JWT verification in `adapters/supabase/auth.py`; ES256 tokens verify via Supabase JWKS
 - `SUPABASE_ANON_KEY` — used by frontend bundle; not actively read by backend (could be removed but harmless)
 - `MUCKROCK_CLIENT_ID`, `MUCKROCK_CLIENT_SECRET`, `SESSION_SECRET` — MuckRock auth broker and HMAC state signing

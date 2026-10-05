@@ -2,19 +2,16 @@
 Token encryption for sensitive fields at rest.
 
 PURPOSE: Encrypt CMS bearer tokens (and any future sensitive fields) before
-storage, decrypt on retrieval. Uses Fernet symmetric encryption with a key
-derived from SESSION_SECRET via PBKDF2.
+storage. Uses Fernet symmetric encryption with a key derived from
+SESSION_SECRET via PBKDF2.
 
 DEPENDS ON: config (session_secret)
-USED BY: adapters/supabase/user_storage.py (CMS token encrypt/decrypt)
+USED BY: adapters/supabase/user_storage.py (CMS token encryption)
 """
 import base64
 import hashlib
-import logging
 
-from cryptography.fernet import Fernet, InvalidToken
-
-logger = logging.getLogger(__name__)
+from cryptography.fernet import Fernet
 
 # Cached Fernet instance (derived once per process)
 _fernet: Fernet | None = None
@@ -43,16 +40,3 @@ def encrypt_token(plaintext: str) -> str:
     if not plaintext:
         return ""
     return _get_fernet().encrypt(plaintext.encode("utf-8")).decode("utf-8")
-
-
-def decrypt_token(ciphertext: str) -> str:
-    """Decrypt a token string. Returns plaintext or empty string on failure."""
-    if not ciphertext:
-        return ""
-    try:
-        return _get_fernet().decrypt(ciphertext.encode("utf-8")).decode("utf-8")
-    except (InvalidToken, Exception) as e:
-        # If decryption fails, the token may be stored in plaintext (pre-encryption)
-        # Return as-is for backward compatibility
-        logger.warning("Token decryption failed (may be pre-encryption plaintext): %s", type(e).__name__)
-        return ciphertext

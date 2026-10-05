@@ -185,18 +185,6 @@ class FeedSearchService:
             logger.error(f"Failed to get units by topic: {e}")
             return {"units": [], "count": 0}
 
-    async def get_units_by_scout(
-        self, user_id: str, scout_name: str, limit: int = 50
-    ) -> list[dict]:
-        """Query scout-units-index GSI for units produced by a specific scout."""
-        try:
-            return await self.storage.get_units_by_scout(
-                user_id=user_id, scout_id=scout_name, limit=limit
-            )
-        except Exception as e:
-            logger.error(f"Failed to get units by scout {scout_name} for {user_id}: {e}")
-            return []
-
     async def mark_used_in_article(self, unit_keys: list[tuple[str, str]]) -> int:
         """Mark units as used in article (sets 60-day TTL)."""
         if not unit_keys:

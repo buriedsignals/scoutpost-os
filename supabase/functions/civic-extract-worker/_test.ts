@@ -14,24 +14,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   createTestUser,
   functionUrl,
+  getTestingServiceRoleKey,
   SUPABASE_URL,
 } from "../_shared/_testing.ts";
 
-function serviceKey(): string {
-  const k = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!k) throw new Error("SUPABASE_SERVICE_ROLE_KEY required for tests");
-  return k;
-}
-
 function svc() {
-  return createClient(SUPABASE_URL, serviceKey(), {
+  return createClient(SUPABASE_URL, getTestingServiceRoleKey(), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
 function serviceHeaders(): HeadersInit {
   return {
-    "Authorization": `Bearer ${serviceKey()}`,
+    "Authorization": `Bearer ${getTestingServiceRoleKey()}`,
     "Content-Type": "application/json",
   };
 }

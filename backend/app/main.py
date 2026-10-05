@@ -31,9 +31,6 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from app.config import settings
-from app.routers import (
-    v1,
-)
 from app.services.http_client import close_http_client
 
 class SensitiveDataFilter(logging.Filter):
@@ -440,35 +437,12 @@ from app.routers import public_edge_proxy
 # Public broker for the hosted REST + MCP surface. Separate from /api/auth/*
 # so it cannot intercept the MuckRock webhook/callback flow.
 app.include_router(public_edge_proxy.router, include_in_schema=False)
-# scouts, beat, social, civic, scraper, and data_extractor routers removed
-# in the Supabase Edge Functions cutover (2026-04-22). All scout
-# scheduling/execution now lives in supabase/functions/. v1.py + units.py
-# remain for the external API + residual unit helpers; feedback stays.
-
-# Threat modeling — SaaS-only (stripped from OSS mirror), gated by require_admin.
-# (The admin revenue dashboard moved to supabase/functions/admin-report/ in the
-# post-cutover sweep; its FastAPI router was deleted.)
+# scouts, beat, social, civic, scraper, data_extractor, and v1 routers removed
+# after the Supabase Edge Functions cutover (2026-04-22). All scout
+# scheduling/execution and the public REST API now live in supabase/functions/.
+# units.py remains for residual unit helpers; feedback stays.
 
 # Feedback — hidden from public API docs
-
-# Public v1 API — visible in docs
-app.include_router(v1.router, prefix="/api/v1")
-# billing router removed — billing now handled on Squarelet
-
-if settings.deployment_target != "supabase":
-    # First-run UX helper for OSS self-hosted instances (signup vs login).
-    # Gated out on SaaS (`deployment_target == "supabase"`) where the MuckRock
-    # identity flow makes this endpoint an unauthenticated information-
-    # disclosure surface with no product use.
-    @app.get("/api/auth/has-users", include_in_schema=False)
-    async def has_users():
-        try:
-            from app.adapters.supabase.connection import get_pool
-            pool = await get_pool()
-            count = await pool.fetchval("SELECT COUNT(*) FROM auth.users")
-            return {"has_users": count > 0}
-        except Exception:
-            return {"has_users": True}
 
 
 @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)

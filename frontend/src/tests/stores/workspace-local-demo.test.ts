@@ -20,8 +20,7 @@ describe('workspace local demo mode', () => {
 
 		const { createScoutsStore } = await import('$lib/stores/workspace/scouts');
 		const api = {
-			listScouts: vi.fn(async () => []),
-			createScout: vi.fn()
+			listScouts: vi.fn(async () => [])
 		};
 		const store = createScoutsStore(api as never);
 

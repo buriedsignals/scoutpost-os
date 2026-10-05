@@ -1,20 +1,18 @@
 /**
- * Workspace scouts store — list, create, remove, update with optimistic
- * updates + rollback on error.
+ * Workspace scouts store — paginated list plus optimistic remove with
+ * rollback on error.
  *
- * Consumed by: `components/workspace/ScoutList.svelte`,
- *              `components/workspace/AddScoutModal.svelte` (PR 2).
+ * Consumed by: `routes/+page.svelte`.
  *
- * Writeable shape is `{scouts, loading, error}`. All mutator methods accept
- * the api-client as an injectable dependency so tests can stub without
- * touching `$lib/api-client` / `$lib/stores/auth`.
+ * Writeable shape is `{scouts, loading, error}`. The api-client is an
+ * injectable dependency so tests can stub without touching
+ * `$lib/api-client` / `$lib/stores/auth`.
  */
 import { writable, type Writable } from 'svelte/store';
 import {
 	workspaceApi as defaultApi,
 	ApiError,
 	type WorkspaceScout,
-	type WorkspaceCreateScoutInput,
 	type WorkspacePaginatedScouts
 } from '$lib/api-client';
 import { DEMO_SCOUTS, demoDismissed, isDemoScout } from '$lib/demo/seed';
@@ -32,9 +30,6 @@ export interface ScoutsState {
 
 export interface ScoutsApi {
 	listScouts: (projectId?: string, cursor?: string | null) => Promise<WorkspacePaginatedScouts>;
-	createScout: (data: WorkspaceCreateScoutInput) => Promise<WorkspaceScout>;
-	// Optional; not on the exported workspaceApi today — tests pass stubs.
-	updateScout?: (id: string, patch: Partial<WorkspaceScout>) => Promise<WorkspaceScout>;
 	deleteScout?: (id: string) => Promise<void>;
 }
 
@@ -59,7 +54,7 @@ function errorMessage(e: unknown): string {
  * surface. Exposed for tests.
  */
 export function createScoutsStore(api: ScoutsApi = defaultApi as unknown as ScoutsApi) {
-	const { subscribe, update, set }: Writable<ScoutsState> = writable({ ...initialState });
+	const { subscribe, update }: Writable<ScoutsState> = writable({ ...initialState });
 
 	return {
 		subscribe,
@@ -123,64 +118,6 @@ export function createScoutsStore(api: ScoutsApi = defaultApi as unknown as Scou
 		},
 
 		/**
-		 * Create a scout. Optimistically inserts a placeholder row immediately
-		 * (id prefixed `tmp-`), swaps it for the server row on success, or
-		 * rolls the placeholder out on error.
-		 */
-		async create(input: WorkspaceCreateScoutInput): Promise<WorkspaceScout | null> {
-			const tmpId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-			const optimistic: WorkspaceScout = {
-				id: tmpId,
-				name: input.name,
-				type: input.type,
-				criteria: input.criteria ?? null,
-				topic: input.topic ?? null,
-				url: input.url ?? null,
-				source_mode: input.source_mode ?? null,
-				excluded_domains: input.excluded_domains ?? [],
-				priority_sources: input.priority_sources ?? [],
-				platform: input.platform ?? null,
-				profile_handle: input.profile_handle ?? null,
-				monitor_mode: input.monitor_mode ?? null,
-				track_removals: input.track_removals ?? false,
-				root_domain: input.root_domain ?? null,
-				tracked_urls: input.tracked_urls ?? [],
-				location: input.location ?? null,
-				project_id: input.project_id ?? null,
-				regularity: input.regularity ?? null,
-				schedule_cron: input.schedule_cron ?? null,
-				is_active: false,
-				consecutive_failures: 0,
-				last_run: null,
-				created_at: new Date().toISOString()
-			};
-			update((s) => ({
-				...s,
-				scouts: [optimistic, ...s.scouts],
-				total: s.total + 1,
-				error: null
-			}));
-
-			try {
-				const created = await api.createScout(input);
-				update((s) => ({
-					...s,
-					scouts: s.scouts.map((row) => (row.id === tmpId ? created : row))
-				}));
-				return created;
-			} catch (e) {
-				// Rollback: drop the placeholder.
-				update((s) => ({
-					...s,
-					scouts: s.scouts.filter((row) => row.id !== tmpId),
-					total: Math.max(0, s.total - 1),
-					error: errorMessage(e)
-				}));
-				return null;
-			}
-		},
-
-		/**
 		 * Remove a scout. Optimistically drops the row; restores it on error.
 		 * No-ops (state-only drop) if the injected api lacks `deleteScout`.
 		 */
@@ -204,39 +141,6 @@ export function createScoutsStore(api: ScoutsApi = defaultApi as unknown as Scou
 					...s,
 					scouts: removed ? [removed, ...s.scouts] : s.scouts,
 					total: removed ? s.total + 1 : s.total,
-					error: errorMessage(e)
-				}));
-			}
-		},
-
-		/**
-		 * Update a scout field (e.g. rename). Optimistically patches the row;
-		 * restores the prior value on error.
-		 */
-		async update(id: string, patch: Partial<WorkspaceScout>): Promise<void> {
-			let prior: WorkspaceScout | undefined;
-			update((s) => {
-				prior = s.scouts.find((x) => x.id === id);
-				return {
-					...s,
-					scouts: s.scouts.map((row) => (row.id === id ? { ...row, ...patch } : row)),
-					error: null
-				};
-			});
-
-			if (!api.updateScout) return;
-			try {
-				const fresh = await api.updateScout(id, patch);
-				update((s) => ({
-					...s,
-					scouts: s.scouts.map((row) => (row.id === id ? fresh : row))
-				}));
-			} catch (e) {
-				update((s) => ({
-					...s,
-					scouts: prior
-						? s.scouts.map((row) => (row.id === id ? (prior as WorkspaceScout) : row))
-						: s.scouts,
 					error: errorMessage(e)
 				}));
 			}
@@ -278,13 +182,6 @@ export function createScoutsStore(api: ScoutsApi = defaultApi as unknown as Scou
 			});
 			unsub();
 			return snapshot;
-		},
-
-		/**
-		 * Reset to initial state. Test-only.
-		 */
-		reset(): void {
-			set({ ...initialState, scouts: [] });
 		}
 	};
 }

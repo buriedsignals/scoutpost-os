@@ -14,17 +14,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   createTestUser,
   functionUrl,
+  getTestingServiceRoleKey,
   SUPABASE_URL,
 } from "../_shared/_testing.ts";
 
-function serviceKey(): string {
-  const k = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!k) throw new Error("SUPABASE_SERVICE_ROLE_KEY required for tests");
-  return k;
-}
+const INTERNAL_SERVICE_KEY = Deno.env.get("INTERNAL_SERVICE_KEY") ?? "";
 
 function svc() {
-  return createClient(SUPABASE_URL, serviceKey(), {
+  return createClient(SUPABASE_URL, getTestingServiceRoleKey(), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -32,15 +29,6 @@ function svc() {
 function authHeaders(bearer: string): HeadersInit {
   return {
     "Authorization": `Bearer ${bearer}`,
-    "Content-Type": "application/json",
-  };
-}
-
-function internalHeaders(): HeadersInit {
-  const k = Deno.env.get("INTERNAL_SERVICE_KEY");
-  if (!k) throw new Error("INTERNAL_SERVICE_KEY required for this test");
-  return {
-    "X-Service-Key": k,
     "Content-Type": "application/json",
   };
 }
@@ -60,14 +48,18 @@ Deno.test("scout-web-execute: non-service auth returns 401", async () => {
   }
 });
 
-Deno.test("scout-web-execute: X-Service-Key reaches scout lookup", async () => {
-  if (!Deno.env.get("INTERNAL_SERVICE_KEY")) {
-    console.warn("skipping: INTERNAL_SERVICE_KEY not set");
-    return;
-  }
+Deno.test({
+  name: "scout-web-execute: X-Service-Key reaches scout lookup",
+  // Visible skip: proving the X-Service-Key path needs the same internal key
+  // the served functions were started with.
+  ignore: !INTERNAL_SERVICE_KEY,
+}, async () => {
   const res = await fetch(functionUrl("scout-web-execute"), {
     method: "POST",
-    headers: internalHeaders(),
+    headers: {
+      "X-Service-Key": INTERNAL_SERVICE_KEY,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({ scout_id: crypto.randomUUID() }),
   });
   const body = await res.json();
@@ -111,7 +103,7 @@ Deno.test(
 
       const res = await fetch(functionUrl("scout-web-execute"), {
         method: "POST",
-        headers: authHeaders(serviceKey()),
+        headers: authHeaders(getTestingServiceRoleKey()),
         body: JSON.stringify({ scout_id: scoutId }),
       });
       const body = await res.json();

@@ -1,5 +1,6 @@
 import {
   assertEquals,
+  assertMatch,
   assertRejects,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import type { AuthedUser } from "../_shared/auth.ts";
@@ -158,6 +159,64 @@ Deno.test("Scout creation rejects malformed trusted IDs before external work", a
   });
 });
 
+Deno.test("Scout creation rejects invalid payloads before external work", async () => {
+  const cases: Array<[Record<string, unknown>, RegExp]> = [
+    [{ name: "Bad type", type: "not-a-real-type", url: PAGE_URL }, /type/],
+    [{ name: "Missing URL", type: "web", topic: "council" }, /url/],
+    [{ name: "Unscoped", type: "web", url: PAGE_URL }, /topic/],
+    [{ name: "Too many tags", type: "web", url: PAGE_URL, topic: "one, two, three, four" }, /at most 3/i],
+    [{
+      name: "Daily Beat",
+      scout_type: "pulse",
+      criteria: "housing policy",
+      topic: "housing",
+      regularity: "daily",
+      time: "08:00",
+    }, /weekly or monthly/i],
+    [{
+      name: "Multiline social target",
+      type: "social",
+      platform: "facebook",
+      profile_handle: "zuck\nhttps://www.facebook.com/meta",
+      monitor_mode: "summarize",
+      topic: "technology",
+    }, /single line/i],
+    [{
+      name: "LinkedIn feed",
+      type: "social",
+      platform: "linkedin",
+      profile_handle: "https://www.linkedin.com/feed/",
+      monitor_mode: "summarize",
+      topic: "technology",
+    }, /linkedin\.com\/in\//i],
+    [{
+      name: "LinkedIn company",
+      type: "social",
+      platform: "linkedin",
+      profile_handle: "https://www.linkedin.com/company/microsoft/",
+      monitor_mode: "summarize",
+      topic: "technology",
+    }, /company pages/i],
+    [{ name: "   ", type: "beat", topic: "housing" }, /name/],
+    [{ name: "Empty location", type: "beat", location: {} }, /location/],
+    [{ name: "Blank location", type: "beat", location: { displayName: " " } }, /location/],
+  ];
+  let calls = 0;
+  await withBoundary(() => {
+    calls++;
+    throw new Error("No external work is allowed");
+  }, async () => {
+    for (const [payload, field] of cases) {
+      const error = await assertRejects(
+        () => createScout(request(payload), user),
+        ValidationError,
+      );
+      assertMatch(error.message, field);
+    }
+  });
+  assertEquals(calls, 0);
+});
+
 Deno.test("Page creation probes again after a successful preview before inserting", async () => {
   let scrapes = 0;
   let inserts = 0;
@@ -176,10 +235,55 @@ Deno.test("Page creation probes again after a successful preview before insertin
     assertEquals((await preview.json()).ok, true);
     const created = await createScout(request(page), user, { scoutId: SCOUT_ID });
     assertEquals(created.status, 422);
-    assertEquals((await created.json()).error_code, "unreachable");
+    const body = await created.json();
+    assertEquals(body.ok, false);
+    assertEquals(body.stage, "reach");
+    assertEquals(body.error_code, "unreachable");
     assertEquals(scrapes, 2);
     assertEquals(inserts, 0);
   });
+});
+
+Deno.test("Civic creation without a preview refuses tracked pages that expose no meetings", async () => {
+  const trackedUrl = "https://city.example.gov/council/agendas";
+  let scrapes = 0;
+  let inserts = 0;
+  await withBoundary((url, init) => {
+    if (url.hostname === "api.firecrawl.dev") {
+      scrapes++;
+      const target = JSON.parse(String(init.body)).url;
+      return Response.json({
+        data: {
+          markdown: "Council information",
+          rawHtml: "<main><p>Council information</p></main>",
+          metadata: { sourceURL: target, statusCode: 200 },
+        },
+      });
+    }
+    if (url.pathname === "/rest/v1/scouts" && init.method === "POST") inserts++;
+    throw new Error(`Unexpected request: ${url}`);
+  }, async () => {
+    const created = await createScout(request({
+      name: "Civic gate",
+      type: "civic",
+      root_domain: "city.example.gov",
+      tracked_urls: [trackedUrl],
+      criteria: "housing",
+      topic: "housing, council",
+      preferred_language: "en",
+    }), user);
+    assertEquals(created.status, 422);
+    const body = await created.json();
+    assertEquals(body.ok, false);
+    assertEquals(body.stage, "detect");
+    assertEquals(body.error_code, "no_meetings_detected");
+    assertEquals(typeof body.error, "string");
+    assertEquals(body.invalid, [trackedUrl]);
+    assertEquals(body.validated, []);
+    assertEquals(Array.isArray(body.candidates), true);
+  });
+  assertEquals(scrapes > 0, true);
+  assertEquals(inserts, 0);
 });
 
 Deno.test("Delegated Scout lookup cannot read another owner's row", async () => {

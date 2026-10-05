@@ -306,7 +306,6 @@ rm -rf aws/
 rm -rf backend/app/adapters/aws/
 rm -f backend/app/routers/auth.py        # MuckRock OAuth router
 rm -f backend/app/services/muckrock_client.py
-rm -f backend/app/utils/credits.py
 rm -f .github/workflows/mirror-*.yml
 rm -f .github/workflows/claude*.yml
 ```

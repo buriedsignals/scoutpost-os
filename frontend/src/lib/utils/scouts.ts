@@ -6,7 +6,7 @@
  * DEPENDS ON: $lib/types (ScoutType)
  *
  * Shared scout UI logic. Contains credit costs,
- * schedule formatting, URL truncation, markdown stripping, and the
+ * schedule formatting, URL truncation, and the
  * consolidated scout status cascade (priority-ordered condition matching).
  */
 
@@ -162,16 +162,6 @@ export function validateScheduleCredits(params: {
 	};
 }
 
-/** Channel-specific costs for data extraction */
-export const EXTRACT_COSTS: Record<string, number> = {
-	website: 1,
-	social: 2,
-	instagram: 2,
-	facebook: 15,
-	tiktok: 2,
-	instagram_comments: 15
-};
-
 /** Format a regularity + time into a human-readable schedule string. */
 export function formatRegularity(regularity: string, time?: string): string {
 	if (regularity === 'weekly') return m.schedule_weekly();
@@ -202,22 +192,6 @@ export function truncateUrl(url: string, maxLength = 40): string {
 	} catch {
 		return url.length > maxLength ? url.slice(0, maxLength - 3) + '...' : url;
 	}
-}
-
-/** Strip markdown formatting from text for cleaner card display. */
-export function stripMarkdown(text: string): string {
-	if (!text) return '';
-	return (
-		text
-			.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [text](url) → text
-			.replace(/\*\*([^*]+)\*\*/g, '$1') // bold (before bullets)
-			.replace(/\*([^*]+)\*/g, '$1') // italic (before bullets)
-			.replace(/^[•\-*]\s*/gm, '') // bullets
-			.replace(/#{1,6}\s*/g, '') // headers
-			.replace(/\s+/g, ' ') // collapse whitespace
-			.trim()
-			.slice(0, 150) + (text.length > 150 ? '...' : '')
-	);
 }
 
 /**

@@ -42,17 +42,11 @@ class Settings(BaseSettings):
     muckrock_base_url: str = os.getenv("MUCKROCK_BASE_URL", "https://accounts.muckrock.com")
     oauth_redirect_base: str = os.getenv("OAUTH_REDIRECT_BASE", "")  # e.g. http://localhost:5173
     local_muckrock_auth_broker: bool = os.getenv("LOCAL_MUCKROCK_AUTH_BROKER", "false").lower() == "true"
-    session_max_age: int = int(os.getenv("SESSION_MAX_AGE", str(86400 * 7)))  # 7 days
 
     # Email allowlist — comma-separated emails and/or @domain patterns.
     # Entries starting with @ match any email from that domain (e.g. @muckrock.com).
     # Empty string = no restriction (all MuckRock users allowed).
     email_allowlist: str = os.getenv("EMAIL_ALLOWLIST", "")
-
-    # Admin emails — comma-separated exact emails that receive Pro tier (1,000 credits)
-    # regardless of their MuckRock entitlements. Does not downgrade team users.
-    # Empty string = no overrides.
-    admin_emails: str = os.getenv("ADMIN_EMAILS", "")
 
     # User Defaults
     default_credits: int = int(os.getenv("DEFAULT_USER_CREDITS", "100"))
@@ -82,11 +76,6 @@ class Settings(BaseSettings):
     openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
     resend_api_key: str = os.getenv("RESEND_API_KEY", "")
     internal_service_key: str = os.getenv("INTERNAL_SERVICE_KEY", "")
-
-    # Deployment target — retained as a hard-coded constant after AWS retirement,
-    # so existing `settings.deployment_target == "supabase"` checks keep working
-    # while v2 refactoring is in progress. Remove once all branches are cleaned up.
-    deployment_target: str = "supabase"
 
     # Supabase / asyncpg
     database_url: str = os.getenv("DATABASE_URL", "")

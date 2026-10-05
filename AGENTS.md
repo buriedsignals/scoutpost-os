@@ -288,6 +288,17 @@ Supabase Auth users or ad-hoc JWTs as a substitute for SaaS user-flow testing.
   fixtures.
 - If a live product check cannot run, record the exact hosted/CLI failure and
   stop there. Do not replace it with a green local Auth result.
+- Every test file must have a runner. Offline Edge tests go in the
+  `supabase/functions/deno.json` `test` task (CI runs `deno task test`);
+  tests needing the local stack go in the `selfhost-runtime-smoke` job's
+  "Edge Function handler integration tests" step. An unrouted test rots
+  unnoticed (2026-10 audit: two had).
+- Hosted Edge Functions are deployed with `--no-verify-jwt`, so
+  `config.toml` `verify_jwt` is not enforced. Every operator or user route
+  must authenticate in the handler (`requireServiceKey` / `requireUser`).
+- Deploy Edge Functions from a clean checkout of `main@origin` (e.g. a
+  `jj workspace add /tmp/sp-main -r main@origin`), never from a working copy
+  whose parent may have changed after a merge.
 
 ---
 

@@ -3,7 +3,7 @@
  *
  * USED BY: api-client.ts, stores/auth.ts, stores/location.ts,
  *          stores/notifications.ts, stores/pulse.ts, stores/recent-locations.ts,
- *          utils/scouts.ts, data/onboarding-placeholders.ts,
+ *          utils/scouts.ts,
  *          ActiveJobsModal, OnboardingModal, ScoutScheduleModal, AINewsCard,
  *          BeatScoutView, LocationAutocomplete,
  *          +layout.svelte

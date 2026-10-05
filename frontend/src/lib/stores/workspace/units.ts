@@ -1,13 +1,13 @@
 /**
  * Workspace units store — paginated inbox of information units with search.
  *
- * Consumed by: `components/workspace/Inbox.svelte` (PR 2).
+ * Consumed by: `routes/+page.svelte`.
  *
  * Writeable shape is `{units, cursor, loading, loadingMore, searchQuery,
  * hasMore, error, scoutId}`. Cursor-based pagination: `load(scoutId)` resets
  * the cursor; `loadMore()` appends the next page. `search(q)` switches the
  * list into search mode (cursor/hasMore frozen off) and is a one-shot fetch
- * — calling `reset()` or `load()` returns to paginated mode.
+ * — calling `load()` returns to paginated mode.
  */
 import { writable, type Writable } from 'svelte/store';
 import * as m from '$lib/paraglide/messages';
@@ -126,7 +126,7 @@ function annotateDemoSearchMatch(unit: WorkspaceUnit, loweredQuery: string): Wor
  * surface. Exposed for tests.
  */
 export function createUnitsStore(api: UnitsApi = defaultApi as unknown as UnitsApi) {
-	const { subscribe, update, set }: Writable<UnitsState> = writable({ ...initialState });
+	const { subscribe, update }: Writable<UnitsState> = writable({ ...initialState });
 
 	/**
 	 * Read the current state without subscribing long-term. Internal helper
@@ -250,7 +250,7 @@ export function createUnitsStore(api: UnitsApi = defaultApi as unknown as UnitsA
 		/**
 		 * Enter search mode. Empty-string query exits search mode and reloads
 		 * the current scout's inbox page (so the caller doesn't have to chain
-		 * `reset()` + `load()` from the debounce handler).
+		 * a separate `load()` from the debounce handler).
 		 */
 		async search(query: string, scoutId?: string | null): Promise<void> {
 			const trimmed = query.trim();
@@ -319,13 +319,6 @@ export function createUnitsStore(api: UnitsApi = defaultApi as unknown as UnitsA
 				...s,
 				units: s.units.filter((u) => u.id !== id)
 			}));
-		},
-
-		/**
-		 * Reset to initial state. Used by the Inbox on scope change.
-		 */
-		reset(): void {
-			set({ ...initialState, units: [] });
 		},
 
 		/**

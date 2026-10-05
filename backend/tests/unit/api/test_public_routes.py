@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
@@ -27,26 +28,16 @@ def test_public_skills_route_serves_prerendered_html(monkeypatch, tmp_path):
     assert "root" not in res.text
 
 
-def test_public_skill_markdown_file_is_served_directly(monkeypatch, tmp_path):
-    _write(tmp_path / "skills/scoutpost.md", "# Scoutpost skill\n")
+@pytest.mark.parametrize("name", ["scoutpost.md", "scoutpost-setup.md"])
+def test_public_skill_markdown_file_is_served_directly(monkeypatch, tmp_path, name):
+    _write(tmp_path / "skills" / name, f"# {name} skill\n")
     monkeypatch.setattr(main, "FRONTEND_DIST", tmp_path)
 
-    res = TestClient(app).get("/skills/scoutpost.md")
+    res = TestClient(app).get(f"/skills/{name}")
 
     assert res.status_code == 200
     assert res.headers["content-type"].startswith("text/markdown")
-    assert "# Scoutpost skill" in res.text
-
-
-def test_public_setup_skill_markdown_file_is_served_directly(monkeypatch, tmp_path):
-    _write(tmp_path / "skills/scoutpost-setup.md", "# setup skill\n")
-    monkeypatch.setattr(main, "FRONTEND_DIST", tmp_path)
-
-    res = TestClient(app).get("/skills/scoutpost-setup.md")
-
-    assert res.status_code == 200
-    assert res.headers["content-type"].startswith("text/markdown")
-    assert "# setup skill" in res.text
+    assert f"# {name} skill" in res.text
 
 
 def test_canonical_skill_files_exist_in_static_tree():
@@ -114,33 +105,20 @@ def test_nested_login_paths_continue_to_block_frames():
     assert "frame-src 'none'" in res.headers["content-security-policy"]
 
 
-def test_legacy_cojournalist_host_redirects_to_scoutpost():
-    res = TestClient(app, follow_redirects=False).get(
-        "/auth/callback?code=abc&state=xyz",
-        headers={"host": "cojournalist.ai"},
-    )
+@pytest.mark.parametrize(
+    ("host", "path", "location"),
+    [
+        (
+            "cojournalist.ai",
+            "/auth/callback?code=abc&state=xyz",
+            "https://scoutpost.ai/auth/callback?code=abc&state=xyz",
+        ),
+        ("www.cojournalist.ai", "/login", "https://scoutpost.ai/login"),
+        ("www.scoutpost.ai", "/docs?x=1", "https://scoutpost.ai/docs?x=1"),
+    ],
+)
+def test_legacy_and_www_hosts_redirect_to_canonical_scoutpost(host, path, location):
+    res = TestClient(app, follow_redirects=False).get(path, headers={"host": host})
 
     assert res.status_code == 308
-    assert res.headers["location"] == (
-        "https://scoutpost.ai/auth/callback?code=abc&state=xyz"
-    )
-
-
-def test_legacy_www_cojournalist_host_redirects_to_scoutpost():
-    res = TestClient(app, follow_redirects=False).get(
-        "/login",
-        headers={"host": "www.cojournalist.ai"},
-    )
-
-    assert res.status_code == 308
-    assert res.headers["location"] == "https://scoutpost.ai/login"
-
-
-def test_www_scoutpost_host_redirects_to_apex_scoutpost():
-    res = TestClient(app, follow_redirects=False).get(
-        "/docs?x=1",
-        headers={"host": "www.scoutpost.ai"},
-    )
-
-    assert res.status_code == 308
-    assert res.headers["location"] == "https://scoutpost.ai/docs?x=1"
+    assert res.headers["location"] == location

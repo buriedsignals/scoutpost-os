@@ -217,28 +217,6 @@ describe('workspace units store', () => {
 		expect(store.getState().units.every((u) => u.search_match?.category === 'direct')).toBe(true);
 	});
 
-	// ---------------------------------------------------------------------
-	// reset
-	// ---------------------------------------------------------------------
-
-	it('reset() clears state entirely', async () => {
-		const api = {
-			listUnits: vi.fn(async () => ({
-				units: [unit({ id: 'u1' })],
-				next_cursor: '50'
-			})),
-			searchUnits: vi.fn()
-		};
-		const store = createUnitsStore(api as unknown as UnitsApi);
-		await store.load('s1');
-		store.reset();
-		const s = store.getState();
-		expect(s.units).toEqual([]);
-		expect(s.cursor).toBeNull();
-		expect(s.scoutId).toBeNull();
-		expect(s.searchQuery).toBe('');
-	});
-
 	it('removeUnit() drops the deleted unit from state immediately', async () => {
 		const api = {
 			listUnits: vi.fn(async () => ({
