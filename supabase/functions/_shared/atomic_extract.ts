@@ -23,6 +23,18 @@ import { logEvent } from "./log.ts";
 import { compressContext, logCompressionStats } from "./taco_compress.ts";
 import { normalizeDate } from "./date_utils.ts";
 
+/**
+ * Unit extraction has its own model, independent of LLM_MODEL. Chosen
+ * 2026-10-05 on 195 real production inputs across classify, enrich, sub-page
+ * and Beat extraction (two runs each, judged against released code on
+ * gemini-2.5-flash-lite): with the change-set prompt, gemini-3.1-flash-lite
+ * lost no real change facts on the delta operations, refused the navigation
+ * boilerplate 2.5 emitted, and stayed under 9.1 s. gemini-3.5-flash-lite
+ * returned no units on most inputs, so it is deliberately not a fallback.
+ * EXTRACTION_MODEL overrides the model without a deploy.
+ */
+const EXTRACTION_MODEL = "google/gemini-3.1-flash-lite";
+
 export function languageName(code: string | null | undefined): string {
   const normalized = code?.trim();
   if (!normalized) return "English";
@@ -194,17 +206,10 @@ const EXTRACTION_SCHEMA: Record<string, unknown> = {
  *   2. "Write ALL statements in {language}" enforces the scout's preferred
  *      language even when sources are in another language.
  */
-function systemPrompt(language: string): string {
+function systemPrompt(language: string, contentKind: ContentKind): string {
   return `You are a journalist's research assistant. Extract atomic information units from news articles.
 
-LISTING PAGE REFUSAL — CHECK THIS FIRST:
-If the input is an overview, index, or listing page — IMMEDIATELY return { "units": [], "isListingPage": true } and stop.
-A page is a listing page when ANY of the following is true:
-  • It shows 3 or more distinct article teasers, headlines, or summaries that each link to a separate full article.
-  • It has no single coherent article body — only snippets or excerpts with "read more" / "weiterlesen" links.
-  • The URL path contains any of: /medienmitteilungen/, /pressemitteilungen/, /aktuelles/, /news/, /veranstaltungen/, /archiv/, /artikel/, /blog/, /presse/ (when used as a section index, not a single post).
-  • The page title or heading uses archive/index framing: "Press releases", "News", "Medienmitteilungen", "Alle Artikel", "Archive", etc.
-DO NOT extract units from teasers. DO NOT fabricate articles from summaries. Return isListingPage: true and stop.
+${contentKind === "change" ? CHANGE_SET_RULES : LISTING_PAGE_RULES}
 
 CRITICAL RULE - 5W1H COMPLETENESS:
 Every statement MUST be understandable without reading the original article.
@@ -215,7 +220,7 @@ Include the essential 5W1H elements when available:
 - WHERE: Location (city, region, country) if relevant
 
 RULES:
-1. Extract 1-3 DISTINCT factual units from the article
+1. Extract DISTINCT factual units, up to the maximum stated in the request
 2. Each unit must be a SINGLE, verifiable statement
 3. Prioritize: facts with numbers/dates > events > entity updates
 4. Each unit must be SELF-CONTAINED (understandable without context)
@@ -227,6 +232,7 @@ DATE EXTRACTION:
 - Extract the most relevant date from the fact as "occurred_at" in YYYY-MM-DD format
 - Use the event/decision date, not the publication date
 - If no specific date is mentioned or inferrable, use null
+- Never fill occurred_at with the current date or the publication date; a fact without its own date gets null
 - For future events ("next Monday", "March 2025"), resolve to an actual date using the current date as reference
 
 UNIT TYPES:
@@ -243,6 +249,23 @@ QUALITY GUIDELINES:
 - ALWAYS include enough context for the statement to stand alone
 - Set criteria_match=true when no criteria are provided`;
 }
+
+type ContentKind = "article" | "change";
+
+const LISTING_PAGE_RULES = `LISTING PAGE REFUSAL — CHECK THIS FIRST:
+If the input is an overview, index, or listing page — IMMEDIATELY return { "units": [], "isListingPage": true } and stop.
+A page is a listing page when ANY of the following is true:
+  • It shows 3 or more distinct article teasers, headlines, or summaries that each link to a separate full article.
+  • It has no single coherent article body — only snippets or excerpts with "read more" / "weiterlesen" links.
+  • The URL path contains any of: /medienmitteilungen/, /pressemitteilungen/, /aktuelles/, /news/, /veranstaltungen/, /archiv/, /artikel/, /blog/, /presse/ (when used as a section index, not a single post).
+  • The page title or heading uses archive/index framing: "Press releases", "News", "Medienmitteilungen", "Alle Artikel", "Archive", etc.
+DO NOT extract units from teasers. DO NOT fabricate articles from summaries. Return isListingPage: true and stop.`;
+
+const CHANGE_SET_RULES = `PAGE CHANGES — READ THIS FIRST:
+The input is not a page but the set of changes detected on a monitored page since the last check. ADDED lines are new content, REMOVED lines are content that disappeared, CONTEXT and SECTION lines are unchanged surroundings, MOVED lines changed position only.
+It is never a listing page: always set isListingPage to false.
+Extract units about what is new or changed: each added event, release, decision, date, figure, or item is its own unit, even when it is a single line in a calendar or list.
+Use REMOVED lines only to state what was replaced or withdrawn. Never extract a unit from CONTEXT or SECTION lines alone.`;
 
 export interface ExtractSourceInput {
   /** Title of the article, if available. */
@@ -267,6 +290,11 @@ export interface ExtractSourceInput {
   contentLimit?: number;
   /** Shift a late extraction window to a strongly matching article heading. */
   anchorToTitle?: boolean;
+  /**
+   * "change" when content is a rendered page-change delta (REMOVED/ADDED
+   * evidence). A change set is never a listing page.
+   */
+  contentKind?: ContentKind;
   /** Optional OpenRouter timeout override for this extraction call. */
   timeoutMs?: number;
   /** Optional context for actual provider-token usage accounting. */
@@ -293,6 +321,7 @@ export async function extractAtomicUnits(
     maxUnits = 3,
     contentLimit = 3000,
     anchorToTitle = false,
+    contentKind = "article",
     timeoutMs,
     usage,
   } = input;
@@ -324,7 +353,10 @@ For numeric, date, place, topic, source, role, status, threshold, inclusion, and
 Set criteria_match=false for any unit that fails or only partially satisfies the criteria.\n`
     : "";
 
-  const userPrompt = `Extract atomic information units from this article.\n\n` +
+  const userPrompt =
+    (contentKind === "change"
+      ? `Extract atomic information units from these page changes.\n\n`
+      : `Extract atomic information units from this article.\n\n`) +
     `CURRENT DATE: ${today}\n` +
     `ARTICLE PUBLISHED: ${publishedDate ?? "unknown"}\n` +
     `ARTICLE TITLE: ${title ?? "(no title)"}\n` +
@@ -340,7 +372,15 @@ Set criteria_match=false for any unit that fails or only partially satisfies the
     const result = await openRouterExtract<ExtractionResult>(
       userPrompt,
       EXTRACTION_SCHEMA,
-      { systemInstruction: systemPrompt(langName), timeoutMs, usage },
+      {
+        model: Deno.env.get("EXTRACTION_MODEL") ?? EXTRACTION_MODEL,
+        // No cross-model fallback: an empty answer from a weaker extractor
+        // would look like "no facts"; a failed call is reported as failed.
+        fallbackModel: null,
+        systemInstruction: systemPrompt(langName, contentKind),
+        timeoutMs,
+        usage,
+      },
     );
     const units = Array.isArray(result?.units) ? result.units : [];
     const isListingPage = Boolean(result?.isListingPage);

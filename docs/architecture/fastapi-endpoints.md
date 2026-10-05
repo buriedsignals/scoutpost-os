@@ -1599,7 +1599,7 @@ All endpoints return valid JSON responses, never raw HTTP exceptions.
 |----------|-------------|
 | `INTERNAL_SERVICE_KEY` | Internal service auth (`X-Service-Key`) |
 | `OPENROUTER_API_KEY` | Single runtime AI key for extraction and 768d Gemini embeddings; OpenRouter routes only to Google Vertex with per-request ZDR/data-collection/cache controls |
-| `LLM_MODEL` | Full `google/...` OpenRouter model ID compatible with the pinned Google Vertex route; default `google/gemini-2.5-flash-lite` |
+| `LLM_MODEL` | Full `google/...` OpenRouter model ID compatible with the pinned Google Vertex route; default `google/gemini-3.5-flash-lite` |
 | `FIRECRAWL_API_KEY` | Web search/scrape API |
 | `RESEND_API_KEY` | Email notifications |
 

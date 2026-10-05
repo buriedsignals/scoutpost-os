@@ -89,7 +89,7 @@ change.
 ## AI transport and PDF boundary
 
 Structured extraction uses the single external `OPENROUTER_API_KEY` and defaults
-to `google/gemini-2.5-flash-lite`; any `LLM_MODEL` override must remain in the
+to `google/gemini-3.5-flash-lite`; any `LLM_MODEL` override must remain in the
 `google/...` namespace. Every OpenRouter request pins `google-vertex`, requires
 ZDR, denies provider data collection, and sends `X-OpenRouter-Cache: false`.
 Structured output additionally requires provider parameter support.

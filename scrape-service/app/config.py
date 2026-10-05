@@ -57,7 +57,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         parse_min_chars_per_page=int(e.get("PARSE_MIN_CHARS_PER_PAGE", "100")),
         openrouter_api_key=e.get("OPENROUTER_API_KEY") or None,
         openrouter_model=e.get(
-            "PARSE_OPENROUTER_MODEL", "google/gemini-2.5-flash-lite"
+            "PARSE_OPENROUTER_MODEL", "google/gemini-3.5-flash-lite"
         ),
         openrouter_timeout_s=float(e.get("PARSE_OPENROUTER_TIMEOUT_S", "90")),
         block_private_addresses=e.get("SCRAPE_ALLOW_PRIVATE_ADDRESSES") != "1",

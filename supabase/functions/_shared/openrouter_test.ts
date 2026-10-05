@@ -44,13 +44,13 @@ Deno.test("openRouterExtract sends strict JSON Schema and maps normalized usage 
     return new Response(
       JSON.stringify({
         id: "gen-123",
-        model: "google/gemini-2.5-flash-lite",
+        model: OPENROUTER_DEFAULT_CHAT_MODEL,
         openrouter_metadata: {
           endpoints: {
             available: [
               {
                 provider: "Google Vertex AI",
-                model: "google/gemini-2.5-flash-lite",
+                model: OPENROUTER_DEFAULT_CHAT_MODEL,
                 selected: true,
               },
             ],
@@ -96,7 +96,7 @@ Deno.test("openRouterExtract sends strict JSON Schema and maps normalized usage 
     assertEquals(capturedHeaders.get("Authorization"), "Bearer test-secret");
     assertEquals(capturedHeaders.get("X-OpenRouter-Cache"), "false");
     assertEquals(capturedHeaders.get("X-OpenRouter-Metadata"), "enabled");
-    assertEquals(capturedBody.model, "google/gemini-2.5-flash-lite");
+    assertEquals(capturedBody.model, OPENROUTER_DEFAULT_CHAT_MODEL);
     assertEquals(capturedBody.messages, [
       { role: "system", content: "Follow the schema." },
       { role: "user", content: "prompt" },
@@ -118,7 +118,7 @@ Deno.test("openRouterExtract sends strict JSON Schema and maps normalized usage 
     });
     assertEquals(inserted.length, 1);
     assertEquals(inserted[0].provider, "openrouter");
-    assertEquals(inserted[0].model, "google/gemini-2.5-flash-lite");
+    assertEquals(inserted[0].model, OPENROUTER_DEFAULT_CHAT_MODEL);
     assertEquals(inserted[0].operation, "test_operation");
     assertEquals(inserted[0].prompt_tokens, 12);
     assertEquals(inserted[0].completion_tokens, 4);
@@ -439,7 +439,7 @@ Deno.test("OpenRouter retries an HTTP-200 provider error on the fallback model",
     }
     return new Response(
       JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: OPENROUTER_DEFAULT_FALLBACK_MODEL,
         choices: [{ message: { content: '{"ok":true}' } }],
         usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
       }),
@@ -458,11 +458,11 @@ Deno.test("OpenRouter retries an HTTP-200 provider error on the fallback model",
     );
     assertEquals(result, { ok: true });
     assertEquals(requestedModels, [
-      "google/gemini-2.5-flash-lite",
-      "google/gemini-2.5-flash",
+      OPENROUTER_DEFAULT_CHAT_MODEL,
+      OPENROUTER_DEFAULT_FALLBACK_MODEL,
     ]);
     assertEquals(usageRows.length, 1);
-    assertEquals(usageRows[0].model, "google/gemini-2.5-flash");
+    assertEquals(usageRows[0].model, OPENROUTER_DEFAULT_FALLBACK_MODEL);
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv("OPENROUTER_API_KEY", originalKey);

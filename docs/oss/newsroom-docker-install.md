@@ -67,7 +67,7 @@ Before running install, collect:
   - `PUBLIC_APP_URL` — your deployment's app origin; already required for auth, and
     reused for the "View archived snapshot" email deep link (see `docs/features/page-archive.md`)
 
-The default extraction model ID is `google/gemini-2.5-flash-lite`. OpenRouter
+The default extraction model ID is `google/gemini-3.5-flash-lite`. OpenRouter
 requests require the Google Vertex route with ZDR, deny provider data
 collection, and disable response caching. Text embeddings use
 `google/gemini-embedding-001` through the same constrained route and request

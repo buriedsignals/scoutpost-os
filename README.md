@@ -86,7 +86,7 @@ Copy `.env.example` to `.env` and fill in the values. See
 load-bearing variables.
 
 Scoutpost uses one external AI credential: `OPENROUTER_API_KEY`. Structured
-extraction uses `google/gemini-2.5-flash-lite`, and text embeddings use
+extraction uses `google/gemini-3.5-flash-lite`, and text embeddings use
 `google/gemini-embedding-001` with `dimensions: 768`. Every request pins
 `google-vertex`, requires ZDR, denies provider data collection, disables
 fallbacks, and sends `X-OpenRouter-Cache: false`.

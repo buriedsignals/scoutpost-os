@@ -161,7 +161,7 @@ services:
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      LLM_MODEL: ${LLM_MODEL:-google/gemini-2.5-flash-lite}
+      LLM_MODEL: ${LLM_MODEL:-google/gemini-3.5-flash-lite}
       RESEND_API_KEY: ${RESEND_API_KEY}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-scouts@newsroom.org}
       APIFY_API_TOKEN: ${APIFY_API_TOKEN}

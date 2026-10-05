@@ -121,7 +121,7 @@ def make_settings(**overrides) -> Settings:
         parse_max_pdf_bytes=50 * 1024 * 1024,
         parse_min_chars_per_page=100,
         openrouter_api_key=None,
-        openrouter_model="google/gemini-2.5-flash-lite",
+        openrouter_model="google/gemini-3.5-flash-lite",
         openrouter_timeout_s=90.0,
         block_private_addresses=True,
     )

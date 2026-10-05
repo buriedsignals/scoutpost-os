@@ -91,7 +91,7 @@ supabase functions deploy
 8. Write the project `.env` with the Supabase and frontend values:
 - `DEPLOYMENT_TARGET=supabase`
 - `OPENROUTER_API_KEY=<OPENROUTER_API_KEY>`
-- `LLM_MODEL=google/gemini-2.5-flash-lite`
+- `LLM_MODEL=google/gemini-3.5-flash-lite`
 - `PUBLIC_DEPLOYMENT_TARGET=supabase`
 - `PUBLIC_SUPABASE_URL=<SUPABASE_URL>`
 - `PUBLIC_SUPABASE_ANON_KEY=<SUPABASE_ANON_KEY>`

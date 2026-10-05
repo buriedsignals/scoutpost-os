@@ -107,7 +107,7 @@ Both flows expose a source mode toggle so users can switch between niche and rel
 The v2 port preserves the useful legacy stages while removing provider-specific
 assumptions:
 
-- **Stage 1 (query gen):** `google/gemini-2.5-flash-lite` through OpenRouter's Google Vertex-only ZDR route. Output uses strict JSON Schema and OpenRouter response caching is disabled. Historical v1/direct-Google implementations are comparison context, not the current runtime.
+- **Stage 1 (query gen):** `google/gemini-3.5-flash-lite` through OpenRouter's Google Vertex-only ZDR route. Output uses strict JSON Schema and OpenRouter response caching is disabled. Historical v1/direct-Google implementations are comparison context, not the current runtime.
 - **Stage 5 (tourism pre-filter):** identical 11-domain + 6-title pattern list.
 - **Stage 6 (embedding dedup):** scope-aware thresholds preserved (combined 0.85 / location 0.82 / topic 0.80). The `+8` local-language bonus is approximated via a charset heuristic (`/[À-ÿ]/`) instead of `langdetect`, to avoid shipping a heavy ML model in the Edge runtime. Slight precision loss on non-Latin scripts (JP/KR/ZH); flagged as a follow-up if needed.
 - **Email digest:** Generative Beat summary composition is removed from the production notification path. Digest text is deterministic and built from the same article cards rendered in the email; summary links outside those cards are rejected.

@@ -26,7 +26,7 @@ services:
       - APP_POST_LOGIN_REDIRECT=https://scoutpost.ai/auth/callback
       - PYTHONUNBUFFERED=1
       - APIFY_API_TOKEN=${APIFY_API_TOKEN}
-      - LLM_MODEL=${LLM_MODEL:-google/gemini-2.5-flash-lite}
+      - LLM_MODEL=${LLM_MODEL:-google/gemini-3.5-flash-lite}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level info
     networks:

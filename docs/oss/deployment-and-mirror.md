@@ -82,7 +82,7 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
       - key: LLM_MODEL
-        value: google/gemini-2.5-flash-lite
+        value: google/gemini-3.5-flash-lite
 
       # Web scraping
       - key: FIRECRAWL_API_KEY
@@ -185,7 +185,7 @@ SUPABASE_URL=http://kong:8000
 
 # --- AI ---
 OPENROUTER_API_KEY=
-LLM_MODEL=google/gemini-2.5-flash-lite
+LLM_MODEL=google/gemini-3.5-flash-lite
 
 # --- Web Scraping ---
 FIRECRAWL_API_KEY=
@@ -337,7 +337,7 @@ services:
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      LLM_MODEL: ${LLM_MODEL:-google/gemini-2.5-flash-lite}
+      LLM_MODEL: ${LLM_MODEL:-google/gemini-3.5-flash-lite}
       FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY}
       RESEND_API_KEY: ${RESEND_API_KEY}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-scouts@newsroom.org}
@@ -666,7 +666,7 @@ Before starting either path, you need API keys for external services:
 | **MapTiler** | Geocoding/location scouts | [maptiler.com](https://www.maptiler.com) |
 
 Scoutpost asks for one external AI key. It uses
-`google/gemini-2.5-flash-lite` for extraction. Those requests route
+`google/gemini-3.5-flash-lite` for extraction. Those requests route
 Scoutpost → OpenRouter → Google Vertex and enforce
 `only: ["google-vertex"]`, ZDR, denied provider data collection, and
 `X-OpenRouter-Cache: false`. Disable OpenRouter account logging and data sharing

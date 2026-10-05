@@ -1329,6 +1329,7 @@ async function runPipeline(
       extractAtomicUnits({
         title: scrape.title ?? null,
         content: delta,
+        contentKind: "change",
         sourceUrl: scout.url,
         publishedDate: primaryPublishedDate,
         language: scout.preferred_language ?? "en",
@@ -2148,6 +2149,7 @@ async function runPhaseB(
           ? await extractAtomicUnits({
             title: subScrape.title ?? null,
             content: subAnalysis.criteriaDelta,
+            contentKind: "change",
             sourceUrl: subSourceUrl,
             publishedDate: subPublishedDate,
             language: scout.preferred_language ?? "en",
@@ -2168,6 +2170,7 @@ async function runPhaseB(
         : await extractAtomicUnits({
           title: subScrape.title ?? null,
           content: subAnalysis.criteriaDelta,
+          contentKind: "change",
           sourceUrl: subSourceUrl,
           publishedDate: subPublishedDate,
           language: scout.preferred_language ?? "en",

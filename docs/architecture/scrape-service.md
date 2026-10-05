@@ -74,7 +74,7 @@ To recreate the hosted rollback target:
    Environment → `SCRAPE_SERVICE_TOKEN`.
 3. **Native-PDF fallback (optional)** — set `OPENROUTER_API_KEY` on the
    service to enable scanned-PDF transcription with
-   `google/gemini-2.5-flash-lite` through Google Vertex; omit it to have
+   `google/gemini-3.5-flash-lite` through Google Vertex; omit it to have
    scanned PDFs return `needs_ocr`. The request forces OpenRouter's `native`
    PDF engine, so it does not invoke Mistral, Cloudflare, or another parser.
 4. **Wire the edge functions for rollback** — mirror the URL + token into

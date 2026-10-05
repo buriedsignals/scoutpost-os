@@ -123,7 +123,7 @@ Still required:
 - `SUPABASE_ANON_KEY` — used by frontend bundle; not actively read by backend (could be removed but harmless)
 - `MUCKROCK_CLIENT_ID`, `MUCKROCK_CLIENT_SECRET`, `SESSION_SECRET` — MuckRock auth broker and HMAC state signing
 - `OPENROUTER_API_KEY` — external key for extraction, scanned-PDF fallback, and 768d Gemini embeddings through OpenRouter to Google Vertex
-- `LLM_MODEL` — full `google/...` OpenRouter model ID compatible with the pinned Google Vertex route; defaults to `google/gemini-2.5-flash-lite`
+- `LLM_MODEL` — full `google/...` OpenRouter model ID compatible with the pinned Google Vertex route; defaults to `google/gemini-3.5-flash-lite`
 - `FIRECRAWL_API_KEY` — web scraping
 - `APIFY_API_TOKEN` — social scraping
 - `RESEND_API_KEY` — notifications

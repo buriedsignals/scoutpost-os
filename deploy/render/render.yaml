@@ -36,7 +36,7 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
       - key: LLM_MODEL
-        value: google/gemini-2.5-flash-lite
+        value: google/gemini-3.5-flash-lite
 
       # Web scraping
       - key: FIRECRAWL_API_KEY

@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     apify_api_token: str = os.getenv("APIFY_API_TOKEN", "")
 
     # Full OpenRouter model ID used by hosted inference paths.
-    llm_model: str = os.getenv("LLM_MODEL", "google/gemini-2.5-flash-lite")
+    llm_model: str = os.getenv("LLM_MODEL", "google/gemini-3.5-flash-lite")
 
     # Scout service settings
     openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")

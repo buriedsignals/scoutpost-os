@@ -187,7 +187,7 @@ collect_api_keys() {
     echo ""
     prompt_optional RESEND_FROM_EMAIL "Notification sender email" "scouts@newsroom.org"
 
-    prompt_optional LLM_MODEL "LLM model" "google/gemini-2.5-flash-lite"
+    prompt_optional LLM_MODEL "LLM model" "google/gemini-3.5-flash-lite"
     case "$LLM_MODEL" in
         google/*) ;;
         *) die "LLM_MODEL must use the google/ namespace because Scoutpost pins Google Vertex." ;;

@@ -10,8 +10,8 @@ import { logEvent } from "./log.ts";
 import type { SupabaseClient } from "./supabase.ts";
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
-export const OPENROUTER_DEFAULT_CHAT_MODEL = "google/gemini-2.5-flash-lite";
-export const OPENROUTER_DEFAULT_FALLBACK_MODEL = "google/gemini-2.5-flash";
+export const OPENROUTER_DEFAULT_CHAT_MODEL = "google/gemini-3.5-flash-lite";
+export const OPENROUTER_DEFAULT_FALLBACK_MODEL = "google/gemini-3.1-flash-lite";
 
 const PROVIDER_POLICY = {
   only: ["google-vertex"],

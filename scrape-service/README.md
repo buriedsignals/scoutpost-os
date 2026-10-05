@@ -38,7 +38,7 @@ parser retains redirect/DNS safety, byte limits and a bounded download deadline.
   `PARSE_DOWNLOAD_TIMEOUT_S` (15) · `PARSE_MAX_PDF_BYTES` (50MiB) ·
   `PARSE_MIN_CHARS_PER_PAGE` (100) · `PORT` (8080)
 - `OPENROUTER_API_KEY` (optional) enables the low-yield PDF fallback ·
-  `PARSE_OPENROUTER_MODEL` (`google/gemini-2.5-flash-lite`) ·
+  `PARSE_OPENROUTER_MODEL` (`google/gemini-3.5-flash-lite`) ·
   `PARSE_OPENROUTER_TIMEOUT_S` (90). Every fallback request pins
   `google-vertex`, requires ZDR, denies data collection, disables OpenRouter
   response caching, and forces the native PDF parser. PDFs over the temporary

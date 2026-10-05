@@ -1,3 +1,5 @@
+import { OPENROUTER_DEFAULT_CHAT_MODEL } from "../supabase/functions/_shared/openrouter.ts";
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
@@ -397,7 +399,7 @@ Deno.test("runtime setup wiring uses one OpenRouter key and full model IDs", asy
   ];
   for (const path of modelFiles) {
     const content = await Deno.readTextFile(`${repoRoot}/${path}`);
-    assertIncludes(content, "google/gemini-2.5-flash-lite", path);
+    assertIncludes(content, OPENROUTER_DEFAULT_CHAT_MODEL, path);
   }
 });
 

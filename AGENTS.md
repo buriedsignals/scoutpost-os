@@ -559,7 +559,7 @@ dependency manifest before chasing them.
 - `SESSION_SECRET` - HMAC signing key for OAuth/MCP broker state; legacy session JWT fallback only
 - `OAUTH_REDIRECT_BASE` - Public URL the browser sees (needed behind proxy, e.g. `http://localhost:5173`)
 - `OPENROUTER_API_KEY` - single external AI credential for structured extraction, exceptional scanned-PDF fallback, and 768-dimensional Gemini embeddings. Runtime flow is Scoutpost → OpenRouter → Google Vertex.
-- `LLM_MODEL` - full OpenRouter model identifier (default: `google/gemini-2.5-flash-lite`).
+- `LLM_MODEL` - full OpenRouter model identifier (default: `google/gemini-3.5-flash-lite`).
 - `FIRECRAWL_API_KEY` - Web scraping
 - `APIFY_API_TOKEN` - Apify API token (social media scraping)
 - `RESEND_API_KEY` - Email notifications

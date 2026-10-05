@@ -24,8 +24,10 @@ async def test_transcribe_sends_native_vertex_zdr_request_and_returns_text():
         assert request.headers["X-OpenRouter-Cache"] == "false"
 
         body = json.loads(request.content)
-        assert body["model"] == "google/gemini-2.5-flash-lite"
-        assert body["temperature"] == 0
+        assert body["model"] == "google/gemini-3.5-flash-lite"
+        # With require_parameters, an unsupported sampling parameter leaves no
+        # Vertex endpoint for Gemini 3.x (OpenRouter 404, 2026-10-05).
+        assert "temperature" not in body
         assert body["provider"] == {
             "only": ["google-vertex"],
             "zdr": True,
@@ -60,7 +62,7 @@ async def test_transcribe_sends_native_vertex_zdr_request_and_returns_text():
         _client(handler),
         PDF,
         api_key="or-key",
-        model="google/gemini-2.5-flash-lite",
+        model="google/gemini-3.5-flash-lite",
         timeout_s=5,
     )
     assert out == "# Doc\n\nbody"

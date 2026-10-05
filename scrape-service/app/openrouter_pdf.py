@@ -2,9 +2,11 @@
 
 Used only when pdftotext's density guard trips (scanned / thin PDF). The PDF
 is sent through OpenRouter to a ZDR Google Vertex route with the native PDF
-engine forced explicitly. ``temperature=0`` minimizes run-to-run variance,
-but the output is still not bit-deterministic, so this remains a fallback only
-for documents that pdftotext cannot read.
+engine forced explicitly. No sampling parameters are sent: the Vertex routes
+for the Gemini 3.x models do not accept ``temperature``, and with
+``require_parameters`` any unsupported parameter leaves no endpoint (HTTP 404).
+Output is not deterministic, so this remains a fallback only for documents
+that pdftotext cannot read.
 """
 
 import base64
@@ -62,7 +64,6 @@ async def transcribe_pdf(
                 ],
             }
         ],
-        "temperature": 0,
         "provider": {
             "only": ["google-vertex"],
             "zdr": True,
