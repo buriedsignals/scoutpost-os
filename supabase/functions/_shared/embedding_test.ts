@@ -153,18 +153,23 @@ Deno.test("embedding client preserves order across task and size batches", async
         taskType: "RETRIEVAL_DOCUMENT" as const,
       })),
       { text: "query", taskType: "RETRIEVAL_QUERY" as const },
+      { text: "similar", taskType: "SEMANTIC_SIMILARITY" as const },
     ];
     const values = await embedBatch(inputs);
-    assertEquals(batchSizes, [32, 1, 1]);
+    assertEquals(batchSizes, [32, 1, 1, 1]);
+    // OpenRouter maps only search_document/search_query; other values reach
+    // Vertex verbatim, which accepts its upper-case enum names only
+    // ("semantic_similarity" -> HTTP 400 on multi-input batches, 2026-10-05).
     assertEquals(batchTypes, [
       "search_document",
       "search_document",
       "search_query",
+      "SEMANTIC_SIMILARITY",
     ]);
     assertEquals(
       values.map((value) => value[0]),
       Array.from(
-        { length: 34 },
+        { length: 35 },
         (_, index) => (index + 1) / Math.sqrt((index + 1) ** 2 + 1),
       ),
     );

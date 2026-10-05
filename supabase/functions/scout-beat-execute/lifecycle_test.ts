@@ -28,6 +28,7 @@ type Retrieval =
   | "stale"
   | "failed"
   | "mixed"
+  | "unsupported"
   | "search_failed"
   | "search_empty";
 
@@ -100,6 +101,14 @@ async function runScenario(retrieval: Retrieval, baselineOnly: boolean) {
             ? json({ detail: "renderer unavailable" }, 503)
             : json({ markdown: "", source_url: sourceUrl });
         }
+        if (retrieval === "unsupported" && sourceUrl.endsWith("/0")) {
+          // Crawl4AI is challenged, so the port falls back to Firecrawl.
+          return json({
+            markdown: "",
+            source_url: sourceUrl,
+            status_code: 403,
+          });
+        }
         return json({
           markdown:
             "# Transport policy\nThe council adopted new transport policy.",
@@ -108,6 +117,15 @@ async function runScenario(retrieval: Retrieval, baselineOnly: boolean) {
           source_url: sourceUrl,
           status_code: 200,
         });
+      }
+      if (
+        url.hostname === "api.firecrawl.dev" && url.pathname.endsWith("/scrape")
+      ) {
+        return json({
+          success: false,
+          error:
+            "We apologize for the inconvenience but we do not support this site.",
+        }, 403);
       }
       if (
         url.hostname === "api.firecrawl.dev" && url.pathname.endsWith("/search")
@@ -262,6 +280,20 @@ Deno.test("Beat retrieval failures remain failures even alongside stale readable
       );
     }
   }
+});
+
+Deno.test("Beat publisher refused by Firecrawl does not fail an otherwise stale run", async () => {
+  // 2026-10-05 live benchmark: nytimes.com refused, five readable sources
+  // stale; the run errored and counted a scout failure.
+  const result = await runScenario("unsupported", false);
+  assertEquals(result.status, 200);
+  assertEquals(result.run.status, "success");
+  assertEquals(result.run.error_message, null);
+  assertEquals(result.run.articles_count, 0);
+  assertEquals(result.failures, 0);
+  assertEquals(result.charges, 1);
+  assertEquals(result.refunds, 1);
+  assertEquals(result.forbidden, []);
 });
 
 Deno.test("Beat genuinely empty discovery remains a non-billable ready baseline or quiet monitoring run", async (t) => {

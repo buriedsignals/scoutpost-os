@@ -47,13 +47,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * OpenRouter translates only search_document/search_query; any other value
+ * reaches Vertex verbatim as task_type, which accepts its upper-case enum
+ * names only ("semantic_similarity" fails with HTTP 400 on batches, 2026-10-05).
+ */
 function inputType(taskType: EmbeddingTaskType): string {
   const types: Record<EmbeddingTaskType, string> = {
-    SEMANTIC_SIMILARITY: "semantic_similarity",
+    SEMANTIC_SIMILARITY: "SEMANTIC_SIMILARITY",
     RETRIEVAL_DOCUMENT: "search_document",
     RETRIEVAL_QUERY: "search_query",
-    CLASSIFICATION: "classification",
-    CLUSTERING: "clustering",
+    CLASSIFICATION: "CLASSIFICATION",
+    CLUSTERING: "CLUSTERING",
   };
   return types[taskType];
 }

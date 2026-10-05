@@ -244,7 +244,6 @@ Deno.test("dedupeByEmbedding sends one ordered OpenRouter embedding batch", asyn
     assertEquals(requests.length, 1);
     assertEquals(requests[0].input, ["First. Alpha", "Second. Beta"]);
     assertEquals(requests[0].dimensions, 768);
-    assertEquals(requests[0].input_type, "semantic_similarity");
     assertEquals(hits.length, 2);
   } finally {
     globalThis.fetch = originalFetch;

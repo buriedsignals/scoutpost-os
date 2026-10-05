@@ -749,7 +749,14 @@ async function execute(
       stale_sources_filtered: staleSourcesFiltered,
     });
 
-    if (succeeded.length === 0 && failures.length > 0) {
+    // Firecrawl refuses some publishers outright (nytimes.com, 2026-10-05:
+    // "we do not support this site"). That is a permanent property of the
+    // source, not an outage that could hide fresh news, so it cannot by itself
+    // turn an all-stale run into a retrieval failure.
+    const retrievalFailures = failures.filter((f) =>
+      !/we do not support this site/i.test(f.error)
+    );
+    if (succeeded.length === 0 && retrievalFailures.length > 0) {
       throw new ApiError(
         `beat retrieval failed: ${failures.length} of ${attemptedScrapeCount} sources failed; ${staleSourcesFiltered} stale sources excluded: ${
           failures
