@@ -121,7 +121,7 @@ strip_edge_function newsletter-subscribe
 strip_edge_function user-update-email
 strip_edge_function account-deletion-worker
 # Their tests run in the private CI only; drop them from the mirror's test step.
-sed_if_exists -i 's| auth-muckrock/redirects_test.ts mcp-auth/_test.ts indicator-claim/_test.ts||' .github/workflows/ci.yml
+sed_if_exists -i 's| auth-muckrock/redirects_test.ts mcp-auth/_test.ts indicator-claim/_test.ts user-update-email/_test.ts||' .github/workflows/ci.yml
 sed_if_exists -i '/^# auth-muckrock is browser-facing/,+1d' supabase/config.toml
 sed_if_exists -i '/^# mcp-auth is the MCP-only sibling/,+4d' supabase/config.toml
 sed_if_exists -i '/^# newsletter-subscribe is called pre-auth/,+1d' supabase/config.toml
