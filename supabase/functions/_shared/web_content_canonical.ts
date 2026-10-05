@@ -32,6 +32,13 @@ export function webComparisonContent(scrape: {
 
 const RELATIVE_TIME_RE =
   /\b(?:updated\s+)?\d+\s+(?:sec(?:ond)?s?|mins?|minutes?|hours?|hrs?|days?)\s+ago\b/gi;
+// In-page citation markers and back-references: empty, "12", "[12]", "12↑",
+// "↑" or "^" link text pointing at a #fragment. They are numbering and
+// navigation furniture (wiki-style footnotes); the cited source itself stays
+// in the reference list. Their markup varies by site template, and keeping it
+// turned a footnote restyle into a change on every cited paragraph.
+const CITATION_ANCHOR_RE =
+  /[ \t]*\[(?:\[\d{1,4}\]|\d{1,4}\s*[↑^]?|[↑^]|)\]\([^)\s]*#[^)\s]*(?:\s+"[^"]*")?\)/g;
 const TRACKING_PARAMS = new Set([
   "visit_id",
   "gclid",
@@ -57,6 +64,7 @@ export function canonicalizeWebMarkdown(markdown: string): string {
       /!\[([^\]]*)\]\(([^)]*)\)/g,
       (_match, alt: string) => cleanAltText(alt),
     )
+    .replace(CITATION_ANCHOR_RE, "")
     .replace(RELATIVE_TIME_RE, "<RELATIVE_TIME>")
     .replace(/https:\/\/ichef\.bbci\.co\.uk\/[^\s)\\]+/g, "<IMAGE_ASSET>")
     .replace(

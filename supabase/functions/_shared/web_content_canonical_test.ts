@@ -94,6 +94,30 @@ Deno.test("web canonicalizer treats article link changes as meaningful", async (
   assertNotEquals(await webCanonicalHash(a), await webCanonicalHash(b));
 });
 
+Deno.test("web canonicalizer ignores in-page citation markup restyles", async () => {
+  // Grokipedia's 2026-10 template change, reduced: same prose and sources,
+  // different footnote and back-link markup.
+  const before = [
+    "Minted in 1518 in Joachimsthal.[](https://wiki.test/Dollar#ref-1)[[1]](https://wiki.test/Dollar#ref-1) [](https://wiki.test/Dollar#ref-2)[[2]](https://wiki.test/Dollar#ref-2) Later adopted.",
+    "1. [^](https://wiki.test/Dollar#cite-1) Etymology source",
+  ].join("\n");
+  const after = [
+    "Minted in 1518 in Joachimsthal.[1](https://wiki.test/Dollar#ref-1)[2](https://wiki.test/Dollar#ref-2) Later adopted.",
+    '1. [1↑](https://wiki.test/Dollar#ref-1 "Back to text") Etymology source',
+  ].join("\n");
+
+  assertEquals(await webCanonicalHash(before), await webCanonicalHash(after));
+  assertEquals(
+    canonicalizeWebMarkdown(after),
+    "Minted in 1518 in Joachimsthal. Later adopted.\n1. Etymology source",
+  );
+  // Numbered links to other documents are content (pagination, sources).
+  assertNotEquals(
+    await webCanonicalHash("Results [2](https://city.test/news?page=2)"),
+    await webCanonicalHash("Results [3](https://city.test/news?page=3)"),
+  );
+});
+
 Deno.test("web canonicalizer treats headline/body changes as meaningful", async () => {
   const a = "# Council approves budget\n\nThe council approved $2m.";
   const b = "# Council delays budget\n\nThe council delayed $2m.";

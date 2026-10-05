@@ -117,6 +117,13 @@ export function renderPageScoutCriteriaDelta(diff: PageContentDiff): string {
 
 const CONTEXT_LINE_WINDOW = 3;
 
+/**
+ * Render changes as hunks. Changes whose unchanged gap fits within two
+ * context windows share one SECTION and one context run, so a dense edit costs
+ * roughly its own text instead of repeating surrounding lines for every
+ * changed line. Evidence IDs stay one per change, in `changes` order, because
+ * criteria grounding resolves findings by those IDs.
+ */
 function renderContextualChanges(
   label: "REMOVED" | "ADDED",
   changes: PageContentOccurrence[],
@@ -125,35 +132,63 @@ function renderContextualChanges(
   const lines = pageContentLines(content);
   const sections = pageContentSectionLookup(lines);
   const changedLines = new Set(changes.map((change) => change.text));
+  const contextLines = (from: number, to: number) =>
+    lines.slice(Math.max(0, from), to)
+      .filter((line) => !changedLines.has(line))
+      .map((line) => `CONTEXT: ${line}`);
 
-  return changes.map((change, changeIndex) => {
-    const evidenceId = `${label === "REMOVED" ? "R" : "A"}${changeIndex + 1}`;
+  const hunks: string[][] = [];
+  let hunk: string[] = [];
+  let lastIndex = -1;
+  let section = "";
+  const closeHunk = () => {
+    if (lastIndex >= 0) {
+      hunk.push(
+        ...contextLines(lastIndex + 1, lastIndex + 1 + CONTEXT_LINE_WINDOW),
+      );
+    }
+    if (hunk.length > 0) hunks.push(hunk);
+    hunk = [];
+    lastIndex = -1;
+    section = "";
+  };
+
+  changes.forEach((change, changeIndex) => {
+    const evidence = `${label}[${label === "REMOVED" ? "R" : "A"}${
+      changeIndex + 1
+    }]: ${change.text}`;
     const index = change.index;
     if (index < 0 || index >= lines.length) {
-      return `${label}[${evidenceId}]: ${change.text}`;
+      closeHunk();
+      hunks.push([evidence]);
+      return;
     }
-
-    const before = lines
-      .slice(Math.max(0, index - CONTEXT_LINE_WINDOW), index)
-      .filter((line) => !changedLines.has(line));
-    const after = lines
-      .slice(index + 1, index + 1 + CONTEXT_LINE_WINDOW)
-      .filter((line) => !changedLines.has(line));
-    const section = sections[index] ?? "";
-    const occurrence = change.previousCount > 0 && change.currentCount > 0 &&
-        change.currentCount !== change.previousCount
-      ? `OCCURRENCE: identical text count changed from ${change.previousCount} to ${change.currentCount}; this is ${
-        label === "ADDED" ? "an additional" : "a removed"
-      } occurrence, not new wording.`
-      : "";
-    return [
-      section ? `SECTION: ${section}` : "",
-      occurrence,
-      ...before.map((line) => `CONTEXT: ${line}`),
-      `${label}[${evidenceId}]: ${change.text}`,
-      ...after.map((line) => `CONTEXT: ${line}`),
-    ].filter(Boolean).join("\n");
-  }).join("\n\n");
+    const continuesHunk = lastIndex >= 0 && index > lastIndex &&
+      index - lastIndex - 1 <= 2 * CONTEXT_LINE_WINDOW;
+    const gap = continuesHunk
+      ? contextLines(lastIndex + 1, index)
+      : contextLines(index - CONTEXT_LINE_WINDOW, index);
+    if (!continuesHunk) closeHunk();
+    if (sections[index] && sections[index] !== section) {
+      section = sections[index];
+      hunk.push(`SECTION: ${section}`);
+    }
+    hunk.push(...gap);
+    if (
+      change.previousCount > 0 && change.currentCount > 0 &&
+      change.currentCount !== change.previousCount
+    ) {
+      hunk.push(
+        `OCCURRENCE: identical text count changed from ${change.previousCount} to ${change.currentCount}; this is ${
+          label === "ADDED" ? "an additional" : "a removed"
+        } occurrence, not new wording.`,
+      );
+    }
+    hunk.push(evidence);
+    lastIndex = index;
+  });
+  closeHunk();
+  return hunks.map((hunkLines) => hunkLines.join("\n")).join("\n\n");
 }
 
 function renderMoves(

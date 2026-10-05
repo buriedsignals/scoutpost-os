@@ -96,6 +96,25 @@ Deno.test("criteria delta treats a unique removal as ordinary removal evidence",
   assertEquals(delta.includes("OCCURRENCE:"), false);
 });
 
+Deno.test("criteria delta renders a dense edit once with shared context", () => {
+  const intro = ["## Rates", "Rates apply from 1 January.", "Contact us."];
+  const delta = renderPageScoutCriteriaDelta(buildPageContentDiff(
+    [...intro, "Fee A: CHF 10", "Fee B: CHF 20", "Fee C: CHF 30", "Closing."]
+      .join("\n"),
+    [...intro, "Fee A: CHF 15", "Fee B: CHF 25", "Fee C: CHF 35", "Closing."]
+      .join("\n"),
+  ));
+  const count = (text: string) => delta.split(text).length - 1;
+
+  for (const id of ["R1", "R2", "R3", "A1", "A2", "A3"]) {
+    assertStringIncludes(delta, `[${id}]: Fee`);
+  }
+  // One hunk per side: surroundings and heading are not repeated per line.
+  assertEquals(count("CONTEXT: Contact us."), 2);
+  assertEquals(count("SECTION: ## Rates"), 2);
+  assertEquals(count("CONTEXT: Closing."), 2);
+});
+
 Deno.test("criteria delta keeps duplicate-removal occurrence context", () => {
   const repeated = "Repeated evidence.";
   const delta = renderPageScoutCriteriaDelta(buildPageContentDiff(

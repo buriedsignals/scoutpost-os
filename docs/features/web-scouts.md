@@ -73,6 +73,9 @@ hashing:
 - known tracking query parameters while preserving locale parameters such as
   `hl` and `gl`
 - bare whole-line renderer IDs (long decimal, hex, or UUID values)
+- in-page citation markers and back-links (`[12]`, `[[12]]`, `12↑`, `^`, or
+  empty link text pointing at a `#fragment`); the cited sources remain in the
+  reference list
 - whitespace-only differences
 
 It preserves ordinary text, headings, publication dates, and article links. The
@@ -84,9 +87,11 @@ same-scope duplicate-only count changes as non-alerting noise. This hard gate
 applies to both Any Change and Specific Criteria, and the criteria model is not
 called for those deltas. Moving or copying identical wording across Markdown
 sections remains alertable because it can change the locale, entity, or policy
-scope to which a rule applies. Mixed deltas retain exact `MOVED` evidence plus
-occurrence counts, surrounding context, and nearest headings for criteria
-evaluation.
+scope. Mixed deltas retain exact `MOVED` evidence plus occurrence counts,
+surrounding context, and nearest headings for criteria evaluation. Changes
+within two context windows of each other render as one hunk, so a dense edit
+repeats its heading and surrounding lines once rather than once per changed
+line.
 
 ## Page size and criteria limits
 
