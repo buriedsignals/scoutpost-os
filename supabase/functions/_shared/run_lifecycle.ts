@@ -8,6 +8,7 @@
 import type { SupabaseClient } from "./supabase.ts";
 import { ApiError, AuthError, ValidationError } from "./errors.ts";
 import { logEvent } from "./log.ts";
+import { PageScoutCriteriaDecisionError } from "./page_scout_criteria.ts";
 
 export type RunStage =
   | "dispatch"
@@ -276,6 +277,11 @@ export function classifyRunError(
     return { errorClass: "validation", stage: fallbackStage, message };
   }
   if (lower.includes("not configured")) {
+    return { errorClass: "platform", stage: fallbackStage, message };
+  }
+  // An unusable alert-model answer (after its retry) is Scoutpost's failure,
+  // not the monitored page's; it must not auto-pause the customer's scout.
+  if (error instanceof PageScoutCriteriaDecisionError) {
     return { errorClass: "platform", stage: fallbackStage, message };
   }
   // The hosted rollback renderer owns this admission gate. It can reject a

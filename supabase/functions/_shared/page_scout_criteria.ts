@@ -3,7 +3,28 @@ import {
   openRouterExtract,
   type OpenRouterExtractOptions,
 } from "./openrouter.ts";
+import { logEvent } from "./log.ts";
 export class PageScoutCriteriaCoverageError extends Error {}
+/**
+ * The model's answer was unusable (malformed, uncertain, or ungrounded). It
+ * says nothing about the monitored page, so it must not count toward the
+ * scout's failure pause.
+ */
+export class PageScoutCriteriaDecisionError
+  extends PageScoutCriteriaCoverageError {}
+
+/**
+ * The alert decision is the one judgment users see, so it has its own model,
+ * independent of LLM_MODEL. Chosen 2026-10-05 on 59 real Page Scout changes
+ * (two runs each, disagreements hand-labelled): gemini-3.5-flash-lite was
+ * right 22/26 with no unusable answers and p90 1.7 s, which fits the 12 s
+ * subpage budget. gemini-3.8-flash scored 25/26 but 19% of its calls exceed
+ * the per-attempt subpage window. All Gemini 2.5 models retire on Vertex on
+ * 2026-10-20. PAGE_SCOUT_CRITERIA_MODEL overrides the primary without a deploy.
+ */
+const CRITERIA_MODEL = "google/gemini-3.5-flash-lite";
+/** Transport fallback and the one retry after an unusable answer. */
+const CRITERIA_FALLBACK_MODEL = "google/gemini-3.1-flash-lite";
 
 export interface PageScoutCriteriaFinding {
   beforeQuote: string;
@@ -126,7 +147,27 @@ export async function evaluatePageScoutCriteria(
     );
   }
   const decision = await decisionExtract(prompt, DECISION_SCHEMA, options);
-  return normalizeDecision(decision, input.criteria, input.delta);
+  try {
+    return normalizeDecision(decision, input.criteria, input.delta);
+  } catch (error) {
+    if (!(error instanceof PageScoutCriteriaDecisionError)) throw error;
+    // One retry on a different model: a stuck baseline replays the same
+    // delta every run, so a delta that reliably trips one model must not
+    // fail forever.
+    logEvent({
+      level: "warn",
+      fn: "page-scout-criteria",
+      event: "criteria_decision_retry",
+      model: options.model,
+      msg: error.message,
+    });
+    const retry = await decisionExtract(prompt, DECISION_SCHEMA, {
+      ...options,
+      model: CRITERIA_FALLBACK_MODEL,
+      fallbackModel: null,
+    });
+    return normalizeDecision(retry, input.criteria, input.delta);
+  }
 }
 
 function normalizeDecision(
@@ -142,12 +183,12 @@ function normalizeDecision(
     decision.findings.length > 8 ||
     (!decision.alert_warranted && decision.findings.length !== 0)
   ) {
-    throw new PageScoutCriteriaCoverageError(
+    throw new PageScoutCriteriaDecisionError(
       "criteria agent returned an invalid decision",
     );
   }
   if (decision.certainty === "uncertain") {
-    throw new PageScoutCriteriaCoverageError(
+    throw new PageScoutCriteriaDecisionError(
       "criteria agent was uncertain; alert suppressed and baseline preserved",
     );
   }
@@ -168,13 +209,13 @@ function normalizeDecision(
     normalize(finding, criteria, evidence)
   );
   if (findings.some((finding) => finding === null)) {
-    throw new PageScoutCriteriaCoverageError(
+    throw new PageScoutCriteriaDecisionError(
       "positive criteria decision did not include exact grounded evidence for every finding",
     );
   }
   const acceptedFindings = dedupe(findings as PageScoutCriteriaFinding[]);
   if (acceptedFindings.length === 0) {
-    throw new PageScoutCriteriaCoverageError(
+    throw new PageScoutCriteriaDecisionError(
       "positive criteria decision did not include exact grounded evidence",
     );
   }
@@ -199,6 +240,8 @@ function extractOptions(
   usage?: AiUsageContext,
 ): OpenRouterExtractOptions {
   return {
+    model: Deno.env.get("PAGE_SCOUT_CRITERIA_MODEL") ?? CRITERIA_MODEL,
+    fallbackModel: CRITERIA_FALLBACK_MODEL,
     timeoutMs,
     abortAfterMs: timeoutMs + 1_000,
     maxTokens: 4096,

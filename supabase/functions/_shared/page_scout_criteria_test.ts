@@ -45,6 +45,38 @@ Deno.test("an explicit grounded agent decision makes a substantive change alert-
   );
 });
 
+Deno.test("an ungrounded answer is retried once instead of failing the run", async () => {
+  // Production, 2026-10-05: gemini-2.5-flash cited evidence IDs absent from
+  // the delta on the same Google Ads policy change twice in a row.
+  const responses = [
+    { before_id: "R9", after_id: "A9" },
+    { before_id: "R1", after_id: "A1" },
+  ];
+  const result = await evaluatePageScoutCriteria({
+    criteria: "Alert when the registration deadline changes.",
+    delta:
+      "REMOVED[R1]: Registration closes 1 August.\nADDED[A1]: Registration closes 15 August.",
+    timeoutMs: 100,
+  }, {
+    decisionExtract: () => {
+      const ids = responses.shift()!;
+      return Promise.resolve({
+        alert_warranted: true,
+        certainty: "certain" as const,
+        reason: "The deadline moved.",
+        findings: [{ ...ids, move_id: "", explanation: "New deadline." }],
+      });
+    },
+  });
+
+  assertEquals(responses.length, 0);
+  assertEquals(result.matches, true);
+  assertEquals(result.matchingPassages, [
+    "Registration closes 1 August.",
+    "Registration closes 15 August.",
+  ]);
+});
+
 Deno.test("an ordered move can ground a criteria finding", async () => {
   const criteria = "Alert when Belgium changes position in the list.";
   const result = await evaluatePageScoutCriteria({

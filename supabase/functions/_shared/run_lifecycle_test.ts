@@ -9,6 +9,10 @@ import {
   shouldIncrementScoutFailure,
 } from "./run_lifecycle.ts";
 import { ApiError, ValidationError } from "./errors.ts";
+import {
+  PageScoutCriteriaCoverageError,
+  PageScoutCriteriaDecisionError,
+} from "./page_scout_criteria.ts";
 
 function fakeClient() {
   const updates: Array<
@@ -220,6 +224,22 @@ Deno.test("renderer capacity exhaustion is a platform failure that cannot auto-p
     shouldIncrementScoutFailure(thirdPartyCollision.errorClass),
     true,
   );
+});
+
+Deno.test("an unusable alert-model answer cannot auto-pause a Page Scout", () => {
+  const unusable = classifyRunError(
+    new PageScoutCriteriaDecisionError(
+      "positive criteria decision did not include exact grounded evidence",
+    ),
+  );
+  assertEquals(unusable.errorClass, "platform");
+  assertEquals(shouldIncrementScoutFailure(unusable.errorClass), false);
+
+  // A comparison too large to evaluate is about the page and still counts.
+  const oversized = classifyRunError(
+    new PageScoutCriteriaCoverageError("Page comparison is too large"),
+  );
+  assertEquals(shouldIncrementScoutFailure(oversized.errorClass), true);
 });
 
 Deno.test("only provider-like failures increment scout failure counters", () => {

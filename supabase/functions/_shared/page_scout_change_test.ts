@@ -296,6 +296,40 @@ Deno.test("numbered marker-only changes are same-scope reorder noise", () => {
   assertEquals(diff.changeClass, "same_scope_reorder");
 });
 
+Deno.test("a one-day change-log date shift is classified as render noise", () => {
+  // Meta Transparency Center, 2026-09: the same change log rendered a day
+  // apart on consecutive fetches; dates that did not cross midnight stayed.
+  const changeLog = (dates: string[]) =>
+    ["## Policy details", "CHANGE LOG", "Today", ...dates, "Policy text."]
+      .join("\n");
+  const before = changeLog(["Aug 28, 2026", "Nov 26, 2025", "Jun 27, 2024"]);
+  const shifted = changeLog(["Aug 27, 2026", "Nov 25, 2025", "Jun 27, 2024"]);
+
+  assertEquals(
+    buildPageContentDiff(before, shifted).changeClass,
+    "same_scope_date_shift",
+  );
+  // Real change-log edits stay alertable: a new entry, a larger move, or a
+  // date changing alongside wording.
+  for (
+    const after of [
+      changeLog([
+        "Sep 23, 2026",
+        "Aug 28, 2026",
+        "Nov 26, 2025",
+        "Jun 27, 2024",
+      ]),
+      changeLog(["Aug 26, 2026", "Nov 26, 2025", "Jun 27, 2024"]),
+      changeLog(["Aug 27, 2026", "Nov 26, 2025", "Jun 27, 2024"]).replace(
+        "Policy text.",
+        "Revised policy text.",
+      ),
+    ]
+  ) {
+    assertEquals(buildPageContentDiff(before, after).changeClass, "content");
+  }
+});
+
 Deno.test("duplicate churn mixed with new wording remains alertable", () => {
   const diff = buildPageContentDiff(
     "## Rules\nShared rule\nOther rule",

@@ -82,10 +82,14 @@ It preserves ordinary text, headings, publication dates, and article links. The
 canonicalizer is versioned (`web-md-v2`) and stored alongside each baseline in
 `raw_captures.canonicalizer_version`.
 
-Page Scout deterministically classifies same-scope line/rank reordering and
-same-scope duplicate-only count changes as non-alerting noise. This hard gate
-applies to both Any Change and Specific Criteria, and the criteria model is not
-called for those deltas. Moving or copying identical wording across Markdown
+Page Scout deterministically classifies same-scope line/rank reordering,
+same-scope duplicate-only count changes, and uniform one-day date shifts
+(every changed line is a standalone date moved one day in the same direction,
+within its section) as non-alerting noise. The date rule covers publishers such
+as Meta's Transparency Center, whose change logs render a day apart from fetch
+to fetch; a new change-log entry or any wording change remains alertable. This
+hard gate applies to both Any Change and Specific Criteria, and the criteria
+model is not called for those deltas. Moving or copying identical wording across Markdown
 sections remains alertable because it can change the locale, entity, or policy
 scope. Mixed deltas retain exact `MOVED` evidence plus occurrence counts,
 surrounding context, and nearest headings for criteria evaluation. Changes
@@ -108,7 +112,12 @@ output cap. There are no chunk inventories or analysis checkpoints. A page can
 pass the size gate but later produce a large two-version comparison that exceeds
 the prompt limit. That fails explicitly, preserving the previous authoritative
 baseline and suppressing the alert; evidence is never truncated to claim success.
-Model routing, ordinary deadlines and the one-credit Page run price are unchanged.
+Ordinary deadlines and the one-credit Page run price are unchanged. The alert
+decision runs on its own model (`google/gemini-3.5-flash-lite`, override
+`PAGE_SCOUT_CRITERIA_MODEL`) with `google/gemini-3.1-flash-lite` as transport
+fallback and as the single retry after an unusable answer (malformed,
+uncertain, or ungrounded). An answer still unusable after that retry fails the
+run as a platform error, which never counts toward the three-failure pause.
 
 ## Execution Pipeline
 

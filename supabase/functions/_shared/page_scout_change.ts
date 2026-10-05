@@ -40,6 +40,7 @@ export type PageContentChangeClass =
   | "none"
   | "same_scope_reorder"
   | "same_scope_duplicate_only"
+  | "same_scope_date_shift"
   | "content";
 
 export interface PageContentDiff {
@@ -197,12 +198,19 @@ export function buildPageContentDiff(
     : [];
   const added = addedOccurrences.map((item) => item.text);
   const removed = removedOccurrences.map((item) => item.text);
-  const changeClass = classifyPageContentChange(
-    beforeLines,
-    afterLines,
-    beforeSections,
-    afterSections,
-  );
+  const changeClass = isUniformDateShift(
+      removedOccurrences,
+      addedOccurrences,
+      beforeSections,
+      afterSections,
+    )
+    ? "same_scope_date_shift"
+    : classifyPageContentChange(
+      beforeLines,
+      afterLines,
+      beforeSections,
+      afterSections,
+    );
   const summaryAdded = addedOccurrences.slice(0, MAX_SUMMARY_LINES).map(
     summarizeOccurrence,
   );
@@ -493,6 +501,99 @@ function sameIdentityKeys(
   if (before.size !== after.size) return false;
   for (const key of before.keys()) {
     if (!after.has(key)) return false;
+  }
+  return true;
+}
+
+const MONTH_NAMES = [
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
+];
+
+/** Day number of a line that is only a date, or null. */
+function standaloneDateDay(line: string): number | null {
+  const text = line.replace(/^[-*+]\s+/, "").trim();
+  let year: number;
+  let month: number;
+  let day: number;
+  let match: RegExpExecArray | null;
+  if ((match = /^([A-Za-z]{3,9})\.? (\d{1,2}), (\d{4})$/.exec(text))) {
+    [year, month, day] = [
+      Number(match[3]),
+      monthIndex(match[1]),
+      Number(match[2]),
+    ];
+  } else if ((match = /^(\d{1,2}) ([A-Za-z]{3,9})\.? (\d{4})$/.exec(text))) {
+    [year, month, day] = [
+      Number(match[3]),
+      monthIndex(match[2]),
+      Number(match[1]),
+    ];
+  } else if ((match = /^(\d{4})[-/](\d{2})[-/](\d{2})$/.exec(text))) {
+    [year, month, day] = [
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+    ];
+  } else if ((match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(text))) {
+    [year, month, day] = [
+      Number(match[3]),
+      Number(match[2]) - 1,
+      Number(match[1]),
+    ];
+  } else {
+    return null;
+  }
+  if (month < 0) return null;
+  const date = new Date(Date.UTC(year, month, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month &&
+      date.getUTCDate() === day
+    ? date.getTime() / 86_400_000
+    : null;
+}
+
+function monthIndex(name: string): number {
+  const lower = name.toLowerCase();
+  return MONTH_NAMES.findIndex((month) => month.startsWith(lower));
+}
+
+/**
+ * Every changed line is a standalone date that moved by one day in the same
+ * direction within the same section. Some publishers (Meta's Transparency
+ * Center) format stored timestamps per request in a server-chosen timezone,
+ * so the same change log renders a day apart from fetch to fetch.
+ */
+function isUniformDateShift(
+  removed: PageContentOccurrence[],
+  added: PageContentOccurrence[],
+  beforeSections: string[],
+  afterSections: string[],
+): boolean {
+  if (removed.length === 0 || removed.length !== added.length) return false;
+  let direction = 0;
+  for (const [index, from] of removed.entries()) {
+    const to = added[index];
+    const fromDay = standaloneDateDay(from.text);
+    const toDay = standaloneDateDay(to.text);
+    if (fromDay === null || toDay === null) return false;
+    if (
+      (beforeSections[from.index] ?? "") !== (afterSections[to.index] ?? "")
+    ) return false;
+    const delta = toDay - fromDay;
+    if (Math.abs(delta) !== 1 || (direction !== 0 && delta !== direction)) {
+      return false;
+    }
+    direction = delta;
   }
   return true;
 }
