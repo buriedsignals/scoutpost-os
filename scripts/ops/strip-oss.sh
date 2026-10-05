@@ -225,6 +225,11 @@ rm -f supabase/tests/account_deletion.sql
 rm -f docs/features/account-deletion.md
 rm -f frontend/src/tests/components/preferences-account-deletion.test.ts
 
+# Hosted credit enforcement: individual credit-account sync RPC, monthly reset
+# dates, and the one-time balance correction. Only hosted entitlement code calls it.
+rm -f supabase/migrations/20261005085636_credit_account_monthly_sync.sql
+rm -f supabase/tests/credit_account_sync.sql
+
 # Private live benchmark harness. These scripts assume hosted Supabase Auth
 # Admin access, internal service auth, and production operator credentials.
 rm -f scripts/benchmarks/_bench_shared.ts
