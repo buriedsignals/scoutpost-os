@@ -183,8 +183,8 @@ Services never import `boto3`, `asyncpg`, or any adapter directly. They depend o
 interfaces via `providers.py`. This is the rule that keeps both targets working.
 
 ```
-WRONG:  from app.adapters.supabase.user_storage import SupabaseUserStorage
-RIGHT:  from app.dependencies.providers import get_user_storage
+WRONG:  from app.adapters.supabase.scout_storage import SupabaseScoutStorage
+RIGHT:  from app.dependencies.providers import get_scout_storage
 ```
 
 ---

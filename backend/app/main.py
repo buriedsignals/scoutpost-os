@@ -3,9 +3,10 @@ FastAPI main application entry point.
 
 PURPOSE: Creates the FastAPI app, configures CORS middleware, rate limiting
 (slowapi), mounts all routers under /api prefix, and serves the SvelteKit
-SPA static build.
+SPA static build. Also handles HTTP client lifecycle (shutdown cleanup).
 
-DEPENDS ON: config (settings), all routers (mounted here)
+DEPENDS ON: config (settings), all routers (mounted here),
+    services/http_client (shutdown hook)
 USED BY: Render deployment (uvicorn entrypoint)
 """
 import logging
@@ -30,6 +31,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from app.config import settings
+from app.services.http_client import close_http_client
 
 class SensitiveDataFilter(logging.Filter):
     """Scrub API keys, tokens, and JWTs from log output."""
@@ -279,7 +281,7 @@ class EmailStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Log startup configuration and shutdown."""
+    """Initialize and tear down shared app resources."""
     logger.info("=" * 50)
     logger.info("🚀 coJournalist API Starting...")
     logger.info(f"App Name: {settings.app_name}")
@@ -288,12 +290,15 @@ async def lifespan(_: FastAPI):
     logger.info(f"MuckRock OAuth: {'Configured' if settings.muckrock_client_id else 'Not configured'}")
     logger.info(f"Default Credits: {settings.default_credits}")
     logger.info(f"Default Timezone: {settings.default_timezone}")
+    logger.info("Plan URL (Pro): %s", settings.muckrock_pro_plan_url)
     logger.info("=" * 50)
     logger.info("Application startup complete")
 
     try:
         yield
     finally:
+        logger.info("Shutting down application...")
+        await close_http_client()
         logger.info("Application shutdown complete")
 
 
@@ -434,10 +439,10 @@ from app.routers import public_edge_proxy
 # Public broker for the hosted REST + MCP surface. Separate from /api/auth/*
 # so it cannot intercept the MuckRock webhook/callback flow.
 app.include_router(public_edge_proxy.router, include_in_schema=False)
-# scouts, beat, social, civic, scraper, data_extractor, v1, onboarding, user,
-# and units routers removed after the Supabase Edge Functions cutover. Scout
-# scheduling/execution, user preferences, units, and the public REST API live
-# in supabase/functions/.
+# scouts, beat, social, civic, scraper, data_extractor, and v1 routers removed
+# after the Supabase Edge Functions cutover (2026-04-22). All scout
+# scheduling/execution and the public REST API now live in supabase/functions/.
+# units.py remains for residual unit helpers; feedback stays.
 
 # Feedback — hidden from public API docs
 

@@ -60,6 +60,9 @@ Frontend is served by the same service in dev; static SPA in production.
 |---|---|---|---|
 | `local_auth.py` | `/api/auth/login`, `/api/auth/callback` | Local-only MuckRock broker for localhost SaaS smoke tests; mounted only with `LOCAL_MUCKROCK_AUTH_BROKER=true`. | Live (dev only) |
 | `public_edge_proxy.py` | `/functions/v1/*`, `/mcp*` | Same-origin proxy to hosted Supabase Edge Functions and MCP. | Live |
+| `onboarding.py` | `/api/onboarding/*` | Onboarding initialize/status/tour-complete | Live |
+| `user.py` | `/api/user/*` | User preferences (mirrors EF; legacy callers); old `DELETE /delete-account` is `410 Gone` | Live |
+| `units.py` | `/api/units/*` | Units helpers (legacy callers) | Live |
 | `license.py` | `/api/license/*` | License key gating (legacy; public repo is AGPL-3.0) | Live |
 | `feedback.py` | `/api/feedback` | Linear support widget — POST creates issues | Live (SaaS-only — stripped from OSS) |
 
@@ -98,6 +101,7 @@ The following stay because non-dead callers still import them
 (verified via `rg "from app.services.<name>"`):
 
 - `services/notification_service.py` — used by `services/scout_service.py` + `services/social_orchestrator.py`
+- `services/user_service.py` — used by `routers/{user,onboarding}.py`
 - `services/execution_deduplication.py` — used by `services/scout_service.py` + `services/execute_pipeline.py`
 - `services/scout_service.py` — preserved per `backend/CLAUDE.md` "Critical Architecture - DO NOT REMOVE"
 
@@ -107,7 +111,7 @@ The following stay because non-dead callers still import them
 
 The cutover does **not** free up any Supabase-related Render env vars. The
 adapter layer (`backend/app/adapters/supabase/*`) still reads them at
-runtime for the auth broker and the `/api/feedback` JWT user lookup.
+runtime for the auth broker and units endpoint.
 
 Still required:
 

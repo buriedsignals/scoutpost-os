@@ -34,12 +34,20 @@ Backlog of work intentionally left out of recent PRs (#99 hardening / #101 combi
 
 ---
 
-## 3. GDPR Art. 15 data export — no self-service endpoint
+## 3. Adapter ports — re-audit when GDPR data-export moves to Edge Function
 
-- **What**: The legacy FastAPI `GET /api/user/data-export` route was removed together with `/api/user/*`, `/api/units/*`, `/api/onboarding/*` and the scout/execution/run/unit storage adapters. It had no UI and no client requests in Render logs (2026-09-21 → 2026-10-06). No Edge Function replaces it; until one exists, Art. 15 access requests need a manual export.
-- **Impact M · Risk L · Cost M** — a `user` Edge Function export route if self-service export becomes a requirement.
-- **Where**: `supabase/functions/user/` (new route); RLS-scoped reads of `user_preferences`, `scouts`, `scout_runs`, `information_units`.
-- **Deferred because**: removal was approved on zero usage; build the Edge Function route only when self-service export is required.
+- **What**: `backend/app/adapters/supabase/` has 6 adapters (`scout_storage`, `execution_storage`, `run_storage`, `unit_storage`, `user_storage`, `auth`). `execution_storage` and `run_storage` are only used by `routers/user.py::data_export` (GDPR Art. 15). When GDPR data-export is ported to an Edge Function, those two adapters become orphans and can be deleted.
+- **Impact M · Risk M · Cost M** — once GDPR moves, maybe 1-2h.
+- **Where**:
+  - `backend/app/adapters/supabase/execution_storage.py`, `run_storage.py`
+  - `backend/app/ports/storage.py` → `ExecutionStoragePort`, `RunStoragePort`
+  - `backend/app/dependencies/providers.py` → `get_execution_storage`, `get_run_storage`
+- **Verification that it's safe to remove**:
+  ```bash
+  grep -rn "get_execution_storage\|get_run_storage\|ExecutionStoragePort\|RunStoragePort" backend/app/routers/ backend/app/services/
+  # expect: 0 hits before deleting
+  ```
+- **Deferred because**: GDPR data-export is a compliance-required endpoint; deleting the adapters before the EF replacement ships would break it. Smart-alfred's audit was speculative; verify before acting.
 
 ---
 
