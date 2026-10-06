@@ -58,7 +58,7 @@ interface RunRow {
 interface UnitRow {
   id: string;
   statement: string;
-  embedding_model: string | null;
+  embedding_model_v2: string | null;
   raw_capture_id: string | null;
 }
 
@@ -208,7 +208,7 @@ for (const fixture of fixtures) {
     const units = await fetchRunUnits(ctx, first.run.id);
     result.units = units.length;
     result.embeddedUnits = units.filter((unit) =>
-      Boolean(unit.embedding_model)
+      Boolean(unit.embedding_model_v2)
     ).length;
     if (fixture.expectedAlert) {
       if (units.length === 0) {
@@ -369,7 +369,7 @@ async function fetchRunUnits(
   if (occurrences.length === 0) return [];
 
   const unitQuery = new URLSearchParams({
-    select: "id,statement,embedding_model",
+    select: "id,statement,embedding_model_v2",
     id: `in.(${[...new Set(occurrences.map((row) => row.unit_id))].join(",")})`,
   });
   const unitResponse = await fetch(

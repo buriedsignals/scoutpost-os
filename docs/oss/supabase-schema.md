@@ -123,9 +123,8 @@ expires_at    TIMESTAMPTZ  -- NOW() + 90 days (TTL)
 
 The active space is `vector(768)` from `google/gemini-embedding-001` through
 OpenRouter's Google Vertex ZDR route. Its tag is
-`openrouter-google-gemini-embedding-001-768-zdr-v1`. The legacy `embedding`
-column remains temporarily for rollback and is never compared with the active
-space. Model, dimension, task-type contract, and HNSW indexes migrate as one
+`openrouter-google-gemini-embedding-001-768-zdr-v1`. The legacy 1,536d `embedding`
+columns were dropped in `20261006115449`. Model, dimension, task-type contract, and HNSW indexes migrate as one
 unit; existing vectors are re-embedded, never relabeled.
 
 ### `post_snapshots`
@@ -337,11 +336,11 @@ World) is the recommended index type for pgvector — it works at any data volum
 requires no calibration, unlike IVFFlat which requires `ANALYZE` after load.
 
 ```sql
-CREATE INDEX idx_exec_embedding ON execution_records
-    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+CREATE INDEX idx_execution_records_embedding_v2_hnsw ON execution_records
+    USING hnsw (embedding_v2 vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
-CREATE INDEX idx_unit_embedding ON information_units
-    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+CREATE INDEX idx_information_units_embedding_v2_hnsw ON information_units
+    USING hnsw (embedding_v2 vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 ```
 
 The `m = 16, ef_construction = 64` parameters are conservative defaults that work for
