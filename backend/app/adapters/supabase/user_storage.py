@@ -92,36 +92,3 @@ class SupabaseUserStorage(UserStoragePort):
         """
         row = await self.pool.fetchrow(sql, *values)
         return _user_row_to_dict(row)
-
-    async def update_profile(self, user_id: str, updates: dict) -> None:
-        """Update specific user profile fields."""
-        await self._ensure_pool()
-
-        if not updates:
-            return
-
-        set_clauses = []
-        values = []
-        idx = 1
-
-        for field, value in updates.items():
-            if field in USER_FIELDS:
-                if field in ("default_location", "preferences") and isinstance(value, dict):
-                    value = json.dumps(value)
-                if field == "cms_api_token" and value:
-                    from app.services.crypto import encrypt_token
-                    value = encrypt_token(value)
-                set_clauses.append(f"{field} = ${idx}")
-                values.append(value)
-                idx += 1
-
-        if not set_clauses:
-            return
-
-        values.append(user_id)
-        sql = f"""
-            UPDATE user_preferences
-            SET {', '.join(set_clauses)}
-            WHERE user_id = ${idx}::uuid
-        """
-        await self.pool.execute(sql, *values)

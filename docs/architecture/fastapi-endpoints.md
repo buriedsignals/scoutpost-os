@@ -5,7 +5,7 @@
 
 ## Overview
 
-FastAPI now hosts a thin set of endpoints: the auth broker (MuckRock OAuth + Supabase magiclink handoff), feedback (Linear), admin/billing (SaaS-only), and a few legacy helpers (`/api/units/*`, `/api/export/*`, `/api/onboarding/*`, `/api/user/*`). The public REST API is served by Supabase Edge Functions under `/functions/v1/*`.
+FastAPI now hosts a thin set of endpoints: the auth broker (MuckRock OAuth + Supabase magiclink handoff), feedback (Linear), and admin/billing (SaaS-only). The public REST API is served by Supabase Edge Functions under `/functions/v1/*`.
 
 **All scout scheduling, execution, and data persistence moved to Supabase Edge Functions in the 2026-04-22 cutover.** The dead routers — `scouts.py`, `pulse.py`, `social.py`, `civic.py`, `scraper.py`, `data_extractor.py` — were deleted; the frontend api-client routes to EFs when `PUBLIC_DEPLOYMENT_TARGET=supabase`. Sections below that reference Lambda or AWS API Gateway describe the historical pre-cutover behavior; production no longer uses them and they're slated for removal once the AWS infra teardown completes.
 
@@ -148,9 +148,6 @@ The browser-facing login flow in production now starts at the hosted
 | GET | `/api/auth/login` | None | — | Redirect to MuckRock OAuth authorize URL for localhost dev |
 | GET | `/api/auth/callback` | None | — | Exchange OAuth code, mint hosted Supabase session, hand browser back to localhost |
 
-|--------|------|------|-------------|
-| DELETE | `/api/user/delete-account` | — | `410 Gone`; hosted deletion is available only through `DELETE /user/account-deletion` after the fresh MuckRock plan gate |
-
 ### OSS (Supabase Auth)
 
 **Location:** `backend/app/main.py` (inline endpoint, mounted when `DEPLOYMENT_TARGET == "supabase"`)
@@ -282,82 +279,6 @@ MuckRock webhook receiver for user and organization updates. Verifies HMAC-SHA25
 ```json
 {
   "received": true
-}
-```
-
----
-
-## Onboarding Endpoints
-
-**Location:** `backend/app/routers/onboarding.py`
-
-User onboarding flow — initialize preferences, seed demo data, track tour completion.
-
-| Method | Path | Auth | Rate Limit | Description |
-|--------|------|------|------------|-------------|
-| POST | `/api/onboarding/initialize` | Session cookie | — | Initialize user prefs (timezone, language, location); seeds demo data |
-| GET | `/api/onboarding/status` | Session cookie | — | Check if user completed onboarding |
-| POST | `/api/onboarding/tour-complete` | Session cookie | — | Mark onboarding tour as completed |
-
-### POST /api/onboarding/initialize
-
-Initialize user preferences and seed demo data for first-time users.
-
-**Auth:** Session cookie
-
-**Request:**
-```json
-{
-  "timezone": "Europe/Zurich",
-  "language": "en",
-  "location": {
-    "displayName": "Zurich, Switzerland",
-    "city": "Zurich",
-    "country": "CH"
-  }
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "demo_scout_created": true
-}
-```
-
-**Notes:**
-- The seeded onboarding content is placeholder data only. It is read-only, not scheduled, and does not consume credits.
-- The web UI marks placeholder scouts and units with a visible `DEMO` pill so users can distinguish them from live reporting data.
-
----
-
-### GET /api/onboarding/status
-
-Check whether the authenticated user has completed onboarding.
-
-**Auth:** Session cookie
-
-**Response:**
-```json
-{
-  "onboarding_complete": true,
-  "tour_complete": false
-}
-```
-
----
-
-### POST /api/onboarding/tour-complete
-
-Mark the onboarding tour as completed for the authenticated user.
-
-**Auth:** Session cookie
-
-**Response:**
-```json
-{
-  "success": true
 }
 ```
 
@@ -927,256 +848,6 @@ Before sending notifications, routers deduplicate articles by URL since one arti
 
 ---
 
-## Information Units Endpoints
-
-**Location:** `backend/app/routers/units.py`
-
-Manage information units extracted from scout results for the Feed panel.
-
-**Auth:** Session cookie (user endpoints)
-
-### GET /api/units/locations
-
-Get distinct locations where user has information units.
-
-**Response:**
-```json
-{
-  "locations": [
-    "US#CA#San Francisco",
-    "US#NY#New York",
-    "CH#_#Zurich"
-  ]
-}
-```
-
----
-
-### GET /api/units
-
-Get information units for a specific location.
-
-**Query Parameters:**
-
-| Param | Required | Description |
-|-------|----------|-------------|
-| `country` | Yes | Country code (e.g., `US`) |
-| `state` | No | State code (e.g., `CA`) |
-| `city` | No | City name |
-| `displayName` | Yes | Full display name from MapTiler |
-| `limit` | No | Max units to return (default: 50, max: 100) |
-
-**Request:**
-```
-GET /api/units?country=US&state=CA&city=San%20Francisco&displayName=San%20Francisco,%20California,%20USA&limit=20
-```
-
-**Response:**
-```json
-{
-  "units": [
-    {
-      "unit_id": "unit_xxx",
-      "pk": "USER#user_xxx#LOC#US#CA#San Francisco",
-      "sk": "1736123456789",
-      "title": "New Climate Initiative Announced",
-      "summary": "City officials announced a $50M climate investment...",
-      "source_url": "https://sfchronicle.com/article/123",
-      "source_domain": "sfchronicle.com",
-      "scout_type": "pulse",
-      "scout_id": "SF Daily News",
-      "created_at": "2025-01-06T10:00:00Z",
-      "used_in_article": false
-    }
-  ],
-  "count": 1
-}
-```
-
----
-
-### PATCH /api/units/mark-used
-
-Mark units as used in an article. Removes TTL to preserve indefinitely.
-
-**Request:**
-```json
-{
-  "unit_keys": [
-    {
-      "pk": "USER#user_xxx#LOC#US#CA#San Francisco",
-      "sk": "1736123456789"
-    }
-  ]
-}
-```
-
-**Response:**
-```json
-{
-  "marked_count": 1,
-  "total_requested": 1
-}
-```
-
-**Security:** Validates that `pk` starts with `USER#{current_user_id}#` to prevent cross-user modification.
-
----
-
-### GET /api/units/topics
-
-Get distinct topics across all of the user's information units.
-
-**Auth:** Session cookie
-
-**Response:**
-```json
-{
-  "topics": ["Climate", "Housing", "Transport"]
-}
-```
-
----
-
-### GET /api/units/all
-
-Get all unused information units for the authenticated user.
-
-**Auth:** Session cookie
-
-**Response:**
-```json
-{
-  "units": [...],
-  "count": 42
-}
-```
-
----
-
-### GET /api/units/by-topic
-
-Get information units filtered by topic.
-
-**Auth:** Session cookie
-
-**Query Parameters:**
-
-| Param | Required | Description |
-|-------|----------|-------------|
-| `topic` | Yes | Topic tag to filter by |
-
-**Request:**
-```
-GET /api/units/by-topic?topic=Climate
-```
-
-**Response:**
-```json
-{
-  "units": [...],
-  "count": 12
-}
-```
-
----
-
-### GET /api/units/by-article/{article_id}
-
-Get information units associated with a specific article.
-
-**Auth:** Session cookie
-
-**Response:**
-```json
-{
-  "units": [...],
-  "count": 5
-}
-```
-
----
-
-### GET /api/units/unused
-
-Get only unused information units for a specific location.
-
-**Auth:** Session cookie
-
-**Query Parameters:**
-
-| Param | Required | Description |
-|-------|----------|-------------|
-| `country` | Yes | Country code (e.g., `US`) |
-| `state` | No | State code (e.g., `CA`) |
-| `city` | No | City name |
-| `displayName` | Yes | Full display name from MapTiler |
-
-**Request:**
-```
-GET /api/units/unused?country=US&state=CA&city=San%20Francisco&displayName=San%20Francisco,%20California,%20USA
-```
-
-**Response:**
-```json
-{
-  "units": [...],
-  "count": 18
-}
-```
-
----
-
-## User Preferences Endpoints
-
-**Location:** `backend/app/routers/user.py`
-
-**Auth:** Session cookie
-
-### GET /api/user/preferences
-
-Get user's preferences.
-
-**Response:**
-```json
-{
-  "preferred_language": "en",
-  "timezone": "Europe/Zurich",
-  "excluded_domains": ["tabloid.com"]
-}
-```
-
----
-
-### PUT /api/user/preferences
-
-Update user preferences. At least one field must be provided.
-
-**Request:**
-```json
-{
-  "preferred_language": "fr",
-  "timezone": "Europe/Paris",
-  "excluded_domains": ["tabloid.com"]
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `preferred_language` | string | ISO 639-1 code (2-5 chars) |
-| `timezone` | string | IANA timezone identifier |
-| `excluded_domains` | string[] | Domains to exclude from Pulse (max 50) |
-
-**Response:**
-```json
-{
-  "success": true,
-  "preferred_language": "fr"
-}
-```
-
----
-
 ## Execution Flow Summary
 
 ### Lambda → FastAPI Flow
@@ -1260,15 +931,11 @@ Google Vertex; returned usage/provider metadata feeds operator usage records.
 | File | Purpose |
 |------|---------|
 | `backend/app/routers/auth.py` | Auth endpoints (OAuth login, callback, logout, webhook) |
-| `backend/app/routers/onboarding.py` | Onboarding endpoints (initialize, status, tour) |
 | `backend/app/routers/scouts.py` | Web scout execution |
 | `backend/app/routers/pulse.py` | Pulse endpoints (UI + Lambda) |
 | `backend/app/routers/social.py` | Social Scout endpoints (UI + Lambda) |
 | `backend/app/routers/civic.py` | Civic Scout endpoints (discover + execute) |
 | `backend/app/routers/scraper.py` | Scheduling endpoints |
-| `backend/app/routers/units.py` | Information units (feed data) |
-| `backend/app/routers/user.py` | User preferences (language, timezone, CMS config) |
-| `backend/app/schemas/scouts.py` | Web scout request/response schemas |
 | `backend/app/schemas/pulse.py` | Pulse request/response schemas |
 | `backend/app/services/pulse_orchestrator.py` | Beat Scout (type `pulse`) orchestrator |
 | `backend/app/services/social_orchestrator.py` | Social Scout orchestrator (Apify scrapers) |

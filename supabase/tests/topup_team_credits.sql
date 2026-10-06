@@ -1,6 +1,6 @@
 BEGIN;
 SET LOCAL search_path = public, extensions;
-SELECT plan(12);
+SELECT plan(14);
 
 SELECT has_function(
   'public', 'topup_team_credits',
@@ -101,6 +101,22 @@ SELECT is(
    WHERE org_id = '00000000-0000-0000-0000-000000003001'),
   1000,
   'a downgrade above the remaining balance leaves it unchanged'
+);
+
+-- 2026-10-06: a top-up without a provider date wiped update_on, so
+-- reset_expired_credits never refilled the pool again.
+SELECT is(
+  public.topup_team_credits(
+    '00000000-0000-0000-0000-000000003001', 2500, NULL
+  ),
+  1500,
+  'a top-up returns the final balance'
+);
+SELECT is(
+  (SELECT update_on FROM public.credit_accounts
+   WHERE org_id = '00000000-0000-0000-0000-000000003001'),
+  DATE '2026-12-01',
+  'a top-up without a provider date keeps the existing reset date'
 );
 
 SELECT results_eq(

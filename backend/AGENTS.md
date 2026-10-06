@@ -11,9 +11,6 @@ Read the nearest parent `AGENTS.md` / `AGENTS.md` before editing; its session pr
 | `local_auth.py` | `/api/auth/login`, `/api/auth/callback` | **Local dev only** broker that keeps localhost on the browser while authenticating against hosted Supabase data. Mounted only when `LOCAL_MUCKROCK_AUTH_BROKER=true`. | Yes |
 | `muckrock_proxy.py` | `/api/auth/webhook`, `/api/auth/callback` | Byte-for-byte forwards to Supabase `auth-muckrock` / `billing-webhook` EFs (MuckRock-registered URLs). | Yes |
 | `feedback.py` | `/api/feedback` | Linear support widget — POST creates Linear issues. | Yes |
-| `onboarding.py` | `/api/onboarding/*` | Timezone/language/location bootstrap, tour-complete flag. | No |
-| `user.py` | `/api/user/*` | User preferences and data export. The incomplete legacy account-delete route is permanently `410 Gone`; hosted deletion belongs to the `user` Edge Function. | No |
-| `units.py` | `/api/units/*` | Legacy unit helpers still called by the SPA while the units-only surface consolidates on EFs. | No |
 
 SaaS-only routers are stripped from the OSS mirror by `scripts/ops/strip-oss.sh`.
 When adding a SaaS-only router or service you MUST update `strip-oss.sh`.
@@ -24,12 +21,7 @@ Kept because they back the residual routers above:
 
 | Service | Used By |
 |---|---|
-| `crypto.py` | `adapters/supabase/user_storage.py` (CMS token encryption) |
-| `embedding_utils.py` | `feed_search_service.py`, `adapters/supabase/unit_storage.py` |
-| `feed_search_service.py` | `routers/units.py` |
-| `http_client.py` | Shared connection pooling (used by `embedding_utils.py`) |
 | `muckrock_client.py` | `routers/local_auth.py` |
-| `user_service.py` | `routers/user.py`, `routers/onboarding.py` |
 
 The DynamoDB-backed `api_key_service.py`, `license_key_service.py`, and
 `seed_data_service.py` (plus the `license.py` router) were removed in the
@@ -49,6 +41,13 @@ The unreachable `/api/v1/*` router (every route 401/404'd once
 and billing ports. The public REST API is the Supabase Edge Functions under
 `/functions/v1/*`.
 
+The legacy `/api/onboarding/*`, `/api/user/*` (preferences, data export, the
+`410` delete-account stub) and `/api/units/*` routers had no first-party
+caller and were removed with `user_service.py`, `feed_search_service.py`,
+`embedding_utils.py`, `http_client.py`, `crypto.py`, `utils/timezone.py`,
+`schemas/`, `models/` and the scout/execution/run/unit storage adapters. The
+SPA, CLI and MCP use the `user` and `units` Edge Functions.
+
 ## Adapters (`backend/app/adapters/supabase/*`)
 
 Supabase is the only registered backend after the v2 cutover. The port/adapter
@@ -56,10 +55,6 @@ pattern is kept for DI and testability. Surviving adapters and their ports:
 
 | Port | Adapter |
 |---|---|
-| `ScoutStoragePort` | `scout_storage.py` |
-| `ExecutionStoragePort` | `execution_storage.py` |
-| `RunStoragePort` | `run_storage.py` |
-| `UnitStoragePort` | `unit_storage.py` |
 | `UserStoragePort` | `user_storage.py` |
 | `AuthPort` | `auth.py` |
 
