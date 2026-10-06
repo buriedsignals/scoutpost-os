@@ -17,7 +17,9 @@ Deno.test("immediate compatibility dispatch is always a one-job plan", () => {
   assertEquals(crawlerDispatchPlans("single", "scrape")[0].batchSize, 20);
 });
 
-Deno.test("immediate dispatch forms only the requested proxy job batch", async () => {
+// Binding only: target-only batch formation is owned by pgTAP
+// supabase/tests/render_workflow_crawler.sql (create_crawler_proxy_batch).
+Deno.test("immediate dispatch binds the job id to create_crawler_proxy_batch(p_job_id)", async () => {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const svc = {
     rpc(name: string, args: Record<string, unknown>) {

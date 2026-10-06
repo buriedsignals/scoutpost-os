@@ -1,10 +1,12 @@
 import asyncio
+import base64
+import hashlib
 import threading
 from types import SimpleNamespace
 
 import pytest
 import httpx
-from app import crawl_runner
+from app import crawl_runner, pdfparse
 from app.crawl_runner import CrawlItem, classify_failure, run_item_safely
 from app.network_policy import UnsafeDestinationError
 from app.pdfparse import (
@@ -88,21 +90,31 @@ async def test_runner_classifies_timeout_and_scraper_error(monkeypatch):
 
 async def test_runner_maps_snapshot_and_challenge(monkeypatch):
     monkeypatch.setattr("app.crawl_runner.assert_public_host", lambda _url: None)
+    mhtml = "MIME-Version: 1.0\nContent-Type: multipart/related\n\nbody"
+    png = b"\x89PNG\r\n\x1a\nfakepixels"
     raw = SimpleNamespace(
         success=True,
         markdown="hello",
         html="<p>hello</p>",
         url="https://example.org",
         status_code=200,
-    )
-    monkeypatch.setattr(
-        "app.crawl_runner.build_snapshot_payload", lambda _raw: ({"mhtml": "x"}, None)
+        mhtml=mhtml,
+        screenshot=base64.b64encode(png).decode("ascii"),
     )
     outcome = await run_item_safely(
         FakeScraper(result=raw),
         CrawlItem(id="snapshot", operation="snapshot", url="https://example.org"),
     )
-    assert "snapshot" in outcome["result"]
+    # The workflow transport seals the artifacts the same render produced:
+    # hashes cover exactly the captured bytes the Edge Function will verify.
+    assert outcome["ok"] is True
+    assert outcome["result"]["markdown"] == "hello"
+    assert "snapshot_error" not in outcome["result"]
+    snapshot = outcome["result"]["snapshot"]
+    assert base64.b64decode(snapshot["mhtml_b64"]) == mhtml.encode("utf-8")
+    assert snapshot["mhtml_sha256"] == hashlib.sha256(mhtml.encode("utf-8")).hexdigest()
+    assert base64.b64decode(snapshot["screenshot_b64"]) == png
+    assert snapshot["screenshot_sha256"] == hashlib.sha256(png).hexdigest()
 
     raw.markdown = ""
     raw.status_code = 403
@@ -113,21 +125,34 @@ async def test_runner_maps_snapshot_and_challenge(monkeypatch):
     assert blocked["error_class"] == "anti_bot"
 
 
-async def test_runner_maps_pdf(monkeypatch):
-    monkeypatch.setattr("app.crawl_runner.assert_public_host", lambda _url: None)
-    parsed = SimpleNamespace(text="minutes", pages=2, chars=7, parser="pdftotext")
+async def test_runner_maps_pdf():
+    fetched = []
 
-    async def fake_parse(*_args, **_kwargs):
-        return parsed
+    def handler(request):
+        fetched.append(str(request.url))
+        return httpx.Response(
+            200, content=TEXT_PDF, headers={"content-type": "application/pdf"}
+        )
 
-    monkeypatch.setattr(crawl_runner, "parse_pdf_url", fake_parse)
-    result = await run_item_safely(
-        FakeScraper(),
-        CrawlItem(id="pdf", operation="parse_pdf", url="https://example.org/a.pdf"),
-        pdf_client=object(),
-        settings=make_settings(),
-    )
-    assert result["result"]["parser"] == "pdftotext"
+    async with mock_http_client(handler) as client:
+        outcome = await run_item_safely(
+            FakeScraper(),
+            CrawlItem(id="pdf", operation="parse_pdf", url="https://example.org/a.pdf"),
+            pdf_client=client,
+            settings=make_settings(),
+        )
+
+    assert fetched == ["https://example.org/a.pdf"]
+    assert outcome["id"] == "pdf"
+    assert outcome["ok"] is True
+    result = outcome["result"]
+    assert set(result) == {"markdown", "pages", "chars", "parser", "source_url"}
+    assert "agenda item 1" in result["markdown"]
+    assert "agenda item 8" in result["markdown"]
+    assert result["pages"] == 1
+    assert result["chars"] == len(result["markdown"].strip())
+    assert result["parser"] == "pdftotext"
+    assert result["source_url"] == "https://example.org/a.pdf"
 
 
 async def test_pdf_runner_requires_dependencies(monkeypatch):
@@ -190,16 +215,36 @@ async def test_runner_maps_unsuccessful_and_snapshot_error(monkeypatch):
     assert result["result"]["snapshot_error"] == "missing"
 
 
-async def test_safe_wrapper_contains_guard_failure(monkeypatch):
-    async def fail(*_args, **_kwargs):
-        raise PrivateAddressError("private")
-
-    monkeypatch.setattr(crawl_runner, "run_item", fail)
-    outcome = await run_item_safely(
-        FakeScraper(),
-        CrawlItem(id="guarded", operation="scrape", url="https://example.org"),
+@pytest.mark.parametrize(
+    ("url", "answer", "expected_error"),
+    [
+        ("https://intranet.example/admin", "10.0.0.5", "private_address"),
+        ("https://metadata.example/latest", "169.254.169.254", "private_address"),
+        ("file:///etc/passwd", "93.184.216.34", "unsafe proxy target"),
+    ],
+)
+async def test_safe_wrapper_contains_guard_failure(
+    monkeypatch, url, answer, expected_error
+):
+    monkeypatch.setattr(
+        pdfparse.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [(2, 1, 6, "", (answer, 0))],
     )
-    assert outcome["error_class"] == "terminal"
+    scraper = RecordingScraper(result=SimpleNamespace(success=True))
+    outcome = await run_item_safely(
+        scraper,
+        CrawlItem(id="guarded", operation="scrape", url=url),
+    )
+    # The real guard raises out of run_item; the wrapper turns it into a
+    # terminal item failure and the browser never navigates to the target.
+    assert outcome == {
+        "id": "guarded",
+        "ok": False,
+        "error_class": "terminal",
+        "error": expected_error,
+    }
+    assert scraper.calls == []
 
 
 @pytest.mark.parametrize(

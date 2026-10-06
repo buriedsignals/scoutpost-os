@@ -126,7 +126,7 @@ class Scraper:
         self._lock = asyncio.Lock()
         self._proxy_server = proxy_server
 
-    async def _ensure_crawler(self) -> Any:  # pragma: no cover - live path
+    async def _ensure_crawler(self) -> Any:
         async with self._lock:
             if self._crawler is None:
                 from crawl4ai import AsyncWebCrawler, BrowserConfig, UndetectedAdapter
@@ -187,7 +187,7 @@ class Scraper:
         url: str,
         timeout_ms: int,
         snapshot: bool = False,
-    ) -> Any:  # pragma: no cover - live path
+    ) -> Any:
         from crawl4ai import CacheMode, CrawlerRunConfig
 
         crawler = await self._ensure_crawler()
@@ -231,7 +231,7 @@ class Scraper:
         async with self._semaphore:
             return await crawler.arun(url=url, config=run_config)
 
-    async def close(self) -> None:  # pragma: no cover - live path
+    async def close(self) -> None:
         if self._crawler is not None:
             await self._crawler.close()
             self._crawler = None

@@ -93,6 +93,7 @@ import {
   applyEffectiveCandidateUrls,
   candidateUrlValuesDiffer,
   capPageScoutCandidates,
+  dedupePageScoutCandidates,
   isInitialChildBaseline,
   pageScoutCandidateKey,
   selectActiveChildCandidates,
@@ -1079,7 +1080,7 @@ async function runPipeline(
   );
   const activeCandidates = persistedActiveCandidates ?? legacyKnownChildUrls;
   const phaseBCandidates = capPageScoutCandidates(
-    dedupeUrls(selectActiveChildCandidates({
+    dedupePageScoutCandidates(selectActiveChildCandidates({
       discovered: discoveredPhaseBCandidates,
       knownSuccessful: activeCandidates,
       rootChanged: changeStatus !== "same",
@@ -1103,10 +1104,9 @@ async function runPipeline(
   // markdown but not rendered HTML. Seed the first durable membership from the
   // conservative union so an HTML-only child that was already present before
   // rollout cannot be fabricated as a post-activation addition.
-  const legacyInitialCandidates = capPageScoutCandidates(dedupeUrls([
-    ...phaseBCandidates,
-    ...priorRootCandidates,
-  ]));
+  const legacyInitialCandidates = capPageScoutCandidates(
+    dedupePageScoutCandidates([...phaseBCandidates, ...priorRootCandidates]),
+  );
   const initialCandidatesToPersist = persistedInitialCandidates === null
     ? legacyInitialCandidates
     : undefined;
@@ -1296,7 +1296,8 @@ async function runPipeline(
     );
   }
   const activeMembershipChanged = persistedActiveCandidates === null ||
-    dedupeUrls(persistedActiveCandidates).map(normalizeUrlKey).join("\n") !==
+    dedupePageScoutCandidates(persistedActiveCandidates).map(normalizeUrlKey)
+        .join("\n") !==
       phaseBCandidates.map(normalizeUrlKey).join("\n");
   let activeCandidatesToPersist = indexIsListingPage &&
       (changeStatus !== "same" || activeMembershipChanged)
@@ -1685,10 +1686,6 @@ function normalizeUrlKey(url: string): string {
   return pageScoutCandidateKey(url);
 }
 
-function dedupeUrls(urls: string[]): string[] {
-  return [...new Map(urls.map((url) => [normalizeUrlKey(url), url])).values()];
-}
-
 async function loadKnownChildUrls(
   svc: SupabaseClient,
   scoutId: string,
@@ -1729,7 +1726,7 @@ async function loadKnownChildUrls(
         .map((run) => run.id),
     );
   }
-  return dedupeUrls(
+  return dedupePageScoutCandidates(
     rows
       .filter((row) =>
         !row.scout_run_id || successfulRunIds.has(row.scout_run_id)
@@ -1748,7 +1745,7 @@ function pageScoutCandidatesFromMetadata(
 ): string[] | null {
   const candidates = metadata?.[key];
   if (!Array.isArray(candidates)) return null;
-  return dedupeUrls(
+  return dedupePageScoutCandidates(
     candidates
       .filter((url): url is string => typeof url === "string")
       .filter((url) => isStrictChildUrl(url, rootUrl)),

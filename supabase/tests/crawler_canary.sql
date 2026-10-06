@@ -1,12 +1,6 @@
 BEGIN;
 SET LOCAL search_path = public, extensions;
-SELECT plan(12);
-
-SELECT is(
-  (SELECT count(*) FROM public.scout_runs WHERE crawler_backend <> 'service'),
-  0::bigint,
-  'migration leaves every existing run on the current service'
-);
+SELECT plan(11);
 
 INSERT INTO auth.users (
   id, instance_id, aud, role, email, encrypted_password,

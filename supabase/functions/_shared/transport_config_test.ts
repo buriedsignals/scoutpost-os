@@ -195,8 +195,9 @@ Deno.test("transport config rejects out-of-range coordinates", () => {
   const result = validateTransportConfig({
     mode: "vessel",
     geofence: { center: { lat: 91, lon: 0 }, radius_km: 50 },
+    watch_ids: ["636019825"],
   });
-  assertExists(result.error);
+  assertStringIncludes(result.error ?? "", "config.geofence.center.lat");
 });
 
 Deno.test("vessel watch ids must be ship-station MMSIs", () => {

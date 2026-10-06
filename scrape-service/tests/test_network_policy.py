@@ -137,3 +137,88 @@ async def test_guarded_egress_contains_public_upstream_socket_failure(monkeypatc
     assert b"502 Bad Gateway" in b"".join(replies)
     assert stats.blocked == 0
     assert stats.allowed == 1
+
+
+async def _pinned_upstream(monkeypatch, handler):
+    """Resolve every host to one public address and route the proxy's upstream
+    connection to a loopback server, recording the address the proxy dialled.
+    Returns (dialled, real_open_connection, server)."""
+    monkeypatch.setattr(
+        network_policy.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [(socket.AF_INET, 0, 0, "", ("93.184.216.34", 0))],
+    )
+    real_open_connection = network_policy.asyncio.open_connection
+    server = await network_policy.asyncio.start_server(handler, host="127.0.0.1", port=0)
+    upstream_port = server.sockets[0].getsockname()[1]
+    dialled = []
+
+    async def open_pinned(host, port, **kwargs):
+        dialled.append((host, port))
+        return await real_open_connection("127.0.0.1", upstream_port, **kwargs)
+
+    monkeypatch.setattr(network_policy.asyncio, "open_connection", open_pinned)
+    return dialled, real_open_connection, server
+
+
+async def test_guarded_egress_tunnels_connect_only_to_the_pinned_address(monkeypatch):
+    received = []
+
+    async def upstream(reader, writer):
+        received.append(await reader.readexactly(4))
+        writer.write(b"pong")
+        await writer.drain()
+        writer.close()
+
+    dialled, real_open_connection, server = await _pinned_upstream(monkeypatch, upstream)
+    async with server, network_policy.guarded_egress() as egress:
+        port = int(egress.proxy_url.rsplit(":", 1)[1])
+        reader, writer = await real_open_connection("127.0.0.1", port)
+        writer.write(b"CONNECT rebinding.example:443 HTTP/1.1\r\nHost: x\r\n\r\n")
+        await writer.drain()
+        established = await reader.readuntil(b"\r\n\r\n")
+        writer.write(b"ping")
+        await writer.drain()
+        tunnelled = await reader.read()
+        writer.close()
+        await writer.wait_closed()
+
+    # The tunnel dials the address validated at resolve time, never the
+    # hostname, so a second (rebinding) DNS answer cannot redirect it.
+    assert dialled == [("93.184.216.34", 443)]
+    assert established == b"HTTP/1.1 200 Connection Established\r\n\r\n"
+    assert received == [b"ping"]
+    assert tunnelled == b"pong"
+    assert egress.stats.allowed == 1
+    assert egress.stats.blocked == 0
+    assert egress.stats.outbound_bytes == len(b"ping")
+
+
+async def test_guarded_egress_forwards_plain_http_in_origin_form_to_the_pinned_address(
+    monkeypatch,
+):
+    received = []
+
+    async def upstream(reader, writer):
+        received.append(await reader.readuntil(b"\r\n\r\n"))
+        writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+        await writer.drain()
+        writer.close()
+
+    dialled, real_open_connection, server = await _pinned_upstream(monkeypatch, upstream)
+    headers = b"Host: rebinding.example:8080\r\nAccept: */*\r\n\r\n"
+    async with server, network_policy.guarded_egress() as egress:
+        port = int(egress.proxy_url.rsplit(":", 1)[1])
+        reader, writer = await real_open_connection("127.0.0.1", port)
+        writer.write(b"GET http://rebinding.example:8080/a/b?q=1 HTTP/1.1\r\n" + headers)
+        await writer.drain()
+        response = await reader.read()
+        writer.close()
+        await writer.wait_closed()
+
+    request_line = b"GET /a/b?q=1 HTTP/1.1\r\n"
+    assert dialled == [("93.184.216.34", 8080)]
+    assert received == [request_line + headers]
+    assert response == b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"
+    assert egress.stats.allowed == 1
+    assert egress.stats.outbound_bytes == len(request_line) + len(headers)

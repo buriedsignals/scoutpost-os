@@ -7,7 +7,6 @@ import {
   pageWorkflowEligible,
   selectCrawlerBackend,
   selectScoutCrawlerBackend,
-  stablePercent,
 } from "./crawler_routing.ts";
 
 Deno.test("workflow routing is pinned off unless the master switch is exact", () => {
@@ -44,12 +43,23 @@ Deno.test("zero percent keeps every cohort on the current service", () => {
 Deno.test("selection is deterministic and clamps percentages", () => {
   const enabled = (value: string) => (name: string) =>
     name === "CRAWLER_WORKFLOW_ENABLED" ? "true" : value;
-  assertEquals(selectCrawlerBackend("a", "beat", enabled("1000")), "workflow");
-  assertEquals(
-    selectCrawlerBackend("a", "beat", enabled("invalid")),
-    "service",
-  );
-  assertEquals(stablePercent("same"), stablePercent("same"));
+  // FNV-1a buckets are pinned so a cohort stays put across deploys and a
+  // widening canary only adds cohorts: "a" sits in bucket 20, "b" in 77.
+  for (
+    const [key, percent, backend] of [
+      ["a", "20", "service"],
+      ["a", "21", "workflow"],
+      ["b", "77", "service"],
+      ["b", "78", "workflow"],
+      ["b", "1000", "workflow"],
+    ]
+  ) {
+    assertEquals(
+      selectCrawlerBackend(key, "beat", enabled(percent)),
+      backend,
+      `${key} at ${percent}%`,
+    );
+  }
 });
 
 Deno.test("operator can force an eligible user's Page Scouts into an open canary", () => {
@@ -95,13 +105,17 @@ Deno.test("forced users still fail closed outside the Page canary boundary", () 
     ),
     "service",
   );
-  assertEquals(
-    selectScoutCrawlerBackend(
-      scout,
-      env({ CRAWLER_WORKFLOW_PERCENT_PAGE: "0" }),
-    ),
-    "service",
-  );
+  // Negative or unparseable percentages clamp to 0, which closes the canary.
+  for (const percent of ["0", "-5", "invalid"]) {
+    assertEquals(
+      selectScoutCrawlerBackend(
+        scout,
+        env({ CRAWLER_WORKFLOW_PERCENT_PAGE: percent }),
+      ),
+      "service",
+      `${percent}%`,
+    );
+  }
   assertEquals(
     selectScoutCrawlerBackend({ ...scout, archive_enabled: true }, env({})),
     "service",

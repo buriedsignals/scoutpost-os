@@ -36,34 +36,40 @@ Deno.test("deriveSourceDomain returns normalized hostname", () => {
   );
 });
 
-Deno.test("upsertCanonicalUnit forwards the new embedding model tag", async () => {
-  let payload: Record<string, unknown> = {};
-  const db = {
-    rpc(name: string, args: Record<string, unknown>) {
-      assertEquals(name, "upsert_canonical_unit_v2");
-      payload = args;
-      return Promise.resolve({
-        data: [{
-          unit_id: "00000000-0000-0000-0000-000000000000",
-          created_canonical: true,
-          merged_existing: false,
-          match_scope: "new",
-          occurrence_created: true,
-        }],
-        error: null,
-      });
-    },
-  };
+Deno.test("upsertCanonicalUnit tags the embedding model only when an embedding is sent", async () => {
+  for (
+    const { embedding, expectedModel } of [
+      { embedding: [0.1, 0.2], expectedModel: EMBEDDING_MODEL_TAG },
+      { embedding: undefined, expectedModel: null },
+    ]
+  ) {
+    let payload: Record<string, unknown> = {};
+    const db = {
+      rpc(name: string, args: Record<string, unknown>) {
+        assertEquals(name, "upsert_canonical_unit_v2");
+        payload = args;
+        return Promise.resolve({
+          data: [{
+            unit_id: "00000000-0000-0000-0000-000000000000",
+            created_canonical: true,
+            merged_existing: false,
+            match_scope: "new",
+            occurrence_created: true,
+          }],
+          error: null,
+        });
+      },
+    };
 
-  const result = await upsertCanonicalUnit(db as never, {
-    userId: "00000000-0000-0000-0000-000000000001",
-    statement: "Council approved the transit budget.",
-    unitType: "fact",
-    embedding: [0.1, 0.2],
-    embeddingModel: EMBEDDING_MODEL_TAG,
-    sourceType: "scout",
-  });
+    const result = await upsertCanonicalUnit(db as never, {
+      userId: "00000000-0000-0000-0000-000000000001",
+      statement: "Council approved the transit budget.",
+      unitType: "fact",
+      embedding,
+      sourceType: "scout",
+    });
 
-  assertEquals(result.createdCanonical, true);
-  assertEquals(payload.p_embedding_model, EMBEDDING_MODEL_TAG);
+    assertEquals(result.createdCanonical, true);
+    assertEquals(payload.p_embedding_model, expectedModel);
+  }
 });

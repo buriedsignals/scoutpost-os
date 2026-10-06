@@ -206,21 +206,22 @@ Deno.test("normalizeAircraft drops TIS-B and positionless records", () => {
   assertEquals(ok?.military, true);
 });
 
-Deno.test("filterAircraft: watch ids match hex or registration", () => {
-  const parsed = parseAdsbResponse(fixture);
-  const first = parsed[0];
-  const byHex = filterAircraft(
-    { mode: "aircraft", watch_ids: [first.id] },
-    parsed,
+Deno.test("filterAircraft: watch ids match hex or registration; military keeps dbFlags-military", () => {
+  // The recorded Dover fixture has no military traffic; append one raw
+  // dbFlags-military record so the military filter has something to keep.
+  const parsed = parseAdsbResponse({
+    ...fixture,
+    ac: [...fixture.ac, { hex: "AE1234", lat: 51, lon: 1.5, dbFlags: 1 }],
+  });
+  const ids = (config: Parameters<typeof filterAircraft>[0]) =>
+    filterAircraft(config, parsed).map((a) => a.id);
+  assertEquals(ids({ mode: "aircraft", watch_ids: ["407e63"] }), ["407e63"]);
+  // Stored watch ids are lowercased; adsb.lol registrations are upper-case.
+  assertEquals(ids({ mode: "aircraft", watch_ids: ["g-ezgr"] }), ["406540"]);
+  assertEquals(
+    ids({ mode: "aircraft", categories: ["military"], watch_ids: [] }),
+    ["ae1234"],
   );
-  assertEquals(byHex.length, 1);
-  assertEquals(byHex[0].id, first.id);
-  const military = filterAircraft(
-    { mode: "aircraft", categories: ["military"], watch_ids: [] },
-    parsed,
-  );
-  // military category keeps dbFlags-military OR watchlist hits (none passed).
-  for (const a of military) assertEquals(a.military, true);
 });
 
 Deno.test("filterAircraft: watchlist categories keep hexes in the watchlist set", () => {

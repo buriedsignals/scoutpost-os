@@ -348,11 +348,6 @@ def test_scrape_timeout_bounds_validated(app):
     assert res.status_code == 422
 
 
-def test_real_scraper_starts_cold():
-    scraper = Scraper(pool_size=2)
-    assert scraper.warm is False
-
-
 def test_mapping_drift_maps_to_502(app):
     from types import SimpleNamespace
 

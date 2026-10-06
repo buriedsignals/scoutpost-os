@@ -2,7 +2,7 @@ export type CrawlerBackend = "service" | "workflow";
 export type CrawlerPipeline = "page" | "beat" | "civic" | "utility";
 type EnvReader = (name: string) => string | undefined;
 
-export function stablePercent(cohortKey: string): number {
+function stablePercent(cohortKey: string): number {
   let hash = 0x811c9dc5;
   for (const byte of new TextEncoder().encode(cohortKey)) {
     hash ^= byte;

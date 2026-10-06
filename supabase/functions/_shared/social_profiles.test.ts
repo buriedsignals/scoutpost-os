@@ -124,18 +124,19 @@ Deno.test("LinkedIn URL inputs must be personal /in/ profile URLs", () => {
   assertEquals(isInvalidLinkedInProfileUrl("satyanadella"), false);
 });
 
-Deno.test("resolveSocialProfile falls back to input handle on LinkedIn authwall", async () => {
-  // LinkedIn answers datacenter probes with HTTP 999 → "uncertain".
+Deno.test("resolveSocialProfile probes LinkedIn once even when the profile is missing", async () => {
+  // A "missing" probe keeps the loop going on other platforms, so only the
+  // LinkedIn single-candidate rule limits this to one authwall request.
   const resolution = await resolveSocialProfile("linkedin", "satyanadella", {
-    probe: () => Promise.resolve("uncertain"),
+    probe: () => Promise.resolve("missing"),
   });
-  assertEquals(resolution.adapter_status, "probe_uncertain");
+  assertEquals(resolution.adapter_status, "profile_missing");
   assertEquals(resolution.resolved_handle, "satyanadella");
-  assertEquals(
-    resolution.resolved_profile_url,
-    "https://www.linkedin.com/in/satyanadella/",
-  );
-  assertEquals(resolution.attempts.length, 1);
+  assertEquals(resolution.attempts, [{
+    handle: "satyanadella",
+    url: "https://www.linkedin.com/in/satyanadella/",
+    result: "missing",
+  }]);
 });
 
 Deno.test("resolveSocialProfile picks first existing candidate", async () => {

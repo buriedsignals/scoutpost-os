@@ -18,6 +18,13 @@ class FakeDb {
       filters: Record<string, unknown>;
     }
   > = [];
+  reads: Array<
+    {
+      table: string;
+      filters: Record<string, unknown>;
+      order: Array<[string, unknown]>;
+    }
+  > = [];
 
   from(table: string): FakeQuery {
     return new FakeQuery(this, table);
@@ -27,6 +34,7 @@ class FakeDb {
 class FakeQuery {
   private patch: Record<string, unknown> | null = null;
   private filters: Record<string, unknown> = {};
+  private ordering: Array<[string, unknown]> = [];
 
   constructor(private db: FakeDb, private table: string) {}
 
@@ -52,7 +60,8 @@ class FakeQuery {
     return this;
   }
 
-  order(_column: string, _options: unknown): this {
+  order(column: string, options: unknown): this {
+    this.ordering.push([column, options]);
     return this;
   }
 
@@ -61,6 +70,11 @@ class FakeQuery {
   }
 
   maybeSingle(): Promise<unknown> {
+    this.db.reads.push({
+      table: this.table,
+      filters: { ...this.filters },
+      order: this.ordering,
+    });
     if (this.table === "scout_runs") {
       return Promise.resolve(this.db.scoutRunResult);
     }
@@ -92,6 +106,11 @@ Deno.test("repairMissingBeatBaseline stamps from latest successful run", async (
     table: "scouts",
     patch: { baseline_established_at: "2026-04-27T11:13:30.616Z" },
     filters: { id: "scout-1" },
+  }]);
+  assertEquals(db.reads, [{
+    table: "scout_runs",
+    filters: { scout_id: "scout-1", status: "success" },
+    order: [["completed_at", { ascending: false, nullsFirst: false }]],
   }]);
 });
 

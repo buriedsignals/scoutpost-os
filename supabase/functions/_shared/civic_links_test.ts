@@ -275,11 +275,15 @@ Deno.test("classifyCivicMeetingUrls uses PDF as a tie-breaker within document cl
 });
 
 Deno.test("classifyCivicMeetingUrls excludes unsupported asset URLs before keyword matching", async () => {
+  // A dated archive passes the leaf-document rule; only the scrapable filter
+  // keeps the unsupported asset out of the keyword stage.
+  const archive = {
+    url: "https://city.example.org/council/agenda_2026-05-01.zip",
+    anchorText: "Council agenda",
+  };
+  assertEquals(isCivicMeetingDocumentLink(archive), true);
   const urls = await classifyCivicMeetingUrls([
-    {
-      url: "https://city.example.org/calendar/agenda.gif?download=1",
-      anchorText: "Council agenda",
-    },
+    archive,
     {
       url: "https://city.example.org/council/agenda/2026-05-01",
       anchorText: "Council agenda",

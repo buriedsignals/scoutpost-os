@@ -1,11 +1,12 @@
 /**
- * mcp-server /authorize handler — input validation tests.
+ * mcp-server OAuth handlers — checks that must reject before any DB query.
  *
- * The post-OIDC callback / code mint moved to the mcp-auth Edge Function
- * (see supabase/functions/mcp-auth/). What's left on this EF is just
- * the /authorize endpoint that 302s to mcp-auth/login. End-to-end
- * coverage of the full chain is exercised against the deployed
- * functions, not in unit tests.
+ * These run without a Supabase stack or network, so a check that moved
+ * behind the database lookup (or disappeared) fails here instead of
+ * returning an unrelated 400 such as "unknown client_id".
+ *
+ * The post-OIDC callback / code mint lives in the mcp-auth Edge Function
+ * (see supabase/functions/mcp-auth/).
  */
 
 import {
@@ -13,6 +14,7 @@ import {
   assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { authorize } from "./authorize.ts";
+import { tokenHandler } from "./token.ts";
 
 function reqWithEnv(env: Record<string, string>, fn: () => Promise<Response>): Promise<Response> {
   const prev: Record<string, string | undefined> = {};
@@ -67,4 +69,41 @@ Deno.test("authorize: missing client_id → 400", async () => {
   assertEquals(res.status, 400);
   const err = await res.json();
   assertStringIncludes(err.error_description ?? "", "client_id");
+});
+
+Deno.test("authorize: missing code_challenge → 400 before DB query", async () => {
+  const res = await reqWithEnv(
+    { MCP_STATE_SECRET: "s".repeat(32), SUPABASE_URL: "http://127.0.0.1:54321" },
+    () =>
+      authorize(
+        new Request(
+          "http://x/authorize?client_id=00000000-0000-0000-0000-000000000000&redirect_uri=https://client.example/cb&response_type=code&state=xyz",
+          { method: "GET" },
+        ),
+      ),
+  );
+  assertEquals(res.status, 400);
+  const err = await res.json();
+  assertEquals(err.error, "invalid_request");
+  assertStringIncludes(err.error_description ?? "", "code_challenge required");
+});
+
+Deno.test("token: too-short code_verifier → invalid_grant before DB query", async () => {
+  const res = await tokenHandler(
+    new Request("http://x/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: "any-code",
+        code_verifier: "short",
+        client_id: "00000000-0000-0000-0000-000000000000",
+        redirect_uri: "https://client.example/cb",
+      }),
+    }),
+  );
+  assertEquals(res.status, 400);
+  const err = await res.json();
+  assertEquals(err.error, "invalid_grant");
+  assertStringIncludes(err.error_description ?? "", "too short");
 });

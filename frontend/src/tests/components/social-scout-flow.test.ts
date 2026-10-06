@@ -72,8 +72,11 @@ async function submitInstagramScan() {
 	await fireEvent.click(screen.getByRole('button', { name: /scan profile/i }));
 }
 
-describe('Social Scout Instagram privacy setup', () => {
-	it('shows the confirmed-private stop and never enables scheduling', async () => {
+// SocialScoutView renders the server's rejection/warning sentence verbatim and
+// never reads profile_visibility; the privacy classification itself is owned by
+// supabase/functions/social-test. These tests pin the component's gating only.
+describe('Social Scout scan result gating', () => {
+	it('shows the server rejection sentence and never offers scheduling for an invalid profile', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn().mockResolvedValue({
@@ -82,7 +85,6 @@ describe('Social Scout Instagram privacy setup', () => {
 					valid: false,
 					profile_url: 'https://www.instagram.com/example-profile/',
 					profile_handle: 'example-profile',
-					profile_visibility: 'private',
 					error: PRIVATE_PROFILE_COPY,
 					post_ids: [],
 					preview_posts: [],
@@ -99,7 +101,7 @@ describe('Social Scout Instagram privacy setup', () => {
 		expect(screen.queryByRole('button', { name: /schedule scout/i })).not.toBeInTheDocument();
 	});
 
-	it('shows the unknown warning and can schedule without a durable context token', async () => {
+	it('shows the server warning on a valid profile and still enables scheduling', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn().mockResolvedValue({
@@ -108,7 +110,6 @@ describe('Social Scout Instagram privacy setup', () => {
 					valid: true,
 					profile_url: 'https://www.instagram.com/example-profile/',
 					profile_handle: 'example-profile',
-					profile_visibility: 'unknown',
 					warning: UNKNOWN_PROFILE_COPY,
 					post_ids: ['POST-1'],
 					preview_posts: [],

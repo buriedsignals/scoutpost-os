@@ -2,6 +2,7 @@ import {
   assertEquals,
   assertRejects,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { ValidationError } from "./errors.ts";
 import type { SupabaseClient } from "./supabase.ts";
 import {
   buildCanonicalBaselineRow,
@@ -814,14 +815,23 @@ Deno.test("Page readiness and comparison skip invalid legacy captures without er
   assertEquals(comparison.status, "same");
   assertEquals(comparison.previousCaptureId, good.id);
   assertEquals(comparison.successfulMarkdownHistory, [good.content_md]);
+  // Both reads classify all 52 unvalidated rows; each write records only the
+  // validation verdict and never touches the stored evidence or its hashes.
+  const errorPageUpdate = {
+    id: "invalid-0",
+    payload: {
+      page_validation_version: "page-response-v1",
+      page_validation_outcome: "error_page",
+    },
+  };
   assertEquals(
-    updates.filter((update) => update.id === "invalid-0")
-      .every((update) =>
-        update.payload.page_validation_outcome === "error_page"
-      ),
-    true,
+    updates.filter((update) => update.id === "invalid-0"),
+    [errorPageUpdate, errorPageUpdate],
   );
-  assertEquals(invalid[0].content_md, errorBody);
+  assertEquals(
+    updates.map((update) => Object.keys(update.payload).sort().join()),
+    Array(104).fill("page_validation_outcome,page_validation_version"),
+  );
 });
 
 Deno.test("Page legacy body without status is validated instead of trusting its hash", async () => {
@@ -853,24 +863,30 @@ Deno.test("Page legacy body without status is validated instead of trusting its 
 
 Deno.test("Page writes reject target failures even with a legitimate focused projection", async () => {
   const { svc, inserts } = fakeSvc({});
-  await assertRejects(() =>
-    writeCanonicalBaseline(svc, {
-      userId: "u1",
-      scoutId: "s1",
-      sourceUrl: "https://example.test/page",
-      markdown: "Not found",
-      comparisonMarkdown: "Valid looking projection",
-      comparisonStrategy: "main",
-      validityMode: "page",
-      pageResponse: { status_code: 404 },
-    })
+  await assertRejects(
+    () =>
+      writeCanonicalBaseline(svc, {
+        userId: "u1",
+        scoutId: "s1",
+        sourceUrl: "https://example.test/page",
+        markdown: "Not found",
+        comparisonMarkdown: "Valid looking projection",
+        comparisonStrategy: "main",
+        validityMode: "page",
+        pageResponse: { status_code: 404 },
+      }),
+    ValidationError,
+    "page returned HTTP 404",
   );
   assertEquals(inserts, []);
-  await assertRejects(() =>
-    compareCanonicalContentForUrl(svc, "s1", "Projection", {
-      validityMode: "page",
-      pageResponse: { markdown: "Not found", status_code: 404 },
-    })
+  await assertRejects(
+    () =>
+      compareCanonicalContentForUrl(svc, "s1", "Projection", {
+        validityMode: "page",
+        pageResponse: { markdown: "Not found", status_code: 404 },
+      }),
+    ValidationError,
+    "page returned HTTP 404",
   );
 });
 
@@ -911,7 +927,7 @@ Deno.test("Page readiness reuses validated legacy content while comparison migra
     canonical_content_sha256: "old-canonical-hash",
     canonicalizer_version: "web-md-v1",
   };
-  const { svc } = fakeSvc({ captures: [legacy] });
+  const { svc, updates } = fakeSvc({ captures: [legacy] });
   assertEquals(await hasCurrentCanonicalBaselineForUrl(svc, "s1", url), true);
   const comparison = await compareCanonicalContentForUrl(
     svc,
@@ -922,6 +938,21 @@ Deno.test("Page readiness reuses validated legacy content while comparison migra
   assertEquals(comparison.status, "same");
   assertEquals(comparison.previousCaptureId, "legacy");
   assertEquals(comparison.comparisonStrategyChanged, false);
+  const validated = {
+    id: "legacy",
+    payload: {
+      page_validation_version: "page-response-v1",
+      page_validation_outcome: "valid",
+    },
+  };
+  assertEquals(updates, [validated, validated, {
+    id: "legacy",
+    payload: {
+      canonical_content_sha256: await canonicalOf(legacy.comparison_md!),
+      canonicalizer_version: WEB_CANONICALIZER_VERSION,
+      comparison_strategy: "main",
+    },
+  }]);
 });
 
 Deno.test("Page comparison excludes failed-run content even when it already passed validation", async () => {
@@ -964,13 +995,18 @@ Deno.test("Page classification storage failure cannot establish readiness or com
       canonicalizer_version: WEB_CANONICALIZER_VERSION,
     }],
   });
-  await assertRejects(() =>
-    hasCurrentCanonicalBaselineForUrl(svc, "s1", "https://example.test")
+  await assertRejects(
+    () => hasCurrentCanonicalBaselineForUrl(svc, "s1", "https://example.test"),
+    Error,
+    "page baseline validation update failed: classification write failed",
   );
-  await assertRejects(() =>
-    compareCanonicalContentForUrl(svc, "s1", "A new policy.", {
-      validityMode: "page",
-    })
+  await assertRejects(
+    () =>
+      compareCanonicalContentForUrl(svc, "s1", "A new policy.", {
+        validityMode: "page",
+      }),
+    Error,
+    "page baseline validation update failed: classification write failed",
   );
 });
 

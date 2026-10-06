@@ -85,13 +85,14 @@ function fakeSvc(opts: FakeOptions = {}) {
       return Promise.resolve({ data: listPages.shift() ?? [], error: null });
     },
     remove(names: string[]) {
+      // Record the attempt even when the transport then fails.
+      removed.push(names);
       if (opts.removeReject !== undefined) {
         return Promise.reject(opts.removeReject);
       }
       if (opts.removeError) {
         return Promise.resolve({ error: { message: opts.removeError } });
       }
-      removed.push(names);
       return Promise.resolve({ error: null });
     },
   };
@@ -402,7 +403,7 @@ Deno.test("storeSnapshot surfaces non-duplicate upload errors", async () => {
 });
 
 Deno.test("storeSnapshot cleans up when an upload promise rejects", async () => {
-  const { svc, inserts } = fakeSvc({
+  const { svc, uploads, removed, inserts } = fakeSvc({
     uploadReject: ".png",
     removeReject: "cleanup transport rejected",
   });
@@ -411,16 +412,23 @@ Deno.test("storeSnapshot cleans up when an upload promise rejects", async () => 
     Error,
     "upload transport rejected",
   );
+  // Only the mhtml landed before the screenshot rejected; that is all this
+  // call may roll back, and the failed cleanup must not mask the upload error.
+  assertEquals(uploads.map((upload) => upload.path.split(".").pop()), [
+    "mhtml",
+  ]);
+  assertEquals(removed, [[uploads[0].path]]);
   assertEquals(inserts.length, 0);
 });
 
 Deno.test("storeSnapshot handles a first-upload transport rejection without cleanup", async () => {
-  const { svc, inserts } = fakeSvc({ uploadReject: ".mhtml" });
+  const { svc, removed, inserts } = fakeSvc({ uploadReject: ".mhtml" });
   await assertRejects(
     () => storeSnapshot(svc, fullParams()),
     Error,
     "upload transport rejected",
   );
+  assertEquals(removed, []);
   assertEquals(inserts.length, 0);
 });
 

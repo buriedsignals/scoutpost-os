@@ -214,11 +214,12 @@ Deno.test("buildFirecrawlRecencyTbs preserves the configured 14-day provider win
   );
 });
 
-Deno.test("dedupeByEmbedding sends one ordered OpenRouter embedding batch", async () => {
+Deno.test("dedupeByEmbedding clusters near-duplicates from one index-shuffled embedding batch", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<Record<string, unknown>> = [];
-  const first = [1, ...new Array(767).fill(0)];
-  const second = [0, 1, ...new Array(766).fill(0)];
+  const budget = [1, ...new Array(767).fill(0)];
+  const budgetRepeat = [1, 0.01, ...new Array(766).fill(0)];
+  const harbour = [0, 1, ...new Array(766).fill(0)];
   try {
     globalThis.fetch = (async (_input, init) => {
       const body = (init as { body?: BodyInit | null } | undefined)?.body;
@@ -227,8 +228,9 @@ Deno.test("dedupeByEmbedding sends one ordered OpenRouter embedding batch", asyn
         JSON.stringify({
           model: "gemini-embedding-001",
           data: [
-            { index: 1, embedding: second },
-            { index: 0, embedding: first },
+            { index: 2, embedding: budgetRepeat },
+            { index: 0, embedding: budget },
+            { index: 1, embedding: harbour },
           ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -236,15 +238,35 @@ Deno.test("dedupeByEmbedding sends one ordered OpenRouter embedding batch", asyn
     }) as typeof fetch;
     Deno.env.set("OPENROUTER_API_KEY", "test-key");
 
-    const hits = await dedupeByEmbedding([
-      { title: "First", description: "Alpha", url: "https://a.example/1" },
-      { title: "Second", description: "Beta", url: "https://b.example/2" },
+    const kept = await dedupeByEmbedding([
+      {
+        title: "Council backs budget",
+        description: "Brief",
+        url: "https://a.example/1",
+      },
+      {
+        title: "Harbour reopens",
+        description: "Ferry service resumes",
+        url: "https://b.example/2",
+      },
+      {
+        title: "Council backs budget",
+        description:
+          "Councillors backed the transit budget after a long evening debate about bus lanes and ferry subsidies.",
+        url: "https://c.example/3",
+      },
     ], { threshold: 0.9 });
 
     assertEquals(requests.length, 1);
-    assertEquals(requests[0].input, ["First. Alpha", "Second. Beta"]);
-    assertEquals(requests[0].dimensions, 768);
-    assertEquals(hits.length, 2);
+    assertEquals(
+      (requests[0].input as string[])[1],
+      "Harbour reopens. Ferry service resumes",
+    );
+    // Hits 0 and 2 share a cluster; the richer description wins it.
+    assertEquals(kept.map((hit) => [hit.url, hit._cluster_size]), [
+      ["https://c.example/3", 2],
+      ["https://b.example/2", 1],
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
     Deno.env.delete("OPENROUTER_API_KEY");

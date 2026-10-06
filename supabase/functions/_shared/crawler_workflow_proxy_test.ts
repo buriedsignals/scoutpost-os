@@ -1,5 +1,6 @@
 import {
   assertEquals,
+  assertNotEquals,
   assertRejects,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
@@ -104,6 +105,16 @@ Deno.test("same-ID retry recovers a lost successful response without another cra
   const recovered = await executeCrawlerProxy(client as never, input, deps);
   assertEquals(recovered.markdown, "Original policy body");
   assertEquals(dispatches, 1);
+  // The ledger dedupes on this key, so the retry lands on the original job;
+  // a new request ID must still admit a fresh job.
+  await executeCrawlerProxy(client as never, {
+    ...input,
+    requestId: "request-2",
+  }, deps);
+  const [first, retry, other] = svc.calls.map((call) => call.args.p_dedupe_key);
+  assertEquals(svc.calls.length, 3);
+  assertEquals(retry, first);
+  assertNotEquals(other, first);
 });
 
 Deno.test("utility proxy traffic retains atomic utility admission", async () => {

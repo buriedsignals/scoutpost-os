@@ -51,12 +51,10 @@ Deno.test("ingest: short text body returns 400", async () => {
   }
 });
 
-// Full happy-path test requires live extraction, scraping, and local embedding
-// services plus network access. We cannot reliably stub them in this
-// integration harness, so only run when every dependency is configured.
-const hasLiveKeys = !!Deno.env.get("OPENROUTER_API_KEY") &&
-  !!Deno.env.get("FIRECRAWL_API_KEY") &&
-  !!Deno.env.get("OPENROUTER_API_KEY");
+// The text happy path makes paid OpenRouter extraction + embedding calls (no
+// scrape), so it only runs on explicit opt-in with the key configured.
+const hasLiveKeys = Deno.env.get("SCOUT_LIVE_PROVIDER_TESTS") === "1" &&
+  Boolean(Deno.env.get("OPENROUTER_API_KEY"));
 
 Deno.test(
   {

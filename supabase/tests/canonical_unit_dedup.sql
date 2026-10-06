@@ -13,24 +13,24 @@ END $$;
 
 SELECT is(
   (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public' AND p.proname = 'upsert_canonical_unit'),
+   WHERE n.nspname = 'public' AND p.proname = 'upsert_canonical_unit_v2'),
   1::bigint,
-  'only the fact-check-aware canonical upsert signature remains callable'
+  'only one production canonical upsert signature remains callable'
 );
 
-SELECT * FROM upsert_canonical_unit(
+SELECT * FROM upsert_canonical_unit_v2(
   p_user_id := '00000000-0000-0000-0000-000000000079',
   p_statement := 'The council approved the budget.', p_type := 'fact',
   p_source_url := 'https://example.test/story', p_source_type := 'manual_ingest',
   p_statement_hash := 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 );
-SELECT * FROM upsert_canonical_unit(
+SELECT * FROM upsert_canonical_unit_v2(
   p_user_id := '00000000-0000-0000-0000-000000000079',
   p_statement := 'The council delayed the vote.', p_type := 'fact',
   p_source_url := 'https://example.test/story', p_source_type := 'manual_ingest',
   p_statement_hash := 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 );
-SELECT * FROM upsert_canonical_unit(
+SELECT * FROM upsert_canonical_unit_v2(
   p_user_id := '00000000-0000-0000-0000-000000000079',
   p_statement := 'The council approved the budget.', p_type := 'fact',
   p_source_url := 'https://another.example.test/reprint', p_source_type := 'manual_ingest',

@@ -1,5 +1,6 @@
 import {
   assertEquals,
+  assertExists,
   assertMatch,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
@@ -7,7 +8,6 @@ import {
   normalizeUserCode,
   randomUserCode,
   sanitizeLabel,
-  sha256Hex,
 } from "./lib.ts";
 import { handleCliAuthRequest } from "./index.ts";
 
@@ -24,11 +24,44 @@ Deno.test("user codes normalize without ambiguous characters", () => {
   assertMatch(randomUserCode(), /^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
 });
 
-Deno.test("hashes do not retain the secret", async () => {
-  const secret = "cj_SUPERSECRET";
-  const hash = await sha256Hex(secret);
-  assertEquals(hash.length, 64);
-  assertEquals(hash.includes(secret), false);
+Deno.test("device authorization stores only hashes of the issued codes", async () => {
+  let stored: Record<string, unknown> | undefined;
+  const svc = {
+    rpc: () => Promise.resolve({ data: { allowed: true }, error: null }),
+    from: (table: string) => ({
+      insert: (row: Record<string, unknown>) => {
+        assertEquals(table, "cli_device_authorizations");
+        stored = row;
+        return Promise.resolve({ error: null });
+      },
+    }),
+  };
+  const response = await handleCliAuthRequest(
+    new Request("http://127.0.0.1/functions/v1/cli-auth/v1/device/authorize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_name: "Scout CLI" }),
+    }),
+    { svc: svc as never },
+  );
+
+  assertEquals(response.status, 201);
+  const issued = await response.json();
+  assertExists(stored);
+  // The redeem and approve RPCs look rows up by SHA-256 hex of the code the
+  // CLI holds, so that is the only form the row may contain.
+  const sha256 = async (value: string) =>
+    Array.from(
+      new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
+      ),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+  assertEquals(stored.device_code_hash, await sha256(issued.device_code));
+  assertEquals(stored.user_code_hash, await sha256(issued.user_code));
+  const row = JSON.stringify(stored);
+  assertEquals(row.includes(issued.device_code), false);
+  assertEquals(row.includes(issued.user_code), false);
 });
 
 Deno.test("approval origin must exactly match the request site", () => {

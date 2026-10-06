@@ -253,7 +253,7 @@ Deno.test("parseTlv reads a multi-byte length and rejects an overrun", () => {
 });
 
 Deno.test("validateTsr: token without id-ct-TSTInfo OID → no_tstinfo", () => {
-  const { der, encodeInteger, TST_INFO_OID } = _internal;
+  const { der, encodeInteger } = _internal;
   const statusInfo = der(0x30, encodeInteger([0]));
   // token whose OID is NOT id-ct-TSTInfo, plus a decoy octet
   const wrongOid = der(0x06, [0x2a, 0x03]);
@@ -262,8 +262,6 @@ Deno.test("validateTsr: token without id-ct-TSTInfo OID → no_tstinfo", () => {
   const v = validateTsr(resp, IMPRINT, NONCE);
   assertEquals(v.ok, false);
   assertStringIncludes((v as { reason: string }).reason, "no_tstinfo");
-  // sanity: TST_INFO_OID is the real one (not the decoy)
-  assert(TST_INFO_OID.length > 2);
 });
 
 Deno.test("validateTsr: TSTInfo octet that is not a valid SEQUENCE → no_tstinfo (parse guard)", () => {

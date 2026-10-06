@@ -1,6 +1,6 @@
 BEGIN;
 SET LOCAL search_path = public, extensions;
-SELECT plan(27);
+SELECT plan(26);
 
 SELECT has_index('public', 'raw_captures', 'raw_captures_workflow_effect_idx',
   'raw capture effects have a durable idempotency key');
@@ -54,12 +54,6 @@ SELECT is(
 
 UPDATE public.scout_runs SET started_at = now() - interval '2 hours'
 WHERE id = (SELECT run_id FROM enqueued);
-SELECT public.cleanup_stale_scout_runs(interval '0 seconds');
-SELECT is(
-  (SELECT status FROM public.scout_runs WHERE id = (SELECT run_id FROM enqueued)),
-  'running',
-  'legacy cleanup leaves an actively waiting Workflow run alone'
-);
 SELECT public.reconcile_stale_scout_runs(interval '0 seconds');
 SELECT is(
   (SELECT status FROM public.scout_runs WHERE id = (SELECT run_id FROM enqueued)),

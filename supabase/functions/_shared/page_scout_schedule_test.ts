@@ -3,6 +3,7 @@ import {
   applyEffectiveCandidateUrls,
   candidateUrlValuesDiffer,
   capPageScoutCandidates,
+  dedupePageScoutCandidates,
   isInitialChildBaseline,
   pageScoutCandidateKey,
   selectActiveChildCandidates,
@@ -33,22 +34,16 @@ Deno.test("redirect aliases do not evict distinct children at the 500-candidate 
   const knownSuccessful = discovered.map((url) =>
     url.replace("https://example.test", "https://www.example.test") + "/"
   );
-  const selected = capPageScoutCandidates(
-    [
-      ...new Map(
-        selectActiveChildCandidates({
-          discovered,
-          knownSuccessful,
-          rootChanged: false,
-        }).map((url) => [pageScoutCandidateKey(url), url]),
-      ).values(),
-    ],
-  );
-  assertEquals(selected.length, 500);
-  assertEquals(new Set(selected.map(pageScoutCandidateKey)).size, 500);
+  // Each validated www alias replaces its requested URL in place.
   assertEquals(
-    selected.every((url) => new URL(url).hostname.startsWith("www.")),
-    true,
+    capPageScoutCandidates(
+      dedupePageScoutCandidates(selectActiveChildCandidates({
+        discovered,
+        knownSuccessful,
+        rootChanged: false,
+      })),
+    ),
+    knownSuccessful,
   );
 });
 

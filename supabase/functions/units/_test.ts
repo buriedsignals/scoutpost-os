@@ -329,8 +329,10 @@ Deno.test("units: DELETE soft-deletes unit and hides it from default list", asyn
   }
 });
 
-// Deep semantic-search test — requires the real local embedding endpoint.
-const embeddingConfigured = Boolean(Deno.env.get("OPENROUTER_API_KEY"));
+// Deep semantic-search test embeds the query through paid OpenRouter;
+// explicit opt-in only.
+const embeddingConfigured = Deno.env.get("SCOUT_LIVE_PROVIDER_TESTS") === "1" &&
+  Boolean(Deno.env.get("OPENROUTER_API_KEY"));
 const deepSearchTest = embeddingConfigured ? Deno.test : Deno.test.ignore;
 
 deepSearchTest(

@@ -707,8 +707,11 @@ Deno.test("user me — fetches /user/me and prints account state", async () => {
   });
 });
 
-Deno.test("apiFetch — falls back to auth_token when api_key absent, omits apikey header for non-Supabase", async () => {
+Deno.test("apiFetch — falls back to auth_token when api_key absent and sends no apikey header without an anon key", async () => {
   await withTempHome(async () => {
+    // The apikey header follows supabase_anon_key alone (client.ts), not the
+    // host: the positive control is the hosted test above with the same key
+    // configured. This config omits the anon key, so no header may be sent.
     writeConfigFile({
       api_url: "https://scoutpost.ai/api",
       auth_token: "cj_legacy",

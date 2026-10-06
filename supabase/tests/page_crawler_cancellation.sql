@@ -28,7 +28,8 @@ SELECT 'cancel:' || p.label || ':' || state, 'scout_run', 'tenant', p.id::text, 
 FROM parents p CROSS JOIN unnest(ARRAY['queued', 'batched', 'retryable_failed', 'fallback_required', 'succeeded', 'terminal_failed']) state
 WHERE p.label IN ('success', 'error', 'skipped', 'running', 'leased');
 
-CREATE TEMP TABLE health_before AS SELECT terminal_failed_recent FROM public.crawler_operations_health();
+CREATE TEMP TABLE health_before AS
+SELECT (public.crawler_operations_observation() ->> 'terminal_failed_recent')::bigint AS terminal_failed_recent;
 CREATE TEMP TABLE preview AS SELECT * FROM public.cancel_terminal_page_crawler_jobs((SELECT id FROM parents WHERE label = 'success'), 2, false);
 SELECT is((SELECT count(*) FROM preview), 2::bigint, 'preview is bounded');
 SELECT ok(NOT EXISTS (SELECT 1 FROM preview WHERE applied), 'preview identifies unapplied rows');
@@ -46,7 +47,7 @@ SELECT ok(NOT EXISTS (SELECT 1 FROM public.crawler_jobs WHERE status = 'cancelle
   'cancellation preserves failure evidence and records a distinct reason and parent');
 SELECT is((SELECT metadata FROM public.scout_runs WHERE id = (SELECT id FROM parents WHERE label = 'success')),
   '{"coverage":{"checked":0,"failed":1,"complete":false}}'::jsonb, 'cancellation does not turn incomplete parent coverage into success');
-SELECT is((SELECT terminal_failed_recent FROM public.crawler_operations_health()),
+SELECT is((public.crawler_operations_observation() ->> 'terminal_failed_recent')::bigint,
   (SELECT terminal_failed_recent FROM health_before), 'cancelled work adds no retrieval failures and keeps genuine failures counted');
 SELECT is((SELECT result_manifest ->> 'execution_id' FROM public.crawler_jobs WHERE dedupe_key = 'cancel:success:succeeded'), 'committed', 'committed results are not overwritten');
 SELECT ok(NOT public.complete_crawler_job((SELECT id FROM public.crawler_jobs WHERE dedupe_key = 'cancel:success:queued'), gen_random_uuid(), true, '{"artifacts":[]}'::jsonb), 'late native completion cannot overwrite cancellation');
@@ -95,7 +96,7 @@ VALUES ('cancel:proxy', 'proxy', 'tenant', 'proxy-request', 'scrape', 'proxy_scr
 DO $$ BEGIN PERFORM public.cancel_terminal_page_crawler_jobs(NULL, 500, true); END $$;
 SELECT is((SELECT status FROM public.crawler_jobs WHERE dedupe_key = 'cancel:proxy'), 'fallback_required', 'native Page cleanup does not touch proxy ownership');
 SELECT ok(public.complete_crawler_fallback((SELECT id FROM public.crawler_jobs WHERE dedupe_key = 'cancel:proxy'), false, NULL, 'anti-bot fallback delegated to scrape caller'), 'existing proxy delegation remains compatible without a native token');
-SELECT is((SELECT terminal_failed_recent FROM public.crawler_operations_health()),
+SELECT is((public.crawler_operations_observation() ->> 'terminal_failed_recent')::bigint,
   (SELECT terminal_failed_recent + 1 FROM health_before), 'the expired actual provider attempt remains a genuine health failure');
 
 INSERT INTO public.crawler_batches (id, operation, status)

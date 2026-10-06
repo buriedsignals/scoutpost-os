@@ -229,35 +229,22 @@ Deno.test("VesselAPI sample does not retry a later-page HTTP error", async () =>
 });
 
 Deno.test("VesselAPI auth failure has a stable sanitized category", async () => {
-  await assertRejects(
-    () =>
-      sampleVesselApiPositions({
-        apiKey: "bad-key",
-        watchIds: IDS,
-        fetchFn: () =>
-          Promise.resolve(
-            new Response(
-              JSON.stringify({
-                error: { code: "invalid_api_key" },
-              }),
-              { status: 401 },
+  // The category must not depend on whether VesselAPI sends a provider code.
+  for (const body of [{ error: { code: "invalid_api_key" } }, {}]) {
+    const error = await assertRejects(
+      () =>
+        sampleVesselApiPositions({
+          apiKey: "bad-key",
+          watchIds: IDS,
+          fetchFn: () =>
+            Promise.resolve(
+              new Response(JSON.stringify(body), { status: 401 }),
             ),
-          ),
-      }),
-    VesselApiRequestError,
-    "VesselAPI returned HTTP 401",
-  );
-  try {
-    await sampleVesselApiPositions({
-      apiKey: "bad-key",
-      watchIds: IDS,
-      fetchFn: () => Promise.resolve(new Response("{}", { status: 401 })),
-    });
-  } catch (error) {
-    assertEquals(
-      (error as VesselApiRequestError).code,
-      "vesselapi_auth_failed",
+        }),
+      VesselApiRequestError,
     );
+    assertEquals(error.message, "VesselAPI returned HTTP 401");
+    assertEquals(error.code, "vesselapi_auth_failed");
   }
 });
 

@@ -8,7 +8,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('$lib/config/api', () => ({
 	API_BASE_URL: '/api',
 	buildApiUrl: (path: string) => `/api${path.startsWith('/') ? path : '/' + path}`,
-	buildFastApiUrl: (path: string) => `/api${path.startsWith('/') ? path : '/' + path}`
+	// Distinct from buildApiUrl so FastAPI-only routing is observable.
+	buildFastApiUrl: (path: string) => `/fastapi${path.startsWith('/') ? path : '/' + path}`
 }));
 
 import { apiClient, apiRequest, submitFeedback } from '$lib/api-client';
@@ -293,7 +294,7 @@ describe('API key management', () => {
 // ===========================================================================
 
 describe('submitFeedback', () => {
-	it('routes feedback through the residual FastAPI /api prefix', async () => {
+	it('routes feedback through the residual FastAPI service, not the Edge gateway', async () => {
 		fetchSpy = mockFetchResponse({ url: 'https://linear.app/buriedsignals/issue/CJ-1' });
 		vi.stubGlobal('fetch', fetchSpy);
 
@@ -304,7 +305,7 @@ describe('submitFeedback', () => {
 		});
 
 		expect(fetchSpy).toHaveBeenCalledWith(
-			'/api/feedback',
+			'/fastapi/feedback',
 			expect.objectContaining({
 				method: 'POST',
 				headers: expect.objectContaining({ 'Content-Type': 'application/json' })

@@ -577,14 +577,7 @@ Deno.test("storeCaptureResult degrades an oversize rawHtml (rendered_thirdparty 
 // --------------------------------------------------------------------------
 // runSnapshotInBackground
 // --------------------------------------------------------------------------
-Deno.test("runSnapshotInBackground swallows rejections without throwing", async () => {
-  runSnapshotInBackground(Promise.reject(new Error("boom")));
-  runSnapshotInBackground(Promise.resolve("ok"));
-  // give the microtask queue a tick so the .catch runs
-  await new Promise((r) => setTimeout(r, 0));
-});
-
-Deno.test("runSnapshotInBackground hands work to EdgeRuntime.waitUntil when present", async () => {
+Deno.test("runSnapshotInBackground hands rejection-guarded work to EdgeRuntime.waitUntil", async () => {
   let handed: Promise<unknown> | null = null;
   (globalThis as { EdgeRuntime?: unknown }).EdgeRuntime = {
     waitUntil(p: Promise<unknown>) {
@@ -592,9 +585,10 @@ Deno.test("runSnapshotInBackground hands work to EdgeRuntime.waitUntil when pres
     },
   };
   try {
-    runSnapshotInBackground(Promise.resolve("x"));
+    runSnapshotInBackground(Promise.reject(new Error("boom")));
     assert(handed !== null);
-    await handed;
+    // A rejected capture must settle cleanly instead of killing the isolate.
+    assertEquals(await handed, undefined);
   } finally {
     delete (globalThis as { EdgeRuntime?: unknown }).EdgeRuntime;
   }

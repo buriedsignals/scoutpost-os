@@ -10,20 +10,19 @@ import {
   shouldQueueCivicDocument,
 } from "./civic_document_membership.ts";
 
-Deno.test("Civic document membership accepts a complete bounded archive", () => {
+Deno.test("Civic document membership accepts exactly the cap and rejects one more", () => {
+  const archive = (length: number) =>
+    Array.from(
+      { length },
+      (_, index) => `https://city.example/minutes/${index}`,
+    );
   assertEquals(
-    assertCompleteCivicMembership(["https://city.example/minutes"]),
+    assertCompleteCivicMembership(archive(CIVIC_DOCUMENT_MEMBERSHIP_MAX)),
     undefined,
   );
-});
-
-Deno.test("Civic document membership rejects an archive beyond the complete-baseline cap", () => {
   assertThrows(
     () =>
-      assertCompleteCivicMembership(
-        Array.from({ length: CIVIC_DOCUMENT_MEMBERSHIP_MAX + 1 }, (_, index) =>
-          `https://city.example/minutes/${index}`),
-      ),
+      assertCompleteCivicMembership(archive(CIVIC_DOCUMENT_MEMBERSHIP_MAX + 1)),
     Error,
     "membership bound",
   );
@@ -253,10 +252,20 @@ Deno.test("failed child-membership insertion does not retire the wrapper or chan
   assertEquals([...baseline], [[wrapper, null]]);
 });
 
-Deno.test("empty historical wrapper retires so newly published minutes can queue later", async () => {
+Deno.test("empty historical wrapper retires from the scoped baseline so later minutes are new", async () => {
   const wrapper = "https://democracy.leeds.gov.uk/ieListDocuments.aspx?MId=1";
   const baseline = new Map<string, string | null>([[wrapper, null]]);
-  const query = { eq: () => query, in: () => Promise.resolve({ error: null }) };
+  const deleteFilters: Array<[string, unknown]> = [];
+  const query = {
+    eq: (key: string, value: unknown) => {
+      deleteFilters.push([key, value]);
+      return query;
+    },
+    in: (key: string, values: string[]) => {
+      deleteFilters.push([key, values]);
+      return Promise.resolve({ error: null });
+    },
+  };
   const db = { from: () => ({ delete: () => query }) } as unknown as Parameters<
     typeof baselineResolvedCivicMeetings
   >[0];
@@ -274,13 +283,10 @@ Deno.test("empty historical wrapper retires so newly published minutes can queue
     }),
     1,
   );
-  assertEquals(
-    shouldQueueCivicDocument(
-      "https://democracy.leeds.gov.uk/documents/new-minutes.pdf",
-      null,
-      baseline,
-      new Set(),
-    ),
-    true,
-  );
+  assertEquals(deleteFilters, [
+    ["scout_id", "scout"],
+    ["user_id", "owner"],
+    ["source_url", [wrapper]],
+  ]);
+  assertEquals([...baseline], []);
 });

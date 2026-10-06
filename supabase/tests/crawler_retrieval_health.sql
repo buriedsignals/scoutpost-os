@@ -45,6 +45,13 @@ SELECT ok((SELECT (value->'retrieval_groups')::text NOT LIKE '%secret%' FROM hea
 SELECT ok((SELECT (value->'retrieval_groups')::text NOT LIKE '%/private%' FROM health_v2), 'paths excluded');
 SELECT is((SELECT value->'retrieval_groups'->0->>'hostname' FROM health_v2), 'example.test', 'requested hostname retained');
 
+-- A not_a_pdf message on a scrape job is not the PDF sniff and still counts.
+INSERT INTO public.crawler_jobs (dedupe_key, request_kind, tenant_key, continuation_key,
+  operation, pipeline_stage, url, status, error_class, error_message, completed_at)
+VALUES ('health-v2:scrape-not-pdf', 'proxy', 'health-v2', 'scrape-not-pdf', 'scrape', 'fetch',
+  'https://example.test/odd', 'terminal_failed', 'terminal', 'not_a_pdf', now());
+SELECT is((public.crawler_operations_observation()->>'terminal_failed_recent')::int, 9, 'the not_a_pdf exclusion is scoped to parse_pdf jobs');
+
 INSERT INTO public.crawler_jobs (dedupe_key, request_kind, tenant_key, continuation_key,
   operation, pipeline_stage, url, status, updated_at)
 VALUES ('health-v2:batched', 'proxy', 'health-v2', 'batched', 'scrape', 'fetch', 'https://example.test', 'batched', now() - interval '15 minutes');

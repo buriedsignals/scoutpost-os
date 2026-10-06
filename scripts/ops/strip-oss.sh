@@ -150,7 +150,7 @@ sed_if_exists -i '/^Hosted Preferences account deletion/,+4d' frontend/AGENTS.md
 sed_if_exists -i '/^Hosted account deletion is initiated/,+6d' docs/architecture/developer-guide.md
 sed_if_exists -i '/^<!-- HOSTED_ENTITLEMENT_SYNC_START -->$/,/^<!-- HOSTED_ENTITLEMENT_SYNC_END -->$/d' docs/architecture/fastapi-endpoints.md
 sed_if_exists -i '\|/user/sync-entitlements|d' docs/supabase/edge-functions.md
-sed_if_exists -i '/^After that existing admission decision/,+9d' docs/architecture/fastapi-endpoints.md
+sed_if_exists -i '/^After that existing admission decision/,+6d' docs/architecture/fastapi-endpoints.md
 sed_if_exists -i 's|Current user / preferences / timezone + hosted account-deletion gate|Current user / preferences / timezone|' docs/architecture/api-surface.md
 sed_if_exists -i "/^Indicator eligibility mode is a reviewed source-code decision, not an$/,+4d" AGENTS.md
 sed_if_exists -i "/^DEFAULT_BEEHIIV_LAB_TIER_ID = /d" backend/app/config.py
@@ -648,21 +648,12 @@ p.write_text(text)
 PY
 
 # Backend: strip feedback router import and mount from main.py
-sed -i '/^    feedback,$/d' backend/app/main.py
+sed -i '/^from app\.routers import feedback$/d' backend/app/main.py
 sed -i '/feedback\.router/d' backend/app/main.py
 
-# Backend: the OSS frontend is Supabase-native. Strip the legacy
-# user/feed/export surface from the FastAPI app.
-sed -i '/^    onboarding,$/d' backend/app/main.py
-sed -i '/^    user,$/d' backend/app/main.py
-sed -i '/^    units,$/d' backend/app/main.py
-sed -i '/^    export,$/d' backend/app/main.py
+# Backend: strip the SaaS-only MuckRock proxy and local broker from main.py.
 sed -i '/^from app\.routers import muckrock_proxy$/d' backend/app/main.py
 sed -i '/^from app\.routers import local_auth$/d' backend/app/main.py
-sed -i '/onboarding\.router/d' backend/app/main.py
-sed -i '/user\.router/d' backend/app/main.py
-sed -i '/units\.router/d' backend/app/main.py
-sed -i '/export\.router/d' backend/app/main.py
 sed -i '/muckrock_proxy\.router/d' backend/app/main.py
 
 python3 - <<'PY'
@@ -673,10 +664,6 @@ lines = p.read_text().splitlines()
 targets = (
     "muckrock_proxy.router",
     "local_auth.router",
-    "onboarding.router",
-    "user.router",
-    "units.router",
-    "export.router",
     "feedback.router",
     'prefix="/api/auth"',
     'tags=["Auth (MuckRock proxy)"]',
@@ -709,8 +696,6 @@ while i < len(lines):
 
 text = "\n".join(out) + "\n"
 text = text.replace("if settings.local_muckrock_auth_broker:\nelse:\n", "")
-# Every legacy router in the grouped import is stripped above; drop the empty tuple.
-text = text.replace("from app.routers import (\n)\n", "")
 p.write_text(text)
 PY
 

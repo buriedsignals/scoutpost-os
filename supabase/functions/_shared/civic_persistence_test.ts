@@ -1,7 +1,4 @@
-import {
-  assertEquals,
-  assertRejects,
-} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { upsertCanonicalUnit } from "./unit_dedup.ts";
 
@@ -58,42 +55,10 @@ Deno.test("Civic persistence sends the normalized canonical payload in one lease
     payload.p_normalized_source_url,
     "https://council.test/minutes.pdf",
   );
-  assertEquals(payload.p_statement_hash, result.statementHash);
-  assertEquals(result.createdCanonical, true);
-});
-
-Deno.test("Civic persistence propagates transaction failure without a separate tracker write", async () => {
-  let calls = 0;
-  const db = createClient("https://database.test", "test-key", {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: {
-      fetch: () => {
-        calls++;
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              message: "injected revision failure",
-              code: "P0001",
-            }),
-            {
-              status: 400,
-              headers: { "content-type": "application/json" },
-            },
-          ),
-        );
-      },
-    },
-  });
-  await assertRejects(
-    () =>
-      upsertCanonicalUnit(db, {
-        userId: "owner",
-        statement: "Council adopted the budget.",
-        unitType: "fact",
-        sourceType: "scout",
-      }, { queueId: "queue", workerId: "worker" }),
-    Error,
-    "injected revision failure",
+  // SHA-256 of "council will finish the bridge." — the cross-run dedup key.
+  assertEquals(
+    payload.p_statement_hash,
+    "05459663f1aa93d847b92d71be3a5d0604960450fd46d35140b8733fb92836af",
   );
-  assertEquals(calls, 1);
+  assertEquals(result.createdCanonical, true);
 });

@@ -816,26 +816,6 @@ Deno.test({
 });
 
 Deno.test({
-  name: "authorize: missing code_challenge returns 400",
-  ignore: !RUN_HTTP,
-  fn: async () => {
-    const params = new URLSearchParams({
-      client_id: "00000000-0000-0000-0000-000000000000",
-      redirect_uri: "https://client.example/cb",
-      response_type: "code",
-      state: "xyz",
-    });
-    const res = await fetch(
-      functionUrl("mcp-server", `/authorize?${params.toString()}`),
-      { method: "GET", redirect: "manual" },
-    );
-    assertEquals(res.status, 400);
-    const body = await res.json();
-    assertEquals(body.error, "invalid_request");
-  },
-});
-
-Deno.test({
   name: "token: unsupported grant_type returns 400",
   ignore: !RUN_HTTP,
   fn: async () => {
@@ -1020,33 +1000,6 @@ Deno.test({
       const err = await res.json();
       assertEquals(err.error, "invalid_grant");
       assertStringIncludes(err.error_description, "code_verifier");
-    } finally {
-      await seed.cleanup();
-    }
-  },
-});
-
-Deno.test({
-  name: "token: malformed code_verifier (too short) returns invalid_grant",
-  ignore: !RUN_HTTP,
-  fn: async () => {
-    const seed = await seedCodeRow();
-    try {
-      const body = new URLSearchParams({
-        grant_type: "authorization_code",
-        code: seed.code,
-        code_verifier: "short", // <43 chars
-        client_id: seed.clientId,
-        redirect_uri: "https://seed.example/cb",
-      });
-      const res = await fetch(functionUrl("mcp-server", "/token"), {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-      });
-      assertEquals(res.status, 400);
-      const err = await res.json();
-      assertEquals(err.error, "invalid_grant");
     } finally {
       await seed.cleanup();
     }

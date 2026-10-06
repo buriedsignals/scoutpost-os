@@ -65,7 +65,7 @@ def resolve_global(host: str, port: int) -> str:
     )
 
 
-async def _relay(  # pragma: no cover - exercised by live Gate B network probes
+async def _relay(
     source: asyncio.StreamReader,
     target: asyncio.StreamWriter,
     stats: "EgressStats | None" = None,
@@ -84,7 +84,7 @@ async def _proxy_client(
     client: asyncio.StreamReader,
     reply: asyncio.StreamWriter,
     stats: "EgressStats | None" = None,
-) -> None:  # pragma: no cover - exercised by live Gate B network probes
+) -> None:
     upstream = None
     try:
         request = await asyncio.wait_for(client.readline(), timeout=10)
@@ -164,7 +164,7 @@ class GuardedEgress:
 
 
 @asynccontextmanager
-async def guarded_egress():  # pragma: no cover - live proxy lifecycle
+async def guarded_egress():
     stats = EgressStats()
     server = await asyncio.start_server(
         lambda reader, writer: _proxy_client(reader, writer, stats),

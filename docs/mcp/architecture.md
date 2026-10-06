@@ -58,7 +58,7 @@ Cloudflare ──► Render (FastAPI on uvicorn, https://scoutpost.ai)
 
 `mcp-server` runs with `verify_jwt = false` so OAuth endpoints can be reached unauthenticated. The broker needs the same property and additionally needs to call Supabase Auth admin APIs with the service-role key. Splitting it out keeps the JSON-RPC surface (`mcp-server`) auditable as an isolated bundle.
 
-The two functions share `MCP_STATE_SECRET` so `mcp-auth` can verify state tokens minted by `mcp-server`. There is no cross-EF import (Supabase's bundler doesn't support that); `mcp-auth` carries a copy of `state.ts` named `mcp_server_state.ts`.
+The two functions share `MCP_STATE_SECRET` so `mcp-auth` can verify state tokens minted by `mcp-server`. `mcp-auth` imports `mcp-server/oauth/state.ts` directly, so signing and verification have one implementation. The module lives under `mcp-server` because the OSS mirror keeps `mcp-server` and strips `mcp-auth`.
 
 ## Tools surface
 

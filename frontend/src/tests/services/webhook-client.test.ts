@@ -1,11 +1,14 @@
 /**
- * Tests for webhook-client — verifies cookie-based auth, request body, and error handling.
+ * Tests for webhook-client — verifies Bearer auth, request body, response mapping and error handling.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('$lib/config/api', () => ({
 	buildApiUrl: (path: string) => `/api${path.startsWith('/') ? path : '/' + path}`
 }));
+
+const auth = vi.hoisted(() => ({ getToken: vi.fn<() => Promise<string | null>>() }));
+vi.mock('$lib/stores/auth', () => ({ authStore: auth }));
 
 import { webhookClient } from '$lib/services/webhook-client';
 
@@ -22,27 +25,27 @@ let fetchSpy: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	auth.getToken.mockResolvedValue(null);
 	fetchSpy = mockFetchResponse({});
 	vi.stubGlobal('fetch', fetchSpy);
 });
 
 describe('webhookClient.testScraper', () => {
-	it('uses Bearer auth (no credentials; Authorization carries JWT when present)', async () => {
-		fetchSpy = mockFetchResponse({
-			summary: 'ok',
-			scraper_status: true,
-			criteria_status: false
-		});
-		vi.stubGlobal('fetch', fetchSpy);
+	it.each([
+		['a session token', 'session-jwt', 'Bearer session-jwt'],
+		['no session token', null, undefined]
+	])('posts to /scouts/test with %s as Bearer auth and no cookies', async (_label, token, expected) => {
+		auth.getToken.mockResolvedValue(token);
 
 		await webhookClient.testScraper({ url: 'https://example.com' });
 
-		const options = fetchSpy.mock.calls[0][1];
+		const [url, options] = fetchSpy.mock.calls[0];
+		expect(url).toBe('/api/scouts/test');
+		expect(options.method).toBe('POST');
 		// credentials dropped — Supabase Edge Functions return '*' origin;
 		// browsers reject credentials:'include' with wildcard CORS.
 		expect(options.credentials).toBeUndefined();
-		const auth = options.headers?.Authorization;
-		expect(auth === undefined || /^Bearer /.test(auth)).toBe(true);
+		expect(options.headers.Authorization).toBe(expected);
 	});
 
 	it('sends exactly url, criteria, and scraperName in body (no userId)', async () => {
@@ -87,9 +90,34 @@ describe('webhookClient.testScraper', () => {
 
 		const result = await webhookClient.testScraper({ url: 'https://example.com' });
 
-		expect(result.summary).toBe('Page content changed');
-		expect(result.scraper_status).toBe(true);
-		expect(result.criteria_status).toBe(true);
-		expect(result.content_hash).toBe('abc123');
+		expect(result).toEqual({
+			summary: 'Page content changed',
+			scraper_status: true,
+			criteria_status: true,
+			content_hash: 'abc123'
+		});
+	});
+
+	it('passes the probe envelope through and fills missing legacy fields', async () => {
+		fetchSpy = mockFetchResponse({
+			ok: false,
+			stage: 'reach',
+			error_code: 'blocked',
+			error: 'The site blocked automated access.'
+		});
+		vi.stubGlobal('fetch', fetchSpy);
+
+		const result = await webhookClient.testScraper({ url: 'https://example.com' });
+
+		expect(result).toEqual({
+			summary: '',
+			scraper_status: true,
+			criteria_status: false,
+			content_hash: undefined,
+			ok: false,
+			stage: 'reach',
+			error_code: 'blocked',
+			error: 'The site blocked automated access.'
+		});
 	});
 });

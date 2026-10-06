@@ -27,10 +27,17 @@ def test_wrong_token_rejected(app):
 
 
 def test_health_is_unauthenticated(app):
-    res = TestClient(app).get("/health")
-    assert res.status_code == 200
-    assert res.json()["status"] == "ok"
-    assert res.json()["browser"] in ("warm", "cold")
+    from tests.conftest import FakeScraper
+
+    client = TestClient(app)
+    # create_app installs the real Scraper, whose browser has not started yet.
+    cold = client.get("/health")
+    assert cold.status_code == 200
+    assert cold.json()["status"] == "ok"
+    assert cold.json()["browser"] == "cold"
+
+    app.state.scraper = FakeScraper()  # reports a started browser
+    assert client.get("/health").json()["browser"] == "warm"
 
 
 def test_anon_mode_allows_requests_when_opted_in():

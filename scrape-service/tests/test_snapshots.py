@@ -39,9 +39,18 @@ def test_happy_path_hashes_cover_exact_bytes():
 
 def test_screenshot_base64_passes_through_verbatim():
     # Decision 9: the exact base64 the renderer produced ships unmodified —
-    # no re-encode may sit between render and seal.
-    payload, _ = build_snapshot_payload(result_with(MHTML_TEXT, PNG_B64))
-    assert payload["screenshot_b64"] is PNG_B64
+    # no re-encode may sit between render and seal. The renderer string has
+    # non-zero padding bits: it decodes to the same PNG bytes, but any
+    # decode/re-encode round trip would emit the canonical "...ZWw=" instead.
+    rendered = "iVBORw0KGgpmYWtlcGl4ZWx="
+    png = b"\x89PNG\r\n\x1a\nfakepixel"
+    assert base64.b64decode(rendered, validate=True) == png
+    assert base64.b64encode(png).decode("ascii") != rendered
+
+    payload, err = build_snapshot_payload(result_with(MHTML_TEXT, rendered))
+    assert err is None
+    assert payload["screenshot_b64"] == rendered
+    assert payload["screenshot_sha256"] == hashlib.sha256(png).hexdigest()
 
 
 def test_screenshot_bytes_are_tolerated():

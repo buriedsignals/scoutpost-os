@@ -52,17 +52,6 @@ class Settings(BaseSettings):
     default_credits: int = int(os.getenv("DEFAULT_USER_CREDITS", "100"))
     default_timezone: str = os.getenv("DEFAULT_USER_TIMEZONE", "UTC")
 
-    # MuckRock Plan URLs (Sunlight pattern)
-    muckrock_pro_plan_url: str = os.getenv(
-        "MUCKROCK_PRO_PLAN_URL",
-        "https://accounts.muckrock.com/plans/70-cojournalist-pro/"  # Plan ID 70 confirmed by MuckRock 2026-03-25
-    )
-    muckrock_team_plan_url: str = os.getenv(
-        "MUCKROCK_TEAM_PLAN_URL",
-        "https://accounts.muckrock.com/plans/71-cojournalist-team/"
-    )
-
-
     # Firecrawl
     firecrawl_api_key: str = os.getenv("FIRECRAWL_API_KEY", "")
 
@@ -137,8 +126,8 @@ class Settings(BaseSettings):
             if not value:
                 logger.error(
                     "%s is unset in production. It signs/authenticates a "
-                    "security boundary (OAuth state HMAC, CMS token encryption, "
-                    "internal service calls); an empty value is fail-open. "
+                    "security boundary (OAuth state HMAC, internal service "
+                    "calls); an empty value is fail-open. "
                     "Set it in the deploy environment.",
                     name,
                 )

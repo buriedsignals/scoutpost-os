@@ -106,7 +106,9 @@ Deno.test("reflections: delete of unknown id returns 404", async () => {
   }
 });
 
-const hasOpenRouter = !!Deno.env.get("OPENROUTER_API_KEY");
+// Search embeds the query through paid OpenRouter; explicit opt-in only.
+const hasOpenRouter = Deno.env.get("SCOUT_LIVE_PROVIDER_TESTS") === "1" &&
+  Boolean(Deno.env.get("OPENROUTER_API_KEY"));
 const semanticSearchTest = hasOpenRouter ? Deno.test : Deno.test.ignore;
 
 semanticSearchTest(

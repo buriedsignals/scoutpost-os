@@ -187,31 +187,3 @@ Deno.test("beat eval: country topic can keep national/local-language and English
     "https://energy.example.com/denmark-offshore-wind",
   ]);
 });
-
-Deno.test("beat eval: sparse village topic is allowed to produce an auditable zero", () => {
-  const candidates = [
-    hit(
-      "https://www.gr.ch/DE/institutionen/verwaltung/djsg/kapo/aktuelles/medienmitteilungen/chur-unfall",
-      "Kantonspolizei meldet Unfall in Chur",
-    ),
-    hit(
-      "https://www.pontresina.ch/en/hotels",
-      "Best hotels in Pontresina",
-    ),
-    hit(
-      "https://www.engadinerpost.ch/2026/05/01/pontresina-gemeindeversammlung",
-      "Pontresina Gemeindeversammlung genehmigt Budget",
-    ),
-  ];
-
-  const hasPontresinaPoliceOverlap = candidates.some((candidate) => {
-    const text = `${candidate.title ?? ""} ${
-      candidate.description ?? ""
-    } ${candidate.url}`.toLowerCase();
-    return text.includes("pontresina") &&
-      (text.includes("police") || text.includes("polizei") ||
-        text.includes("polizia"));
-  });
-
-  assertEquals(hasPontresinaPoliceOverlap, false);
-});

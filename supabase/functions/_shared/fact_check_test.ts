@@ -208,28 +208,71 @@ Deno.test("UNCHECKED has correct shape", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Abstention threshold behavior (unit-level logic)
+// factCheckUnit — abstention rule over model verdicts
 // ---------------------------------------------------------------------------
 
-Deno.test("low confidence below threshold triggers abstention", () => {
-  const threshold = 0.4;
-  const confidence = 0.25;
-  const abstained = confidence < threshold;
-  assertEquals(abstained, true);
-});
-
-Deno.test("high confidence above threshold does not trigger abstention", () => {
-  const threshold = 0.4;
-  const confidence = 0.85;
-  const abstained = confidence < threshold;
-  assertEquals(abstained, false);
-});
-
-Deno.test("confidence exactly at threshold does not trigger abstention", () => {
-  const threshold = 0.4;
-  const confidence = 0.4;
-  const abstained = confidence < threshold;
-  assertEquals(abstained, false);
+Deno.test("factCheckUnit abstains on abstain/reject verdicts and confidence below threshold", async () => {
+  const config: FactCheckConfig = {
+    endpointUrl: "https://abstain.test",
+    modelId: "abstain-r1",
+    abstainThreshold: 0.4,
+    timeoutMs: 1_000,
+  };
+  const cases: Array<{
+    verdict: Record<string, unknown>;
+    expected: FactCheckResult;
+  }> = [
+    {
+      verdict: { verdict: "abstain", confidence: 0.9, reason: "Unverifiable" },
+      expected: {
+        fact_checked: true,
+        confidence_score: 0.9,
+        abstained: true,
+        abstain_reason: "Unverifiable",
+      },
+    },
+    {
+      verdict: { verdict: "reject", confidence: 0.85, reason: "Contradicted" },
+      expected: {
+        fact_checked: true,
+        confidence_score: 0.85,
+        abstained: true,
+        abstain_reason: "Contradicted",
+      },
+    },
+    {
+      verdict: { verdict: "accept", confidence: 0.25 },
+      expected: {
+        fact_checked: true,
+        confidence_score: 0.25,
+        abstained: true,
+        abstain_reason: "Low confidence",
+      },
+    },
+    {
+      verdict: { verdict: "accept", confidence: 0.4, reason: "Plausible" },
+      expected: {
+        fact_checked: true,
+        confidence_score: 0.4,
+        abstained: false,
+        abstain_reason: null,
+      },
+    },
+  ];
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const { verdict, expected } of cases) {
+      globalThis.fetch = (() =>
+        Promise.resolve(
+          Response.json({
+            choices: [{ message: { content: JSON.stringify(verdict) } }],
+          }),
+        )) as typeof fetch;
+      assertEquals(await factCheckUnit("Some claim.", config), expected);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -260,14 +303,4 @@ Deno.test("parseVerdict handles missing source context with low confidence", () 
   const result = _parseVerdict(raw);
   assertEquals(result?.verdict, "abstain");
   assertEquals(result?.confidence, 0.2);
-});
-
-Deno.test("reject verdict always results in abstained=true", () => {
-  const shouldAbstain = (
-    verdict: "accept" | "abstain" | "reject",
-    confidence: number,
-    threshold: number,
-  ) => verdict === "abstain" || verdict === "reject" || confidence < threshold;
-
-  assertEquals(shouldAbstain("reject", 0.85, 0.4), true);
 });

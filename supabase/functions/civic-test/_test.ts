@@ -2,7 +2,7 @@
  * Tests for civic-test Edge Function.
  *
  * Happy path calls live Firecrawl + OpenRouter and is gated on
- * FIRECRAWL_API_KEY + OPENROUTER_API_KEY.
+ * SCOUT_LIVE_PROVIDER_TESTS=1 + FIRECRAWL_API_KEY + OPENROUTER_API_KEY.
  */
 
 import {
@@ -11,8 +11,9 @@ import {
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { createTestUser, functionUrl } from "../_shared/_testing.ts";
 
-const FIRECRAWL_KEY = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
-const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
+const liveKeys = Deno.env.get("SCOUT_LIVE_PROVIDER_TESTS") === "1" &&
+  Boolean(Deno.env.get("FIRECRAWL_API_KEY")) &&
+  Boolean(Deno.env.get("OPENROUTER_API_KEY"));
 
 function headers(token: string): HeadersInit {
   return {
@@ -63,7 +64,7 @@ Deno.test("civic-test: 400 on empty tracked_urls array", async () => {
 
 Deno.test({
   name: "civic-test: happy path returns results (live firecrawl + openrouter)",
-  ignore: !FIRECRAWL_KEY || !OPENROUTER_KEY,
+  ignore: !liveKeys,
   fn: async () => {
     const user = await createTestUser();
     try {

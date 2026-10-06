@@ -19,6 +19,17 @@ export function capPageScoutCandidates(candidates: string[]): string[] {
   return candidates.slice(0, MAX_PAGE_SCOUT_CANDIDATES);
 }
 
+/**
+ * Collapse redirect aliases to one candidate per key. Each key keeps its first
+ * position but the last alias seen, so a validated effective URL listed after
+ * its requested alias replaces it.
+ */
+export function dedupePageScoutCandidates(urls: string[]): string[] {
+  return [
+    ...new Map(urls.map((url) => [pageScoutCandidateKey(url), url])).values(),
+  ];
+}
+
 export function applyEffectiveCandidateUrls(
   candidates: string[],
   mappings: Array<{ requested: string; effective: string }>,

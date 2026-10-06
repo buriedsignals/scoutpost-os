@@ -133,11 +133,12 @@ Deno.test("abandoned callers retain cleanup timestamp attribution", () => {
 });
 
 Deno.test("missing, stale, malformed or inconsistent telemetry cannot resolve an incident", () => {
+  // Every row is otherwise consistent, so only its own guard can reject it.
   for (
     const data of [
       null,
       {},
-      [],
+      Object.assign([], healthy),
       { ...healthy, observed_at: "bad" },
       { ...healthy, observed_at: "2026-09-21T09:54:59Z" },
       { ...healthy, observed_at: "2026-09-21T10:00:31Z" },
@@ -148,11 +149,23 @@ Deno.test("missing, stale, malformed or inconsistent telemetry cannot resolve an
       { ...healthy, retrieval_failed_recent: NaN },
       {
         ...healthy,
+        terminal_failed_recent: 3,
+        retrieval_failed_recent: 3,
         retrieval_groups: [{ ...group, hostname: "user:secret@host/path" }],
       },
     ]
-  ) assertThrows(() => parseCrawlerObservation(data, NOW));
-  assertThrows(() => evaluateCrawlerRetrievalIncident({} as never));
+  ) {
+    assertThrows(
+      () => parseCrawlerObservation(data, NOW),
+      Error,
+      "crawler health observation missing, invalid or stale",
+    );
+  }
+  assertThrows(
+    () => evaluateCrawlerRetrievalIncident({} as never),
+    Error,
+    "crawler retrieval observation missing",
+  );
 });
 
 Deno.test("observation RPC failures fail closed", async () => {
