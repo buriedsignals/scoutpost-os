@@ -48,7 +48,7 @@ Auth: Bearer JWT (Supabase auth) **or** Bearer `cj_…` API key plus
 | `social-kickoff` | Social Scout — fire Apify run | Live (cron) |
 | `social-test` | Social Scout — preview / baseline scan | Live |
 | `units` | Units list/get/search (hybrid lex+vec) + verify/reject/mark-used | Live |
-| `user` | Current user / preferences / timezone | Live |
+| `user` | Current user / preferences / timezone / personal data export | Live |
 
 
 ### FastAPI routers (`backend/app/routers/*`)

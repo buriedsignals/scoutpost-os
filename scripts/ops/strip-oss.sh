@@ -151,7 +151,7 @@ sed_if_exists -i '/^Hosted account deletion is initiated/,+6d' docs/architecture
 sed_if_exists -i '/^<!-- HOSTED_ENTITLEMENT_SYNC_START -->$/,/^<!-- HOSTED_ENTITLEMENT_SYNC_END -->$/d' docs/architecture/fastapi-endpoints.md
 sed_if_exists -i '\|/user/sync-entitlements|d' docs/supabase/edge-functions.md
 sed_if_exists -i '/^After that existing admission decision/,+6d' docs/architecture/fastapi-endpoints.md
-sed_if_exists -i 's|Current user / preferences / timezone + hosted account-deletion gate|Current user / preferences / timezone|' docs/architecture/api-surface.md
+sed_if_exists -i 's|Current user / preferences / timezone / personal data export + hosted account-deletion gate|Current user / preferences / timezone / personal data export|' docs/architecture/api-surface.md
 sed_if_exists -i "/^Indicator eligibility mode is a reviewed source-code decision, not an$/,+4d" AGENTS.md
 sed_if_exists -i "/^DEFAULT_BEEHIIV_LAB_TIER_ID = /d" backend/app/config.py
 sed_if_exists -i "/^    # Beehiiv \\/ Indicator Lab entitlement lookup/,+10d" backend/app/config.py
@@ -505,7 +505,6 @@ rewrite(
             "\n",
             re.DOTALL,
         ),
-        (r"\n  requireIdentity,", "", 0),
         (
             r"\n// HOSTED_ACCOUNT_DELETION_START\n.*?// HOSTED_ACCOUNT_DELETION_END\n",
             "\n",
@@ -531,6 +530,19 @@ rewrite(
         ),
         (r"\n    entitlement_source: entitlementSource,", "", 0),
         (r"\n    indicator_claim_active: indicatorClaimActive,", "", 0),
+    ],
+)
+
+# Hosted-only tables (plan overrides, newsletter memberships) leave the OSS
+# data export with their migrations.
+rewrite(
+    "supabase/functions/_shared/data_export.ts",
+    [
+        (
+            r"\n[ \t]*// HOSTED_DATA_EXPORT_START\n.*?// HOSTED_DATA_EXPORT_END\n",
+            "\n",
+            re.DOTALL,
+        ),
     ],
 )
 

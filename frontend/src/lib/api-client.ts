@@ -151,6 +151,50 @@ export async function submitFeedback(payload: FeedbackPayload): Promise<Feedback
 	return fastApiRequest<FeedbackResponse>('POST', '/feedback', payload);
 }
 
+export class DataExportApiError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+		readonly retryAfterSeconds: number | null
+	) {
+		super(message);
+		this.name = 'DataExportApiError';
+	}
+}
+
+/**
+ * Downloads the caller's personal data export (`GET /user/data-export`).
+ * Session-authenticated; the file is saved under the server's filename.
+ */
+export async function downloadPersonalData(): Promise<void> {
+	const response = await fetch(buildApiUrl('/user/data-export'), {
+		headers: await workspaceAuthHeaders()
+	});
+	if (!response.ok) {
+		const payload = (await response.json().catch(() => ({}))) as {
+			error?: unknown;
+			retry_after_seconds?: unknown;
+		};
+		throw new DataExportApiError(
+			typeof payload.error === 'string' ? payload.error : m.apiErrors_status({ status: response.status }),
+			response.status,
+			typeof payload.retry_after_seconds === 'number' ? payload.retry_after_seconds : null
+		);
+	}
+	// The body streams; a server-side failure mid-export rejects here rather
+	// than saving a truncated file.
+	const blob = await response.blob();
+	const filename =
+		/filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ??
+		`scoutpost-data-${new Date().toISOString().slice(0, 10)}.json`;
+	const url = URL.createObjectURL(blob);
+	const link = document.createElement('a');
+	link.href = url;
+	link.download = filename;
+	link.click();
+	URL.revokeObjectURL(url);
+}
+
 
 /**
  * Like apiRequest, but uses safe JSON parsing for error responses

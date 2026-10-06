@@ -2,6 +2,7 @@
 	import { Settings, CheckCircle, ExternalLink } from 'lucide-svelte';
 	import { fade } from 'svelte/transition';
 	import { authStore } from '$lib/stores/auth';
+	import { DataExportApiError, downloadPersonalData } from '$lib/api-client';
 	import { SUPPORTED_LANGUAGES, getLanguageLabel } from '$lib/i18n/constants';
 	import { setLocaleFromUser } from '$lib/i18n/locale';
 	import { formatTz, getTimezoneOptions, normalizeTimezone } from '$lib/utils/timezones';
@@ -17,11 +18,14 @@
 	let saveSuccess = false;
 	let errorMessage: string | null = null;
 	let initialized = false;
+	let dataExporting = false;
+	let dataExportError: string | null = null;
 	const muckrockAccountUrl = '#';
 
 	// Reset initialization when modal closes
 	$: if (!open) {
 		initialized = false;
+		dataExportError = null;
 	}
 
 	// Initialize only once when modal first opens
@@ -80,6 +84,23 @@
 
 	function handleCancel() {
 		onClose();
+	}
+
+	async function handleDataExport() {
+		dataExporting = true;
+		dataExportError = null;
+		try {
+			await downloadPersonalData();
+		} catch (e: unknown) {
+			dataExportError =
+				e instanceof DataExportApiError && e.status === 429
+					? m.preferences_dataExportRateLimited({
+							minutes: Math.max(1, Math.ceil((e.retryAfterSeconds ?? 3600) / 60))
+						})
+					: m.preferences_dataExportFailed();
+		} finally {
+			dataExporting = false;
+		}
 	}
 
 	function handleBackdropClick(event: MouseEvent) {
@@ -199,6 +220,22 @@
 							<ExternalLink size={14} />
 						</a>
 						<p class="form-helper">{m.preferences_manageMuckrockHint()}</p>
+
+						<div class="data-export">
+							<p class="form-label">{m.preferences_dataExportTitle()}</p>
+							<p class="form-helper">{m.preferences_dataExportHint()}</p>
+							<button
+								type="button"
+								class="btn-secondary data-export-button"
+								disabled={dataExporting}
+								on:click={handleDataExport}
+							>
+								{dataExporting ? m.preferences_dataExportPreparing() : m.preferences_dataExportButton()}
+							</button>
+							{#if dataExportError}
+								<p class="data-export-error" role="alert">{dataExportError}</p>
+							{/if}
+						</div>
 					</section>
 
 					{#if errorMessage}
@@ -338,6 +375,23 @@
 		.claim-button {
 			width: 100%;
 		}
+	}
+
+	.data-export {
+		margin-top: 1rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--color-border);
+	}
+
+	.data-export-button {
+		margin-top: 0.625rem;
+	}
+
+	.data-export-error {
+		margin: 0.5rem 0 0;
+		font-size: 0.75rem;
+		line-height: 1.45;
+		color: var(--color-error);
 	}
 
 	.error-text {

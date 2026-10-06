@@ -6,12 +6,14 @@
  *   GET   /user/preferences          user_preferences row (or {} if absent)
  *   PATCH /user/preferences          upsert preference fields
  *   POST  /user/onboarding-complete  mark onboarding_completed = TRUE
+ *   GET   /user/data-export          personal data download (session only)
  */
 
 import { z } from "https://esm.sh/zod@3";
 import { handleCors } from "../_shared/cors.ts";
 import {
   type AuthedUser,
+  requireIdentity,
   requireIdentityOrApiKey,
   requireUser,
 } from "../_shared/auth.ts";
@@ -19,6 +21,11 @@ import { getServiceClient, getUserClient } from "../_shared/supabase.ts";
 import { jsonError, jsonFromError, jsonOk } from "../_shared/responses.ts";
 import { ValidationError } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
+import {
+  consumeDataExportBudget,
+  dataExportResponse,
+  loadDataExportAccount,
+} from "../_shared/data_export.ts";
 
 /**
  * The spec lists fields (timezone, language, onboarding_completed,
@@ -76,6 +83,8 @@ Deno.serve(async (req): Promise<Response> => {
   const path = url.pathname.replace(/^.*\/user/, "") || "/";
   const isRead = req.method === "GET" || req.method === "HEAD";
 
+  if (path === "/data-export") return await dataExport(req);
+
   let user: AuthedUser;
   try {
     user = path === "/me" && isRead
@@ -110,6 +119,57 @@ Deno.serve(async (req): Promise<Response> => {
     return jsonFromError(e);
   }
 });
+
+/**
+ * GET /data-export — every row the caller owns, as a JSON attachment.
+ *
+ * Browser session only: requireIdentity rejects API keys and service keys, so
+ * an agent credential cannot bulk-read the account. It deliberately skips
+ * requireUser's plan-admission gate; access rights do not lapse with a plan.
+ */
+async function dataExport(req: Request): Promise<Response> {
+  if (req.method !== "GET") {
+    return jsonError("method not allowed", 405, undefined, req);
+  }
+  let user: AuthedUser;
+  try {
+    user = await requireIdentity(req);
+  } catch (e) {
+    return jsonFromError(e, req);
+  }
+  const svc = getServiceClient();
+  try {
+    const budget = await consumeDataExportBudget(svc, user.id);
+    if (!budget.allowed) {
+      return jsonOk(
+        {
+          error: "Data export limit reached; try again later",
+          code: "rate_limit",
+          retry_after_seconds: budget.retryAfterSeconds,
+        },
+        429,
+        req,
+      );
+    }
+    const account = await loadDataExportAccount(svc, user.id);
+    logEvent({
+      level: "info",
+      fn: "user",
+      event: "data_export_started",
+      user_id: user.id,
+    });
+    return dataExportResponse(req, svc, account);
+  } catch (e) {
+    logEvent({
+      level: "error",
+      fn: "user",
+      event: "data_export_failed",
+      user_id: user.id,
+      msg: e instanceof Error ? e.message : String(e),
+    });
+    return jsonFromError(e, req);
+  }
+}
 
 // ---------------------------------------------------------------------------
 

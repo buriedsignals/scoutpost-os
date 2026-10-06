@@ -184,6 +184,9 @@
 				<li><strong>Portability</strong> &mdash; receive your data in a machine-readable format</li>
 			</ul>
 			<p>
+				You can download a machine-readable (JSON) copy of the data stored for your account yourself from Preferences &gt; Your data, up to three times per hour. The file covers your account, settings, credit usage, scouts and their runs, extracted information, entities, projects, civic trackers and connected tools. It leaves out embedding vectors derived from your text, security secrets such as key hashes and tokens, internal processing records, and the bodies of captured pages and posts, which it lists by URL and time instead. To obtain anything the file does not include, or to exercise another right, contact us as described below.
+			</p>
+			<p>
 				Data is processed in the region configured by your newsroom or hosting provider. EU users may lodge a complaint with their local data protection authority.
 			</p>
 		</section>

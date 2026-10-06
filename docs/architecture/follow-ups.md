@@ -34,12 +34,9 @@ Backlog of work intentionally left out of recent PRs (#99 hardening / #101 combi
 
 ---
 
-## 3. GDPR Art. 15 data export — no self-service endpoint
+## 3. GDPR Art. 15 data export — resolved
 
-- **What**: The legacy FastAPI `GET /api/user/data-export` route was removed together with `/api/user/*`, `/api/units/*`, `/api/onboarding/*` and the scout/execution/run/unit storage adapters. It had no UI and no client requests in Render logs (2026-09-21 → 2026-10-06). No Edge Function replaces it; until one exists, Art. 15 access requests need a manual export.
-- **Impact M · Risk L · Cost M** — a `user` Edge Function export route if self-service export becomes a requirement.
-- **Where**: `supabase/functions/user/` (new route); RLS-scoped reads of `user_preferences`, `scouts`, `scout_runs`, `information_units`.
-- **Deferred because**: removal was approved on zero usage; build the Edge Function route only when self-service export is required.
+- **What**: The legacy FastAPI `GET /api/user/data-export` route was removed with `/api/user/*` (no UI, no client requests). Its replacement is the session-only Edge route `GET /user/data-export` with the Preferences "Download my data" button; see [edge-functions.md](../supabase/edge-functions.md#user--user). Requests for data outside the file's documented exclusions still need a manual export.
 
 ---
 
