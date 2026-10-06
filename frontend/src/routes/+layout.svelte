@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
-	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { authStore } from '$lib/stores/auth';
 	import { notificationStore } from '$lib/stores/notifications';
@@ -57,8 +56,10 @@ function markTimezoneVerified(userId?: string | null) {
 
 			unsubscribe = authStore.subscribe(async (state) => {
 				if (!state.authenticated && !publicPaths.includes($page.url.pathname)) {
-					// Redirect to the auth provider's login page
-					await goto(loginPath);
+					// Full navigation, not goto(): the server sends /login its own
+					// CSP (frame-src allows the demo video); a client-side route
+					// change would keep the entry page's frame-src 'none'.
+					window.location.replace(loginPath);
 					return;
 				}
 
