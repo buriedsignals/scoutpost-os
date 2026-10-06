@@ -21,7 +21,7 @@ VALUES ('00000000-0000-0000-0000-000000000082', '00000000-0000-0000-0000-0000000
 INSERT INTO raw_captures (id, user_id, content_md)
 VALUES ('00000000-0000-0000-0000-000000000083', '00000000-0000-0000-0000-000000000082', 'other source');
 
-SELECT * FROM upsert_canonical_unit(
+SELECT * FROM upsert_canonical_unit_v2(
   p_user_id := '00000000-0000-0000-0000-000000000080',
   p_statement := 'The café has proof.', p_type := 'fact',
   p_source_type := 'manual_ingest', p_raw_capture_id := '00000000-0000-0000-0000-000000000081',
