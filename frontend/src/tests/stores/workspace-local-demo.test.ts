@@ -1,8 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const DEMO_DISMISSED_KEY = 'cojournalist_demo_dismissed';
 
 describe('workspace local demo mode', () => {
+	// The first import of this module graph costs about 2 s idle and over 5 s
+	// when the full suite runs in parallel, which timed out whichever test came
+	// first (and leaked its pending work into the next test). Pay it once here;
+	// vi.resetModules() later only re-evaluates the already-transformed modules.
+	beforeAll(
+		() => Promise.all([import('$lib/stores/workspace/scouts'), import('$lib/stores/workspace/units')]),
+		60_000
+	);
+
 	beforeEach(() => {
 		vi.resetModules();
 		vi.unstubAllEnvs();

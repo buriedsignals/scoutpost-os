@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { createClientMock } = vi.hoisted(() => ({
 	createClientMock: vi.fn()
@@ -14,6 +14,12 @@ async function loadAuthStore() {
 }
 
 describe('auth-supabase login', () => {
+	// The first import of this module graph costs about 2 s idle and over 5 s
+	// when the full suite runs in parallel, which timed out whichever test came
+	// first (and leaked its pending work into the next test). Pay it once here;
+	// vi.resetModules() later only re-evaluates the already-transformed modules.
+	beforeAll(() => import('$lib/stores/auth-supabase'), 60_000);
+
 	beforeEach(() => {
 		vi.unstubAllEnvs();
 		createClientMock.mockReset();
