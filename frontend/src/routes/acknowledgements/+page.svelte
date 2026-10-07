@@ -35,7 +35,11 @@
 			<section class="ack-section">
 				<h2 class="section-title">Scraping &amp; browser automation</h2>
 				<ul class="credits">
-					<li><a href="https://github.com/unclecode/crawl4ai" target="_blank" rel="noopener">Crawl4AI</a> — unclecode · the primary scraper behind Page, Beat, and Civic Scouts · Apache-2.0</li>
+					<li>
+						<a href="https://github.com/unclecode/crawl4ai" target="_blank" rel="noopener">Crawl4AI</a> — unclecode · the primary scraper behind Page, Beat, and Civic Scouts · Apache-2.0<br />
+						<!-- Verbatim wording required by the Crawl4AI v0.9.2 LICENSE "Attribution Requirement". -->
+						This product includes software developed by UncleCode (<a href="https://x.com/unclecode" target="_blank" rel="noopener">https://x.com/unclecode</a>) as part of the Crawl4AI project (<a href="https://github.com/unclecode/crawl4ai" target="_blank" rel="noopener">https://github.com/unclecode/crawl4ai</a>).
+					</li>
 					<li><a href="https://playwright.dev/" target="_blank" rel="noopener">Playwright</a> — browser automation under the scraper</li>
 					<li><a href="https://poppler.freedesktop.org/" target="_blank" rel="noopener">Poppler</a> — <code>pdftotext</code> · civic-PDF extraction</li>
 				</ul>
