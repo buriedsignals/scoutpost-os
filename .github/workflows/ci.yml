@@ -83,7 +83,7 @@ jobs:
       - name: Crawler health monitor regression tests (no runtime network)
         run: deno test --allow-env --allow-import supabase/functions/operations-monitor/_test.ts
       - name: Benchmark truth unit tests
-        run: deno test --allow-env --allow-import scripts/benchmarks/_bench_truth_test.ts scripts/civic-repair-inventory_test.ts scripts/civic-backfill_test.ts scripts/benchmarks/_crawl4ai_shadow_config_test.ts scripts/benchmarks/_crawl4ai_shadow_contract_test.ts scripts/benchmarks/_crawl4ai_shadow_gates_test.ts scripts/benchmarks/_scrape_corpus_test.ts scripts/benchmarks/benchmark-openrouter-embeddings_test.ts scripts/ops/backfill-embeddings_test.ts scripts/ops/replay-paused-web-scouts_test.ts
+        run: deno test --allow-env --allow-import scripts/benchmarks/_bench_truth_test.ts scripts/civic-repair-inventory_test.ts scripts/civic-backfill_test.ts scripts/benchmarks/_crawl4ai_shadow_config_test.ts scripts/benchmarks/_crawl4ai_shadow_contract_test.ts scripts/benchmarks/_crawl4ai_shadow_gates_test.ts scripts/benchmarks/_scrape_corpus_test.ts scripts/benchmarks/benchmark-openrouter-embeddings_test.ts scripts/ops/replay-paused-web-scouts_test.ts
       - name: Public policy contract tests
         run: deno test --allow-env --allow-read --allow-import scripts/abuse_risk_audit_contract_test.ts scripts/acceptable_use_policy_contract_test.ts
       - name: MCP stdio bridge tests
