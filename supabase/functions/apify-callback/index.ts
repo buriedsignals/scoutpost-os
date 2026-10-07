@@ -47,7 +47,6 @@ import {
 import { sha256Hex, upsertCanonicalUnit } from "../_shared/unit_dedup.ts";
 import {
   diffSocialPosts,
-  formatSocialBaselinePosts,
   type NormalizedSocialPost,
   normalizeSocialDatasetPosts,
 } from "../_shared/social_baseline.ts";
@@ -599,7 +598,7 @@ async function processSucceededRun(
       platform,
       handle: queueRow.handle ?? scout.profile_handle,
       post_count: diff.baseline.length,
-      posts: formatSocialBaselinePosts(diff.baseline, platform),
+      posts: diff.baselinePosts,
       updated_at: new Date().toISOString(),
     };
     const { error: upsertErr } = await svc

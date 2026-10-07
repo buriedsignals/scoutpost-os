@@ -335,7 +335,9 @@ Deno.test("socialPostIdentity accepts safe integers and rejects unsafe numbers",
   );
 });
 
-Deno.test("formatSocialBaselinePosts stores only unique compatibility identities", () => {
+// Publish times are stored so removals can be told apart from posts that aged
+// out of the result cap; captions, images and URLs are never persisted.
+Deno.test("formatSocialBaselinePosts stores unique identities and publish times only", () => {
   assertEquals(
     formatSocialBaselinePosts([
       {
@@ -360,8 +362,92 @@ Deno.test("formatSocialBaselinePosts stores only unique compatibility identities
         url: null,
       },
     ]),
-    [{ id: "post-1" }, { id: "post-2" }],
+    [{ id: "post-1", timestamp: "2026-08-20T00:00:00.000Z" }, { id: "post-2" }],
   );
+});
+
+function capPosts(
+  count: number,
+  newestDay: number,
+): Array<
+  { id: string; text: string; timestamp: string; imageUrl: null; url: null }
+> {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `day-${newestDay - index}`,
+    text: "post",
+    timestamp: new Date(Date.UTC(2026, 8, newestDay - index)).toISOString(),
+    imageUrl: null,
+    url: null,
+  }));
+}
+
+// A run at the result cap drops its oldest post whenever a new one arrives;
+// that post aged out and must not be reported as deleted (haeuservernetzung,
+// 2026-09-28: one "removed" alert on a 12-post Instagram baseline).
+Deno.test("diffSocialPosts does not report a post that aged out of a capped result", () => {
+  const previous = formatSocialBaselinePosts(capPosts(20, 25), "x");
+  const current = capPosts(20, 26); // one new post; day-6 fell off the cap
+
+  const result = diffSocialPosts("x", previous, current);
+
+  assertEquals(result.newPosts.map((post) => post.id), ["day-26"]);
+  assertEquals(result.removedIds, []);
+  assertEquals(result.baselinePosts[0], {
+    id: "day-26",
+    timestamp: "2026-09-26T00:00:00.000Z",
+  });
+});
+
+Deno.test("diffSocialPosts reports a deletion inside a capped result", () => {
+  const previous = formatSocialBaselinePosts(capPosts(20, 25), "x");
+  const current = capPosts(21, 26).filter((post) => post.id !== "day-20");
+
+  const result = diffSocialPosts("x", previous, current);
+
+  assertEquals(result.removedIds, ["day-20"]);
+});
+
+Deno.test("diffSocialPosts ignores a pinned old post when finding the capped window", () => {
+  const previous = formatSocialBaselinePosts(capPosts(12, 25), "instagram");
+  const pinned = {
+    id: "pinned-2025",
+    text: "pinned",
+    timestamp: "2025-01-01T00:00:00.000Z",
+    imageUrl: null,
+    url: null,
+    pinned: true,
+  };
+  // 12 unpinned posts fill the cap plus the pinned one; day-14 aged out.
+  const current = [pinned, ...capPosts(12, 26)];
+
+  const result = diffSocialPosts("instagram", previous, current);
+
+  assertEquals(result.removedIds, []);
+});
+
+Deno.test("diffSocialPosts never reports an id-only legacy entry at the cap", () => {
+  const previous = ["legacy-a", ...capPosts(19, 25).map((post) => post.id)];
+  const result = diffSocialPosts("x", previous, capPosts(20, 26));
+
+  assertEquals(result.removedIds.includes("legacy-a"), false);
+});
+
+Deno.test("normalizeSocialDatasetPosts reads each platform's pinned marker", () => {
+  const pins = [
+    normalizeSocialDatasetPosts("instagram", [{
+      shortcode: "IG-PIN",
+      timeline_pinned_user_ids: [12345],
+    }, { shortcode: "IG-FREE", timeline_pinned_user_ids: [] }]),
+    normalizeSocialDatasetPosts("x", [{ id: "X-PIN", isPinned: true }]),
+    normalizeSocialDatasetPosts("tiktok", [{ aweme_id: "TT-PIN", is_top: 1 }]),
+  ].flat().map((post) => [post.id, post.pinned]);
+
+  assertEquals(pins, [
+    ["IG-PIN", true],
+    ["IG-FREE", false],
+    ["X-PIN", true],
+    ["TT-PIN", true],
+  ]);
 });
 
 Deno.test("minimal baseline writes remain readable by the pre-cutover callback", () => {

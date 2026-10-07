@@ -7,6 +7,15 @@ import {
 } from "./social_profiles.ts";
 
 const MAX_ITEMS = 20;
+// Posts one actor run returns at most. The Instagram posts actor returns 12
+// whatever maxItems says (live 2026-10-07: maxItems 3, 5 and 20 all gave 12).
+const RESULT_CAP: Record<SocialPlatform, number> = {
+  instagram: 12,
+  x: MAX_ITEMS,
+  facebook: MAX_ITEMS,
+  tiktok: MAX_ITEMS,
+  linkedin: MAX_ITEMS,
+};
 const APIFY_TIMEOUT_SECS = 120;
 const SOCIAL_IDENTITY_FIELDS: Record<SocialPlatform, readonly string[]> = {
   instagram: ["shortcode", "shortCode", "id", "pk", "postId", "post_id", "url"],
@@ -72,15 +81,21 @@ export interface NormalizedSocialPost {
   timestamp: string;
   imageUrl: string | null;
   url: string | null;
+  /** Pinned to the profile: shown first whatever its age. */
+  pinned?: boolean;
 }
 export interface SocialBaselinePost {
   id: string;
+  /** ISO time the post was published, when the actor reported one. */
+  timestamp?: string;
 }
 
 export interface SocialPostDiff {
   newPosts: NormalizedSocialPost[];
   removedIds: string[];
   baseline: string[];
+  /** What to persist: `baseline` with publish times. */
+  baselinePosts: SocialBaselinePost[];
   currentPostCount: number;
   shouldReplaceBaseline: boolean;
 }
@@ -202,10 +217,21 @@ export function formatSocialBaselinePosts(
     const identity = socialPostIdentity(platform, post);
     if (identity && !seen.has(identity)) {
       seen.add(identity);
-      identities.push({ id: identity });
+      const timestamp = baselineTimestamp(post);
+      identities.push(
+        timestamp ? { id: identity, timestamp } : { id: identity },
+      );
     }
   }
   return identities;
+}
+
+function baselineTimestamp(row: unknown): string | undefined {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return undefined;
+  const value = (row as Record<string, unknown>).timestamp;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
 }
 
 export function diffSocialPosts(
@@ -213,8 +239,8 @@ export function diffSocialPosts(
   previousPosts: unknown,
   currentPosts: readonly NormalizedSocialPost[],
 ): SocialPostDiff {
-  const previous = formatSocialBaselinePosts(previousPosts, platform)
-    .map((post) => post.id);
+  const previousEntries = formatSocialBaselinePosts(previousPosts, platform);
+  const previous = previousEntries.map((post) => post.id);
   const previousSet = new Set(previous);
   const current: NormalizedSocialPost[] = [];
   const currentIds: string[] = [];
@@ -231,16 +257,47 @@ export function diffSocialPosts(
   const newPosts = current.filter((post) => !previousSet.has(post.id));
   const actorLikelyOk = previous.length === 0 ||
     currentIds.length * 5 >= previous.length;
+  const isRemoved = removalTest(platform, current);
 
   return {
     newPosts,
     removedIds: actorLikelyOk
-      ? previous.filter((identity) => !currentSet.has(identity))
+      ? previousEntries.filter((post) =>
+        !currentSet.has(post.id) && isRemoved(post)
+      )
+        .map((post) => post.id)
       : [],
     baseline: actorLikelyOk ? currentIds : previous,
+    baselinePosts: actorLikelyOk
+      ? formatSocialBaselinePosts(current, platform)
+      : previousEntries,
     currentPostCount: currentIds.length,
     shouldReplaceBaseline: actorLikelyOk,
   };
+}
+
+/**
+ * Decides whether a post missing from the current run was deleted. Below the
+ * result cap the run holds the whole profile, so every missing post was
+ * deleted. At the cap, a new post pushes the oldest one out of the result;
+ * that post was not deleted. Only a post published no earlier than the
+ * oldest unpinned current post should still be there, and only a baseline
+ * entry with a publish time can prove that, so legacy id-only entries are
+ * never reported at the cap.
+ */
+function removalTest(
+  platform: SocialPlatform | string,
+  current: readonly NormalizedSocialPost[],
+): (post: SocialBaselinePost) => boolean {
+  const unpinned = current.filter((post) => !post.pinned);
+  const cap = RESULT_CAP[platform as SocialPlatform] ?? MAX_ITEMS;
+  if (unpinned.length < cap) return () => true;
+  const times = unpinned.map((post) => Date.parse(post.timestamp))
+    .filter((ms) => !Number.isNaN(ms));
+  if (times.length === 0) return () => false;
+  const oldest = Math.min(...times);
+  return (post) =>
+    post.timestamp !== undefined && Date.parse(post.timestamp) >= oldest;
 }
 
 export function normalizeSocialDatasetPosts(
@@ -332,7 +389,15 @@ function normalizePost(
       firstImageLike(video?.dynamic_cover);
     url = str(r.url) || str(r.share_url) || str(r.webVideoUrl);
   }
-  return { id, text, timestamp, imageUrl, url };
+  return { id, text, timestamp, imageUrl, url, pinned: isPinned(r) };
+}
+
+// Pinned markers verified on live rows 2026-10-07. Facebook and LinkedIn rows
+// carry none.
+function isPinned(r: Record<string, unknown>): boolean {
+  const instagramPins = r.timeline_pinned_user_ids;
+  return r.isPinned === true || r.is_top === 1 || r.is_top === true ||
+    (Array.isArray(instagramPins) && instagramPins.length > 0);
 }
 
 function str(v: unknown): string {

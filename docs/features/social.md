@@ -106,6 +106,15 @@ exactly when the current count is at least 20% of the prior count
 (`current_count * 5 >= previous_count`); otherwise it suppresses removals and
 preserves the prior baseline.
 
+Snapshots store `{ id, timestamp }` (publish time, ISO) and no post content.
+A run that returns fewer unpinned posts than the platform's result cap
+(Instagram 12, the others 20) holds the whole profile, so every missing post is
+a removal. At the cap, a new post pushes the oldest one out; a missing post is
+a removal only when its stored publish time is no earlier than the oldest
+unpinned current post. Id-only legacy entries are never reported at the cap.
+Pinned markers: Instagram `timeline_pinned_user_ids`, X `isPinned`, TikTok
+`is_top`; Facebook and LinkedIn rows carry none.
+
 Scheduled creation establishes a baseline server-side for UI, API, CLI, and MCP
 callers. The UI can pass preview posts as an optimization, but non-UI agents only
 need `platform` and `profile_handle`; the create endpoint performs the baseline
