@@ -1,6 +1,6 @@
 BEGIN;
 SET LOCAL search_path = public, extensions;
-SELECT plan(26);
+SELECT plan(28);
 
 CREATE FUNCTION pg_temp.call_prepare_social_scout_resume(
   p_scout_id uuid,
@@ -110,6 +110,27 @@ SELECT is(
     WHERE scout_id = '00000000-0000-4000-8000-000000000446'),
   8,
   'post_count follows the unique minimal identity count'
+);
+
+-- Publish times survive normalization so capped results can tell an aged-out
+-- post from a deleted one; only strict ISO-8601 UTC strings are kept.
+SELECT is(
+  public.normalize_social_baseline_posts('x', '[
+    {"id":"X-1","timestamp":"2026-10-06T20:55:09.000Z","text":"private text"},
+    {"id":"X-1","timestamp":"2026-01-01T00:00:00.000Z"},
+    {"id":"X-2","timestamp":"2026-10-06T20:55:09Z","image_url":"https://example.test/p.jpg"}
+  ]'::jsonb),
+  '[{"id":"X-1","timestamp":"2026-10-06T20:55:09.000Z"},{"id":"X-2","timestamp":"2026-10-06T20:55:09Z"}]'::jsonb,
+  'baseline keeps the first ISO publish time per identity and still drops content'
+);
+SELECT is(
+  public.normalize_social_baseline_posts('facebook', '[
+    {"post_id":"FB-1","timestamp":"Tue Oct 06 20:55:09 +0000 2026"},
+    {"post_id":"FB-2","timestamp":1790598912},
+    {"post_id":"FB-3","timestamp":"2026-10-06T20:55:09.000Z; DROP"}
+  ]'::jsonb),
+  '[{"id":"FB-1"},{"id":"FB-2"},{"id":"FB-3"}]'::jsonb,
+  'non-ISO, numeric, and padded publish times are dropped'
 );
 
 SELECT ok(
