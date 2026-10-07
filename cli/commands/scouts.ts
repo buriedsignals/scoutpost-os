@@ -7,6 +7,7 @@ import {
   parseArgs,
   printJSON,
   printTable,
+  SOCIAL_CREATE_TIMEOUT_MS,
   unwrapItems,
 } from "../lib/client.ts";
 import { printProbeSummary, probeEnvelopeFromPayload } from "../lib/probe.ts";
@@ -567,10 +568,16 @@ export async function run(argv: string[]): Promise<void> {
         console.error("social scouts require --platform and --handle");
         Deno.exit(1);
       }
-      if (location && !["displayName", "city", "state", "country"].some(
-        (key) => typeof location[key] === "string" && location[key].trim().length > 0,
-      )) {
-        console.error("--location-json requires a non-empty displayName, city, state, or country");
+      if (
+        location && !["displayName", "city", "state", "country"].some(
+          (key) =>
+            typeof location[key] === "string" &&
+            location[key].trim().length > 0,
+        )
+      ) {
+        console.error(
+          "--location-json requires a non-empty displayName, city, state, or country",
+        );
         Deno.exit(1);
       }
       if (flags.type !== "transport" && !topic?.trim() && !location) {
@@ -587,6 +594,8 @@ export async function run(argv: string[]): Promise<void> {
           body: JSON.stringify(body),
           ...(flags.type === "civic"
             ? { timeoutMs: CIVIC_API_TIMEOUT_MS }
+            : flags.type === "social"
+            ? { timeoutMs: SOCIAL_CREATE_TIMEOUT_MS }
             : {}),
         });
       } catch (err) {

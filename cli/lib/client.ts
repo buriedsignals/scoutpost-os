@@ -38,6 +38,11 @@ const API_TIMEOUT_MS = 15_000;
 // budget so the CLI receives the real response (including a 504) instead of
 // aborting a valid operation first.
 export const CIVIC_API_TIMEOUT_MS = 190_000;
+// Social creation scans the profile before answering: one synchronous Apify
+// run bounded at 135 s (social_baseline.ts APIFY_TIMEOUT_SECS + 15) plus
+// profile probes. A shorter CLI timeout reported a failure while the scout
+// was still created, so a retry made a duplicate (2026-10-07).
+export const SOCIAL_CREATE_TIMEOUT_MS = 190_000;
 const MAX_API_RESPONSE_BYTES = 1024 * 1024;
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 

@@ -17,6 +17,7 @@ import {
   printTable,
   readConfigFile,
   resolvePath,
+  SOCIAL_CREATE_TIMEOUT_MS,
   unwrapItems,
   validateApiUrl,
   writeConfigFile,
@@ -1015,6 +1016,64 @@ Deno.test("scouts add — forwards civic, schedule, and source-discovery fields"
   });
 });
 
+// The server answers a social create only after its baseline scan (up to
+// 135 s); the 15 s default reported a timeout for a scout that was created,
+// so a retry made a duplicate (2026-10-07).
+Deno.test("scouts add — waits for the social baseline scan", async () => {
+  await withTempHome(async () => {
+    writeConfigFile({
+      api_url: "https://scoutpost.ai/functions/v1",
+      api_key: "cj_test",
+      supabase_anon_key: "anon",
+    });
+    const origFetch = globalThis.fetch;
+    const origLog = console.log;
+    const originalSetTimeout = globalThis.setTimeout;
+    let timeoutDelay = 0;
+    globalThis.setTimeout = ((_handler: () => void, delay?: number) => {
+      timeoutDelay = Number(delay);
+      return 1;
+    }) as unknown as typeof setTimeout;
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ id: "scout_1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )) as typeof fetch;
+    console.log = () => {};
+
+    try {
+      await runScouts([
+        "add",
+        "--name",
+        "Facebook watch",
+        "--type",
+        "social",
+        "--platform",
+        "facebook",
+        "--handle",
+        "zuck",
+        "--monitor-mode",
+        "summarize",
+        "--topic",
+        "tech",
+        "--regularity",
+        "weekly",
+        "--time",
+        "08:00",
+      ]);
+    } finally {
+      globalThis.fetch = origFetch;
+      console.log = origLog;
+      globalThis.setTimeout = originalSetTimeout;
+    }
+
+    assertEquals(timeoutDelay, SOCIAL_CREATE_TIMEOUT_MS);
+    assert(timeoutDelay > 135_000, "must outlast the server's baseline scan");
+  });
+});
+
 Deno.test("scouts add — forwards topic for scheduled web scouts", async () => {
   await withTempHome(async () => {
     writeConfigFile({
@@ -1737,12 +1796,27 @@ Deno.test("scouts add rejects missing required values before HTTP", async () => 
     throw new Error("Unexpected HTTP request");
   }) as typeof fetch;
   try {
-    for (const [args, error] of [
-      [["--name", " ", "--type", "beat", "--topic", "housing"], "--name is required"],
-      [["--name", "Page", "--type", "web", "--topic", "housing"], "web scouts require --url"],
-      [["--name", "Beat", "--type", "beat", "--location-json", "{}"], "--location-json requires a non-empty displayName"],
-    ] as const) {
-      await assertRejects(() => runScouts(["add", ...args]), Error, "__exit__1");
+    for (
+      const [args, error] of [
+        [
+          ["--name", " ", "--type", "beat", "--topic", "housing"],
+          "--name is required",
+        ],
+        [
+          ["--name", "Page", "--type", "web", "--topic", "housing"],
+          "web scouts require --url",
+        ],
+        [
+          ["--name", "Beat", "--type", "beat", "--location-json", "{}"],
+          "--location-json requires a non-empty displayName",
+        ],
+      ] as const
+    ) {
+      await assertRejects(
+        () => runScouts(["add", ...args]),
+        Error,
+        "__exit__1",
+      );
       assertStringIncludes(errors.at(-1) ?? "", error);
     }
     assertEquals(requests, 0);
@@ -1752,7 +1826,6 @@ Deno.test("scouts add rejects missing required values before HTTP", async () => 
     globalThis.fetch = originalFetch;
   }
 });
-
 
 Deno.test("scouts test --type civic posts tracked_urls to civic/discover and exits 1 on no_meetings_detected", async () => {
   await withTempHome(async () => {
