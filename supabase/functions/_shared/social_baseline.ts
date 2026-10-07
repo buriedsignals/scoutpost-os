@@ -291,13 +291,21 @@ function normalizePost(
   } else if (platform === "x") {
     text = str(r.text) || str(r.fullText);
     timestamp = normalizeTimestamp(r.createdAt ?? r.date ?? r.timestamp);
-    const media = r.media as Array<{ url?: string }> | undefined;
-    imageUrl = media?.[0]?.url ?? null;
+    // apidojo/tweet-scraper sends `media` as a list of image URL strings
+    // (verified live 2026-10-07); older rows carried `{ url }` objects.
+    imageUrl = firstImage(r.media) || null;
     url = str(r.url);
   } else if (platform === "facebook") {
     text = str(r.text) || str(r.message) || str(r.caption);
     timestamp = normalizeTimestamp(r.timestamp ?? r.publishedTime ?? r.time);
-    imageUrl = str(r.image) || str(r.imageUrl) || firstImage(r.images);
+    // cleansyntax build 0.0.26 (verified live 2026-10-07): `image` is
+    // `{ uri }`, reels carry `video_thumbnail`, albums `album_preview[]`.
+    const image = r.image as Record<string, unknown> | undefined;
+    const album = Array.isArray(r.album_preview)
+      ? r.album_preview[0] as Record<string, unknown> | undefined
+      : undefined;
+    imageUrl = str(r.image) || str(image?.uri) || str(r.video_thumbnail) ||
+      str(album?.image_file_uri) || str(r.imageUrl) || firstImage(r.images);
     url = str(r.url);
   } else if (platform === "linkedin") {
     // harvestapi/linkedin-profile-posts dataset item shape (verified live

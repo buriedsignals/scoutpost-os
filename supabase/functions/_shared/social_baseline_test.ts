@@ -57,6 +57,53 @@ Deno.test("facebook actor input is capped by post count, not a date window", () 
   });
 });
 
+// Live row shapes from 2026-10-07 (trimmed): images were dropped because the
+// normalizer read string `image` (Facebook) and `media[0].url` (X).
+Deno.test("normalizeSocialDatasetPosts keeps images from current Facebook and X rows", () => {
+  const facebook = normalizeSocialDatasetPosts("facebook", [
+    {
+      post_id: "fb-photo",
+      message: "Photo post",
+      timestamp: 1790598912,
+      image: { uri: "https://scontent.example/photo.jpg" },
+      video_thumbnail: null,
+      album_preview: null,
+    },
+    {
+      post_id: "fb-reel",
+      message: "Reel",
+      timestamp: 1790598913,
+      image: null,
+      video_thumbnail: "https://scontent.example/reel.jpg",
+      album_preview: null,
+    },
+    {
+      post_id: "fb-album",
+      message: "Album",
+      timestamp: 1790598914,
+      image: null,
+      video_thumbnail: null,
+      album_preview: [{
+        type: "photo",
+        image_file_uri: "https://scontent.example/album.jpg",
+      }],
+    },
+  ]);
+  assertEquals(facebook.map((post) => post.imageUrl), [
+    "https://scontent.example/photo.jpg",
+    "https://scontent.example/reel.jpg",
+    "https://scontent.example/album.jpg",
+  ]);
+
+  const x = normalizeSocialDatasetPosts("x", [{
+    id: "2107575411253133767",
+    text: "Tweet with photos",
+    createdAt: "Tue Oct 06 20:55:09 +0000 2026",
+    media: ["https://pbs.twimg.com/media/one.jpg"],
+  }]);
+  assertEquals(x[0].imageUrl, "https://pbs.twimg.com/media/one.jpg");
+});
+
 Deno.test("facebook actor rejects multiline targets before paid dispatch", () => {
   assertThrows(
     () => buildSocialActorInput("facebook", "zuck\nhttps://facebook.com/meta"),
