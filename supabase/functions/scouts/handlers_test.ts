@@ -182,6 +182,14 @@ Deno.test("Scout creation rejects invalid payloads before external work", async 
       topic: "technology",
     }, /single line/i],
     [{
+      name: "Facebook group title",
+      type: "social",
+      platform: "facebook",
+      profile_handle: "Du kommst aus dem Klettgau, wenn...",
+      monitor_mode: "summarize",
+      topic: "local news",
+    }, /not its display name/i],
+    [{
       name: "LinkedIn feed",
       type: "social",
       platform: "linkedin",

@@ -9,6 +9,8 @@ const PROFILE_ACTOR = "dSCLg0C3YEZ83HzYX";
 const POSTS_ACTOR = "pmQcv69sB1UwguQUY";
 const UNKNOWN_WARNING =
   "Instagram privacy could not be confirmed. Continue only if this is a public profile.";
+const NO_PUBLIC_POSTS_WARNING =
+  "No public posts were found on this profile. Scoutpost only sees posts that anyone can view without logging in, so check that the posts are set to Public. The scout will report new public posts from now on.";
 
 interface ProviderRequest {
   url: string;
@@ -218,9 +220,26 @@ Deno.test("social-test never infers private from empty metadata or posts dataset
 
   assertEquals(body.valid, true);
   assertEquals(body.profile_visibility, "unknown");
-  assertEquals(body.warning, UNKNOWN_WARNING);
+  assertEquals(body.warning, `${UNKNOWN_WARNING} ${NO_PUBLIC_POSTS_WARNING}`);
   assertEquals(body.post_ids, []);
   assertEquals(requests.length, 3);
+});
+
+// BUR-33: a valid profile whose scan returns no posts must say so instead of
+// looking like a healthy baseline.
+Deno.test("social-test warns when a valid profile has no public posts", async () => {
+  const { body } = await runSocialTest({
+    platform: "x",
+    handle: "scoutpost",
+    metadata: () => {
+      throw new Error("metadata actor must not run");
+    },
+    posts: [{ noResults: true }],
+  });
+
+  assertEquals(body.valid, true);
+  assertEquals(body.post_ids, []);
+  assertEquals(body.warning, NO_PUBLIC_POSTS_WARNING);
 });
 
 Deno.test("social-test makes no profile-metadata request for non-Instagram platforms", async () => {
@@ -243,4 +262,20 @@ Deno.test("social-test makes no profile-metadata request for non-Instagram platf
   assertEquals(body.post_ids, ["X-POST-1"]);
   assertEquals(requests.length, 2);
   assertEquals(requests.some(({ url }) => url.includes(PROFILE_ACTOR)), false);
+});
+
+// BUR-33: Facebook scouts were saved with group titles as handles; they
+// resolve to no profile, so the scan refuses them before any paid request.
+Deno.test("social-test refuses a display name before any provider request", async () => {
+  const { response, body, requests } = await runSocialTest({
+    platform: "x",
+    handle: "Du kommst aus dem Klettgau, wenn...",
+    metadata: () => {
+      throw new Error("metadata actor must not run");
+    },
+  });
+
+  assertEquals(response.status, 400);
+  assertStringIncludes(JSON.stringify(body), "not its display name");
+  assertEquals(requests.length, 0);
 });

@@ -29,7 +29,9 @@ import { shapeScoutResponse } from "../_shared/db.ts";
 import {
   isInvalidLinkedInProfileUrl,
   isLinkedInCompanyUrl,
+  hasNoInnerWhitespace,
   isSingleLineSocialHandle,
+  SOCIAL_HANDLE_NOT_A_NAME_MESSAGE,
   normalizeSocialHandle,
 } from "../_shared/social_profiles.ts";
 import {
@@ -140,11 +142,15 @@ const SocialMonitorMode = z.enum(["summarize", "criteria"]);
 const RequiredSocialProfileHandle = z.string().min(1).max(200).refine(
   isSingleLineSocialHandle,
   { message: "profile handle must be a single line" },
-);
+).refine(hasNoInnerWhitespace, {
+  message: SOCIAL_HANDLE_NOT_A_NAME_MESSAGE,
+});
 const UpdatedSocialProfileHandle = z.string().max(200).refine(
   isSingleLineSocialHandle,
   { message: "profile handle must be a single line" },
-);
+).refine(hasNoInnerWhitespace, {
+  message: SOCIAL_HANDLE_NOT_A_NAME_MESSAGE,
+});
 const BaselinePostSchema = z.record(z.unknown());
 const TopicSchema = z.string().max(200).superRefine((value, ctx) => {
   const tags = value.split(",").map((tag) => tag.trim()).filter(Boolean);

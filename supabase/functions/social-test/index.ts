@@ -36,12 +36,14 @@ import { logEvent } from "../_shared/log.ts";
 import {
   buildSocialProfileUrl,
   classifyProfileProbeStatus,
+  hasNoInnerWhitespace,
   isInvalidLinkedInProfileUrl,
   isLinkedInCompanyUrl,
   isSingleLineSocialHandle,
   looksLikeMissingProfileError,
   normalizeSocialHandle,
   type ProfileProbeResult,
+  SOCIAL_HANDLE_NOT_A_NAME_MESSAGE,
   type SocialPlatform,
 } from "../_shared/social_profiles.ts";
 import {
@@ -55,6 +57,8 @@ const InputSchema = z.object({
   platform: z.enum(["instagram", "x", "facebook", "tiktok", "linkedin"]),
   handle: z.string().min(1).max(200).refine(isSingleLineSocialHandle, {
     message: "profile handle must be a single line",
+  }).refine(hasNoInnerWhitespace, {
+    message: SOCIAL_HANDLE_NOT_A_NAME_MESSAGE,
   }),
 });
 
@@ -65,6 +69,11 @@ const INSTAGRAM_PROFILE_ACTOR_ID = "dSCLg0C3YEZ83HzYX";
 const INSTAGRAM_PROFILE_TIMEOUT_SECS = 12;
 const UNKNOWN_INSTAGRAM_PRIVACY_WARNING =
   "Instagram privacy could not be confirmed. Continue only if this is a public profile.";
+// An empty scan used to pass silently, so a scout on a profile with no
+// publicly visible posts looked healthy while it could never report anything
+// (BUR-33: personal Facebook posts not set to Public).
+const NO_PUBLIC_POSTS_WARNING =
+  "No public posts were found on this profile. Scoutpost only sees posts that anyone can view without logging in, so check that the posts are set to Public. The scout will report new public posts from now on.";
 
 type InstagramProfileVisibility = "public" | "private" | "unknown";
 
@@ -268,6 +277,10 @@ export async function handleSocialTestRequest(
         handle: normalizedHandle,
         posts: postIds.length,
       });
+      const warnings = [
+        "warning" in privacyFields ? privacyFields.warning : undefined,
+        postIds.length === 0 ? NO_PUBLIC_POSTS_WARNING : undefined,
+      ].filter(Boolean);
       return jsonOk({
         valid: true,
         profile_url: profileUrl,
@@ -276,6 +289,7 @@ export async function handleSocialTestRequest(
         preview_posts: previewPosts,
         posts_data: postsData,
         ...privacyFields,
+        ...(warnings.length > 0 ? { warning: warnings.join(" ") } : {}),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

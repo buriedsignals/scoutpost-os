@@ -47,21 +47,14 @@ Deno.test("instagram actor uses username input shape", () => {
   });
 });
 
-Deno.test("facebook actor uses the current bounded URL textarea input shape", () => {
-  assertEquals(
-    buildSocialActorInput(
-      "facebook",
-      "zuck",
-      new Date("2026-08-17T12:00:00Z"),
-    ),
-    {
-      endpoint: "profile_posts_by_url",
-      urls_text: "https://www.facebook.com/zuck",
-      start_date: "2026-07-13",
-      end_date: "2026-08-17",
-      max_posts: 20,
-    },
-  );
+// A date window emptied every quiet profile's baseline (BUR-33), so the
+// actor input carries the post cap only.
+Deno.test("facebook actor input is capped by post count, not a date window", () => {
+  assertEquals(buildSocialActorInput("facebook", "zuck"), {
+    endpoint: "profile_posts_by_url",
+    urls_text: "https://www.facebook.com/zuck",
+    max_posts: 20,
+  });
 });
 
 Deno.test("facebook actor rejects multiline targets before paid dispatch", () => {

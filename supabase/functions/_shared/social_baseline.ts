@@ -7,7 +7,6 @@ import {
 } from "./social_profiles.ts";
 
 const MAX_ITEMS = 20;
-const FACEBOOK_LOOKBACK_DAYS = 35;
 const APIFY_TIMEOUT_SECS = 120;
 const SOCIAL_IDENTITY_FIELDS: Record<SocialPlatform, readonly string[]> = {
   instagram: ["shortcode", "shortCode", "id", "pk", "postId", "post_id", "url"],
@@ -136,7 +135,6 @@ export async function scanSocialBaseline(
 export function buildSocialActorInput(
   platform: SocialPlatform,
   handle: string,
-  now = new Date(),
 ): Record<string, unknown> {
   if (!isSingleLineSocialHandle(handle)) {
     throw new ValidationError("social profile handle must be a single line");
@@ -157,14 +155,10 @@ export function buildSocialActorInput(
         // internal `profile_url` request parameter, which the actor input
         // silently ignores.
         urls_text: buildSocialProfileUrl("facebook", h),
-        // The current actor paginates every available result and charges per
-        // item. Date bounds cap that documented path while still covering the
-        // longest supported Scoutpost schedule (monthly) plus delivery drift.
-        start_date: dateOnlyUtc(
-          new Date(now.getTime() - FACEBOOK_LOOKBACK_DAYS * 86_400_000),
-        ),
-        end_date: dateOnlyUtc(now),
-        // Retain the legacy cap for actor builds that still honor it.
+        // No date bounds: max_posts caps the run (build 0.0.26: 20 posts +
+        // the profile row, $0.078 for zuck, verified 2026-10-07). A 35-day
+        // window left every quiet profile with an empty baseline, so its
+        // removals could never be detected.
         max_posts: MAX_ITEMS,
       };
     case "tiktok":
@@ -331,10 +325,6 @@ function normalizePost(
     url = str(r.url) || str(r.share_url) || str(r.webVideoUrl);
   }
   return { id, text, timestamp, imageUrl, url };
-}
-
-function dateOnlyUtc(value: Date): string {
-  return value.toISOString().slice(0, 10);
 }
 
 function str(v: unknown): string {

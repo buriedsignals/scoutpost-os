@@ -30,6 +30,19 @@ export function isSingleLineSocialHandle(input: string): boolean {
   return !/[\r\n]/.test(input);
 }
 
+/**
+ * Profile handles and links never contain spaces on any supported platform.
+ * A display name such as "Du kommst aus dem Klettgau, wenn..." is a group or
+ * Page title; it resolves to no profile and the scout can never report
+ * anything, so it is refused before any paid scan.
+ */
+export function hasNoInnerWhitespace(input: string): boolean {
+  return !/\s/.test(input.trim());
+}
+
+export const SOCIAL_HANDLE_NOT_A_NAME_MESSAGE =
+  "Enter the profile's username or link, not its display name (for example facebook.com/username).";
+
 const LINKEDIN_PERSONAL_PROFILE_RE =
   /^(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([^/?#]+)\/?(?:[?#].*)?$/i;
 const URL_LIKE_INPUT_RE =

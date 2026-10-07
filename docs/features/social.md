@@ -29,6 +29,13 @@ authwall answers datacenter probes with HTTP 999, so profile probing degrades
 to `probe_uncertain` and the run proceeds with the input handle; a truly dead
 handle surfaces as a 0-post baseline rather than a hard failure.
 
+Facebook runs are capped by `max_posts` (20) only, with no date window, so a
+quiet profile still gets a baseline of its latest posts. The actor sees only
+posts visible to logged-out visitors; personal posts not set to Public never
+appear. On every platform, a profile scan that finds no posts returns a
+`warning` the setup UI shows, and handles containing spaces (display names,
+group titles) are rejected before any paid scan.
+
 ## Modes
 
 | Mode | Behavior |
