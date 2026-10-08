@@ -7,6 +7,7 @@
 	import ScoutScheduleModal from '$lib/components/modals/ScoutScheduleModal.svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { buildApiUrl } from '$lib/config/api';
+	import { describesPostEvents } from '$lib/utils/social-criteria';
 
 	export let onScheduled: (detail: { scoutType: 'social' }) => void = () => {};
 
@@ -258,6 +259,9 @@
 								required
 								maxlength="4000"
 							></textarea>
+							{#if describesPostEvents(criteria)}
+								<p class="criteria-hint">{m.socialScout_criteriaPostEventHint()}</p>
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -381,6 +385,14 @@
 	}
 
 	.criteria-detail { margin-top: 0.75rem; }
+	.criteria-hint {
+		font-size: 0.75rem;
+		color: #9F6016;
+		margin: 0.5rem 0 0 0;
+		padding: 0.375rem 0.5rem;
+		background: color-mix(in oklab, var(--color-warning) 10%, var(--color-card));
+		border-radius: var(--radius-md);
+	}
 
 	.checkbox-row {
 		display: flex;

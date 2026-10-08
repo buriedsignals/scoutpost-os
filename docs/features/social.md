@@ -40,8 +40,12 @@ group titles) are rejected before any paid scan.
 
 | Mode | Behavior |
 | --- | --- |
-| `summarize` | New posts produce an AI summary and notification. |
+| `summarize` | Every new post with text becomes a unit and triggers a notification. |
 | `criteria` | New posts are embedded and compared against the scout criteria; only matches create relevant units/alerts. |
+
+Criteria filter by post content, so criteria that describe posting events
+("notify when a post is added") match nothing. The setup form flags that
+phrasing and points to Summarize or Track post removals.
 
 New UI, CLI, MCP, and documented API flows default to `criteria` and require
 non-empty criteria text. `summarize` remains an explicit opt-out for collecting
