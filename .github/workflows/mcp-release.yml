@@ -45,7 +45,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ !matrix.required }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: denoland/setup-deno@v2
         with:
