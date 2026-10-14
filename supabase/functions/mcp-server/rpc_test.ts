@@ -14,7 +14,12 @@ import {
   assertStringIncludes,
   assertThrows,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { createScoutBodyForMcp, listedTools, TOOLS } from "./rpc.ts";
+import {
+  createScoutBodyForMcp,
+  listedTools,
+  mergeEntitiesBodyForMcp,
+  TOOLS,
+} from "./rpc.ts";
 
 Deno.test("mcp parity: page-archive retrieval is exposed as agent tools", () => {
   const names = TOOLS.map((t) => t.name);
@@ -206,4 +211,133 @@ Deno.test("mcp tools/list labels every tool, deletes as destructive and reads as
       assertEquals(tool.annotations.destructiveHint, false, tool.name);
     }
   }
+});
+
+type SchemaNode = Record<string, unknown>;
+const isNode = (v: unknown): v is SchemaNode =>
+  !!v && typeof v === "object" && !Array.isArray(v);
+
+// Port of what Goose 1.54.0 does to MCP schemas before sending them to
+// OpenRouter (validate_tool_schemas / sanitize_schema_node in
+// crates/goose-provider-types/src/formats/openai.rs): oneOf becomes anyOf and
+// every type "object" node gains properties {} and required [].
+function gooseRewrite(node: unknown): unknown {
+  if (!isNode(node)) return node;
+  const out: SchemaNode = { ...node };
+  if (!("anyOf" in out) && "oneOf" in out) {
+    out.anyOf = out.oneOf;
+    delete out.oneOf;
+  }
+  if (out.type === "object") {
+    out.properties ??= {};
+    out.required ??= [];
+  }
+  for (const key of ["properties", "$defs", "definitions"]) {
+    if (isNode(out[key])) {
+      out[key] = Object.fromEntries(
+        Object.entries(out[key] as SchemaNode).map((
+          [k, v],
+        ) => [k, gooseRewrite(v)]),
+      );
+    }
+  }
+  for (const key of ["anyOf", "allOf", "prefixItems"]) {
+    if (Array.isArray(out[key])) {
+      out[key] = (out[key] as unknown[]).map(gooseRewrite);
+    }
+  }
+  for (const key of ["items", "additionalProperties"]) {
+    if (isNode(out[key])) out[key] = gooseRewrite(out[key]);
+  }
+  return out;
+}
+
+// Rules Google applies to function-declaration parameters (Vertex AI served
+// the BUR-38 error: "schema type should be OBJECT"). `type` is a single
+// required value (https://ai.google.dev/api/generate-content#Schema); a node
+// using anyOf may set no other field, and each `required` name must be
+// defined in `properties` (reported in anomalyco/opencode#14509 and #3140);
+// an object needs at least one property ("properties: should be non-empty for
+// OBJECT type", agno-agi/agno#2112). allOf/if/then/not and oneOf are not
+// Schema fields at all.
+function vertexSchemaProblems(node: unknown, path: string): string[] {
+  if (!isNode(node)) return [];
+  const problems: string[] = [];
+  const unsupported = [
+    "oneOf",
+    "allOf",
+    "if",
+    "then",
+    "else",
+    "not",
+    "$ref",
+    "$defs",
+    "definitions",
+  ]
+    .filter((key) => key in node);
+  if (unsupported.length) {
+    problems.push(`${path}: unsupported ${unsupported.join(", ")}`);
+  }
+  if ("anyOf" in node) {
+    const siblings = Object.keys(node).filter((key) => key !== "anyOf");
+    if (siblings.length) {
+      problems.push(`${path}: anyOf alongside ${siblings.join(", ")}`);
+    }
+  } else if (typeof node.type !== "string") {
+    problems.push(
+      `${path}: type must be a single string, got ${JSON.stringify(node.type)}`,
+    );
+  } else if ((node.properties || node.required) && node.type !== "object") {
+    problems.push(`${path}: properties/required need type "object"`);
+  }
+  if (node.enum && node.type !== "string") {
+    problems.push(`${path}: enum is only supported on string schemas`);
+  }
+  const properties = isNode(node.properties) ? node.properties : {};
+  if (node.type === "object" && Object.keys(properties).length === 0) {
+    problems.push(`${path}: object needs at least one property`);
+  }
+  for (const name of Array.isArray(node.required) ? node.required : []) {
+    if (!(name in properties)) {
+      problems.push(`${path}.required: ${name} is not defined`);
+    }
+  }
+  for (const [name, child] of Object.entries(properties)) {
+    problems.push(...vertexSchemaProblems(child, `${path}.properties.${name}`));
+  }
+  if (node.items) {
+    problems.push(...vertexSchemaProblems(node.items, `${path}.items`));
+  }
+  for (const key of ["anyOf", "allOf"]) {
+    const branches = node[key];
+    if (Array.isArray(branches)) {
+      branches.forEach((b, i) =>
+        problems.push(...vertexSchemaProblems(b, `${path}.${key}[${i}]`))
+      );
+    }
+  }
+  return problems;
+}
+
+Deno.test("mcp tools/list schemas pass Gemini's function-declaration rules as Goose sends them", () => {
+  const problems = listedTools().flatMap((tool) =>
+    vertexSchemaProblems(gooseRewrite(tool.inputSchema), tool.name)
+  );
+  assertEquals(problems, []);
+});
+
+Deno.test("mcp merge_entities rejects calls without exactly one of keep_id or keeper_id", () => {
+  const keep = "11111111-1111-1111-1111-111111111111";
+  const merge_ids = ["22222222-2222-2222-2222-222222222222"];
+  assertThrows(
+    () => mergeEntitiesBodyForMcp({ merge_ids }),
+    Error,
+    "exactly one of keep_id",
+  );
+  assertThrows(
+    () =>
+      mergeEntitiesBodyForMcp({ merge_ids, keep_id: keep, keeper_id: keep }),
+    Error,
+    "exactly one of keep_id",
+  );
 });

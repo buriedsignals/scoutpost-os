@@ -141,13 +141,17 @@ export function reflectionBodyForMcp(
 export function mergeEntitiesBodyForMcp(
   args: Record<string, unknown>,
 ): Record<string, unknown> {
-  const keepId = typeof args.keep_id === "string"
-    ? args.keep_id
-    : typeof args.keeper_id === "string"
-    ? args.keeper_id
-    : undefined;
+  // The advertised schema no longer encodes "exactly one of keep_id or
+  // keeper_id" (Gemini rejects a top-level oneOf), so enforce it here.
+  const hasKeepId = args.keep_id !== undefined;
+  const hasKeeperId = args.keeper_id !== undefined;
+  if (hasKeepId === hasKeeperId) {
+    throw new Error(
+      "pass exactly one of keep_id or keeper_id (deprecated alias for keep_id)",
+    );
+  }
   return {
-    keep_id: keepId,
+    keep_id: hasKeepId ? args.keep_id : args.keeper_id,
     merge_ids: args.merge_ids,
   };
 }
@@ -208,6 +212,23 @@ const WRITE: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, op
 const WRITE_WEB: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };
 const DESTRUCTIVE: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, openWorldHint: false };
 const DESTRUCTIVE_WEB: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, openWorldHint: true };
+
+// GeocodedLocation (frontend/src/lib/types.ts). Plain properties instead of an
+// anyOf per name field: Gemini rejects anyOf with sibling fields and objects
+// with empty properties (BUR-38). The scouts handler enforces the non-blank
+// name rule stated in the description.
+const LOCATION_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
+  properties: {
+    displayName: { type: "string" },
+    city: { type: "string" },
+    state: { type: "string" },
+    country: { type: "string" },
+  },
+  description:
+    "GeocodedLocation: { displayName, city, state, country, locationType, coordinates: { lat, lon }, ... }. At least one of displayName, city, state or country must be a non-blank string.",
+};
 
 interface ToolDef {
   name: string;
@@ -325,39 +346,6 @@ export const TOOLS: ToolDef[] = [
     inputSchema: {
       type: "object",
       required: ["name", "type"],
-      allOf: [
-        {
-          if: { properties: { type: { enum: ["web", "beat", "social", "civic"] } } },
-          then: { anyOf: [
-            { required: ["topic"], properties: { topic: { pattern: "[^\\s,]" } } },
-            { required: ["location"] },
-          ] },
-        },
-        {
-          if: { properties: { type: { const: "web" } } },
-          then: { required: ["url"] },
-        },
-        {
-          if: { properties: { type: { const: "social" } } },
-          then: {
-            required: ["platform", "profile_handle"],
-            if: { properties: { monitor_mode: { const: "criteria" } } },
-            then: { required: ["criteria"], properties: { criteria: { pattern: "\\S" } } },
-          },
-        },
-        {
-          if: { properties: { type: { const: "civic" } } },
-          then: {
-            required: ["root_domain", "tracked_urls"],
-            if: { required: ["import_current_items"], properties: { import_current_items: { const: true } } },
-            then: { required: ["preview_snapshot_token"] },
-          },
-        },
-        {
-          if: { properties: { type: { const: "transport" } } },
-          then: { required: ["config"] },
-        },
-      ],
       properties: {
         name: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S" },
         type: {
@@ -383,15 +371,7 @@ export const TOOLS: ToolDef[] = [
             "The organizational Project label shown in the UI, stored in the legacy topic field. Required for non-transport scouts when location is omitted. Use 1-3 short comma-separated tags, each at most 50 characters, e.g. 'housing, council, budget'. This is distinct from project_id and investigation Project tools.",
         },
         url: { type: "string", format: "uri" },
-        location: {
-          type: "object",
-          anyOf: ["displayName", "city", "state", "country"].map((key) => ({
-            required: [key], properties: { [key]: { type: "string", pattern: "\\S" } },
-          })),
-          additionalProperties: true,
-          description:
-            "GeocodedLocation: { displayName, latitude, longitude, ... }",
-        },
+        location: LOCATION_SCHEMA,
         regularity: {
           type: "string",
           enum: ["daily", "weekly", "monthly", "3h", "6h", "12h"],
@@ -625,12 +605,7 @@ export const TOOLS: ToolDef[] = [
         time: { type: "string", pattern: "^\\d{1,2}:\\d{2}$" },
         is_active: { type: "boolean" },
         project_id: { type: "string", format: "uuid" },
-        location: {
-          type: "object",
-          additionalProperties: true,
-          description:
-            "GeocodedLocation: { displayName, latitude, longitude, ... }",
-        },
+        location: LOCATION_SCHEMA,
         source_mode: { type: "string", enum: ["reliable", "niche"] },
         excluded_domains: { type: "array", items: { type: "string" } },
         priority_sources: { type: "array", items: { type: "string" } },
@@ -1314,12 +1289,13 @@ export const TOOLS: ToolDef[] = [
     inputSchema: {
       type: "object",
       required: ["merge_ids"],
-      oneOf: [
-        { required: ["keep_id"] },
-        { required: ["keeper_id"] },
-      ],
       properties: {
-        keep_id: { type: "string", format: "uuid" },
+        keep_id: {
+          type: "string",
+          format: "uuid",
+          description:
+            "Required: the entity to keep. Pass this or keeper_id, not both.",
+        },
         keeper_id: {
           type: "string",
           format: "uuid",
