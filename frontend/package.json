@@ -48,7 +48,7 @@
     "@supabase/supabase-js": "2.105.1",
     "dompurify": "^3.4.16",
     "lucide-svelte": "^0.468.0",
-    "marked": "^17.0.0"
+    "marked": "^18.1.0"
   },
   "overrides": {
     "cookie": "0.7.2",
