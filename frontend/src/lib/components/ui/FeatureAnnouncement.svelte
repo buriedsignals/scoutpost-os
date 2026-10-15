@@ -12,6 +12,8 @@
 	export let ctaLabel: string;
 	export let ctaHref: string;
 	export let dismissLabel: string;
+	/** Colour family; a second concurrent announcement uses a different tone. */
+	export let tone: 'primary' | 'violet' = 'primary';
 
 	let claimed = false;
 	let visible = false;
@@ -25,7 +27,11 @@
 </script>
 
 {#if visible}
-	<aside class="feature-announcement" aria-label={title}>
+	<aside
+		class="feature-announcement"
+		class:feature-announcement--violet={tone === 'violet'}
+		aria-label={title}
+	>
 		<span class="feature-announcement__badge">{badge}</span>
 		<p class="feature-announcement__copy">
 			<strong>{title}</strong>
@@ -54,15 +60,26 @@
 
 <style>
 	.feature-announcement {
+		--announcement-accent: var(--primary);
+		--announcement-accent-foreground: var(--primary-foreground);
+		--announcement-tint: oklch(0.79 0.08 78 / 12%);
+		--announcement-edge: oklch(0.79 0.08 78 / 45%);
 		display: flex;
 		align-items: center;
 		gap: 0.875rem;
 		margin: 0.75rem 1.25rem 0;
 		padding: 0.75rem 0.75rem 0.75rem 1rem;
-		background: oklch(0.79 0.08 78 / 12%);
-		border: 1px solid oklch(0.79 0.08 78 / 45%);
+		background: var(--announcement-tint);
+		border: 1px solid var(--announcement-edge);
 		border-radius: var(--radius-lg);
 		color: var(--color-ink, var(--foreground));
+	}
+
+	.feature-announcement--violet {
+		--announcement-accent: oklch(0.74 0.12 295);
+		--announcement-accent-foreground: oklch(0.2 0.03 295);
+		--announcement-tint: oklch(0.74 0.12 295 / 12%);
+		--announcement-edge: oklch(0.74 0.12 295 / 45%);
 	}
 
 	.feature-announcement__badge {
@@ -73,8 +90,8 @@
 		font-weight: 600;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		color: var(--primary-foreground);
-		background: var(--primary);
+		color: var(--announcement-accent-foreground);
+		background: var(--announcement-accent);
 		border-radius: var(--radius-pill, 999px);
 	}
 
@@ -102,8 +119,8 @@
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		text-decoration: none;
-		color: var(--primary-foreground);
-		background: var(--primary);
+		color: var(--announcement-accent-foreground);
+		background: var(--announcement-accent);
 		border-radius: var(--radius-md);
 		transition: filter 150ms ease;
 	}

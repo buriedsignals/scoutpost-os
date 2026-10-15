@@ -699,8 +699,8 @@
 
 		.hero {
 			/* Ends well above the fold so the credits, Works With row and the
-			   Chrome extension card sit on the first screen. */
-			min-height: calc(100svh - 21rem - clamp(2.5rem, 6vh, 4.5rem));
+			   Chrome extension and ChatGPT plugin cards sit on the first screen. */
+			min-height: calc(100svh - 29rem - clamp(2.5rem, 6vh, 4.5rem));
 			padding-bottom: 1.5rem;
 		}
 	}

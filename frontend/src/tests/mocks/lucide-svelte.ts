@@ -38,6 +38,7 @@ export const LockKeyhole = Icon;
 export const Mail = Icon;
 export const Map = Icon;
 export const MapPin = Icon;
+export const MessagesSquare = Icon;
 export const Monitor = Icon;
 export const Navigation = Icon;
 export const Package = Icon;
