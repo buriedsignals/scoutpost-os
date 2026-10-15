@@ -601,6 +601,7 @@
 	</FilterBar>
 	{/if}
 
+
 	<!-- Body -->
 	<div class="workspace-body">
 		{#if activePanel !== 'workspace'}
@@ -1114,12 +1115,14 @@
 			gap: 0.375rem;
 		}
 
-		.topnav-center :global(button) {
+		.topnav-center :global(button),
+		.topnav-center :global(a[data-slot='button']) {
 			width: 32px;
 			padding-inline: 0;
 		}
 
 		.topnav-center :global(button span),
+		.topnav-center :global(a[data-slot='button'] span),
 		.topnav-center :global(.new-scout-trigger svg:last-child) {
 			display: none;
 		}

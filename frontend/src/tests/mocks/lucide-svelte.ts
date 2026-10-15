@@ -44,6 +44,7 @@ export const Package = Icon;
 export const Play = Icon;
 export const Plug = Icon;
 export const Plus = Icon;
+export const Puzzle = Icon;
 export const Radar = Icon;
 export const Radio = Icon;
 export const RefreshCw = Icon;

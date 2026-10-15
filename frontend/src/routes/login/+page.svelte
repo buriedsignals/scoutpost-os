@@ -356,6 +356,7 @@
 					</span>
 				</div>
 
+
 				<section class="demo-section" aria-labelledby="product-demo-heading">
 					<p id="product-demo-heading" class="section-eyebrow">{m.login_seeAction()}</p>
 					<!-- YouTube requires a 200px-tall player; 16:9 falls below that on common iPhone widths. -->
@@ -697,9 +698,9 @@
 		}
 
 		.hero {
-			/* Ends well above the fold so the credits and Works With row sit on the
-			   first screen; the subtracted height keeps the logo where it was. */
-			min-height: calc(100svh - 7rem - clamp(2.5rem, 6vh, 4.5rem));
+			/* Ends well above the fold so the credits, Works With row and the
+			   Chrome extension card sit on the first screen. */
+			min-height: calc(100svh - 21rem - clamp(2.5rem, 6vh, 4.5rem));
 			padding-bottom: 1.5rem;
 		}
 	}
@@ -1231,7 +1232,7 @@
 		justify-content: flex-start;
 		flex-wrap: wrap;
 		gap: 0.5rem;
-		margin-bottom: 2rem;
+		margin-bottom: 1rem;
 	}
 
 	.works-with-label {
@@ -1263,6 +1264,7 @@
 		color: var(--color-primary);
 		flex-shrink: 0;
 	}
+
 
 	.demo-section {
 		display: flex;
