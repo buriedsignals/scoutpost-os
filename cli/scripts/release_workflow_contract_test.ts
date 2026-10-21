@@ -142,7 +142,7 @@ Deno.test("npm publication derives the publisher from this run's signed Windows 
 });
 
 Deno.test("PR CI exercises the Node release checksum evidence bridge", () => {
-  assertStringIncludes(ciWorkflow, "          node-version: 22.22.2\n");
+  assertStringIncludes(ciWorkflow, "          node-version: 22.23.4\n");
   assertStringIncludes(
     ciWorkflow,
     "run: node --test cli/scripts/build_release_checksums_nodecheck.mjs",
@@ -161,7 +161,7 @@ Deno.test("PR CI parses the embedded Windows lifecycle with PowerShell", () => {
 Deno.test("all four Windows constituent files receive local signed release provenance", () => {
   assert(!signWindows.includes("attestations: write"));
   assert(!attestationStep.includes("actions/attest-build-provenance"));
-  assertStringIncludes(signWindows, "          node-version: 22.22.2\n");
+  assertStringIncludes(signWindows, "          node-version: 22.23.4\n");
   assertStringIncludes(
     attestationStep,
     "working-directory: cli/release-attestation\n" +
@@ -195,7 +195,7 @@ Deno.test("all four Windows constituent files receive local signed release prove
 Deno.test("CLI CI signs and verifies a local private-repository bundle", () => {
   assertStringIncludes(ciWorkflow, "\n  cli-local-attestation:\n");
   assertStringIncludes(ciWorkflow, "      id-token: write\n");
-  assertStringIncludes(ciWorkflow, "          node-version: 22.22.2\n");
+  assertStringIncludes(ciWorkflow, "          node-version: 22.23.4\n");
   assertStringIncludes(
     ciWorkflow,
     "run: node cli/release-attestation/attest_ci_check.mjs",

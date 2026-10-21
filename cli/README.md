@@ -255,7 +255,7 @@ differently signed Windows executable. Do not store an Azure client secret or
 exportable signing key in GitHub.
 
 Release provenance has its own dependency lockfile in `cli/release-attestation`.
-Use Node 22.22.2 (the CI version) and verify updates from that directory with
+Use Node 22.23.4 (the CI version) and verify updates from that directory with
 `npm ci --ignore-scripts --engine-strict` followed by `npm audit`. Keep transitive
 security patches in this lockfile as well as the frontend's independent tree.
 The `cli-local-attestation` CI job exercises real GitHub OIDC signing and verifies
