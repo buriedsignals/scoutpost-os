@@ -21,8 +21,10 @@
  */
 
 import { type AuthedUser, requireUserOrApiKey } from "../_shared/auth.ts";
+import { getServiceClient } from "../_shared/supabase.ts";
 import { logEvent } from "../_shared/log.ts";
 import { baseUrl } from "./oauth/metadata.ts";
+import { listsAsOpenWorld } from "./oauth/client_identity.ts";
 
 // Latest MCP Streamable HTTP spec. Claude.ai / Claude Desktop / Cowork all
 // negotiate to this; we keep parity to avoid silent "Disconnected" failures.
@@ -1398,12 +1400,16 @@ async function readRpcBody(req: Request): Promise<JsonRpcRequest | null> {
 }
 
 /** The tools/list payload: public schema plus the annotations clients act on. */
-export function listedTools() {
+// Osaurus runs a tool without asking when it is read-only and not
+// open-world (Osaurus MCPProviderTool.swift, defaultPolicy). For Osaurus
+// every tool is listed as open-world, so it asks before each call (Osaurus
+// plan R7); other clients keep the annotations the ChatGPT review checked.
+export function listedTools(opts: { openWorld?: boolean } = {}) {
   return TOOLS.map((t) => ({
     name: t.name,
     description: t.description,
     inputSchema: t.inputSchema,
-    annotations: t.annotations,
+    annotations: opts.openWorld ? { ...t.annotations, openWorldHint: true } : t.annotations,
   }));
 }
 
@@ -1483,7 +1489,9 @@ export async function handleRpc(
   }
 
   if (body.method === "tools/list") {
-    const toolsList = listedTools();
+    const toolsList = listedTools({
+      openWorld: await listsAsOpenWorld(getServiceClient(), token, user.authMethod),
+    });
     const responseBody = JSON.stringify({
       jsonrpc: "2.0",
       id: body.id ?? null,

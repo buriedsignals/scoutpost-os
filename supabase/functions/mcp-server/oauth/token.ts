@@ -29,6 +29,7 @@ import { getServiceClient } from "../../_shared/supabase.ts";
 import { logEvent } from "../../_shared/log.ts";
 import { verifyS256, validateVerifier } from "./pkce.ts";
 import { oauthError, oauthJson } from "./errors.ts";
+import { recordSessionClient } from "./client_identity.ts";
 
 interface OAuthCodeRow {
   code: string;
@@ -209,6 +210,15 @@ async function handleAuthorizationCode(req: Request, form: URLSearchParams, requ
   const pkceOk = await verifyS256(codeVerifier, row.code_challenge);
   if (!pkceOk) {
     return oauthError("invalid_grant", "code_verifier does not match code_challenge", 400);
+  }
+
+  // Record which client this Supabase session belongs to before the code is
+  // spent, so tools/list can tell Osaurus apart. If it cannot be saved the
+  // exchange fails and the unspent code can be retried; a token handed out
+  // unrecorded would let Osaurus run read tools without asking. The upsert
+  // is idempotent, so a lost race below leaves only an accurate row.
+  if (!(await recordSessionClient(db, row.supabase_access_token, clientId, row.user_id))) {
+    return oauthError("server_error", "could not record the sign-in; try again", 500);
   }
 
   // Atomic single-use enforcement. Must update exactly one row where

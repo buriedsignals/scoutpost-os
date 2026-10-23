@@ -9,6 +9,7 @@
  * future refactor drops that parity.
  */
 import {
+  assert,
   assertEquals,
   assertExists,
   assertStringIncludes,
@@ -211,6 +212,19 @@ Deno.test("mcp tools/list labels every tool, deletes as destructive and reads as
       assertEquals(tool.annotations.destructiveHint, false, tool.name);
     }
   }
+});
+
+// Osaurus plan R7: for Osaurus every tool is open-world, so Osaurus asks
+// before each call; nothing else about a tool changes.
+Deno.test("mcp tools/list marks every tool open-world for Osaurus only", () => {
+  const plain = listedTools();
+  const osaurus = listedTools({ openWorld: true });
+  assertEquals(osaurus.length, plain.length);
+  for (const [i, tool] of osaurus.entries()) {
+    assertEquals(tool.annotations.openWorldHint, true, tool.name);
+    assertEquals({ ...tool.annotations, openWorldHint: plain[i].annotations.openWorldHint }, plain[i].annotations, tool.name);
+  }
+  assert(plain.some((t) => t.annotations.readOnlyHint && !t.annotations.openWorldHint), "some read tools stay closed-world for other clients");
 });
 
 type SchemaNode = Record<string, unknown>;
