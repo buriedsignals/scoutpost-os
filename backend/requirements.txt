@@ -18,7 +18,7 @@ certifi>=2026.10.19
 resend>=2.30.1
 
 # Environment variables
-python-dotenv==1.2.2
+python-dotenv==1.2.4
 
 # Rate limiting
 slowapi>=0.1.9
