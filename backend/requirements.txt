@@ -11,6 +11,8 @@ PyJWT[crypto]>=2.12.1
 # HTTP
 requests>=2.34.2
 httpx>=0.27.0
+# CA bundle floor: 2026.10.19 drops the compromised eMudhra intermediates
+certifi>=2026.10.19
 
 # Email (Resend SDK — used by license email)
 resend>=2.30.1

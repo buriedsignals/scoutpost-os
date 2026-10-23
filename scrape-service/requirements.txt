@@ -3,6 +3,8 @@
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
 httpx==0.28.1
+# CA bundle floor: 2026.10.19 drops the compromised eMudhra intermediates
+certifi>=2026.10.19
 beautifulsoup4==4.15.0
 crawl4ai==0.9.2
 # Explicit: snapshots.py re-encodes over-budget screenshots (crawl4ai pulls it in too).
