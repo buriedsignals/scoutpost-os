@@ -7,6 +7,7 @@
 	import { consumeAuthReturn } from '$lib/utils/auth-return';
 	import NightWatchScene, { type SceneRect } from '$lib/components/login/NightWatchScene.svelte';
 	import * as m from '$lib/paraglide/messages';
+	import { AGENTS } from '$lib/utils/agent-icons';
 
 	let mounted = false;
 	let featureListEl: HTMLElement;
@@ -26,6 +27,15 @@
 	let authError = '';
 	let authLoading = false;
 	let showIndicatorLoginHelp = false;
+
+	// Demo video: a poster opens a native <dialog>; the player mounts only while it is open.
+	let demoDialogEl: HTMLDialogElement;
+	let demoOpen = false;
+
+	function openDemo() {
+		demoOpen = true;
+		demoDialogEl.showModal();
+	}
 
 	async function navigateAfterLogin() {
 		if (postLoginNavigationStarted) return;
@@ -125,19 +135,24 @@
 		}
 	}
 
-	// The scope may roam above the hero caption and left of a side-docked auth card.
+	// The scope may roam above the hero headline and right of the logo, clear of the viewport
+	// edge, and left of a side-docked auth card.
 	function sceneFreeRect(): SceneRect | null {
 		if (!heroCopyEl) return null;
 		const vw = window.innerWidth;
 		const heroTop = heroCopyEl.getBoundingClientRect().top + window.scrollY;
 		const auth = authPanelEl?.getBoundingClientRect();
 		const authBeside = vw >= 1024 && auth && auth.left > vw / 2;
-		return {
-			left: 0,
-			top: 0,
-			right: authBeside ? auth.left - 24 : vw,
-			bottom: Math.min(heroTop - 24, window.innerHeight)
-		};
+		const logo = heroCopyEl.querySelector('.headline-logo')?.getBoundingClientRect();
+		// Beside the card the free band also covers the logo row, minus the logo itself.
+		return authBeside
+			? {
+					left: logo ? logo.right + 24 : 0,
+					top: 48,
+					right: auth.left - 24,
+					bottom: Math.min(heroTop + 48, window.innerHeight)
+				}
+			: { left: 0, top: 0, right: vw, bottom: Math.min(heroTop - 24, window.innerHeight) };
 	}
 
 	$: notAvailable = $page.url.searchParams.get('error') === 'not_available';
@@ -302,6 +317,17 @@
 		<!-- Story / marketing panel -->
 		<div class="story-panel" class:mounted>
 			<div class="description-block">
+				<section class="demo-section" aria-label={m.login_productDemo()}>
+					<button type="button" class="demo-poster" aria-haspopup="dialog" onclick={openDemo}>
+						<img src="/login/demo-poster.webp" alt="" width="1280" height="720" decoding="async" />
+						<span class="demo-poster-scrim" aria-hidden="true"></span>
+						<span class="demo-play" aria-hidden="true">
+							<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 5.5v13L19 12z"/></svg>
+						</span>
+						<span class="demo-poster-caption">{m.login_seeAction()}</span>
+					</button>
+				</section>
+
 				<div class="credits-row">
 					<a
 						href="https://buriedsignals.com"
@@ -325,52 +351,19 @@
 				<hr class="works-with-divider" />
 				<div class="works-with">
 					<span class="works-with-label">{m.login_worksWith()}</span>
-					<!-- Marketing surface names; setup recipes retain client-specific labels. -->
+					<!-- Same catalog as the Connect Agent modal, so this row never drifts from the supported setups. -->
+					{#each AGENTS as agent (agent.slug)}
+						<span class="agent-pill">
+							<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{@html agent.iconInner}</svg>
+							{agent.name}
+						</span>
+					{/each}
 					<span class="agent-pill">
-						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-						Claude Code
-					</span>
-					<span class="agent-pill">
-						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .962L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
-						Claude Desktop
-					</span>
-					<span class="agent-pill">
-						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-						ChatGPT Desktop
-					</span>
-					<span class="agent-pill">
-						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/><circle cx="18" cy="7" r="3"/></svg>
-						OpenCode
-					</span>
-					<span class="agent-pill">
-						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3L9.5 9.5 3 12l6.5 2.5L12 21l2.5-6.5L21 12l-6.5-2.5z"/></svg>
-						Antigravity
-					</span>
-					<span class="agent-pill">
-						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h.01"/><path d="M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20"/><path d="m20 7 2 .5-2 .5"/><path d="M10 18v3"/><path d="M14 17.75V21"/><path d="M7 18a6 6 0 0 0 3.84-10.61"/></svg>
-						Goose
-					</span>
-					<span class="agent-pill">
-						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M7 12h10"/></svg>
+						<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/></svg>
 						API
 					</span>
 				</div>
 
-
-				<section class="demo-section" aria-labelledby="product-demo-heading">
-					<p id="product-demo-heading" class="section-eyebrow">{m.login_seeAction()}</p>
-					<!-- YouTube requires a 200px-tall player; 16:9 falls below that on common iPhone widths. -->
-					<div class="demo-video-frame" style="min-height: 200px">
-						<iframe
-							src="https://www.youtube-nocookie.com/embed/SzRd9R4_fs8?rel=0"
-							title={m.login_productDemo()}
-							loading="lazy"
-							referrerpolicy="strict-origin-when-cross-origin"
-							allow="encrypted-media; picture-in-picture"
-							allowfullscreen
-						></iframe>
-					</div>
-				</section>
 
 				<div class="section-eyebrow section-eyebrow-first">{m.login_howWorks()}</div>
 				<div class="feature-list">
@@ -649,6 +642,33 @@
 			</div>
 		</div>
 	</div>
+	<!-- Esc and the close button are the keyboard paths; a backdrop click is a pointer shortcut. -->
+	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+	<dialog
+		bind:this={demoDialogEl}
+		class="demo-dialog"
+		aria-label={m.login_productDemo()}
+		onclose={() => (demoOpen = false)}
+		onclick={(e) => e.target === demoDialogEl && demoDialogEl.close()}
+	>
+		<div class="demo-dialog-bar">
+			<button type="button" class="demo-dialog-close" aria-label={m.common_close()} onclick={() => demoDialogEl.close()}>
+				<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+			</button>
+		</div>
+		<div class="demo-dialog-frame" style="min-height: 200px">
+			{#if demoOpen}
+				<!-- YouTube requires a 200px-tall player; the frame keeps that floor on narrow phones. -->
+				<iframe
+					src="https://www.youtube-nocookie.com/embed/SzRd9R4_fs8?rel=0&autoplay=1"
+					title={m.login_productDemo()}
+					referrerpolicy="strict-origin-when-cross-origin"
+					allow="autoplay; encrypted-media; picture-in-picture"
+					allowfullscreen
+				></iframe>
+			{/if}
+		</div>
+	</dialog>
 </div>
 
 <style>
@@ -697,11 +717,35 @@
 			gap: 0;
 		}
 
+		.login-container {
+			/* The poster spans the column like everything under it and is only as tall as the
+			   first screen can spare; the hero copy takes the rest. --copy-h is the hero copy. */
+			--copy-h: 20rem;
+			--poster-h: clamp(14rem, calc(100svh - 36rem), 22rem);
+			--hero-gap: 3rem;
+		}
+
 		.hero {
-			/* Ends well above the fold so the credits, Works With row and the
-			   Chrome extension and ChatGPT plugin cards sit on the first screen. */
-			min-height: calc(100svh - 29rem - clamp(2.5rem, 6vh, 4.5rem));
-			padding-bottom: 1.5rem;
+			min-height: 0;
+			/* Copy-and-poster block centred on the auth card but biased low, leaving the scene
+			   a tall band above the copy for the scope; never lower than a 2.5rem bottom margin. */
+			padding-top: max(
+				3.5rem,
+				min(
+					calc(100svh - 2.5rem - var(--hero-gap) - var(--poster-h) - var(--copy-h)),
+					calc((100svh - var(--copy-h) - var(--hero-gap) - var(--poster-h)) / 2 + 5rem)
+				)
+			);
+			padding-bottom: var(--hero-gap);
+		}
+
+		.demo-section {
+			margin-bottom: 1.25rem;
+		}
+
+		.demo-poster {
+			aspect-ratio: auto;
+			height: var(--poster-h);
 		}
 	}
 
@@ -1048,6 +1092,7 @@
 		text-transform: uppercase;
 		padding: 0.875rem 1.5rem;
 		border: 1px solid var(--color-ink);
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		transition: background 150ms ease, border-color 150ms ease;
 	}
@@ -1266,29 +1311,170 @@
 	}
 
 
+	/* Demo poster: a still of the product that opens the video in a dialog. The viewfinder
+	   brackets are the auth card's, so the two anchors of the first screen read as a pair. */
 	.demo-section {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
+		position: relative;
 	}
 
-	.demo-section .section-eyebrow {
-		margin-bottom: 0;
+	.demo-section::before {
+		content: '';
+		position: absolute;
+		inset: -9px;
+		pointer-events: none;
+		--c: var(--scope-teal);
+		background:
+			linear-gradient(var(--c), var(--c)) top left / 16px 1px,
+			linear-gradient(var(--c), var(--c)) top left / 1px 16px,
+			linear-gradient(var(--c), var(--c)) top right / 16px 1px,
+			linear-gradient(var(--c), var(--c)) top right / 1px 16px,
+			linear-gradient(var(--c), var(--c)) bottom left / 16px 1px,
+			linear-gradient(var(--c), var(--c)) bottom left / 1px 16px,
+			linear-gradient(var(--c), var(--c)) bottom right / 16px 1px,
+			linear-gradient(var(--c), var(--c)) bottom right / 1px 16px;
+		background-repeat: no-repeat;
+		opacity: 0.5;
+		transition: opacity 400ms ease, inset 500ms cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
-	.demo-video-frame {
-		aspect-ratio: 16 / 9;
+	.demo-section:hover::before,
+	.demo-section:focus-within::before {
+		opacity: 0.9;
+		inset: -12px;
+	}
+
+	.demo-poster {
+		position: relative;
+		display: block;
 		width: 100%;
+		aspect-ratio: 16 / 9;
+		padding: 0;
 		overflow: hidden;
-		background: var(--color-ink);
-		border: 1px solid var(--color-border-strong);
+		cursor: pointer;
+		color: oklch(0.97 0.006 200);
+		text-align: left;
+		background: oklch(0.17 0.008 220);
+		border: 1px solid var(--glass-line);
+		box-shadow: 0 30px 70px -30px oklch(0.05 0.01 220 / 0.85);
 	}
 
-	.demo-video-frame iframe {
+	.demo-poster img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		object-position: 50% 62%; /* keeps the scout cards and most of the face bubble in a wide crop */
+		filter: brightness(0.9) saturate(0.95);
+		transition: transform 900ms cubic-bezier(0.16, 1, 0.3, 1), filter 500ms ease;
+	}
+
+	.demo-poster:hover img,
+	.demo-poster:focus-visible img {
+		transform: scale(1.03);
+		filter: brightness(1) saturate(1);
+	}
+
+	.demo-poster-scrim {
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(to top, oklch(0.12 0.008 220 / 0.9), oklch(0.12 0.008 220 / 0) 40%);
+	}
+
+	.demo-play {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		display: grid;
+		place-items: center;
+		width: 4.25rem;
+		height: 4.25rem;
+		border-radius: 50%;
+		color: oklch(0.2 0.01 220);
+		background: oklch(0.96 0.01 200);
+		box-shadow: 0 12px 32px -8px oklch(0.05 0.01 220 / 0.7);
+		transform: translate(-50%, -50%);
+		transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1), background-color 200ms ease;
+	}
+
+	.demo-poster:hover .demo-play,
+	.demo-poster:focus-visible .demo-play {
+		background: var(--color-primary);
+		transform: translate(-50%, -50%) scale(1.12);
+	}
+
+	.demo-poster-caption {
+		position: absolute;
+		left: 1.25rem;
+		bottom: 1.1rem;
+		right: 1.25rem;
+		font-size: 0.9375rem;
+		font-weight: 500;
+		letter-spacing: 0.005em;
+	}
+
+	.demo-dialog {
+		width: min(92vw, calc((100svh - 7rem) * 16 / 9), 80rem);
+		max-width: none;
+		max-height: none;
+		margin: auto; /* the global reset zeroes the UA centring of a modal dialog */
+		padding: 0;
+		overflow: visible;
+		color: inherit;
+		background: transparent;
+		border: 0;
+	}
+
+	.demo-dialog[open] {
+		animation: demo-in 380ms cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.demo-dialog::backdrop {
+		background: oklch(0.1 0.008 220 / 0.84);
+		backdrop-filter: blur(10px);
+	}
+
+	.demo-dialog-bar {
+		display: flex;
+		justify-content: flex-end;
+		padding-bottom: 0.625rem;
+	}
+
+	.demo-dialog-close {
+		display: grid;
+		place-items: center;
+		width: 2.25rem;
+		height: 2.25rem;
+		padding: 0;
+		cursor: pointer;
+		color: oklch(0.94 0.008 200);
+		background: var(--glass);
+		border: 1px solid var(--glass-line);
+		border-radius: 50%;
+		transition: background-color 150ms ease, color 150ms ease;
+	}
+
+	.demo-dialog-close:hover {
+		color: oklch(0.2 0.01 220);
+		background: oklch(0.96 0.01 200);
+	}
+
+	.demo-dialog-frame {
+		aspect-ratio: 16 / 9;
+		overflow: hidden;
+		background: oklch(0.1 0.008 220);
+		border: 1px solid var(--glass-line);
+	}
+
+	.demo-dialog-frame iframe {
 		display: block;
 		width: 100%;
 		height: 100%;
 		border: 0;
+	}
+
+	@keyframes demo-in {
+		from { opacity: 0; transform: translateY(14px) scale(0.985); }
+		to { opacity: 1; transform: none; }
 	}
 
 	.description-block {
@@ -1510,7 +1696,7 @@
 		gap: 1rem;
 		font-family: var(--font-mono);
 		font-size: 0.6875rem;
-		font-weight: 600;
+		font-weight: 500;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
 		color: var(--color-primary);
@@ -1780,26 +1966,13 @@
 		text-transform: uppercase;
 		border: 1px solid var(--color-primary);
 		cursor: pointer;
-		transition: background 150ms ease, border-color 150ms ease, color 150ms ease,
-			transform 150ms ease, box-shadow 150ms ease;
+		transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
 		white-space: nowrap;
 	}
 
 	.promo-btn-primary:hover:not(:disabled) {
 		background: var(--color-primary-deep);
 		border-color: var(--color-primary-deep);
-		transform: translateY(-1px);
-		box-shadow: 0 6px 18px color-mix(in oklab, var(--color-primary) 24%, transparent);
-	}
-
-	.promo-btn-primary:focus-visible {
-		outline: 2px solid var(--color-primary-deep);
-		outline-offset: 3px;
-	}
-
-	.promo-btn-primary:active:not(:disabled) {
-		transform: translateY(0);
-		box-shadow: none;
 	}
 
 	.promo-btn-primary:disabled {
@@ -1838,8 +2011,35 @@
 		border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 	}
 
-	.promo-card {
+	.promo-card,
+	.promo-newsletter-toggle {
 		border-radius: var(--radius-lg);
+	}
+
+	/* Hero anchors share the auth card's radius; their viewfinder brackets stay square. */
+	.demo-poster,
+	.demo-dialog-frame {
+		border-radius: var(--radius-xl);
+	}
+
+	.sign-in-button,
+	.auth-github-link,
+	.indicator-login-help-toggle,
+	
+
+	.promo-newsletter-check {
+		border-radius: var(--radius-sm);
+	}
+
+	/* One focus ring for every landing control, matching the shared button recipe. */
+	.sign-in-button:focus-visible,
+	.extension-promo:focus-visible,
+	.promo-btn-primary:focus-visible,
+	.auth-github-link:focus-visible,
+	.demo-poster:focus-visible,
+	.demo-dialog-close:focus-visible {
+		outline: 2px solid var(--color-primary);
+		outline-offset: 2px;
 	}
 
 	/* ──────────────────────────────────────────────────────────
@@ -1900,6 +2100,12 @@
 		}
 		.auth-mark-ping {
 			display: none;
+		}
+		.demo-dialog[open] {
+			animation: none;
+		}
+		.demo-poster img, .demo-play, .demo-section::before {
+			transition: none;
 		}
 	}
 </style>

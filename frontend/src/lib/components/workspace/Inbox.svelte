@@ -345,6 +345,7 @@
 		justify-content: center;
 		padding: 0.375rem 0.75rem;
 		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
 		background: var(--color-surface-alt);
 		color: var(--color-ink);
 		font-family: var(--font-mono);

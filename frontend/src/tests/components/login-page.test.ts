@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import LoginPage from '../../routes/login/+page.svelte';
 
@@ -13,15 +13,21 @@ vi.mock('$lib/stores/auth', async () => {
 	};
 });
 
+// jsdom has no modal <dialog>; the page only needs showModal to exist.
+HTMLDialogElement.prototype.showModal = vi.fn();
+
 afterEach(() => {
 	cleanup();
 });
 
 describe('login page product demo', () => {
-	it('keeps the YouTube player at or above its minimum supported height', () => {
+	it('keeps the YouTube player at or above its minimum supported height', async () => {
 		render(LoginPage);
+		expect(screen.queryByTitle('Scoutpost product demo')).toBeNull();
 
-		const player = screen.getByTitle('Scoutpost product demo');
+		await fireEvent.click(screen.getByRole('button', { name: 'See Scoutpost in action' }));
+
+		const player = await screen.findByTitle('Scoutpost product demo');
 		const frame = player.parentElement;
 
 		expect(frame).not.toBeNull();
