@@ -408,6 +408,7 @@ async function processItem(
   // 4. Initial imports must use the exact reviewed preview items. Scheduled
   // work performs extraction normally. Neither path trusts client content.
   let candidateItems: CivicCandidate[] = [];
+  let proposedCount = 0;
   let extracted: CivicEligibleItem[];
   let rejectionCounts: Record<string, number> = {};
   if (ingestionMode === "initial") {
@@ -456,6 +457,7 @@ async function processItem(
     candidateItems = Array.isArray(extraction?.candidates)
       ? extraction.candidates
       : [];
+    proposedCount = candidateItems.length;
     await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
     const verification = await openRouterExtract<
       { candidates: CivicCandidate[] }
@@ -603,7 +605,9 @@ async function processItem(
   if (row.scout_run_id) {
     await recordCivicExtractionDiagnostics(svc, row.scout_run_id, {
       pdfsParsed: row.doc_kind === "pdf" ? 1 : 0,
+      candidatesProposed: proposedCount,
       candidateUnitsBeforeFilter: candidateItems.length,
+      rejectionCounts,
       unitsStored: inserted + mergedExisting,
       emptySuccessReason: row.doc_kind === "pdf" &&
           inserted + mergedExisting === 0
@@ -664,7 +668,10 @@ async function processItem(
     });
   }
 
-  if (row.scout_run_id && (ingestionMode === "initial" || ingestionMode === "scheduled")) {
+  if (
+    row.scout_run_id &&
+    (ingestionMode === "initial" || ingestionMode === "scheduled")
+  ) {
     await drainCivicRunAlerts(svc, workerId, row.scout_run_id).catch((error) =>
       logEvent({
         level: "warn",
@@ -861,7 +868,9 @@ async function recordCivicExtractionDiagnostics(
   runId: string,
   diagnostics: {
     pdfsParsed: number;
+    candidatesProposed: number;
     candidateUnitsBeforeFilter: number;
+    rejectionCounts: Record<string, number>;
     unitsStored: number;
     emptySuccessReason: string | null;
   },
@@ -884,6 +893,23 @@ async function recordCivicExtractionDiagnostics(
   ) + diagnostics.candidateUnitsBeforeFilter;
   const unitsStored = numberFromMetadata(metadata.civic_units_stored) +
     diagnostics.unitsStored;
+  // A semantic zero is only actionable when the run says which stage dropped
+  // the findings: the extractor, the verifier, or a named policy rule.
+  const candidatesProposed =
+    numberFromMetadata(metadata.civic_candidates_proposed) +
+    diagnostics.candidatesProposed;
+  const priorRejections = metadata.civic_rejection_counts &&
+      typeof metadata.civic_rejection_counts === "object" &&
+      !Array.isArray(metadata.civic_rejection_counts)
+    ? metadata.civic_rejection_counts as Record<string, unknown>
+    : {};
+  const rejectionCounts: Record<string, number> = {};
+  for (const [code, count] of Object.entries(priorRejections)) {
+    rejectionCounts[code] = numberFromMetadata(count);
+  }
+  for (const [code, count] of Object.entries(diagnostics.rejectionCounts)) {
+    rejectionCounts[code] = (rejectionCounts[code] ?? 0) + count;
+  }
   const emptySuccessReason = unitsStored === 0 && pdfsParsed > 0
     ? diagnostics.emptySuccessReason
     : null;
@@ -894,7 +920,9 @@ async function recordCivicExtractionDiagnostics(
       metadata: {
         ...metadata,
         pdfs_parsed: pdfsParsed,
+        civic_candidates_proposed: candidatesProposed,
         candidate_units_before_filter: candidateUnitsBeforeFilter,
+        civic_rejection_counts: rejectionCounts,
         civic_units_stored: unitsStored,
         empty_success_reason: emptySuccessReason,
       },
