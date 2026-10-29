@@ -34,7 +34,11 @@ type Retrieval =
 
 // Exercise the actual handler, provider adapters, and lifecycle against an
 // in-memory PostgREST boundary. No request is allowed to leave this fixture.
-async function runScenario(retrieval: Retrieval, baselineOnly: boolean) {
+async function runScenario(
+  retrieval: Retrieval,
+  baselineOnly: boolean,
+  opts: { background?: boolean; scoutMissing?: boolean } = {},
+) {
   const values = {
     SERVICE_SUPABASE_URL: "https://database.invalid",
     SERVICE_SUPABASE_SERVICE_ROLE_KEY: "test-service-role",
@@ -81,6 +85,14 @@ async function runScenario(retrieval: Retrieval, baselineOnly: boolean) {
       status,
       headers: { "Content-Type": "application/json" },
     });
+  // Supabase's EdgeRuntime global, absent under deno test unless supplied.
+  const background: Promise<unknown>[] = [];
+  const runtime = globalThis as { EdgeRuntime?: unknown };
+  if (opts.background) {
+    runtime.EdgeRuntime = {
+      waitUntil: (work: Promise<unknown>) => background.push(work),
+    };
+  }
   try {
     for (const [key, value] of Object.entries(values)) Deno.env.set(key, value);
     globalThis.fetch = (async (input, init) => {
@@ -140,6 +152,7 @@ async function runScenario(retrieval: Retrieval, baselineOnly: boolean) {
         if (resource === "scouts" || resource === "scout_runs") {
           const row = resource === "scouts" ? scout : run;
           if (request.method === "PATCH") Object.assign(row, body);
+          if (resource === "scouts" && opts.scoutMissing) return json([]);
           return json(request.method === "GET" ? [row] : null);
         }
         if (resource === "scout_run_events") return json(null);
@@ -186,9 +199,13 @@ async function runScenario(retrieval: Retrieval, baselineOnly: boolean) {
         },
       ),
     );
+    const responseBody = await response.json();
+    const runStatusAtResponse = run.status;
+    await Promise.all(background);
     return {
       status: response.status,
-      body: await response.json(),
+      body: responseBody,
+      runStatusAtResponse,
       scout,
       run,
       initialBaseline,
@@ -201,6 +218,7 @@ async function runScenario(retrieval: Retrieval, baselineOnly: boolean) {
       forbidden,
     };
   } finally {
+    delete runtime.EdgeRuntime;
     globalThis.fetch = originalFetch;
     for (const [key, value] of previous) {
       if (value === undefined) Deno.env.delete(key);
@@ -317,4 +335,35 @@ Deno.test("Beat genuinely empty discovery remains a non-billable ready baseline 
       assertEquals(result.forbidden, []);
     });
   }
+});
+
+Deno.test("Beat queued monitoring answers 202 at once and finishes the run in the background", async (t) => {
+  // 2026-10-28 benchmark: a London run worked for ~300 s while the gateway
+  // closed the dispatcher's request at its 150 s idle limit, so a run that
+  // produced units was recorded as `worker scout-beat-execute responded 504`.
+  await t.step("run completes after the response", async () => {
+    const result = await runScenario("stale", false, { background: true });
+    assertEquals(result.status, 202);
+    assertEquals(result.body, { status: "accepted", run_id: RUN_ID });
+    assertEquals(result.runStatusAtResponse, "queued");
+    assertEquals(result.run.status, "success");
+    assertEquals(result.charges, 1);
+    assertEquals(result.refunds, 1);
+    assertEquals(result.forbidden, []);
+  });
+  await t.step("a failure before the pipeline still closes the run", async () => {
+    const result = await runScenario("stale", false, {
+      background: true,
+      scoutMissing: true,
+    });
+    assertEquals(result.status, 202);
+    assertEquals(result.run.status, "error");
+    assertEquals(result.charges, 0);
+    assertEquals(result.forbidden, []);
+  });
+  await t.step("baseline creation stays synchronous", async () => {
+    const result = await runScenario("stale", true, { background: true });
+    assertEquals(result.status, 200);
+    assertEquals(result.run.status, "success");
+  });
 });

@@ -295,6 +295,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
   const { scout_id, run_id, baseline_only } = parsed.data;
 
+  // A queued monitoring run (the dispatcher passes run_id) can outlast the
+  // gateway's 150 s idle limit: a London location run on 2026-10-28 finished
+  // its work after ~300 s, but the dispatcher had already received a 504 and
+  // recorded the run as an error. Answer 202 at once and finish under
+  // waitUntil; the dispatcher parks 202s and reconcile_waiting_scout_dispatches
+  // closes them when the run row turns terminal. Baseline creation and direct
+  // calls without run_id keep the synchronous contract their callers read.
+  const background = typeof EdgeRuntime !== "undefined" &&
+    EdgeRuntime?.waitUntil;
+  if (run_id && baseline_only !== true && background) {
+    EdgeRuntime!.waitUntil(executeInBackground(scout_id, run_id));
+    return jsonOk({ status: "accepted", run_id }, 202);
+  }
+
   try {
     return await execute(scout_id, run_id, baseline_only === true);
   } catch (e) {
@@ -310,6 +324,67 @@ Deno.serve(async (req: Request): Promise<Response> => {
 });
 
 // ---------------------------------------------------------------------------
+
+// Supabase Edge Functions global; absent under `deno test` and self-hosts
+// without the Supabase wrapper, where the handler stays synchronous.
+declare const EdgeRuntime:
+  | {
+    waitUntil(promise: Promise<unknown>): void;
+  }
+  | undefined;
+
+const TERMINAL_RUN_STATUSES = new Set(["success", "error", "skipped"]);
+
+/** Run execute() detached from the request, so nobody reads its Response.
+ *
+ * execute() marks the run terminal on every failure inside its pipeline. A
+ * throw before that (scout row missing, database error while resolving the
+ * run) would otherwise leave the run open and its dispatch row waiting for
+ * ever, so close it here when it is still open.
+ */
+export async function executeInBackground(
+  scoutId: string,
+  runId: string,
+): Promise<void> {
+  try {
+    const res = await execute(scoutId, runId, false);
+    await res.body?.cancel();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logEvent({
+      level: "error",
+      fn: "scout-beat-execute",
+      event: "background_unhandled",
+      scout_id: scoutId,
+      run_id: runId,
+      msg,
+    });
+    const db = getServiceClient();
+    const { data, error } = await db
+      .from("scout_runs")
+      .select("status")
+      .eq("id", runId)
+      .maybeSingle();
+    if (error) {
+      logEvent({
+        level: "error",
+        fn: "scout-beat-execute",
+        event: "background_status_read_failed",
+        run_id: runId,
+        msg: error.message,
+      });
+      return;
+    }
+    if (data && !TERMINAL_RUN_STATUSES.has(String(data.status))) {
+      const classified = classifyRunError(e, "dispatch");
+      await markRunError(db, runId, {
+        stage: classified.stage,
+        errorClass: classified.errorClass,
+        message: classified.message,
+      });
+    }
+  }
+}
 
 async function execute(
   scoutId: string,
