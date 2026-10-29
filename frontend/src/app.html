@@ -40,7 +40,10 @@
 			html.ready { visibility: visible; }
 		</style>
 		%sveltekit.head%
-	</head>
+		<link rel="stylesheet" href="/shared/property-signal.css" />
+		<link rel="alternate" type="text/plain" href="/llms.txt" title="Machine-readable site index" />
+	<script src="/shared/property-signal.js" defer></script>
+</head>
 	<body data-sveltekit-preload-data="hover">
 		<div style="display: contents">%sveltekit.body%</div>
 		<script>

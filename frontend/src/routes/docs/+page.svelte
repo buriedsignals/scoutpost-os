@@ -120,7 +120,6 @@
 		content="Reference for the Scoutpost scouts API — MCP, REST, and CLI integrations for connecting your AI agent to monitoring jobs."
 	/>
 	<link rel="alternate" type="text/plain" title="docs.txt" href="/docs.txt" />
-	<link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt" />
 	<link rel="alternate" type="text/plain" title="llms-full.txt" href="/llms-full.txt" />
 	<link rel="alternate" type="text/markdown" title="Scoutpost skill" href="/skills/scoutpost.md" />
 	<link rel="alternate" type="text/markdown" title="Scoutpost setup skill" href="/skills/scoutpost-setup.md" />

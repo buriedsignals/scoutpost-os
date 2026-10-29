@@ -1388,5 +1388,9 @@
   "criteria_exampleEnergy": "förnybar energi",
   "criteria_exampleElections": "kommunalval",
   "criteria_exampleBudget": "budget",
-  "criteria_exampleInfrastructure": "infrastruktur"
+  "criteria_exampleInfrastructure": "infrastruktur",
+  "propertySignal_human": "Människa",
+  "propertySignal_machine": "Maskin",
+  "propertySignal_format": "Läsformat",
+  "propertySignal_network": "Buried Signals-nätverket"
 }

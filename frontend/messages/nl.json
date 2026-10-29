@@ -1388,5 +1388,9 @@
   "criteria_exampleEnergy": "hernieuwbare energie",
   "criteria_exampleElections": "lokale verkiezingen",
   "criteria_exampleBudget": "begroting",
-  "criteria_exampleInfrastructure": "infrastructuur"
+  "criteria_exampleInfrastructure": "infrastructuur",
+  "propertySignal_human": "Mens",
+  "propertySignal_machine": "Machine",
+  "propertySignal_format": "Leesformaat",
+  "propertySignal_network": "Buried Signals-netwerk"
 }

@@ -1388,5 +1388,9 @@
   "criteria_exampleEnergy": "uusiutuva energia",
   "criteria_exampleElections": "kuntavaalit",
   "criteria_exampleBudget": "talousarvio",
-  "criteria_exampleInfrastructure": "infrastruktuuri"
+  "criteria_exampleInfrastructure": "infrastruktuuri",
+  "propertySignal_human": "Ihminen",
+  "propertySignal_machine": "Kone",
+  "propertySignal_format": "Lukumuoto",
+  "propertySignal_network": "Buried Signals -verkosto"
 }

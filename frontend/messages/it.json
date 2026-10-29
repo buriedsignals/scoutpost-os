@@ -1388,5 +1388,9 @@
   "criteria_exampleEnergy": "energie rinnovabili",
   "criteria_exampleElections": "elezioni locali",
   "criteria_exampleBudget": "bilancio",
-  "criteria_exampleInfrastructure": "infrastrutture"
+  "criteria_exampleInfrastructure": "infrastrutture",
+  "propertySignal_human": "Umano",
+  "propertySignal_machine": "Macchina",
+  "propertySignal_format": "Formato di lettura",
+  "propertySignal_network": "Rete Buried Signals"
 }

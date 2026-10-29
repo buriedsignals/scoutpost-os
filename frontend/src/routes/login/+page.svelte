@@ -541,7 +541,7 @@
 						</div>
 						<h3 class="promo-title">{m.login_labTitle()}</h3>
 						<p class="promo-subtitle">{m.login_labDescription()}</p>
-						<a class="indicator-lab-link" href="https://buriedsignals.com/join">{m.login_exploreLab()} <span aria-hidden="true">→</span></a>
+						<a class="indicator-lab-link" href="https://indicator.media/indicator-lab">{m.login_exploreLab()} <span aria-hidden="true">→</span></a>
 
 						<div class="promo-newsletter-block">
 							{#if subscribeError}

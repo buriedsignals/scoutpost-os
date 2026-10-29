@@ -1388,5 +1388,9 @@
   "criteria_exampleEnergy": "vedvarende energi",
   "criteria_exampleElections": "kommunalvalg",
   "criteria_exampleBudget": "budget",
-  "criteria_exampleInfrastructure": "infrastruktur"
+  "criteria_exampleInfrastructure": "infrastruktur",
+  "propertySignal_human": "Menneske",
+  "propertySignal_machine": "Maskine",
+  "propertySignal_format": "Læseformat",
+  "propertySignal_network": "Buried Signals-netværket"
 }

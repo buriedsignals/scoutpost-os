@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PropertySignal from '$lib/components/PropertySignal.svelte';
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
@@ -172,6 +173,10 @@ function handleVideoReady() {
 </script>
 
 <slot />
+
+{#if ['/login', '/setup', '/terms', '/faq', '/acknowledgements', '/docs', '/skills', '/swagger'].includes($page.url.pathname)}
+  <PropertySignal />
+{/if}
 
 
 {#if !isSupabaseDeployment}

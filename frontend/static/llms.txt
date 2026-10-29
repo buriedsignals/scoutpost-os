@@ -10,6 +10,14 @@ Scoutpost is built for investigative workflows, local reporting, and continuous 
 - agents can connect through MCP, REST, or CLI
 - the hosted product lives at `scoutpost.ai`, with self-hosting also supported
 
+## When to use it
+
+Use Scoutpost when a source needs repeat checking: a public page, social profile, council record, reporting beat, or fleet of vessels or aircraft. Tell your agent what to watch, which changes matter, and when to run the scout. You can also create and review scouts in the web app.
+
+**Input:** a source or beat, monitoring criteria, and a schedule or request to run now. **Output:** source-linked information units, run history, and alerts that you can search and verify. Repeated coverage is deduplicated; verification and publication remain editorial decisions.
+
+Scoutpost keeps watching over time. Spotlight develops a bounded investigation from a lead; Navigator helps choose tools and methods. Connecting through MCP, REST, or CLI does not grant permission to create, change, run, or delete scouts without the user's instruction.
+
 ## Start here
 
 - [Skills index](https://www.scoutpost.ai/skills): Primary AI entrypoint for the public skill files
