@@ -390,18 +390,74 @@ function normalizeConfidence(
     : null;
 }
 
+// Models quote around layout the PDF parser leaves inside a sentence: an
+// ellipsis for skipped text, or a silently dropped page header ("Grosser Rat
+// des Kantons Basel-Stadt / Protokoll 21. Sitzung") or vote id ("[Abstimmung #
+// 0009176, 24.06.26 09:04:01]"). On 2026-10-29 replays of the production-parsed
+// Basel minutes lost 7 or 8 of 8 adopted elections in 3 of 16 runs this way.
+// Accept a quote whose every word occurs in the source in order, skipping at
+// most MAX_SKIPPED_SOURCE_WORDS between two quoted words: no word may be
+// invented or changed, and the bound keeps a tally from being borrowed from
+// another vote (consecutive tallies in these minutes are 78+ words apart).
+const QUOTE_ELLIPSIS = /^(?:\.{3,}|…|\[(?:\.{3}|…)\])$/;
+const MAX_SKIPPED_SOURCE_WORDS = 40;
+
 function containsSourceSpan(sourceText: string, span: string): boolean {
+  const source = normalizeQuoteText(sourceText);
+  if (source.includes(normalizeQuoteText(span))) return true;
+  const sourceWords = quoteWords(source);
+  const spanWords = quoteWords(normalizeQuoteText(span));
+  if (spanWords.length === 0) return false;
+  for (let start = 0; start < sourceWords.length; start++) {
+    if (sourceWords[start] !== spanWords[0]) continue;
+    if (wordsFollow(sourceWords, spanWords, start)) return true;
+  }
+  return false;
+}
+
+function wordsFollow(
+  sourceWords: string[],
+  spanWords: string[],
+  start: number,
+): boolean {
+  let cursor = start + 1;
+  for (const word of spanWords.slice(1)) {
+    const limit = Math.min(
+      sourceWords.length,
+      cursor + MAX_SKIPPED_SOURCE_WORDS + 1,
+    );
+    let found = -1;
+    for (let i = cursor; i < limit; i++) {
+      if (sourceWords[i] === word) {
+        found = i;
+        break;
+      }
+    }
+    if (found < 0) return false;
+    cursor = found + 1;
+  }
+  return true;
+}
+
+// Words compare without surrounding punctuation, so "Bothe-Wenk" matches
+// "Bothe-Wenk." while digits, hyphens, and letters stay exact.
+function quoteWords(text: string): string[] {
+  return text.split(" ")
+    .filter((word) => !QUOTE_ELLIPSIS.test(word))
+    .map((word) => word.replace(/^[\p{P}]+|[\p{P}]+$/gu, ""))
+    .filter(Boolean);
+}
+
+function normalizeQuoteText(value: string): string {
   // OCR emits Markdown emphasis and line-wrapped words. Ignore those layout
   // differences only; lexical hyphens and all digits remain evidence-bearing.
-  const normalize = (value: string) =>
-    value
-      .replace(/\*\*([^*]+)\*\*/g, "$1")
-      .replace(/(\p{L})-[ \t]*\r?\n[ \t]*(\p{Ll})/gu, "$1$2")
-      .replace(/(\p{L})-[ \t]+(\p{Ll})/gu, "$1$2")
-      .replace(/(\p{L})-\s+(\p{Lu})/gu, "$1-$2")
-      .replace(/(\d)\s+%/g, "$1%")
-      .replace(/\s+/g, " ").trim();
-  return normalize(sourceText).includes(normalize(span));
+  return value
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/(\p{L})-[ \t]*\r?\n[ \t]*(\p{Ll})/gu, "$1$2")
+    .replace(/(\p{L})-[ \t]+(\p{Ll})/gu, "$1$2")
+    .replace(/(\p{L})-\s+(\p{Lu})/gu, "$1-$2")
+    .replace(/(\d)\s+%/g, "$1%")
+    .replace(/\s+/g, " ").trim();
 }
 
 function currencyAmounts(text: string): string[] {

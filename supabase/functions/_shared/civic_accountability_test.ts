@@ -99,7 +99,6 @@ Deno.test("Civic immediate alerts announce only newly stored promises", () => {
   assertEquals(shouldAlertForNewCivicItem(decisionResult.item, true), false);
 });
 
-
 Deno.test("Civic accountability rejects the Zurich calendar pattern", () => {
   const result = classifyCivicCandidate(
     promise({
@@ -511,4 +510,76 @@ Deno.test("Civic checks recommendation wording in the operative quote", () => {
     }, { today: TODAY, sourceText: context }),
     { outcome: "rejected", code: "not_adopted" },
   );
+});
+
+Deno.test("Civic accountability grounds a quote that skips parser layout but rejects invented or borrowed words", async (t) => {
+  // Shape of the production-parsed Basel Grosser Rat minutes, 2026-06-24:
+  // a vote id and a page header split the decision sentence. Replays on
+  // 2026-10-29 lost all eight adopted elections when the model quoted around
+  // that layout, with or without an ellipsis.
+  const sourceText = [
+    "Abstimmung JA heisst Wahl von Sandra Bothe-Wenk, NEIN heisst keine Wahl.",
+    "Ergebnis der Abstimmung",
+    "87 Ja, 0 Nein, 0 Enthaltungen. [Abstimmung # 0009182, 24.06.26 09:06:59]",
+    "Der Grosse Rat beschliesst",
+    "\f   Grosser Rat des Kantons Basel-Stadt",
+    "    Protokoll 21. Sitzung, Amtsjahr 2026/2027     24. Juni 2026 - Seite 3",
+    "die Wahl von Sandra Bothe-Wenk.",
+    "Weitere Voten zum Jahresbericht. ".repeat(40),
+    "Ergebnis der Abstimmung 12 Ja, 70 Nein, 3 Enthaltungen.",
+  ].join("\n");
+  const election = (context: string): CivicCandidate => ({
+    kind: "decision",
+    statement:
+      "The Grand Council elected Sandra Bothe-Wenk to the Audit Committee.",
+    context,
+    adopting_body: "Der Grosse Rat",
+    decision_kind: "election",
+    adopted: true,
+    material: true,
+    criteria_match: true,
+    evidence_supported: true,
+    meeting_date: "2026-06-24",
+  });
+  const cases: Array<[string, string, "eligible" | "rejected"]> = [
+    [
+      "ellipsis between verbatim fragments",
+      "Abstimmung JA heisst Wahl von Sandra Bothe-Wenk... Ergebnis der Abstimmung 87 Ja, 0 Nein, 0 Enthaltungen.",
+      "eligible",
+    ],
+    [
+      "vote id and page header dropped without a marker",
+      "87 Ja, 0 Nein, 0 Enthaltungen. Der Grosse Rat beschliesst die Wahl von Sandra Bothe-Wenk",
+      "eligible",
+    ],
+    [
+      "fragments out of order",
+      "Ergebnis der Abstimmung 87 Ja, 0 Nein … Abstimmung JA heisst Wahl von Sandra Bothe-Wenk",
+      "rejected",
+    ],
+    [
+      "tally borrowed from a distant vote",
+      "Abstimmung JA heisst Wahl von Sandra Bothe-Wenk... Ergebnis der Abstimmung 12 Ja, 70 Nein",
+      "rejected",
+    ],
+    [
+      "changed number",
+      "Abstimmung JA heisst Wahl... Ergebnis der Abstimmung 99 Ja, 0 Nein",
+      "rejected",
+    ],
+    [
+      "inserted word",
+      "Der Grosse Rat beschliesst einstimmig die Wahl von Sandra Bothe-Wenk",
+      "rejected",
+    ],
+  ];
+  for (const [name, context, expected] of cases) {
+    await t.step(name, () => {
+      const result = classifyCivicCandidate(election(context), {
+        today: TODAY,
+        sourceText,
+      });
+      assertEquals(result.outcome, expected);
+    });
+  }
 });

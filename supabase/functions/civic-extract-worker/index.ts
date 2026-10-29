@@ -23,6 +23,7 @@ import { logEvent } from "../_shared/log.ts";
 import { NeedsOcrError, parseDocument } from "../_shared/docparse.ts";
 import { EMBEDDING_MODEL_TAG, embedText } from "../_shared/embedding.ts";
 import { openRouterExtract } from "../_shared/openrouter.ts";
+import { extractCivicCandidates } from "../_shared/civic_candidate_extraction.ts";
 import { languageName } from "../_shared/atomic_extract.ts";
 import {
   compressContext,
@@ -41,11 +42,7 @@ import {
 } from "../_shared/run_lifecycle.ts";
 import { recordScoutRunFailure } from "../_shared/scout_failures.ts";
 import {
-  buildCivicCandidatePrompt,
-  buildCivicVerifierPrompt,
-  CIVIC_CANDIDATE_SCHEMA,
   CIVIC_POLICY_VERSION,
-  CIVIC_VERIFIER_SCHEMA,
   type CivicCandidate,
   type CivicEligibleItem,
   classifyCivicCandidates,
@@ -428,62 +425,36 @@ async function processItem(
     const promptText = compressedMarkdown.slice(0, PROMPT_CONTENT_MAX);
     const langCode = (scout.preferred_language as string | null) ?? "en";
     const langName = languageName(langCode);
-    const userPrompt = buildCivicCandidatePrompt(promptText, {
-      criteria: scout.criteria as string | null,
-      languageName: langName,
-      referenceDate: ingestionMode === "backfill"
-        ? queueSemantics?.semantics_snapshot?.document_date ?? null
-        : extractDateFromUrl(row.source_url),
-    });
-
     if (row.scout_run_id) await markRunStage(svc, row.scout_run_id, "extract");
-    await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
-    const extraction = await openRouterExtract<
-      { candidates: CivicCandidate[] }
-    >(
-      userPrompt,
-      CIVIC_CANDIDATE_SCHEMA,
+    const { proposed, verified } = await extractCivicCandidates(
+      promptText,
       {
-        usage: {
-          db: svc,
-          userId,
-          scoutId: row.scout_id,
-          runId: row.scout_run_id,
-          functionName: "civic-extract-worker",
-          operation: "civic_extract_promises",
-        },
-      },
-    );
-    candidateItems = Array.isArray(extraction?.candidates)
-      ? extraction.candidates
-      : [];
-    proposedCount = candidateItems.length;
-    await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
-    const verification = await openRouterExtract<
-      { candidates: CivicCandidate[] }
-    >(
-      buildCivicVerifierPrompt(promptText, candidateItems, {
         criteria: scout.criteria as string | null,
         languageName: langName,
         referenceDate: ingestionMode === "backfill"
           ? queueSemantics?.semantics_snapshot?.document_date ?? null
           : extractDateFromUrl(row.source_url),
-      }),
-      CIVIC_VERIFIER_SCHEMA,
-      {
-        usage: {
-          db: svc,
-          userId,
-          scoutId: row.scout_id,
-          runId: row.scout_run_id,
-          functionName: "civic-extract-worker",
-          operation: "civic_verify_accountability",
-        },
+      },
+      async (prompt, schema, operation) => {
+        await heartbeatCivicLease(svc, row.id, workerId, leaseSeconds);
+        return await openRouterExtract<{ candidates?: unknown }>(
+          prompt,
+          schema,
+          {
+            usage: {
+              db: svc,
+              userId,
+              scoutId: row.scout_id,
+              runId: row.scout_run_id,
+              functionName: "civic-extract-worker",
+              operation,
+            },
+          },
+        );
       },
     );
-    candidateItems = Array.isArray(verification?.candidates)
-      ? verification.candidates
-      : [];
+    proposedCount = proposed.length;
+    candidateItems = verified;
     const classified = classifyCivicCandidates(candidateItems, {
       today: new Date().toISOString().slice(0, 10),
       sourceText: promptText,
