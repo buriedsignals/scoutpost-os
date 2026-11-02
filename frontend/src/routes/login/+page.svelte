@@ -541,6 +541,7 @@
 						</div>
 						<h3 class="promo-title">{m.login_labTitle()}</h3>
 						<p class="promo-subtitle">{m.login_labDescription()}</p>
+						<p class="promo-price">{m.login_labPrice()}</p>
 						<a class="indicator-lab-link" href="https://indicator.media/indicator-lab">{m.login_exploreLab()} <span aria-hidden="true">→</span></a>
 
 						<div class="promo-newsletter-block">
@@ -599,43 +600,6 @@
 									<span>{subscribedMessage}</span>
 								</p>
 							{/if}
-						</div>
-					</div>
-
-					<div class="promo-card">
-						<div class="promo-kicker">
-							<span>{m.login_hireMe()}</span>
-						</div>
-						<h3 class="promo-title">{m.login_trainingTitle()}</h3>
-						<p class="promo-subtitle">{m.login_trainingDescription()}</p>
-						<div class="promo-section-label-wrap">
-							<span class="promo-section-label">{m.login_pastClients()}</span>
-						</div>
-						<ul class="promo-features">
-							<li>Le Temps</li>
-							<li>Al Jazeera</li>
-							<li>MAZ Journalistenschule</li>
-							<li>Republik</li>
-							<li>20 Minuten</li>
-							<li>SRF</li>
-							<li>MediaStorm</li>
-							<li>The New Humanitarian</li>
-						</ul>
-						<div class="promo-action promo-action--inline">
-							<a
-								href="mailto:tom@buriedsignals.com?subject=Consulting%20inquiry"
-								class="promo-btn-primary"
-							>
-								{m.login_contact()}
-							</a>
-							<a
-								href="https://buriedsignals.com/consulting"
-								target="_blank"
-								rel="noopener noreferrer"
-								class="promo-link"
-							>
-								{m.login_caseStudies()}
-							</a>
 						</div>
 					</div>
 				</div>
@@ -1671,7 +1635,7 @@
 	}
 
 	/* ──────────────────────────────────────────────────────────
-	   Promo cards — Indicator Lab + Consulting
+	   Promo card — Indicator Lab
 	   ────────────────────────────────────────────────────────── */
 	.promo-grid {
 		display: grid;
@@ -1708,21 +1672,6 @@
 		text-align: right;
 	}
 
-	/* Supporting eyebrow label within the Consulting card. */
-	.promo-section-label-wrap {
-		margin-top: 0.25rem;
-	}
-
-	.promo-section-label {
-		display: inline-block;
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--color-primary);
-	}
-
 	.promo-title {
 		font-family: var(--font-display);
 		font-size: 1.5rem;
@@ -1730,6 +1679,13 @@
 		line-height: 1.15;
 		color: var(--color-ink);
 		letter-spacing: -0.01em;
+		margin: 0;
+	}
+
+	.promo-price {
+		font-size: 0.9375rem;
+		line-height: 1.5;
+		color: var(--color-ink);
 		margin: 0;
 	}
 
@@ -1761,49 +1717,6 @@
 	.indicator-lab-link:hover {
 		border-color: var(--color-secondary);
 		color: var(--color-secondary);
-	}
-
-	.promo-features {
-		list-style: none;
-		padding: 0;
-		margin: 0.25rem 0 0 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.promo-features li {
-		font-size: 0.875rem;
-		font-weight: 500;
-		line-height: 1.5;
-		color: var(--color-ink-muted);
-		padding-left: 1rem;
-		position: relative;
-	}
-
-	.promo-features li::before {
-		content: '';
-		position: absolute;
-		left: 0;
-		top: 0.625rem;
-		width: 6px;
-		height: 1px;
-		background: var(--color-primary);
-	}
-
-	/* Shared action row anchor — pins the CTA to the card bottom so the
-	   purple buttons align across both cards regardless of content length. */
-	.promo-action {
-		margin-top: auto;
-		padding-top: 1rem;
-		display: flex;
-	}
-	/* Consulting card: both CTAs sit on the same row. */
-	.promo-action--inline {
-		flex-direction: row;
-		align-items: center;
-		gap: 1.25rem;
-		flex-wrap: wrap;
 	}
 
 	.promo-signup-form {
@@ -1978,21 +1891,6 @@
 	.promo-btn-primary:disabled {
 		opacity: 0.6;
 		cursor: default;
-	}
-
-	.promo-link {
-		color: var(--color-ink-muted);
-		text-decoration: none;
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		transition: color 150ms ease;
-	}
-
-	.promo-link:hover {
-		color: var(--color-primary);
 	}
 
 	.feature-icon,
