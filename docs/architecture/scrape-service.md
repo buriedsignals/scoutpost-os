@@ -124,8 +124,20 @@ edge-functions service points at
 ## Maintenance
 
 - **Version bumps (monthly):** `crawl4ai` is exact-pinned in
-  `scrape-service/requirements.txt`; the clean Docker build resolves Patchright
-  and installs its matching Chromium revision. Inspect the candidate source at
+  `scrape-service/requirements.txt`; the image installs every Python package
+  from the hash-locked `scrape-service/requirements.lock` (`pip
+  --require-hashes`), so regenerate the lock with the command in its header
+  after any requirements change.
+- **Browser:** the image runs Debian bookworm-security's `chromium` through a
+  symlink at the path Patchright's driver expects, not Patchright's bundled
+  build, because no Playwright/Patchright release bundles a Chromium patched
+  for CVE-2026-118306 (fixed in Chrome 156.0.8078.73). The build fails when
+  the installed version is below the Dockerfile's `CHROMIUM_MIN_VERSION`.
+  Rebuild without cache to pick up Debian security updates. Crawl4AI launches
+  Chromium with `--no-sandbox`; the sandbox cannot start under Docker's
+  default seccomp profile (verified locally 2026-11-04, including Debian's
+  setuid `chromium-sandbox`), so the patched browser, the non-root user and the
+  DNS-pinning egress proxy are the containment. Inspect the candidate source at
   every API used by `app/scraper.py`, run `cd scrape-service && python -m pytest`
   (100% coverage gate), rebuild without cached browser layers, and run the live
   browser plus HTTP/Workflow contract probes. Library API drift is absorbed by
