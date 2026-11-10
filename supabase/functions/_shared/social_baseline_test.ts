@@ -1,11 +1,13 @@
 import {
   assertEquals,
+  assertRejects,
   assertThrows,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { ValidationError } from "./errors.ts";
 import {
   buildSocialActorInput,
   diffSocialPosts,
+  fetchSocialPosts,
   formatSocialBaselinePosts,
   normalizeSocialDatasetPosts,
   scanSocialBaseline,
@@ -201,6 +203,39 @@ Deno.test("social baseline uses Bearer auth without a token query", async () => 
   );
   assertEquals(authorization, "Bearer test-apify-token");
   assertEquals(new URL(requestedUrl).searchParams.has("token"), false);
+});
+
+Deno.test("fetchSocialPosts names its provider and sends the sync actor request", async () => {
+  let requestedUrl = "";
+  let body: unknown;
+  const result = await fetchSocialPosts("x", "scoutpost", {
+    token: "t",
+    fetchImpl: async (input, init) => {
+      const request = new Request(input, init);
+      requestedUrl = request.url;
+      body = await request.json();
+      return Response.json([{ id: "1", text: "hi", createdAt: "2026-09-01" }]);
+    },
+  });
+  assertEquals(result.provider, "apify");
+  assertEquals(result.posts.map((post) => post.id), ["1"]);
+  assertEquals(
+    requestedUrl.endsWith("/run-sync-get-dataset-items?timeout=120"),
+    true,
+  );
+  assertEquals(body, buildSocialActorInput("x", "scoutpost"));
+});
+
+Deno.test("fetchSocialPosts failure message names the platform, status and body", async () => {
+  await assertRejects(
+    () =>
+      fetchSocialPosts("tiktok", "nasa", {
+        token: "t",
+        fetchImpl: () => Promise.resolve(new Response("nope", { status: 402 })),
+      }),
+    Error,
+    "Apify tiktok fetch failed: 402 nope",
+  );
 });
 
 Deno.test("normalizeSocialDatasetPosts accepts harvestapi LinkedIn rows", () => {
@@ -422,6 +457,31 @@ Deno.test("diffSocialPosts ignores a pinned old post when finding the capped win
 
   const result = diffSocialPosts("instagram", previous, current);
 
+  assertEquals(result.removedIds, []);
+});
+
+// The Instagram actor's 12-row cap includes pinned posts (live: 12 rows, 3
+// pinned). A page that is full of rows is capped even though fewer than 12 of
+// them are unpinned, so the oldest unpinned post aging out is not a deletion.
+Deno.test("diffSocialPosts does not report an aged-out post when pinned posts fill part of the cap", () => {
+  const pinned = [1, 2, 3].map((n) => ({
+    id: `pinned-${n}`,
+    text: "pinned",
+    timestamp: `2025-01-0${n}T00:00:00.000Z`,
+    imageUrl: null,
+    url: null,
+    pinned: true,
+  }));
+  const previous = formatSocialBaselinePosts(
+    [...pinned, ...capPosts(9, 25)],
+    "instagram",
+  );
+  // 3 pinned + 9 unpinned = 12 rows (the cap); one new post, day-17 aged out.
+  const current = [...pinned, ...capPosts(9, 26)];
+
+  const result = diffSocialPosts("instagram", previous, current);
+
+  assertEquals(result.newPosts.map((post) => post.id), ["day-26"]);
   assertEquals(result.removedIds, []);
 });
 

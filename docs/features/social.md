@@ -4,6 +4,8 @@
 
 Social Scouts monitor public social profiles for new posts and, when enabled, removed posts. The current runtime is Supabase Edge Functions plus Apify: `execute-scout` calls `social-kickoff`, Apify runs asynchronously, and `apify-callback` or `apify-reconcile` writes canonical units and post snapshots.
 
+**Queued worker (opt-in).** Social runs can instead go through the dispatch queue: `execute-scout` enqueues them (only when the `SCOUT_DISPATCH_QUEUE_TYPES` secret lists `social`), `scout-dispatch-drain` calls `social-execute`, which answers 202 and runs `_shared/social_run.ts` under `EdgeRuntime.waitUntil`: one synchronous Apify call (`fetchSocialPosts`), diff, extraction until a 300 s deadline, baseline written after extraction, then notification. Credits use the keys `social:<run_id>:charge` and `social:<run_id>:refund`; `reconcile_waiting_scout_dispatches` closes and refunds a run whose worker died 30 minutes after it was parked. Posts not reached before the deadline are left out of the baseline (and counted in `scout_runs.metadata.deferred_posts`), so the next run treats them as new. Without the secret, runs use the webhook path described below. **The list is exclusive:** a non-empty `SCOUT_DISPATCH_QUEUE_TYPES` restricts every scout type, so the safe value for enabling queued social is `web,beat,civic,social`; setting just `social` would take Page, Beat and Civic runs off the queue. To switch social back, set `web,beat,civic` (or unset the secret); runs already parked finish under their worker.
+
 Do not model new social work around EventBridge, Lambda, DynamoDB `POSTS#` records, or `/api/social/execute`. Those are pre-cutover names.
 
 ## Supported Platforms

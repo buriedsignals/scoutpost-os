@@ -119,32 +119,62 @@ export async function scanSocialBaseline(
   const normalizedHandle = normalizeSocialHandle(platform, handle);
   const profileUrl = buildSocialProfileUrl(platform, normalizedHandle);
   if (!profileUrl) throw new ValidationError("unsupported social profile");
+  const { posts } = await fetchSocialPosts(platform, normalizedHandle, {
+    token,
+    fetchImpl,
+  });
+  return { profileUrl, posts };
+}
+
+export interface FetchedSocialPosts {
+  /** Which provider served the posts; only "apify" exists today. */
+  provider: "apify";
+  posts: NormalizedSocialPost[];
+}
+
+/**
+ * The one place that asks a provider for a profile's recent posts: a
+ * synchronous Apify actor run, normalized. An HTTP failure throws
+ * "Apify <platform> fetch failed: <status> <body>".
+ */
+export async function fetchSocialPosts(
+  platform: SocialPlatform,
+  handle: string,
+  options: {
+    token: string;
+    fetchImpl?: typeof fetch;
+  },
+): Promise<FetchedSocialPosts> {
   const actor = SOCIAL_APIFY_ACTORS[platform];
   if (!actor) throw new ValidationError(`unsupported platform: ${platform}`);
 
+  // `run-sync-get-dataset-items` blocks until the actor finishes and returns
+  // the items. Apify's router accepts the literal `~` in slash-form actor ids.
   const endpoint =
     `https://api.apify.com/v2/acts/${actor.id}/run-sync-get-dataset-items` +
     `?timeout=${APIFY_TIMEOUT_SECS}`;
-  const res = await fetchImpl(endpoint, {
+  const res = await (options.fetchImpl ?? fetch)(endpoint, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${token}`,
+      "Authorization": `Bearer ${options.token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(buildSocialActorInput(platform, normalizedHandle)),
+    body: JSON.stringify(buildSocialActorInput(platform, handle)),
     signal: AbortSignal.timeout((APIFY_TIMEOUT_SECS + 15) * 1000),
   });
   if (!res.ok) {
     throw new Error(
-      `Apify ${platform} baseline failed: ${res.status} ${
+      `Apify ${platform} fetch failed: ${res.status} ${
         (await res.text()).slice(0, 200)
       }`,
     );
   }
 
   const items = await res.json().catch(() => []);
-  const posts = normalizeSocialDatasetPosts(platform, items);
-  return { profileUrl, posts };
+  return {
+    provider: "apify",
+    posts: normalizeSocialDatasetPosts(platform, items),
+  };
 }
 
 export function buildSocialActorInput(
@@ -278,7 +308,7 @@ export function diffSocialPosts(
 
 /**
  * Decides whether a post missing from the current run was deleted. Below the
- * result cap the run holds the whole profile, so every missing post was
+ * result cap (counting pinned rows) the run holds the whole profile, so every missing post was
  * deleted. At the cap, a new post pushes the oldest one out of the result;
  * that post was not deleted. Only a post published no earlier than the
  * oldest unpinned current post should still be there, and only a baseline
@@ -289,9 +319,10 @@ function removalTest(
   platform: SocialPlatform | string,
   current: readonly NormalizedSocialPost[],
 ): (post: SocialBaselinePost) => boolean {
-  const unpinned = current.filter((post) => !post.pinned);
   const cap = RESULT_CAP[platform as SocialPlatform] ?? MAX_ITEMS;
-  if (unpinned.length < cap) return () => true;
+  // The cap counts every row, pinned included (live: 12 rows, 3 pinned).
+  if (current.length < cap) return () => true;
+  const unpinned = current.filter((post) => !post.pinned);
   const times = unpinned.map((post) => Date.parse(post.timestamp))
     .filter((ms) => !Number.isNaN(ms));
   if (times.length === 0) return () => false;

@@ -54,3 +54,30 @@ function boundedInt(
     ? Math.min(max, Math.max(min, value))
     : fallback;
 }
+
+const QUEUE_BACKED_TYPES = new Set(["web", "beat", "civic", "social"]);
+// Types that stay on the direct path unless SCOUT_DISPATCH_QUEUE_TYPES lists
+// them. A5 of the social plan removes the exception.
+const OPT_IN_QUEUE_TYPES = new Set(["social"]);
+
+/**
+ * Whether execute-scout sends this scout type through the dispatch queue.
+ * Web, beat and civic are on unless SCOUT_DISPATCH_QUEUE_ENABLED is off or
+ * SCOUT_DISPATCH_QUEUE_TYPES omits them. Social is on only when that list is
+ * set and names it, so deploying the social worker changes nothing until the
+ * secret is set, and unsetting it switches back without a deploy.
+ */
+export function isQueueBackedScoutType(
+  scoutType: string,
+  readEnv: EnvReader = (name) => Deno.env.get(name),
+): boolean {
+  const enabled = readEnv("SCOUT_DISPATCH_QUEUE_ENABLED")?.trim().toLowerCase();
+  if (enabled && ["0", "false", "no", "off"].includes(enabled)) return false;
+  if (!QUEUE_BACKED_TYPES.has(scoutType)) return false;
+
+  const configuredTypes = readEnv("SCOUT_DISPATCH_QUEUE_TYPES");
+  if (!configuredTypes) return !OPT_IN_QUEUE_TYPES.has(scoutType);
+  return new Set(
+    configuredTypes.split(",").map((value) => value.trim().toLowerCase()),
+  ).has(scoutType);
+}

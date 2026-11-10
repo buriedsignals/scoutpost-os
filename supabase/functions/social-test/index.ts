@@ -46,12 +46,7 @@ import {
   SOCIAL_HANDLE_NOT_A_NAME_MESSAGE,
   type SocialPlatform,
 } from "../_shared/social_profiles.ts";
-import {
-  buildSocialActorInput,
-  type NormalizedSocialPost,
-  normalizeSocialDatasetPosts,
-  SOCIAL_APIFY_ACTORS,
-} from "../_shared/social_baseline.ts";
+import { fetchSocialPosts } from "../_shared/social_baseline.ts";
 
 const InputSchema = z.object({
   platform: z.enum(["instagram", "x", "facebook", "tiktok", "linkedin"]),
@@ -62,7 +57,6 @@ const InputSchema = z.object({
   }),
 });
 
-const APIFY_TIMEOUT_SECS = 120;
 const PREVIEW_TEXT_MAX = 120;
 const CAPTION_TRUNCATED_MAX = 200;
 const INSTAGRAM_PROFILE_ACTOR_ID = "dSCLg0C3YEZ83HzYX";
@@ -232,12 +226,10 @@ export async function handleSocialTestRequest(
     }
 
     try {
-      const posts = await runApifySync(
-        platform,
-        normalizedHandle,
-        apifyToken,
+      const { posts } = await fetchSocialPosts(platform, normalizedHandle, {
+        token: apifyToken,
         fetchImpl,
-      );
+      });
       const postIds: string[] = [];
       const previewPosts: Array<
         { id: string; text: string; timestamp: string }
@@ -409,43 +401,4 @@ async function validateProfileExists(
   } catch {
     return "uncertain";
   }
-}
-
-async function runApifySync(
-  platform: string,
-  handle: string,
-  token: string,
-  fetchImpl: typeof fetch,
-): Promise<NormalizedSocialPost[]> {
-  const actor = SOCIAL_APIFY_ACTORS[platform as SocialPlatform];
-  if (!actor) throw new Error(`Unsupported platform: ${platform}`);
-
-  // `run-sync-get-dataset-items` blocks until the actor finishes + returns items.
-  // Apify encodes `~` in slash-form actor IDs; our literal strings include the
-  // `~` which Apify's router accepts directly on this endpoint.
-  const endpoint =
-    `https://api.apify.com/v2/acts/${actor.id}/run-sync-get-dataset-items` +
-    `?timeout=${APIFY_TIMEOUT_SECS}`;
-
-  const res = await fetchImpl(endpoint, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(
-      buildSocialActorInput(platform as SocialPlatform, handle),
-    ),
-    signal: AbortSignal.timeout((APIFY_TIMEOUT_SECS + 15) * 1000),
-  });
-  if (!res.ok) {
-    throw new Error(
-      `Apify ${platform} actor failed: ${res.status} ${
-        (await res.text()).slice(0, 200)
-      }`,
-    );
-  }
-
-  const items = await res.json().catch(() => []);
-  return normalizeSocialDatasetPosts(platform, items);
 }

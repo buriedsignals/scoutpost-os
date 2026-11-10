@@ -20,7 +20,8 @@
  *   web    -> POST /functions/v1/scout-web-execute
  *   beat  -> POST /functions/v1/scout-beat-execute
  *   civic  -> POST /functions/v1/civic-execute
- *   social -> POST /functions/v1/social-kickoff
+ *   social -> POST /functions/v1/social-kickoff, or through the dispatch queue
+ *             to social-execute when SCOUT_DISPATCH_QUEUE_TYPES lists social
  */
 
 import { z } from "https://esm.sh/zod@3";
@@ -40,6 +41,7 @@ import {
 } from "../_shared/errors.ts";
 import { logEvent } from "../_shared/log.ts";
 import { selectScoutCrawlerBackend } from "../_shared/crawler_routing.ts";
+import { isQueueBackedScoutType } from "../_shared/scout_dispatch_config.ts";
 
 const DispatchSchema = z.object({
   scout_id: z.string().uuid(),
@@ -57,7 +59,6 @@ const WORKERS: Record<string, string> = {
 };
 
 const WORKER_TIMEOUT_MS = 5_000;
-const QUEUE_BACKED_TYPES = new Set(["web", "beat", "civic"]);
 
 Deno.serve(async (req: Request): Promise<Response> => {
   const cors = handleCors(req);
@@ -122,10 +123,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
       throw new ValidationError(`unknown scout type: ${scout.type}`);
     }
 
-    if (queueEnabledFor(scout.type as string)) {
+    if (isQueueBackedScoutType(scout.type as string)) {
       const source = trigger_source ??
         (isServiceCaller ? "scheduled" : "manual");
-      const crawlerBackend = selectScoutCrawlerBackend(scout);
+      // Social runs do not use a crawler; the routing helper throws for them.
+      const crawlerBackend = scout.type === "social"
+        ? "service"
+        : selectScoutCrawlerBackend(scout);
       const { data: queued, error: queueError } = await svc.rpc(
         "enqueue_scout_dispatch",
         {
@@ -321,19 +325,6 @@ async function safeText(res: Response): Promise<string> {
   } catch {
     return "";
   }
-}
-
-function queueEnabledFor(scoutType: string): boolean {
-  const enabled = Deno.env.get("SCOUT_DISPATCH_QUEUE_ENABLED")?.trim()
-    .toLowerCase();
-  if (enabled && ["0", "false", "no", "off"].includes(enabled)) return false;
-  if (!QUEUE_BACKED_TYPES.has(scoutType)) return false;
-
-  const configuredTypes = Deno.env.get("SCOUT_DISPATCH_QUEUE_TYPES");
-  if (!configuredTypes) return true;
-  return new Set(
-    configuredTypes.split(",").map((value) => value.trim().toLowerCase()),
-  ).has(scoutType);
 }
 
 async function markRunTerminal(

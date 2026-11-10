@@ -25,6 +25,7 @@ const WORKERS: Record<string, string> = {
   web: "scout-web-execute",
   beat: "scout-beat-execute",
   civic: "civic-execute",
+  social: "social-execute",
 };
 
 interface DispatchClaim {

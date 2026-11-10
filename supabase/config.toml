@@ -464,6 +464,9 @@ verify_jwt = false
 [functions.social-kickoff]
 verify_jwt = false
 
+[functions.social-execute]
+verify_jwt = false
+
 [functions.scout-beat-execute]
 verify_jwt = false
 
