@@ -53,6 +53,12 @@ export interface ApifyActor {
   id: string;
 }
 
+/**
+ * Actor behind the Instagram private-profile check in social-test. It is not
+ * a posts actor, so it is not part of SOCIAL_APIFY_ACTORS.
+ */
+export const INSTAGRAM_PROFILE_ACTOR_ID = "dSCLg0C3YEZ83HzYX";
+
 export const SOCIAL_APIFY_ACTORS: Record<SocialPlatform, ApifyActor> = {
   instagram: {
     id: "pmQcv69sB1UwguQUY",
@@ -100,6 +106,11 @@ export interface SocialPostDiff {
   shouldReplaceBaseline: boolean;
 }
 
+/** The one reader of the Apify credential; empty when not configured. */
+export function apifyApiToken(): string {
+  return Deno.env.get("APIFY_API_TOKEN") ?? "";
+}
+
 export interface SocialBaselineScan {
   profileUrl: string;
   posts: NormalizedSocialPost[];
@@ -108,7 +119,7 @@ export interface SocialBaselineScan {
 export async function scanSocialBaseline(
   platform: SocialPlatform,
   handle: string,
-  token = Deno.env.get("APIFY_API_TOKEN") ?? "",
+  token = apifyApiToken(),
   fetchImpl: typeof fetch = fetch,
 ): Promise<SocialBaselineScan> {
   if (!token) {

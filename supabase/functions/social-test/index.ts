@@ -46,7 +46,11 @@ import {
   SOCIAL_HANDLE_NOT_A_NAME_MESSAGE,
   type SocialPlatform,
 } from "../_shared/social_profiles.ts";
-import { fetchSocialPosts } from "../_shared/social_baseline.ts";
+import {
+  apifyApiToken,
+  fetchSocialPosts,
+  INSTAGRAM_PROFILE_ACTOR_ID,
+} from "../_shared/social_baseline.ts";
 
 const InputSchema = z.object({
   platform: z.enum(["instagram", "x", "facebook", "tiktok", "linkedin"]),
@@ -59,7 +63,6 @@ const InputSchema = z.object({
 
 const PREVIEW_TEXT_MAX = 120;
 const CAPTION_TRUNCATED_MAX = 200;
-const INSTAGRAM_PROFILE_ACTOR_ID = "dSCLg0C3YEZ83HzYX";
 const INSTAGRAM_PROFILE_TIMEOUT_SECS = 12;
 const UNKNOWN_INSTAGRAM_PRIVACY_WARNING =
   "Instagram privacy could not be confirmed. Continue only if this is a public profile.";
@@ -151,7 +154,7 @@ export async function handleSocialTestRequest(
       });
     }
 
-    const apifyToken = deps.apifyToken ?? Deno.env.get("APIFY_API_TOKEN") ?? "";
+    const apifyToken = deps.apifyToken ?? apifyApiToken();
     const profileVisibility: InstagramProfileVisibility | undefined =
       platform === "instagram"
         ? await fetchInstagramProfileVisibility(
