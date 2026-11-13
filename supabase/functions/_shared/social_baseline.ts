@@ -51,6 +51,19 @@ const WRAPPER_KEYS = [
 
 export interface ApifyActor {
   id: string;
+  /** Build to run instead of the actor's `latest` tag. */
+  build?: string;
+}
+
+/** Query string for an actor call, pinning the build when the actor names one. */
+export function apifyActorQuery(
+  actor: ApifyActor,
+  params: Record<string, string> = {},
+): string {
+  const query = new URLSearchParams(params);
+  if (actor.build) query.set("build", actor.build);
+  const encoded = query.toString();
+  return encoded ? `?${encoded}` : "";
 }
 
 /**
@@ -60,8 +73,11 @@ export interface ApifyActor {
 export const INSTAGRAM_PROFILE_ACTOR_ID = "dSCLg0C3YEZ83HzYX";
 
 export const SOCIAL_APIFY_ACTORS: Record<SocialPlatform, ApifyActor> = {
+  // Builds 1.0.30 to 1.0.33 (2026-11-13) return no posts for public
+  // profiles such as natgeo; 1.0.29 returns 12. Verified live 2026-11-13.
   instagram: {
     id: "pmQcv69sB1UwguQUY",
+    build: "1.0.29",
   },
   x: {
     id: "61RPP7dywgiy0JPD0",
@@ -163,7 +179,7 @@ export async function fetchSocialPosts(
   // the items. Apify's router accepts the literal `~` in slash-form actor ids.
   const endpoint =
     `https://api.apify.com/v2/acts/${actor.id}/run-sync-get-dataset-items` +
-    `?timeout=${APIFY_TIMEOUT_SECS}`;
+    apifyActorQuery(actor, { timeout: String(APIFY_TIMEOUT_SECS) });
   const res = await (options.fetchImpl ?? fetch)(endpoint, {
     method: "POST",
     headers: {

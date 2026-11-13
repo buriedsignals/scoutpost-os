@@ -226,6 +226,20 @@ Deno.test("fetchSocialPosts names its provider and sends the sync actor request"
   assertEquals(body, buildSocialActorInput("x", "scoutpost"));
 });
 
+Deno.test("fetchSocialPosts runs the pinned Instagram actor build", async () => {
+  let requestedUrl = "";
+  await fetchSocialPosts("instagram", "natgeo", {
+    token: "t",
+    fetchImpl: (input, init) => {
+      requestedUrl = new Request(input, init).url;
+      return Promise.resolve(Response.json([]));
+    },
+  });
+  const url = new URL(requestedUrl);
+  assertEquals(url.searchParams.get("build"), "1.0.29");
+  assertEquals(url.searchParams.get("timeout"), "120");
+});
+
 Deno.test("fetchSocialPosts failure message names the platform, status and body", async () => {
   await assertRejects(
     () =>

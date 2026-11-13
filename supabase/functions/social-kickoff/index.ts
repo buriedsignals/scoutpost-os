@@ -40,6 +40,8 @@ import {
 } from "../_shared/credits.ts";
 import { repairMissingSocialBaseline } from "../_shared/baseline_repair.ts";
 import {
+  type ApifyActor,
+  apifyActorQuery,
   buildSocialActorInput,
   SOCIAL_APIFY_ACTORS,
 } from "../_shared/social_baseline.ts";
@@ -65,12 +67,7 @@ const KickoffSchema = z.object({
 // (backend/app/workflows/apify_client.py). Do NOT change these without
 // testing — the input shape below is actor-specific, different IDs produce
 // different JSON payloads.
-const APIFY_ACTORS: Record<string, string> = Object.fromEntries(
-  Object.entries(SOCIAL_APIFY_ACTORS).map(([platform, actor]) => [
-    platform,
-    actor.id,
-  ]),
-);
+const APIFY_ACTORS: Record<string, ApifyActor> = SOCIAL_APIFY_ACTORS;
 
 const ERROR_MAX = 2_000;
 const APIFY_START_TIMEOUT_MS = 30_000;
@@ -144,8 +141,8 @@ async function startApifyRun(
   const handle = scout.profile_handle as string | null;
   if (!platform) throw new ValidationError("scout.platform is required");
   if (!handle) throw new ValidationError("scout.profile_handle is required");
-  const actorId = APIFY_ACTORS[platform];
-  if (!actorId) throw new ValidationError(`unknown platform: ${platform}`);
+  const actor = APIFY_ACTORS[platform];
+  if (!actor) throw new ValidationError(`unknown platform: ${platform}`);
 
   // 2a. Reuse the scout_runs row the dispatcher (execute-scout / trigger_scout_run
   //     pg_cron) already created. Only create one here for standalone callers
@@ -318,7 +315,7 @@ async function startApifyRun(
   //    `webhooks` field in the JSON body is silently dropped (verified live
   //    2026-04-21: webhook-dispatches=0 for every body-passed registration).
   const input = buildActorInput(platform, resolvedHandle);
-  let runsUrl = `https://api.apify.com/v2/acts/${actorId}/runs`;
+  const runsParams: Record<string, string> = {};
   if (Deno.env.get("APIFY_DISABLE_WEBHOOK") !== "1") {
     const supabaseUrl = getSupabaseUrl();
     const webhookUrl = `${supabaseUrl}/functions/v1/apify-callback`;
@@ -339,12 +336,13 @@ async function startApifyRun(
       },
     ];
     // Apify requires the webhooks JSON array to be base64-encoded and sent as a
-    // query parameter. Standard base64 includes `+` `/` and `=` so URL-encode
-    // before appending — without this, the query string parses as garbled
-    // characters and Apify silently drops the webhook (verified live 2026-04-21).
-    const webhooksB64 = encodeURIComponent(btoa(JSON.stringify(webhookSpec)));
-    runsUrl = `${runsUrl}?webhooks=${webhooksB64}`;
+    // query parameter. Standard base64 includes `+` `/` and `=`, which must be
+    // URL-encoded (apifyActorQuery does it); unencoded, Apify silently drops
+    // the webhook (verified live 2026-04-21).
+    runsParams.webhooks = btoa(JSON.stringify(webhookSpec));
   }
+  const runsUrl = `https://api.apify.com/v2/acts/${actor.id}/runs` +
+    apifyActorQuery(actor, runsParams);
 
   let apifyRes: Response;
   try {
