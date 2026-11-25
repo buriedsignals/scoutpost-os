@@ -346,7 +346,13 @@ Deno.test("Scheduled Page baseline failure rolls back only the newly owned Scout
 });
 
 Deno.test("Run Now refuses a Beat Scout until its background baseline lands", async () => {
-  let row: Record<string, unknown> = { id: SCOUT_ID, is_active: true, type: "beat", baseline_established_at: null };
+  let row: Record<string, unknown> = {
+    id: SCOUT_ID,
+    is_active: true,
+    type: "beat",
+    baseline_established_at: null,
+    created_at: new Date().toISOString(),
+  };
   let triggered = 0;
   await withBoundary((url) => {
     if (url.pathname === "/rest/v1/scouts") return Response.json(row);
@@ -361,6 +367,29 @@ Deno.test("Run Now refuses a Beat Scout until its background baseline lands", as
     row = { ...row, baseline_established_at: "2026-10-01T14:05:00Z" };
     const accepted = await runScout(user, SCOUT_ID);
     assertEquals(accepted.status, 202);
+    assertEquals(triggered, 1);
+  });
+});
+
+Deno.test("Run Now accepts a Beat Scout whose creation baseline died", async () => {
+  // Previously 409 for ever: the run itself now establishes the baseline.
+  const row = {
+    id: SCOUT_ID,
+    is_active: true,
+    type: "beat",
+    baseline_established_at: null,
+    created_at: new Date(Date.now() - 60 * 60_000).toISOString(),
+  };
+  let triggered = 0;
+  await withBoundary((url) => {
+    if (url.pathname === "/rest/v1/scouts") return Response.json(row);
+    if (url.pathname === "/rest/v1/rpc/trigger_scout_run") {
+      triggered++;
+      return Response.json(BODY_ID);
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  }, async () => {
+    assertEquals((await runScout(user, SCOUT_ID)).status, 202);
     assertEquals(triggered, 1);
   });
 });

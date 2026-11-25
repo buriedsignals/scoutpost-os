@@ -432,21 +432,20 @@ async function execute(
     }
   }
 
+  // The creation baseline is fire-and-forget; when it dies (timeout, provider
+  // error) there is no successful run to repair from, and failing here
+  // bricked the scout: every later run errored no_baseline (production
+  // 2026-11-25: one active scout, 13 runs, all no_baseline). This run
+  // establishes the baseline instead, uncharged and without notifying.
   if (!baselineOnly && !scout.baseline_established_at) {
-    const msg =
-      "beat scout has no baseline; recreate or reschedule the scout so creation can establish one before Run Now";
     logEvent({
       level: "warn",
       fn: "scout-beat-execute",
-      event: "missing_baseline_no_repair_source",
+      event: "missing_baseline_run_establishes_it",
       scout_id: scoutId,
+      run_id: runId,
     });
-    await markRunError(db, runId, {
-      stage: "dispatch",
-      errorClass: "no_baseline",
-      message: msg,
-    });
-    throw new ValidationError(msg);
+    baselineOnly = true;
   }
 
   // 3. Decrement credits before running the discovery pipeline. Baseline-only

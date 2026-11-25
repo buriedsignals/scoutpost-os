@@ -81,11 +81,21 @@ export function parseAdsbResponse(payload: unknown): AircraftObject[] {
   return out;
 }
 
-/** Wait before retrying a 429 when the server gives no (sane) Retry-After —
- * live probing (2026-07-06) shows adsb.lol sends 429 with NO Retry-After
+/** Waits before each 429 retry when the server gives no (sane) Retry-After.
+ * Live probing (2026-07-06) shows adsb.lol sends 429 with NO Retry-After
  * after a burst of ~5 requests, and Edge Functions share egress IPs with
- * other tenants, so the budget may already be partly consumed. */
-const RATE_LIMIT_RETRY_MS = 2000;
+ * other tenants, so the budget may already be partly consumed. One 2s retry
+ * was not enough (weekly benchmark 2026-11-25 died on the second 429).
+ * Worst case adds 17s, well inside the 150s request idle limit. A 429 after
+ * the last retry falls through to the run's non-billable failure path. */
+const RATE_LIMIT_RETRY_MS = [2000, 5000, 10_000] as const;
+
+function retryWaitMs(res: Response, attempt: number): number {
+  const retryAfter = Number(res.headers.get("retry-after"));
+  return Number.isFinite(retryAfter) && retryAfter > 0 && retryAfter <= 30
+    ? retryAfter * 1000
+    : RATE_LIMIT_RETRY_MS[attempt];
+}
 
 async function fetchAdsb(path: string): Promise<AircraftObject[]> {
   for (let attempt = 0; ; attempt++) {
@@ -96,16 +106,9 @@ async function fetchAdsb(path: string): Promise<AircraftObject[]> {
         headers: { "Accept": "application/json" },
         signal: ac.signal,
       });
-      // One polite retry on rate limiting; a second 429 falls through to the
-      // generic error and the run's non-billable failure path.
-      if (res.status === 429 && attempt === 0) {
+      if (res.status === 429 && attempt < RATE_LIMIT_RETRY_MS.length) {
         await res.body?.cancel();
-        const retryAfter = Number(res.headers.get("retry-after"));
-        const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 &&
-            retryAfter <= 30
-          ? retryAfter * 1000
-          : RATE_LIMIT_RETRY_MS;
-        await new Promise((r) => setTimeout(r, waitMs));
+        await new Promise((r) => setTimeout(r, retryWaitMs(res, attempt)));
         continue;
       }
       if (!res.ok) {

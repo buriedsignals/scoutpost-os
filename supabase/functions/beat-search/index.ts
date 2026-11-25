@@ -98,6 +98,9 @@ const PREVIEW_SCRAPE_TIMEOUT_MS = envMs(
 );
 const PREVIEW_RESERVE_MS = envMs("BEAT_PREVIEW_RESERVE_MS", 25_000);
 const PREVIEW_SCRAPE_FLOOR_MS = envMs("BEAT_PREVIEW_SCRAPE_FLOOR_MS", 10_000);
+// Query generation + search may use at most this much of the preview budget.
+// Unbounded, they took 86 s on 2026-11-04 and left no time to read any source.
+const PREVIEW_DISCOVERY_MS = envMs("BEAT_PREVIEW_DISCOVERY_MS", 45_000);
 
 function envMs(name: string, fallback: number): number {
   const raw = Number(Deno.env.get(name));
@@ -361,6 +364,7 @@ async function runSearch(
         ? countryPrimaryLanguage(location.countryCode)
         : "en",
       excludedDomains: input.excluded_domains,
+      deadlineMs: startedAt + PREVIEW_DISCOVERY_MS,
     };
     const discovery = await discoverBeatHits(discoveryOpts);
     queries.push(...discovery.queriesUsed);

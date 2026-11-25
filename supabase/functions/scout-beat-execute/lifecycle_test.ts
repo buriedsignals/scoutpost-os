@@ -37,7 +37,11 @@ type Retrieval =
 async function runScenario(
   retrieval: Retrieval,
   baselineOnly: boolean,
-  opts: { background?: boolean; scoutMissing?: boolean } = {},
+  opts: {
+    background?: boolean;
+    scoutMissing?: boolean;
+    baselineMissing?: boolean;
+  } = {},
 ) {
   const values = {
     SERVICE_SUPABASE_URL: "https://database.invalid",
@@ -54,7 +58,9 @@ async function runScenario(
     [key, Deno.env.get(key)] as const
   );
   const originalFetch = globalThis.fetch;
-  const initialBaseline = baselineOnly ? null : "2026-01-01T00:00:00Z";
+  const initialBaseline = baselineOnly || opts.baselineMissing
+    ? null
+    : "2026-01-01T00:00:00Z";
   const scout: Record<string, unknown> = {
     id: SCOUT_ID,
     user_id: USER_ID,
@@ -153,6 +159,9 @@ async function runScenario(
           const row = resource === "scouts" ? scout : run;
           if (request.method === "PATCH") Object.assign(row, body);
           if (resource === "scouts" && opts.scoutMissing) return json([]);
+          // Honour the baseline-repair lookup's status filter.
+          const status = url.searchParams.get("status");
+          if (status && status !== `eq.${row.status}`) return json([]);
           return json(request.method === "GET" ? [row] : null);
         }
         if (resource === "scout_run_events") return json(null);
@@ -264,6 +273,20 @@ Deno.test("Beat readable stale sources complete without units, billing, alerts, 
       },
     );
   }
+});
+
+Deno.test("Beat monitoring run on a scout whose creation baseline died establishes the baseline instead of failing", async () => {
+  // Production 2026-11-25: a scout whose fire-and-forget creation baseline
+  // failed errored no_baseline on every scheduled run, for ever.
+  const result = await runScenario("stale", false, { baselineMissing: true });
+  assertEquals(result.status, 200);
+  assertEquals(result.run.status, "success");
+  assertEquals(result.run.notification_status, "not_applicable");
+  assertEquals(result.body.baseline_initialized, true);
+  assertEquals(typeof result.scout.baseline_established_at, "string");
+  assertEquals(result.charges, 0);
+  assertEquals(result.balance, 100);
+  assertEquals(result.forbidden, []);
 });
 
 Deno.test("Beat retrieval failures remain failures even alongside stale readable sources", async (t) => {

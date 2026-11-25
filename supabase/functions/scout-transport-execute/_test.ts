@@ -5,6 +5,7 @@ import {
   assertExists,
   assertStringIncludes,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { FakeTime } from "https://deno.land/std@0.208.0/testing/time.ts";
 import {
   IMPLEMENTED_MODES,
   OVERLAP_GRACE_MINUTES,
@@ -106,6 +107,53 @@ const DOVER = {
 Deno.test("haversine: London→Paris ≈ 344 km", () => {
   const d = haversineKm(51.5074, -0.1278, 48.8566, 2.3522);
   if (Math.abs(d - 344) > 10) throw new Error(`got ${d}`);
+});
+
+Deno.test("aircraft fetch retries repeated 429s with backoff, then gives up", async () => {
+  // Weekly benchmark 2026-11-25: adsb.lol answered the single 2s retry with
+  // a second 429 and the run errored. Two 429s must now still succeed; four
+  // in a row must fail with the upstream status, not loop forever.
+  const originalFetch = globalThis.fetch;
+  const clock = new FakeTime(1_800_000_000_000);
+  try {
+    for (
+      const { limited, ok } of [{ limited: 2, ok: true }, {
+        limited: 4,
+        ok: false,
+      }]
+    ) {
+      const at: number[] = [];
+      globalThis.fetch = (() => {
+        at.push(Date.now());
+        return Promise.resolve(
+          at.length <= limited
+            ? new Response("rate limited", { status: 429 })
+            : new Response(
+              JSON.stringify({ ac: [{ hex: "ae0001", lat: 1, lon: 1 }] }),
+              {
+                status: 200,
+              },
+            ),
+        );
+      }) as typeof fetch;
+      const result = fetchAircraftCandidates(
+        { mode: "aircraft", watch_ids: ["ae0001"] },
+        null,
+      ).then((out) => out.length, (e: Error) => e.message);
+      await clock.runAllAsync();
+      const outcome = await result;
+      if (ok) {
+        assertEquals(outcome, 1);
+        assertEquals(at.slice(1).map((t, i) => t - at[i]), [2000, 5000]);
+      } else {
+        assertStringIncludes(String(outcome), "responded 429");
+        assertEquals(at.length, 4);
+      }
+    }
+  } finally {
+    clock.restore();
+    globalThis.fetch = originalFetch;
+  }
 });
 
 Deno.test("watch-list fetch batches ALL hexes into one /hex query and retries once on 429", async () => {

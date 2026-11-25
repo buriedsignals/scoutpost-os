@@ -12,6 +12,7 @@ import {
   buildGenerateQueriesPrompt,
   compactBeatSearchPlan,
   dedupeByEmbedding,
+  discoverBeatHits,
   discoverPriorityDomainHits,
   ensureBeatLocationSearchLabel,
   expandLinkedArticleCandidates,
@@ -1217,4 +1218,48 @@ Deno.test("aiFilterResults returns no global topic results when only weak-side m
   );
 
   assertEquals(hits, []);
+});
+
+Deno.test("discovery deadline aborts hanging searches instead of waiting the 45 s default", async () => {
+  // Preview 2026-11-04: discovery ran 86 s, so no source was ever read.
+  const keys = ["FIRECRAWL_API_KEY", "OPENROUTER_API_KEY"] as const;
+  const previous = keys.map((k) => [k, Deno.env.get(k)] as const);
+  Deno.env.set("FIRECRAWL_API_KEY", "test-firecrawl");
+  Deno.env.delete("OPENROUTER_API_KEY"); // fallback query plan, no LLM call
+  const originalFetch = globalThis.fetch;
+  let searches = 0;
+  globalThis.fetch = ((_input: unknown, init?: RequestInit) => {
+    searches++;
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        "abort",
+        () => reject(new Error("aborted")),
+      );
+    });
+  }) as typeof fetch;
+  const started = Date.now();
+  try {
+    const result = await discoverBeatHits({
+      scope: "topic",
+      sourceMode: "reliable",
+      category: "news",
+      city: null,
+      country: null,
+      countryCode: null,
+      criteria: "housing policy",
+      preferredLanguage: "en",
+      deadlineMs: started + 1500,
+    });
+    assertEquals(searches > 0, true);
+    assertEquals(result.jobsErrored, result.jobsAttempted);
+    const elapsed = Date.now() - started;
+    if (elapsed > 10_000) {
+      throw new Error(`discovery ignored its deadline: ${elapsed}ms`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [k, v] of previous) {
+      v === undefined ? Deno.env.delete(k) : Deno.env.set(k, v);
+    }
+  }
 });

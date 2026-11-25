@@ -137,3 +137,6 @@ returns only the pg_net request ID, while the result is recorded in
 - VesselAPI terrestrial coverage may omit a valid but non-reporting MMSI. When
   VesselAPI has no recent successful heartbeat, vessel runs are treated as data-unavailable,
   remain active, skip unbilled, and preserve entry/exit state for recovery.
+- adsb.lol rate-limits bursts from Supabase's shared egress IPs (429 with no
+  `Retry-After`). Each request retries up to three times (2 s, 5 s, 10 s);
+  a fourth 429 fails the run through the non-billable provider path.

@@ -188,6 +188,15 @@ export interface GenerateOpts {
   category: BeatCategory;
   numQueries?: number;
   usage?: AiUsageContext;
+  /** Epoch ms after which no new provider call may run (preview budget). */
+  deadlineMs?: number;
+}
+
+/** A provider timeout clipped to an optional deadline, floored at 1 s so an
+ * expired deadline fails fast instead of passing 0 ("no limit"). */
+function timeoutWithin(defaultMs: number, deadlineMs?: number): number {
+  if (deadlineMs === undefined) return defaultMs;
+  return Math.max(1000, Math.min(defaultMs, deadlineMs - Date.now()));
 }
 
 export interface GenerateQueriesPrompt {
@@ -319,6 +328,9 @@ export async function generateQueries(
   try {
     const res = await openRouterExtract<BeatQueryPlan>(prompt, QUERY_SCHEMA, {
       systemInstruction,
+      ...(opts.deadlineMs === undefined
+        ? {}
+        : { timeoutMs: timeoutWithin(90_000, opts.deadlineMs) }),
       usage: opts.usage
         ? {
           ...opts.usage,
@@ -580,6 +592,7 @@ export interface SearchOpts {
   concurrency?: number;
   excludedDomains?: string[];
   tbs?: string;
+  deadlineMs?: number;
 }
 
 export interface SearchRunResult {
@@ -667,6 +680,7 @@ export async function runSearchesWithMetadata(
         tbs: job.tbs,
         ignoreInvalidURLs: true,
         excludeDomains: opts.excludedDomains,
+        abortAfterMs: timeoutWithin(45_000, opts.deadlineMs),
       };
       let searchHits = await firecrawlSearch(job.query, searchOpts);
       if (searchHits.length === 0 && job.tbs) {
@@ -745,6 +759,9 @@ export interface BeatDiscoveryOpts {
   preferredLanguage: string;
   excludedDomains?: string[];
   usage?: AiUsageContext;
+  /** Epoch ms bounding query generation and search; unset = provider
+   * defaults. Preview sets it so discovery cannot eat the scrape budget. */
+  deadlineMs?: number;
 }
 
 export interface BeatDiscoveryResult {
@@ -1249,6 +1266,7 @@ export async function discoverBeatHits(
       usage: opts.usage
         ? { ...opts.usage, operation: "beat_generate_queries" }
         : undefined,
+      deadlineMs: opts.deadlineMs,
     }),
     opts,
   );
@@ -1276,6 +1294,7 @@ export async function discoverBeatHits(
     country: opts.countryCode ?? undefined,
     excludedDomains: opts.excludedDomains,
     tbs: buildFirecrawlRecencyTbs(BEAT_RECENCY_DAYS),
+    deadlineMs: opts.deadlineMs,
   };
   let searchResult = await runSearchesWithMetadata(searchOpts);
   let rawHits = searchResult.hits;
@@ -1304,7 +1323,8 @@ export async function discoverBeatHits(
       usableCount: usableRawHits.length,
       tbs: searchOpts.tbs,
       allErrored: searchErrored,
-    })
+    }) &&
+    (opts.deadlineMs === undefined || Date.now() < opts.deadlineMs)
   ) {
     logEvent({
       level: "info",

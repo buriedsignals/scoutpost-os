@@ -6,7 +6,7 @@ AI-curated digest with multi-language search and fact-level deduplication.
 
 ## Overview
 
-The beat pipeline surfaces niche sources, community blogs, and underreported stories. It supports location-only, criteria-only, or combined location+criteria scoping. Scheduled creation runs a baseline-only pass first: current findings are deduped and hidden from the inbox, the scout gets `baseline_established_at`, and later Run Now/cron executions notify only on new material.
+The beat pipeline surfaces niche sources, community blogs, and underreported stories. It supports location-only, criteria-only, or combined location+criteria scoping. Scheduled creation runs a baseline-only pass first: current findings are deduped and hidden from the inbox, the scout gets `baseline_established_at`, and later Run Now/cron executions notify only on new material. That creation pass is fire-and-forget; if it dies, the next scheduled or manual run establishes the baseline instead (uncharged, no notification). Run Now is refused only during the first 10 minutes while the creation pass may still be running. Preview spends at most 45 s of its 120 s budget on query generation and search (`BEAT_PREVIEW_DISCOVERY_MS`) so sources are always read.
 
 Beat Scouts can run weekly or monthly. Daily schedules are intentionally
 rejected because this pipeline fans out across search, filtering, extraction,

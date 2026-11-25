@@ -1945,12 +1945,15 @@ async function deleteScout(user: AuthedUser, id: string): Promise<Response> {
   });
 }
 
+/** Longer than the 400 s Edge wall-clock limit on the creation baseline. */
+const BEAT_BASELINE_GRACE_MS = 10 * 60_000;
+
 async function runScout(user: AuthedUser, id: string): Promise<Response> {
   // Verify the scout exists for this caller (RLS-scoped).
   const { db } = getCallerClient(user);
   const { data: scout, error: readErr } = await db
     .from("scouts")
-    .select("id, is_active, type, baseline_established_at")
+    .select("id, is_active, type, baseline_established_at, created_at")
     .eq("id", id)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -1959,9 +1962,14 @@ async function runScout(user: AuthedUser, id: string): Promise<Response> {
   if (scout.is_active === false) {
     throw new ConflictError("scout is paused");
   }
-  // Beat creation establishes its baseline in the background; a manual run
-  // before it lands is accepted and then fails with no_baseline. Refuse it.
-  if (scout.type === "beat" && !scout.baseline_established_at) {
+  // Beat creation establishes its baseline in the background; refuse a manual
+  // run while that is plausibly still in flight. After the grace window the
+  // creation baseline has died, and the run establishes it instead.
+  const createdMs = Date.parse(String(scout.created_at));
+  if (
+    scout.type === "beat" && !scout.baseline_established_at &&
+    Date.now() - createdMs < BEAT_BASELINE_GRACE_MS
+  ) {
     throw new ConflictError(
       "beat scout is still establishing its baseline; try Run Now again in a few minutes",
     );
