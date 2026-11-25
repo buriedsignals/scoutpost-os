@@ -558,9 +558,11 @@ green locally. Check for them before pushing:
 
 Neither job is one of the 4 **required** checks (`build-frontend`,
 `test-frontend`, `test-backend`, `lint`), but both should be green before merge.
-The `audit-backend` / `audit-frontend` jobs scan dependency CVEs and can be red
-from pre-existing advisories unrelated to a PR — check whether the PR touched any
-dependency manifest before chasing them.
+The `audit-backend` job scans backend dependency CVEs and can be red from
+pre-existing advisories unrelated to a PR — check whether the PR touched any
+dependency manifest before chasing it. `audit-frontend` audits only the
+runtime dependencies that ship to browsers (`npm audit --omit=dev`); build
+tooling advisories reach us through Dependabot alerts instead.
 
 ## Environment Variables
 

@@ -402,7 +402,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: cd frontend && npm ci
-      - run: cd frontend && npm audit --audit-level=high
+      # Gate only what ships to browsers. The SPA's build tooling (SvelteKit,
+      # Vite, ESLint) is devDependencies; its advisories (often server-side
+      # SvelteKit issues a static build never runs) failed unrelated PRs for
+      # weeks. Dependabot alerts still cover dev dependencies.
+      - run: cd frontend && npm audit --omit=dev --audit-level=high
 
   secret-scan:
     runs-on: ubuntu-latest
