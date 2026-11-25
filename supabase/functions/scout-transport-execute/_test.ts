@@ -206,6 +206,36 @@ Deno.test("watch-list fetch batches ALL hexes into one /hex query and retries on
   }
 });
 
+Deno.test("aircraft fetch sends ADSB_API_KEY as x-api-key only when set", async () => {
+  // Keyless runs share adsb.lol's per-IP quota with every Supabase tenant;
+  // a configured key must reach the API, and a missing one must not send
+  // an empty header.
+  const originalFetch = globalThis.fetch;
+  const priorKey = Deno.env.get("ADSB_API_KEY");
+  const sent: (string | null)[] = [];
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+    sent.push(new Headers(init?.headers).get("x-api-key"));
+    return Promise.resolve(new Response(JSON.stringify({ ac: [] })));
+  }) as typeof fetch;
+  try {
+    Deno.env.set("ADSB_API_KEY", " test-key ");
+    await fetchAircraftCandidates(
+      { mode: "aircraft", watch_ids: ["ae0001"] },
+      null,
+    );
+    Deno.env.delete("ADSB_API_KEY");
+    await fetchAircraftCandidates(
+      { mode: "aircraft", watch_ids: ["ae0001"] },
+      null,
+    );
+    assertEquals(sent, ["test-key", null]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (priorKey) Deno.env.set("ADSB_API_KEY", priorKey);
+    else Deno.env.delete("ADSB_API_KEY");
+  }
+});
+
 Deno.test("pointInGeofence: bbox and circle containment", () => {
   assertEquals(pointInGeofence(DOVER, 51.0, 1.5), true);
   assertEquals(pointInGeofence(DOVER, 49.0, 1.5), false);

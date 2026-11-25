@@ -97,13 +97,24 @@ function retryWaitMs(res: Response, attempt: number): number {
     : RATE_LIMIT_RETRY_MS[attempt];
 }
 
+/** adsb.lol quota is per key when `x-api-key` is sent, per IP otherwise
+ * (https://www.adsb.lol/docs/open-data/api). Without the key, runs share the
+ * 500/day budget of Supabase's egress IPs with every other tenant. */
+function adsbHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Accept": "application/json" };
+  const key = Deno.env.get("ADSB_API_KEY")?.trim();
+  if (key) headers["x-api-key"] = key;
+  return headers;
+}
+
 async function fetchAdsb(path: string): Promise<AircraftObject[]> {
-  for (let attempt = 0; ; attempt++) {
+  const headers = adsbHeaders();
+  for (let attempt = 0;; attempt++) {
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
     try {
       const res = await fetch(`${ADSB_BASE}${path}`, {
-        headers: { "Accept": "application/json" },
+        headers,
         signal: ac.signal,
       });
       if (res.status === 429 && attempt < RATE_LIMIT_RETRY_MS.length) {
@@ -217,7 +228,11 @@ export async function fetchWatchlistHexes(
 /** Categories that REQUIRE the watchlist (no adsb.lol fallback). 'military'
  * is excluded — it falls back to the dbFlags military bit, so it works even
  * with an empty watchlist. */
-const WATCHLIST_REQUIRED_CATEGORIES = new Set(["government", "police", "civil"]);
+const WATCHLIST_REQUIRED_CATEGORIES = new Set([
+  "government",
+  "police",
+  "civil",
+]);
 
 /** True unless a fallback-less watchlist category was requested and the
  * watchlist has no rows for it — used to distinguish "watchlist not loaded"
