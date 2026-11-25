@@ -1237,29 +1237,98 @@ Deno.test("discovery deadline aborts hanging searches instead of waiting the 45 
       );
     });
   }) as typeof fetch;
-  const started = Date.now();
+  const discoveries = {
+    general: (deadlineMs: number) =>
+      discoverBeatHits({
+        scope: "topic",
+        sourceMode: "reliable",
+        category: "news",
+        city: null,
+        country: null,
+        countryCode: null,
+        criteria: "housing policy",
+        preferredLanguage: "en",
+        deadlineMs,
+      }),
+    priority: (deadlineMs: number) =>
+      discoverPriorityDomainHits({
+        domains: ["news.example"],
+        criteria: "housing policy",
+        location: {
+          city: null,
+          state: null,
+          country: null,
+          countryCode: null,
+          displayName: null,
+        },
+        deadlineMs,
+      }),
+  };
   try {
-    const result = await discoverBeatHits({
-      scope: "topic",
-      sourceMode: "reliable",
-      category: "news",
-      city: null,
-      country: null,
-      countryCode: null,
-      criteria: "housing policy",
-      preferredLanguage: "en",
-      deadlineMs: started + 1500,
-    });
-    assertEquals(searches > 0, true);
-    assertEquals(result.jobsErrored, result.jobsAttempted);
-    const elapsed = Date.now() - started;
-    if (elapsed > 10_000) {
-      throw new Error(`discovery ignored its deadline: ${elapsed}ms`);
+    for (const [name, discover] of Object.entries(discoveries)) {
+      searches = 0;
+      const started = Date.now();
+      const result = await discover(started + 1500);
+      assertEquals(searches > 0, true);
+      assertEquals(result.jobsErrored, result.jobsAttempted);
+      const elapsed = Date.now() - started;
+      if (elapsed > 10_000) {
+        throw new Error(`${name} discovery ignored its deadline: ${elapsed}ms`);
+      }
     }
   } finally {
     globalThis.fetch = originalFetch;
     for (const [k, v] of previous) {
       v === undefined ? Deno.env.delete(k) : Deno.env.set(k, v);
     }
+  }
+});
+
+Deno.test("empty-result retry gets only the time left before the discovery deadline", async () => {
+  // Fable review 2026-11-25: the no-tbs retry reused the first call's
+  // timeout, letting discovery overrun its deadline by up to 2x.
+  const previous = Deno.env.get("FIRECRAWL_API_KEY");
+  Deno.env.set("FIRECRAWL_API_KEY", "fc-test");
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = ((_input: unknown, init?: RequestInit) => {
+    calls++;
+    if (calls === 1) {
+      return new Promise<Response>((resolve) =>
+        setTimeout(
+          () => resolve(Response.json({ success: true, data: { web: [] } })),
+          2800,
+        )
+      );
+    }
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        "abort",
+        () => reject(new Error("aborted")),
+      );
+    });
+  }) as typeof fetch;
+  const started = Date.now();
+  try {
+    await runSearchesWithMetadata({
+      plan: {
+        primary_language: "en",
+        queries: ["housing policy"],
+        discovery_queries: [],
+        local_domains: [],
+      },
+      tbs: "qdr:w",
+      deadlineMs: started + 3000,
+    });
+    assertEquals(calls, 2);
+    const elapsed = Date.now() - started;
+    // Deadline 3 s, plus the 1 s floor for the retry; the stale timeout
+    // would have given the retry another 3 s.
+    if (elapsed > 4800) throw new Error(`retry overran: ${elapsed}ms`);
+  } finally {
+    globalThis.fetch = originalFetch;
+    previous === undefined
+      ? Deno.env.delete("FIRECRAWL_API_KEY")
+      : Deno.env.set("FIRECRAWL_API_KEY", previous);
   }
 });

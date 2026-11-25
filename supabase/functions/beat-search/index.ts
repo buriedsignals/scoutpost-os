@@ -345,6 +345,7 @@ async function runSearch(
         criteria: input.criteria?.trim() || null,
         location,
         excludedDomains: input.excluded_domains ?? [],
+        deadlineMs: startedAt + PREVIEW_DISCOVERY_MS,
       });
       queries.push(...priorityDiscovery.queries);
       selectedHits.push(...priorityDiscovery.hits);

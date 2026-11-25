@@ -975,8 +975,7 @@ export async function ensureScheduledBaseline(
     // to clients as a 502 even though the scout row was already committed.
     // Kick it off in the background — scheduleBaselineAsync uses
     // EdgeRuntime.waitUntil so the create response returns immediately. If the
-    // background baseline fails, repairMissingBeatBaseline on the next
-    // scheduled run recovers from the first successful scrape.
+    // background baseline fails, the next run establishes it instead.
     scheduleBeatBaselineInBackground(scout.id);
     return;
   }

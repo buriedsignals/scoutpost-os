@@ -76,7 +76,6 @@ import {
   loadFactCheckConfig,
 } from "../_shared/fact_check.ts";
 import { parseBeatLocation } from "../_shared/beat_location.ts";
-import { repairMissingBeatBaseline } from "../_shared/baseline_repair.ts";
 import {
   classifyRunError,
   markNotificationAttempted,
@@ -418,23 +417,12 @@ async function execute(
   await mergeRunMetadata(db, runId, { retrieval: "firecrawl" });
   let chargedCredits = false;
 
-  if (!baselineOnly && !scout.baseline_established_at) {
-    const repair = await repairMissingBeatBaseline(db, scoutId);
-    if (repair.repaired) {
-      logEvent({
-        level: "info",
-        fn: "scout-beat-execute",
-        event: "baseline_backfilled_from_successful_run",
-        scout_id: scoutId,
-        repaired_at: repair.repairedAt,
-      });
-      scout.baseline_established_at = repair.repairedAt;
-    }
-  }
+  // Only the creation call is exempt from failure strikes; a scheduled run
+  // promoted below still counts, so repeated failures retry and pause.
+  const creationBaseline = baselineOnly;
 
   // The creation baseline is fire-and-forget; when it dies (timeout, provider
-  // error) there is no successful run to repair from, and failing here
-  // bricked the scout: every later run errored no_baseline (production
+  // error), failing here bricked the scout: every later run errored no_baseline (production
   // 2026-11-25: one active scout, 13 runs, all no_baseline). This run
   // establishes the baseline instead, uncharged and without notifying.
   if (!baselineOnly && !scout.baseline_established_at) {
@@ -1349,7 +1337,7 @@ async function execute(
       runId,
       errorClass: classified.errorClass,
       errorMessage: classified.message,
-      countFailure: !baselineOnly,
+      countFailure: !creationBaseline,
     });
     if (chargedCredits) {
       // Refund the 7-credit pre-charge — the run produced no billable output.

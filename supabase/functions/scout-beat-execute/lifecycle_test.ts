@@ -159,9 +159,6 @@ async function runScenario(
           const row = resource === "scouts" ? scout : run;
           if (request.method === "PATCH") Object.assign(row, body);
           if (resource === "scouts" && opts.scoutMissing) return json([]);
-          // Honour the baseline-repair lookup's status filter.
-          const status = url.searchParams.get("status");
-          if (status && status !== `eq.${row.status}`) return json([]);
           return json(request.method === "GET" ? [row] : null);
         }
         if (resource === "scout_run_events") return json(null);
@@ -287,6 +284,16 @@ Deno.test("Beat monitoring run on a scout whose creation baseline died establish
   assertEquals(result.charges, 0);
   assertEquals(result.balance, 100);
   assertEquals(result.forbidden, []);
+});
+
+Deno.test("A failing run that tried to establish a missing baseline still counts as a scout failure", async () => {
+  // Fable review 2026-11-25: promoted runs skipped failure strikes, so a
+  // scout that kept failing never retried or paused.
+  const result = await runScenario("failed", false, { baselineMissing: true });
+  assertEquals(result.run.status, "error");
+  assertEquals(result.scout.baseline_established_at, null);
+  assertEquals(result.failures, 2);
+  assertEquals(result.charges, 0);
 });
 
 Deno.test("Beat retrieval failures remain failures even alongside stale readable sources", async (t) => {

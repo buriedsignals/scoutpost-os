@@ -696,6 +696,7 @@ export async function runSearchesWithMetadata(
         searchHits = await firecrawlSearch(job.query, {
           ...searchOpts,
           tbs: undefined,
+          abortAfterMs: timeoutWithin(45_000, opts.deadlineMs),
         });
       }
       jobResults[jobIndex] = searchHits
@@ -1103,6 +1104,8 @@ export interface PriorityDomainDiscoveryOpts {
   location: BeatLocationShape;
   excludedDomains?: string[];
   concurrency?: number;
+  /** Same contract as BeatDiscoveryOpts.deadlineMs. */
+  deadlineMs?: number;
 }
 
 export interface PriorityDomainDiscoveryResult {
@@ -1165,6 +1168,7 @@ export async function discoverPriorityDomainHits(
           tbs: "qdr:m,sbd:1",
           includeDomains: [job.domain],
           ignoreInvalidURLs: true,
+          abortAfterMs: timeoutWithin(45_000, opts.deadlineMs),
         });
         jobResults[jobIndex] = hits
           .filter((hit) => urlMatchesDomain(hit.url, job.domain))
@@ -1419,6 +1423,7 @@ export async function discoverBeatHits(
     usage: opts.usage
       ? { ...opts.usage, operation: "beat_filter_results" }
       : undefined,
+    deadlineMs: opts.deadlineMs,
   });
 
   return { hits, plan, rawHits, queriesUsed, ...searchStats };
@@ -1705,6 +1710,7 @@ export interface AiFilterOpts {
   excludedDomains?: string[];
   maxResults: number;
   usage?: AiUsageContext;
+  deadlineMs?: number;
 }
 
 const AI_FILTER_SCHEMA = {
@@ -2053,6 +2059,9 @@ export async function aiFilterResults(
       {
         systemInstruction,
         usage: opts.usage,
+        ...(opts.deadlineMs === undefined
+          ? {}
+          : { timeoutMs: timeoutWithin(90_000, opts.deadlineMs) }),
       },
     );
     const keep = Array.isArray(res.keep) ? res.keep : [];
